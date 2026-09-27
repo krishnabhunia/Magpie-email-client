@@ -8,7 +8,7 @@ namespace Magpie.Core.Tests;
 public sealed class FakeProtector : ISecretProtector
 {
     public byte[] Protect(byte[] plain) => plain.Select(b => (byte)(b ^ 0x5A)).Reverse().ToArray();
-    public byte[] Unprotect(byte[] cipher) => cipher.Reverse().Select(b => (byte)(b ^ 0x5A)).ToArray();
+    public byte[] Unprotect(byte[] cipher) => Enumerable.Reverse(cipher).Select(b => (byte)(b ^ 0x5A)).ToArray();
 }
 
 public sealed class TempDir : IDisposable
