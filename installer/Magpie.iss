@@ -6,7 +6,7 @@
   #define MyAppVersion "1.0.0"
 #endif
 #define MyAppPublisher "Krishna Bhunia"
-#define MyAppURL "https://github.com/krishnabhunia/magpie"
+#define MyAppURL "https://github.com/krishnabhunia/Magpie-email-client"
 #define MyAppExeName "Magpie.exe"
 #ifndef SourceDir
   #define SourceDir "..\publish"
