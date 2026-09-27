@@ -55,6 +55,12 @@ if (coreRef == null)
         if (coreRef != null) break;
     }
 }
+if (wpfRef == null && coreRef != null)
+{
+    // On Windows the WPF targeting pack ships with the SDK: <root>/packs/Microsoft.WindowsDesktop.App.Ref/<v>/ref/net8.0
+    var packs = Path.GetFullPath(Path.Combine(coreRef, "..", "..", "..", "..")); // <root>/packs
+    wpfRef = NewestRefDir(Path.Combine(packs, "Microsoft.WindowsDesktop.App.Ref"));
+}
 if (wpfRef == null || coreRef == null)
 {
     Console.Error.WriteLine($"could not locate reference assemblies (wpf={wpfRef}, netcore={coreRef})");
