@@ -1,0 +1,16 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:conv="clr-namespace:Magpie.App.Converters">
+
+    <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+    <conv:BoolToVisibilityConverter x:Key="InvBoolToVis" Invert="True" />
+    <conv:InverseBoolConverter x:Key="InvBool" />
+    <conv:EqualsConverter x:Key="EqualsToBool" />
+    <conv:EqualsConverter x:Key="EqualsToVis" ToVisibility="True" />
+    <conv:EqualsConverter x:Key="NotEqualsToVis" ToVisibility="True" Invert="True" />
+    <conv:MaximizedMarginConverter x:Key="MaxMargin" />
+    <conv:HexToBrushConverter x:Key="HexBrush" />
+    <conv:BoolToFontWeightConverter x:Key="BoldIfTrue" />
+    <conv:BoolToBrushConverter x:Key="BoolToBrush" />
+
+</ResourceDictionary>

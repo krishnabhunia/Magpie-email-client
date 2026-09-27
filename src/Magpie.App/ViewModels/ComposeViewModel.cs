@@ -1,0 +1,318 @@
+using System.Collections.ObjectModel;
+using System.Text;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Magpie.App.Services;
+using Magpie.Core;
+using Magpie.Core.Ai;
+using Magpie.Core.Mail;
+using Magpie.Core.Models;
+using Magpie.Core.Settings;
+
+namespace Magpie.App.ViewModels;
+
+public sealed class AttachmentItem
+{
+    public string Path { get; init; } = "";
+    public string Name => System.IO.Path.GetFileName(Path);
+    public string Size => HtmlRenderer.FormatSize(new FileInfo(Path).Exists ? new FileInfo(Path).Length : 0);
+    public bool Carried { get; init; }
+    /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
+    public MimeKit.MimeEntity? Part { get; init; }
+    public string Display => Carried ? Path : $"{Name}  ·  {Size}";
+}
+
+/// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
+public partial class ComposeViewModel : ObservableObject
+{
+    private readonly MailEngine _e = AppServices.Engine;
+    private readonly Draft _draft;
+    private CancellationTokenSource? _aiCts;
+
+    public ObservableCollection<Account> Accounts { get; } = new();
+    public ObservableCollection<AttachmentItem> Attachments { get; } = new();
+    public ObservableCollection<string> Tones { get; } = new() { "Friendly", "Professional", "Brief", "Warm", "Firm" };
+
+    /// <summary>Set by the view: returns the editor HTML.</summary>
+    public Func<Task<string>>? GetHtml { get; set; }
+    /// <summary>Set by the view: inserts plain text at the cursor (replaceSelection) or replaces the new-text part of the body.</summary>
+    public Func<string, string, Task>? EditorCommand { get; set; }
+    public event Action? CloseRequested;
+
+    [ObservableProperty] private Account? _from;
+    [ObservableProperty] private string _to = "";
+    [ObservableProperty] private string _cc = "";
+    [ObservableProperty] private string _bcc = "";
+    [ObservableProperty] private bool _showCcBcc;
+    [ObservableProperty] private string _subject = "";
+    [ObservableProperty] private string _status = "";
+    [ObservableProperty] private bool _dirty;
+    [ObservableProperty] private bool _sending;
+
+    // ── AI rail (S5) ──
+    [ObservableProperty] private bool _showAiRail;
+    [ObservableProperty] private bool _aiPanelOpen;
+    [ObservableProperty] private bool _showDraftAi;
+    [ObservableProperty] private bool _showRewriteAi;
+    [ObservableProperty] private bool _aiNeedsSetup;
+    [ObservableProperty] private string _prompt = "";
+    [ObservableProperty] private string _tone = "Friendly";
+    [ObservableProperty] private bool _aiBusy;
+    [ObservableProperty] private string _aiPreview = "";
+    [ObservableProperty] private string _aiError = "";
+    [ObservableProperty] private string _previewKind = ""; // "draft" | "rewrite"
+    [ObservableProperty] private string _selectedText = "";
+    [ObservableProperty] private string _customRewrite = "";
+
+    public string InitialHtml { get; }
+    public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
+    public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
+    public string ProviderLabel => _e.Ai.ProviderLabel;
+
+    public ComposeViewModel(Draft draft, string? prefillText)
+    {
+        _draft = draft;
+        foreach (var a in _e.Accounts) Accounts.Add(a);
+        From = Accounts.FirstOrDefault(a => a.Id == draft.AccountId) ?? Accounts.FirstOrDefault();
+        To = draft.To;
+        Cc = draft.Cc;
+        Bcc = draft.Bcc;
+        ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
+        Subject = draft.Subject;
+        foreach (var p in draft.AttachmentPaths) Attachments.Add(new AttachmentItem { Path = p });
+        foreach (var part in draft.CarriedParts)
+            Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "forwarded message", Carried = true, Part = part });
+
+        var html = draft.Html;
+        if (draft.Mode == ComposeMode.New && string.IsNullOrEmpty(html) && From != null)
+            html = "<p><br></p>" + Composer.SignatureHtml(From.Signature);
+        if (!string.IsNullOrWhiteSpace(prefillText))
+            html = TextToParagraphs(prefillText) + html;
+        InitialHtml = html;
+        // A message pulled back by Undo send / Cancel & edit exists nowhere else any more: treat it as unsaved
+        // so closing the window asks before discarding it.
+        StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null;
+        RefreshAi();
+        _onSettings = () => Ui.Post(RefreshAi);
+        _e.Settings.Changed += _onSettings;
+    }
+
+    /// <summary>True when the content would be lost if the window closed without saving or sending.</summary>
+    public bool StartsUnsaved { get; }
+
+    private bool _queued;
+
+    private readonly Action _onSettings;
+
+    public void Detach()
+    {
+        _e.Settings.Changed -= _onSettings;
+        _aiCts?.Cancel();
+    }
+
+    public static string TextToParagraphs(string text)
+    {
+        var sb = new StringBuilder();
+        foreach (var para in text.Replace("\r\n", "\n").Split("\n\n"))
+            sb.Append("<p>").Append(System.Net.WebUtility.HtmlEncode(para.Trim()).Replace("\n", "<br>")).Append("</p>");
+        return sb.ToString();
+    }
+
+    partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); Dirty = true; }
+    partial void OnToChanged(string value) => Dirty = true;
+    partial void OnCcChanged(string value) => Dirty = true;
+    partial void OnBccChanged(string value) => Dirty = true;
+
+    public void RefreshAi()
+    {
+        ShowDraftAi = _e.Ai.IsVisible(AiFeature.Draft);
+        ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
+        ShowAiRail = ShowDraftAi || ShowRewriteAi;
+        if (!ShowAiRail) AiPanelOpen = false;
+        AiNeedsSetup = ShowAiRail && (ShowDraftAi ? _e.Ai.Availability(AiFeature.Draft) : _e.Ai.Availability(AiFeature.Rewrite)) == AiAvailability.NotConfigured;
+        OnPropertyChanged(nameof(ProviderLabel));
+    }
+
+    [RelayCommand] private void ToggleAiPanel() => AiPanelOpen = !AiPanelOpen;
+    [RelayCommand] private void ShowCc() => ShowCcBcc = true;
+    [RelayCommand] private void OpenAiSettings() => Views.SettingsWindow.Open("AI");
+
+    public void AddAttachments(IEnumerable<string> paths)
+    {
+        foreach (var p in paths.Where(File.Exists))
+        {
+            var fi = new FileInfo(p);
+            if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
+                continue;
+            Attachments.Add(new AttachmentItem { Path = p });
+            Dirty = true;
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveAttachment(AttachmentItem? a)
+    {
+        if (a == null) return;
+        Attachments.Remove(a);
+        if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
+        Dirty = true;
+    }
+
+    private async Task<Draft?> BuildDraftAsync()
+    {
+        if (From == null) { Ui.Error("Send", "Add an account first."); return null; }
+        var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
+        if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
+        var html = GetHtml != null ? await GetHtml() : InitialHtml;
+        _draft.AccountId = From.Id;
+        _draft.To = To;
+        _draft.Cc = Cc;
+        _draft.Bcc = Bcc;
+        _draft.Subject = Subject;
+        _draft.Html = html;
+        _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
+        return _draft;
+    }
+
+    /// <summary>Queues the message; <paramref name="when"/> null = now (after the undo window).</summary>
+    public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply)
+    {
+        // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
+        if (Sending || _queued) return;
+        Sending = true;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(To) && string.IsNullOrWhiteSpace(Cc) && string.IsNullOrWhiteSpace(Bcc))
+            {
+                Ui.Error("Send", "Add at least one recipient.");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(Subject) && !Ui.Confirm("No subject", "Send this message without a subject?")) return;
+            var d = await BuildDraftAsync();
+            if (d == null) return;
+            var undo = _e.Config.UndoSendSeconds;
+            var sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
+            var id = _e.QueueSend(d, sendAt, remindIfNoReply);
+            _queued = true;
+            if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
+            Dirty = false;
+            var main = System.Windows.Application.Current.MainWindow as MainWindow;
+            if (main?.DataContext is MainViewModel vm)
+            {
+                if (when != null) vm.ShowScheduled(id, sendAt, Subject);
+                else vm.ShowUndo(id, undo, Subject);
+            }
+            CloseRequested?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("queue send", ex);
+            Ui.Error("Send", ex.Message);
+        }
+        finally { Sending = false; }
+    }
+
+    public async Task<bool> SaveDraftAsync()
+    {
+        var d = await BuildDraftAsync();
+        if (d == null) return false;
+        try
+        {
+            Status = "Saving draft…";
+            await _e.SaveDraftAsync(d);
+            Dirty = false;
+            Status = "Draft saved";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Status = "";
+            Ui.Error("Save draft", Connector.Friendly(ex));
+            return false;
+        }
+    }
+
+    public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert", t.Body);
+
+    // ───────────────────────── AI: write a draft (C2/C3) ─────────────────────────
+
+    private ThreadForAi? ReplyContext()
+    {
+        if (!IsReply || string.IsNullOrEmpty(_draft.ThreadKey) || From == null) return null;
+        var rows = _e.Store.GetThread(From.Id, _draft.ThreadKey);
+        if (rows.Count == 0) return null;
+        return AiService.BuildThread(Subject, rows.Select(r => (r, _e.Store.GetBody(r.Id))).ToList());
+    }
+
+    [RelayCommand]
+    private async Task GenerateDraft()
+    {
+        if (string.IsNullOrWhiteSpace(Prompt)) { AiError = "Say what the email should say, e.g. \"accept Friday, ask for the agenda\"."; return; }
+        if (_e.Ai.Availability(AiFeature.Draft) == AiAvailability.NotConfigured) { AiNeedsSetup = true; return; }
+        var context = ReplyContext();
+        if (_e.Ai.NeedsConsent(AiFeature.Draft) && !Views.ConsentDialog.Ask(AiFeature.Draft, context?.Included ?? 0)) return;
+        await RunAsync("draft", (onToken, ct) =>
+        {
+            var name = From?.DisplayName is { Length: > 0 } n ? n : From?.Email ?? "";
+            return _e.Ai.DraftAsync(Prompt, Tone, context, name, onToken, ct);
+        });
+    }
+
+    // ───────────────────────── AI: rewrite selection (C4) ─────────────────────────
+
+    [RelayCommand]
+    private async Task Rewrite(string? kind)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedText)) { AiError = "Select some text in your message first."; return; }
+        if (_e.Ai.Availability(AiFeature.Rewrite) == AiAvailability.NotConfigured) { AiNeedsSetup = true; return; }
+        if (_e.Ai.NeedsConsent(AiFeature.Rewrite) && !Views.ConsentDialog.Ask(AiFeature.Rewrite, 0)) return;
+        var k = Enum.TryParse<RewriteKind>(kind, out var parsed) ? parsed : RewriteKind.Custom;
+        if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(CustomRewrite)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
+        var text = SelectedText;
+        await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, CustomRewrite, onToken, ct));
+    }
+
+    private async Task RunAsync(string kind, Func<Action<string>, CancellationToken, Task<string>> call)
+    {
+        _aiCts?.Cancel();
+        _aiCts = new CancellationTokenSource();
+        var ct = _aiCts.Token;
+        AiError = "";
+        AiPreview = "";
+        PreviewKind = kind;
+        AiBusy = true;
+        var sb = new StringBuilder();
+        try
+        {
+            var result = await Task.Run(() => call(t => Ui.Post(() => { if (!ct.IsCancellationRequested) { sb.Append(t); AiPreview = sb.ToString(); } }), ct), ct);
+            if (!ct.IsCancellationRequested) AiPreview = result.Trim();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AiError = ex is AiException ? ex.Message : "The AI provider could not be reached: " + ex.Message;
+            PreviewKind = "";
+        }
+        finally { if (!ct.IsCancellationRequested) AiBusy = false; }
+    }
+
+    /// <summary>Nothing is inserted until the user chooses — the result is a preview card.</summary>
+    [RelayCommand]
+    private async Task AcceptPreview(string? how)
+    {
+        if (string.IsNullOrWhiteSpace(AiPreview) || EditorCommand == null) return;
+        var mode = PreviewKind == "rewrite" ? "replaceSelection" : how == "replace" ? "replaceBody" : "insert";
+        await EditorCommand(mode, AiPreview);
+        Dirty = true;
+        DiscardPreview();
+    }
+
+    [RelayCommand]
+    private void DiscardPreview()
+    {
+        _aiCts?.Cancel();
+        AiBusy = false;
+        AiPreview = "";
+        PreviewKind = "";
+    }
+}

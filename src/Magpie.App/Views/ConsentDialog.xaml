@@ -1,0 +1,29 @@
+<Window x:Class="Magpie.App.Views.ConsentDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource Window.Dialog}" Width="520" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Title="Magpie — AI">
+    <StackPanel Margin="26,22,26,20">
+        <StackPanel Orientation="Horizontal">
+            <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource Brush.Ai.Badge}" Margin="0,0,12,0">
+                <Path Data="{StaticResource Geo.Sparkle}" Stroke="{DynamicResource Brush.Ai}" StrokeThickness="1.2" Width="16" Height="16" Stretch="Uniform" />
+            </Border>
+            <TextBlock x:Name="Heading" Style="{StaticResource Text.Serif}" FontSize="18" VerticalAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+        <TextBlock x:Name="Intro" Style="{StaticResource Text.Body}" Margin="0,14,0,10" />
+        <Border Background="{DynamicResource Brush.Ai.Subtle}" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="8" Padding="14,10">
+            <StackPanel>
+                <TextBlock Text="WHAT IS SENT" Style="{StaticResource Text.SectionCaps}" Foreground="{DynamicResource Brush.Ai}" Margin="0,0,0,4" />
+                <TextBlock x:Name="WhatSent" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Ai.Text}" />
+                <TextBlock Text="WHERE" Style="{StaticResource Text.SectionCaps}" Foreground="{DynamicResource Brush.Ai}" Margin="0,10,0,4" />
+                <TextBlock x:Name="Where" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Ai.Text}" />
+            </StackPanel>
+        </Border>
+        <TextBlock Style="{StaticResource Text.Caption}" Margin="0,12,0,0"
+                   Text="Nothing is inserted or sent without you: results appear as a card you accept or dismiss. You can turn this feature off any time in Settings → AI features." />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Style="{StaticResource Button.Secondary}" Content="Not now" IsCancel="True" Margin="0,0,8,0" />
+            <Button Style="{StaticResource Button.Ai}" Content="Allow" IsDefault="True" Click="OnAllow" />
+        </StackPanel>
+    </StackPanel>
+</Window>

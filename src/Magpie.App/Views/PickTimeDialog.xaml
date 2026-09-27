@@ -1,0 +1,24 @@
+<Window x:Class="Magpie.App.Views.PickTimeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource Window.Dialog}" Width="380" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Title="Pick a time">
+    <StackPanel Margin="22,18,22,18">
+        <TextBlock x:Name="Heading" Style="{StaticResource Text.Serif}" FontSize="17" />
+        <TextBlock x:Name="Explain" Style="{StaticResource Text.Caption}" Margin="0,6,0,14" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="110" />
+            </Grid.ColumnDefinitions>
+            <DatePicker x:Name="Day" SelectedDateFormat="Long" />
+            <ComboBox x:Name="Time" Grid.Column="2" />
+        </Grid>
+        <TextBlock x:Name="Error" Foreground="{DynamicResource Brush.Danger}" FontSize="12" Margin="0,8,0,0" Visibility="Collapsed" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" />
+            <Button Style="{StaticResource Button.Primary}" Content="OK" IsDefault="True" Click="OnOk" />
+        </StackPanel>
+    </StackPanel>
+</Window>

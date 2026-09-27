@@ -1,0 +1,525 @@
+<Window x:Class="Magpie.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:Magpie.App.ViewModels"
+        xmlns:set="clr-namespace:Magpie.Core.Settings;assembly=Magpie.Core"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
+        Title="Magpie — Settings" Width="1040" Height="800" MinWidth="820" MinHeight="560"
+        Style="{StaticResource Window.Magpie}" Icon="pack://application:,,,/Assets/app.ico"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <!-- Disabled section look (S1): faded, not clickable -->
+        <Style x:Key="Section.Dim" TargetType="StackPanel">
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.42" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Nav.Settings" TargetType="RadioButton" BasedOn="{StaticResource Button.Folder}">
+            <Setter Property="GroupName" Value="SettingsNav" />
+            <Setter Property="Height" Value="34" />
+        </Style>
+        <Style x:Key="FeatureRow" TargetType="Border">
+            <Setter Property="Padding" Value="22,14" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.Divider}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar -->
+        <Border Background="{DynamicResource Brush.Sidebar.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="0,18,0,12">
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding Version}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="20,0,0,0" />
+                <StackPanel>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="General" Command="{Binding GoCommand}" CommandParameter="General"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Accounts" Command="{Binding GoCommand}" CommandParameter="Accounts"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="AI features" Command="{Binding GoCommand}" CommandParameter="AI"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AI}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Notifications" Command="{Binding GoCommand}" CommandParameter="Notifications"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Templates" Command="{Binding GoCommand}" CommandParameter="Templates"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Templates}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Keyboard shortcuts" Command="{Binding GoCommand}" CommandParameter="Keys"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Keys}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Content="About" Command="{Binding GoCommand}" CommandParameter="About"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=About}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <DockPanel Grid.Column="1">
+            <!-- Save bar -->
+            <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="36,12" Background="{DynamicResource Brush.Window.Background}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" />
+                    <Button Style="{StaticResource Button.Primary}" Content="Save" Padding="24,7" Click="OnSave" />
+                </StackPanel>
+            </Border>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <Grid Margin="40,30,40,30" MaxWidth="780" HorizontalAlignment="Left">
+
+                    <!-- ═══════════ General ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=General}">
+                        <TextBlock Text="General" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="How Magpie shows and handles your mail." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+
+                        <Border Style="{StaticResource Card}" Padding="0">
+                            <StackPanel>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding SmartInbox, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Smart inbox" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Split the inbox into People, Notifications and Newsletters. Decided on this PC from mail headers — nothing is sent anywhere." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding MarkReadOnOpen, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Mark as read when opened" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Otherwise conversations stay unread until you mark them." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <DockPanel>
+                                        <ComboBox DockPanel.Dock="Right" Width="200" SelectedValue="{Binding RemoteImages, Mode=TwoWay}" SelectedValuePath="Tag">
+                                            <ComboBoxItem Content="Ask (block by default)" Tag="{x:Static set:RemoteImages.Ask}" />
+                                            <ComboBoxItem Content="Always load" Tag="{x:Static set:RemoteImages.Always}" />
+                                            <ComboBoxItem Content="Never load" Tag="{x:Static set:RemoteImages.Never}" />
+                                        </ComboBox>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="Pictures from the internet" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Blocking them stops senders tracking when you open mail." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <DockPanel>
+                                        <ComboBox DockPanel.Dock="Right" Width="120" ItemsSource="{Binding UndoChoices}" SelectedItem="{Binding UndoSendSeconds, Mode=TwoWay}" ItemStringFormat="{}{0} seconds" />
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="Undo send" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="How long you can take a message back after pressing Send." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <DockPanel>
+                                        <ComboBox DockPanel.Dock="Right" Width="120" ItemsSource="{Binding IntervalChoices}" SelectedItem="{Binding SyncIntervalMinutes, Mode=TwoWay}" ItemStringFormat="{}{0} min" />
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="Check all folders every" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="New mail in the Inbox arrives instantly (push) when the server supports it." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding CloseToTray, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Keep running in the notification area when closed" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Needed for new-mail alerts, send later, snooze and reminders." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding StartWithWindows, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Start with Windows" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Starts quietly in the notification area when you sign in." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="TAGS" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ItemsControl ItemsSource="{Binding Tags}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableTag}">
+                                            <DockPanel Margin="0,0,0,8">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove tag"
+                                                        Command="{Binding DataContext.RemoveTagCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <ComboBox DockPanel.Dock="Right" Width="110" Margin="8,0" SelectedItem="{Binding Color, Mode=TwoWay}"
+                                                          ItemsSource="{Binding DataContext.ColorChoices, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                    <ComboBox.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Ellipse Width="10" Height="10" Fill="{Binding Converter={StaticResource HexBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding}" FontSize="12" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Style="{StaticResource Button.Secondary}" Content="Add tag" HorizontalAlignment="Left" FontWeight="Normal" Command="{Binding AddTagCommand}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══════════ Accounts ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Accounts}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="Add account" Click="OnAddAccount" VerticalAlignment="Top" />
+                            <StackPanel>
+                                <TextBlock Text="Accounts" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock Text="Gmail, Outlook / Microsoft 365 and any IMAP mailbox." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+                            </StackPanel>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Accounts}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:EditableAccount}">
+                                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="Sign in again" FontWeight="Normal" Margin="0,0,8,0" Click="OnReauth" Tag="{Binding}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="Remove" FontWeight="Normal" Foreground="{DynamicResource Brush.Danger}"
+                                                            Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                </StackPanel>
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource HexBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding Email}" FontWeight="SemiBold" FontSize="14" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Kind}" Style="{StaticResource Text.Caption}" Margin="18,2,0,0" />
+                                                    <TextBlock Text="{Binding Servers}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="18,0,0,0" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                            <Grid Margin="0,14,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="130" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                                <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                                <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,8,0,0" />
+                                                <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding Signature, UpdateSourceTrigger=PropertyChanged}"
+                                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" VerticalContentAlignment="Top" Margin="0,0,0,8" />
+                                                <TextBlock Grid.Row="2" Text="Colour" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                                <ComboBox Grid.Row="2" Grid.Column="1" Width="140" HorizontalAlignment="Left" SelectedItem="{Binding Color, Mode=TwoWay}" Margin="0,0,0,8"
+                                                          ItemsSource="{Binding DataContext.ColorChoices, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                    <ComboBox.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Ellipse Width="10" Height="10" Fill="{Binding Converter={StaticResource HexBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding}" FontSize="12" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                                <CheckBox Grid.Row="3" Grid.Column="1" Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=TwoWay}" HorizontalAlignment="Left">
+                                                    <TextBlock Text="Sync this account" />
+                                                </CheckBox>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="SIGN-IN APPS (FOR GOOGLE AND MICROSOFT SIGN-IN)" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,10" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,12"
+                                           Text="Signing in with Google or Microsoft needs your own free app registration (5 minutes, once). The steps are in SIGN-IN-SETUP.md next to Magpie.exe. Without it you can still add Gmail with an app password, and any IMAP account with its password." />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Google client ID" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding GoogleClientId, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" Tag="….apps.googleusercontent.com" />
+                                    <TextBlock Grid.Row="1" Text="Google client secret" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding GoogleClientSecret, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" Tag="GOCSPX-…" />
+                                    <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource Button.Secondary}" Content="Import Google client JSON…" FontWeight="Normal" HorizontalAlignment="Left" Margin="0,0,0,14" Click="OnImportGoogle" />
+                                    <TextBlock Grid.Row="3" Text="Microsoft client ID" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding MicrosoftClientId, UpdateSourceTrigger=PropertyChanged}" Tag="Application (client) ID from Azure" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══════════ AI features (S1 / S2 / S3) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=AI}">
+                        <TextBlock Text="AI features" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Connect an AI provider and choose which features use it. Mail works normally whether this is on or off." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+
+                        <!-- Master switch -->
+                        <Border Style="{StaticResource Card}" Padding="22,18">
+                            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AiEnabled, Mode=TwoWay}">
+                                <StackPanel>
+                                    <TextBlock Text="Enable AI features" FontWeight="SemiBold" FontSize="14" />
+                                    <TextBlock Text="When off, no data is sent to any model and all AI controls are hidden from the interface." Style="{StaticResource Text.Caption}" Margin="0,3,0,0" />
+                                </StackPanel>
+                            </CheckBox>
+                        </Border>
+
+                        <!-- Provider -->
+                        <StackPanel Style="{StaticResource Section.Dim}" IsEnabled="{Binding AiEnabled}" Margin="0,20,0,0">
+                            <TextBlock Text="PROVIDER" Style="{StaticResource Text.SectionCaps}" />
+                            <Border Style="{StaticResource Card}" Padding="22,20">
+                                <StackPanel>
+                                    <TextBlock Text="Provider" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                    <ComboBox ItemsSource="{Binding Providers}" SelectedValue="{Binding Provider, Mode=TwoWay}" SelectedValuePath="Value" DisplayMemberPath="Label" Margin="0,0,0,14" />
+                                    <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,5">
+                                                <Run Text="API key " /><Run Text="{Binding KeyHint, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                            </TextBlock>
+                                            <PasswordBox x:Name="ApiKeyBox" Style="{StaticResource PasswordBox.Field}" PasswordChanged="OnApiKeyChanged" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Model" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Test connection" FontWeight="Normal" Command="{Binding TestConnectionCommand}" />
+                                        <TextBlock Text="{Binding TestStatus}" FontSize="12.5" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="440"
+                                                   Foreground="{Binding TestOk, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Success|Brush.Text.Secondary}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Features -->
+                        <StackPanel Style="{StaticResource Section.Dim}" IsEnabled="{Binding AiEnabled}" Margin="0,20,0,0">
+                            <TextBlock Text="FEATURES" Style="{StaticResource Text.SectionCaps}" />
+                            <Border Style="{StaticResource Card}" Padding="0">
+                                <StackPanel>
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource FeatureRow}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Summarise}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource Brush.Accent.Tint}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle}" IsChecked="{Binding Summarise, Mode=TwoWay}" />
+                                            <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Teal}" Margin="0,0,14,0">
+                                                <TextBlock Text="Option B" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
+                                            </Border>
+                                            <StackPanel Margin="0,0,14,0">
+                                                <TextBlock Text="Summarise thread" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="Adds a &quot;Summarise&quot; button to the thread toolbar. Sends thread text to the model." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource FeatureRow}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Draft}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource Brush.Ai.Tint}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle.Ai}" IsChecked="{Binding Draft, Mode=TwoWay}" />
+                                            <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Indigo}" Margin="0,0,14,0">
+                                                <TextBlock Text="Option C" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Ai}" />
+                                            </Border>
+                                            <StackPanel Margin="0,0,14,0">
+                                                <TextBlock Text="Write draft from prompt" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="Opens the assistant panel in Compose. Sends your prompt and thread context to the model." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource FeatureRow}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Rewrite}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource Brush.Ai.Tint}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle.Ai}" IsChecked="{Binding Rewrite, Mode=TwoWay}" />
+                                            <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Indigo}" Margin="0,0,14,0">
+                                                <TextBlock Text="Option C" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Ai}" />
+                                            </Border>
+                                            <StackPanel Margin="0,0,14,0">
+                                                <TextBlock Text="Rewrite selection" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="Shows rewrite chips when text is selected in Compose. Sends selected text to the model." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource FeatureRow}">
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Replies}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource Brush.Ai.Tint}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle.Ai}" IsChecked="{Binding Replies, Mode=TwoWay}" />
+                                            <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Indigo}" Margin="0,0,14,0">
+                                                <TextBlock Text="Option C" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Ai}" />
+                                            </Border>
+                                            <StackPanel Margin="0,0,14,0">
+                                                <TextBlock Text="Suggested replies" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="Shows reply chips below a thread. Sends thread text to the model when you open it." Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Notes -->
+                        <Border Background="{DynamicResource Brush.Ai.Subtle}" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="8" Padding="16,12" Margin="0,20,0,0">
+                            <Grid>
+                                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Brush.Ai.Text}" FontSize="12.5"
+                                           Text="Turn &quot;Enable AI features&quot; on above to configure the provider and choose features. Nothing is sent to any model while it is off."
+                                           Visibility="{Binding AiEnabled, Converter={StaticResource InvBoolToVis}}" />
+                                <StackPanel Visibility="{Binding AiEnabled, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Brush.Ai.Text}" FontSize="12.5"
+                                               Text="Each feature asks for consent the first time it sends data to a cloud provider, and shows exactly what gets sent. Local models never ask — nothing leaves your PC. Results always appear as a card you accept; nothing is inserted or sent automatically." />
+                                    <Button Style="{StaticResource Button.Link}" Content="Forget the permissions I gave" FontSize="12" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding ForgetConsentsCommand}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══════════ Notifications ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Notifications}">
+                        <TextBlock Text="Notifications" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Alerts for new mail, reminders and snoozed conversations." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+                        <Border Style="{StaticResource Card}" Padding="0">
+                            <StackPanel>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Notifications, Mode=TwoWay}">
+                                        <TextBlock Text="Show a notification for new mail" FontWeight="Medium" FontSize="13.5" />
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding NotifyPeopleOnly, Mode=TwoWay}" IsEnabled="{Binding Notifications}">
+                                        <StackPanel>
+                                            <TextBlock Text="Only for mail from people" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Stay quiet for newsletters, receipts and automatic notifications." Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding NotificationSound, Mode=TwoWay}" IsEnabled="{Binding Notifications}">
+                                        <TextBlock Text="Play a sound" FontWeight="Medium" FontSize="13.5" />
+                                    </CheckBox>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══════════ Templates ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
+                        <TextBlock Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+                        <ItemsControl ItemsSource="{Binding Templates}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:EditableTemplate}">
+                                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <DockPanel Margin="0,0,0,8">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove template"
+                                                        Command="{Binding DataContext.RemoveTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,8,0" />
+                                            </DockPanel>
+                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                     MinHeight="70" VerticalContentAlignment="Top" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Style="{StaticResource Button.Secondary}" Content="Add template" HorizontalAlignment="Left" FontWeight="Normal" Command="{Binding AddTemplateCommand}" />
+                    </StackPanel>
+
+                    <!-- ═══════════ Keyboard ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Keys}">
+                        <TextBlock Text="Keyboard shortcuts" Style="{StaticResource Text.Serif}" FontSize="21" Margin="0,0,0,20" />
+                        <Border Style="{StaticResource Card}">
+                            <Grid x:Name="KeysGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══════════ About ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=About}">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="pack://application:,,,/Assets/app-256.png" Width="48" Height="48" Margin="0,0,14,0" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock Text="A local-first mail app for Windows." Style="{StaticResource Text.Caption}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Margin="0,20,0,0">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Body}" Text="Your mail, settings and sign-ins are stored only on this PC. Passwords, tokens and API keys are encrypted with your Windows account (DPAPI)." />
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,12,0,0">
+                                    <Run Text="Data folder: " /><Run Text="{Binding DataFolder, Mode=OneWay}" />
+                                </TextBlock>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Open data folder" FontWeight="Normal" Margin="0,0,8,0" Command="{Binding OpenDataFolderCommand}" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Open log file" FontWeight="Normal" Command="{Binding OpenLogCommand}" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,16,0,0" Text="Fonts: IBM Plex (SIL Open Font License). Mail engine: MailKit / MimeKit (MIT)." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</Window>
