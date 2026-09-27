@@ -216,6 +216,36 @@ public static class Composer
         return MimeMessage.Load(ms);
     }
 
+    private static readonly Regex CidImage = new(@"src\s*=\s*[""']cid:([^""']+)[""']", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Pasted pictures are stored as inline parts referenced by cid: (see <see cref="Build"/>). When a message is
+    /// opened for editing again they go back into the HTML as data: URIs, so the editor shows them and the next
+    /// save or send carries them.
+    /// </summary>
+    private static string InlineImagesToData(string html, MimeMessage msg, HashSet<string> inlined)
+    {
+        if (html.IndexOf("cid:", StringComparison.OrdinalIgnoreCase) < 0) return html;
+        var byCid = new Dictionary<string, MimePart>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in msg.BodyParts.OfType<MimePart>())
+            if (!string.IsNullOrEmpty(part.ContentId) && part.ContentType.MediaType.Equals("image", StringComparison.OrdinalIgnoreCase))
+                byCid[part.ContentId.Trim('<', '>')] = part;
+        if (byCid.Count == 0) return html;
+        return CidImage.Replace(html, mm =>
+        {
+            var key = mm.Groups[1].Value.Trim('<', '>');
+            if (!byCid.TryGetValue(key, out var part) || part.Content == null) return mm.Value;
+            try
+            {
+                using var ms = new MemoryStream();
+                part.Content.DecodeTo(ms);
+                inlined.Add(key);
+                return "src=\"data:" + part.ContentType.MimeType + ";base64," + Convert.ToBase64String(ms.ToArray()) + "\"";
+            }
+            catch { return mm.Value; }
+        });
+    }
+
     /// <summary>Re-opens an outbox item or server draft for editing.</summary>
     public static Draft FromMime(MimeMessage msg, string accountId, string threadKey)
     {
@@ -235,9 +265,14 @@ public static class Composer
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");
         var m = Regex.Match(html, @"<body[^>]*>(.*)</body>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        d.Html = m.Success ? m.Groups[1].Value : html;
+        var inlined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        d.Html = InlineImagesToData(m.Success ? m.Groups[1].Value : html, msg, inlined);
         foreach (var part in msg.BodyParts)
+        {
+            // A picture now inside the HTML is not carried again as an attachment (Outlook marks some as attachments).
+            if (part is MimePart { ContentId: { } cid } && inlined.Contains(cid.Trim('<', '>'))) continue;
             if (part is MimePart { IsAttachment: true } || part is MessagePart) d.CarriedParts.Add(part);
+        }
         return d;
     }
 }

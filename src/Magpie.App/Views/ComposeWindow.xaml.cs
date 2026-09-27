@@ -305,7 +305,7 @@ public partial class ComposeWindow : Window
             Activate();
             var answer = MessageBox.Show(this, question, "Magpie", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Cancel) return false;
-            if (answer == MessageBoxResult.No) { await _vm.DiscardAsync(); return true; }
+            if (answer == MessageBoxResult.No) return await _vm.DiscardAsync();
             // Keep: server Drafts, or this PC when offline — only "no account" can stop it.
             return await _vm.KeepAsDraftAsync(closing: true);
         }

@@ -369,6 +369,7 @@ public sealed class MailEngine : IDisposable
             RemindAt = remindIfNoReply,
         };
         Store.AddOutbox(item);
+        DropStaleLocalCopies(msg.MessageId, d.LocalDraftId);
         var people = msg.To.Mailboxes.Concat(msg.Cc.Mailboxes).Concat(msg.Bcc.Mailboxes).Select(m => (m.Address, m.Name ?? "")).ToList();
         Store.TouchContacts(people, DateTimeOffset.Now, sentTo: true);
         lock (_knownGate) foreach (var p in people) _known.Add(p.Address);
@@ -393,10 +394,31 @@ public sealed class MailEngine : IDisposable
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
         var msg = Composer.Build(d, account);
+        // Copies on this PC saved after this one (e.g. in another window) are newer: leave those.
+        var cutoff = d.LocalDraftId is { } lid ? Store.GetLocalDraft(lid)?.Updated : null;
         if (!await sync.ReplaceDraftAsync(msg, ct))
             throw new InvalidOperationException("This account has no Drafts folder.");
         if (d.SourceDraftRow is { } old) { DeleteDraft(old); d.SourceDraftRow = null; }
+        DropStaleLocalCopies(msg.MessageId, d.LocalDraftId, cutoff);
         SyncNow(account.Id);
+    }
+
+    /// <summary>
+    /// A message was sent or saved to the server: older copies of it kept on this PC (same Message-ID) are out of
+    /// date and must not upload later over the newer version. Copies open in a compose window are left to it.
+    /// </summary>
+    private void DropStaleLocalCopies(string? messageId, long? except, DateTimeOffset? notNewerThan = null)
+    {
+        if (string.IsNullOrWhiteSpace(messageId)) return;
+        try
+        {
+            var dropped = false;
+            foreach (var l in Store.GetLocalDrafts())
+                if (l.Id != except && l.MessageId == messageId && !IsLocalDraftOpen(l.Id) && (notNewerThan == null || l.Updated <= notNewerThan))
+                { Store.DeleteLocalDraft(l.Id); dropped = true; }
+            if (dropped) Changed?.Invoke(new ChangeSet());
+        }
+        catch (Exception ex) { Log.Warn("local draft cleanup: " + ex.Message); }
     }
 
     // ───────────────────────── drafts kept on this PC (design F1) ─────────────────────────
@@ -421,6 +443,7 @@ public sealed class MailEngine : IDisposable
             ThreadKey = d.ThreadKey ?? "",
             SourceDraftRow = d.SourceDraftRow,
             PendingUpload = pendingUpload,
+            MessageId = msg.MessageId ?? "",
         };
         var id = Store.SaveLocalDraft(local, insertIfMissing);
         if (id == 0) return 0;
@@ -480,8 +503,8 @@ public sealed class MailEngine : IDisposable
                 {
                     await SaveDraftAsync(d, ct);
                     // Only remove the local copy if nobody changed or opened it while it was uploading.
-                    var now = Store.GetLocalDraft(l.Id);
-                    if (now != null && now.Updated == l.Updated && !IsLocalDraftOpen(l.Id)) Store.DeleteLocalDraft(l.Id);
+                    // (A window that opens it later re-creates it on its next autosave.)
+                    if (!IsLocalDraftOpen(l.Id)) Store.DeleteLocalDraftIfUnchanged(l.Id, l.Updated);
                     Log.Info($"uploaded draft kept on this PC: '{l.Subject}'");
                     Changed?.Invoke(new ChangeSet { AccountId = l.AccountId });
                 }
@@ -537,6 +560,7 @@ public sealed class MailEngine : IDisposable
                     try { await draftsSync.DeleteDraftsByMessageIdAsync(msg.MessageId ?? "", ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("could not remove the sent message's draft: " + ex.Message); }
                 }
+                DropStaleLocalCopies(msg.MessageId, null);
                 if (item.RemindAt is { } due)
                     Store.AddReminder(new Reminder { AccountId = item.AccountId, ThreadKey = item.ThreadKey, Subject = item.Subject, After = DateTimeOffset.Now, Due = due });
                 Sent?.Invoke(item);

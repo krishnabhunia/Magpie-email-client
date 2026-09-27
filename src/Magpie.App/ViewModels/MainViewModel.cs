@@ -564,6 +564,15 @@ public partial class MainViewModel : ObservableObject
         else ReloadList();   // it was sent / uploaded meanwhile
     }
 
+    /// <summary>Delete key / context menu on a draft kept on this PC (it has no server copy to move to Trash).</summary>
+    public void DeleteSelectedLocalDraft()
+    {
+        if (Selected?.LocalDraftId is not { } id) return;
+        if (_e.IsLocalDraftOpen(id)) { Views.ComposeWindow.ActivateLocal(id); return; }   // its window decides
+        if (!Ui.Confirm("Delete draft", "Delete this draft saved on this PC? It has not reached the server, so it can't be restored.")) return;
+        _e.DeleteLocalDraft(id);
+    }
+
     public void SelectByKey(string accountId, string threadKey)
     {
         var item = Threads.FirstOrDefault(t => t.Row.AccountId == accountId && t.Row.ThreadKey == threadKey);

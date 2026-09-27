@@ -282,4 +282,102 @@ public class Release101Tests
         e.ReleaseLocalDraft(id);
         Assert.False(e.IsLocalDraftOpen(id));
     }
+
+    // ── review 3 ──
+
+    [Fact]
+    public void Pasted_pictures_survive_reopening_a_saved_draft()
+    {
+        var acc = new Account { Id = "a", Email = "me@test.local" };
+        var png = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4 });
+        var d = new Draft { AccountId = "a", To = "x@y.test", Subject = "pic", Html = $"<p>see</p><img src=\"data:image/png;base64,{png}\">" };
+        var msg = Composer.FromBytes(Composer.ToBytes(Composer.Build(d, acc)));
+        Assert.DoesNotContain("data:image", msg.HtmlBody);                  // sent as an inline part
+        var back = Composer.FromMime(msg, "a", "");
+        Assert.Contains($"data:image/png;base64,{png}", back.Html);         // editor gets the picture back
+        Assert.DoesNotContain("cid:", back.Html);
+        Assert.Empty(back.CarriedParts);                                    // not duplicated as an attachment
+    }
+
+    [Fact]
+    public void Sending_drops_older_copies_of_the_same_message_kept_on_this_PC()
+    {
+        using var dir = new TempDir();
+        using var e = new MailEngine(new AppPaths(dir.Path), new FakeProtector());
+        e.Settings.Current.Accounts.Add(new Account { Id = "acc1", Email = "me@test.local", Enabled = false });
+        var old = new Draft { AccountId = "acc1", To = "x@y.test", Subject = "v1", Html = "<p>1</p>" };
+        var staleId = e.SaveLocalDraft(old, pendingUpload: true);
+        Assert.False(string.IsNullOrEmpty(Assert.Single(e.LocalDrafts()).MessageId));
+
+        var open = new Draft { AccountId = "acc1", To = "x@y.test", Subject = "claimed", Html = "<p>c</p>", MessageId = old.MessageId };
+        var openId = e.SaveLocalDraft(open, pendingUpload: false);
+        e.ClaimLocalDraft(openId);                                          // another window is editing this copy
+
+        var newer = new Draft { AccountId = "acc1", To = "x@y.test", Subject = "v2", Html = "<p>2</p>", MessageId = old.MessageId };
+        e.QueueSend(newer, DateTimeOffset.Now.AddHours(1), null);
+        var left = Assert.Single(e.LocalDrafts());
+        Assert.Equal(openId, left.Id);                                      // stale copy gone, open one left to its window
+        Assert.NotEqual(staleId, left.Id);
+    }
+
+    [Fact]
+    public void Background_upload_only_deletes_a_copy_nobody_saved_again()
+    {
+        using var dir = new TempDir();
+        var s = new MailStore(dir.File("mail.db"));
+        var d = new LocalDraft { AccountId = "A", Mime = new byte[] { 1 }, PendingUpload = true };
+        var id = s.SaveLocalDraft(d);
+        var seen = s.GetLocalDraft(id)!.Updated;
+        s.SaveLocalDraft(d);                                               // saved again while uploading
+        Assert.False(s.DeleteLocalDraftIfUnchanged(id, seen));
+        Assert.True(s.DeleteLocalDraftIfUnchanged(id, s.GetLocalDraft(id)!.Updated));
+        Assert.Empty(s.GetLocalDrafts());
+    }
+
+    [Fact]
+    public void Existing_v2_database_gains_the_message_id_column()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("mail.db");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE local_drafts(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, mime BLOB NOT NULL,
+                  subject TEXT NOT NULL DEFAULT '', to_text TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '',
+                  thread_key TEXT NOT NULL DEFAULT '', source_draft_row INTEGER NULL, pending_upload INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL);
+                INSERT INTO local_drafts(account_id,mime,updated) VALUES('A', x'01', 1);
+                PRAGMA user_version=2;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s = new MailStore(path);
+        Assert.Equal("", Assert.Single(s.GetLocalDrafts()).MessageId);      // kept, with an empty id
+        s.SaveLocalDraft(new LocalDraft { AccountId = "A", Mime = new byte[] { 2 }, MessageId = "m@x" });
+        Assert.Contains(s.GetLocalDrafts(), l => l.MessageId == "m@x");
+    }
+
+    [Fact]
+    public void Inline_picture_marked_as_attachment_is_not_carried_twice()
+    {
+        var msg = new MimeKit.MimeMessage();
+        var html = new MimeKit.TextPart("html") { Text = "<html><body><p>hi</p><img src=\"cid:pic1@x\"></body></html>" };
+        var img = new MimeKit.MimePart("image", "png")
+        {
+            Content = new MimeKit.MimeContent(new MemoryStream(new byte[] { 9, 8, 7 })),
+            ContentId = "pic1@x", ContentDisposition = new MimeKit.ContentDisposition(MimeKit.ContentDisposition.Attachment), FileName = "pic.png",
+        };
+        var other = new MimeKit.MimePart("application", "pdf")
+        {
+            Content = new MimeKit.MimeContent(new MemoryStream(new byte[] { 1 })),
+            ContentDisposition = new MimeKit.ContentDisposition(MimeKit.ContentDisposition.Attachment), FileName = "a.pdf",
+        };
+        var mixed = new MimeKit.Multipart("mixed") { html, img, other };
+        msg.Body = mixed;
+        var d = Composer.FromMime(msg, "a", "");
+        Assert.Contains("data:image/png;base64,CQgH", d.Html);
+        Assert.Equal("a.pdf", ((MimeKit.MimePart)Assert.Single(d.CarriedParts)).FileName);
+    }
 }

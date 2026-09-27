@@ -28,7 +28,7 @@ public sealed class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     public MailStore(string dbPath)
     {
@@ -114,8 +114,11 @@ public sealed class MailStore
               id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, mime BLOB NOT NULL,
               subject TEXT NOT NULL DEFAULT '', to_text TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '',
               thread_key TEXT NOT NULL DEFAULT '', source_draft_row INTEGER NULL,
-              pending_upload INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL);
+              pending_upload INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL, message_id TEXT NOT NULL DEFAULT '');
             """);
+        // v2 → v3: local drafts remember their Message-ID (stale copies are dropped once the message is sent or saved).
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('local_drafts') WHERE name='message_id'")) == 0)
+            Exec(c, "ALTER TABLE local_drafts ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }
@@ -652,15 +655,15 @@ public sealed class MailStore
         if (d.Id == 0)
         {
             cmd.CommandText = """
-                INSERT INTO local_drafts(account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated)
-                VALUES($a,$m,$s,$t,$p,$k,$src,$pu,$u) RETURNING id
+                INSERT INTO local_drafts(account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated,message_id)
+                VALUES($a,$m,$s,$t,$p,$k,$src,$pu,$u,$mid) RETURNING id
                 """;
         }
         else
         {
             cmd.CommandText = """
                 UPDATE local_drafts SET account_id=$a, mime=$m, subject=$s, to_text=$t, preview=$p, thread_key=$k,
-                  source_draft_row=$src, pending_upload=$pu, updated=$u WHERE id=$id RETURNING id
+                  source_draft_row=$src, pending_upload=$pu, updated=$u, message_id=$mid WHERE id=$id RETURNING id
                 """;
             cmd.Parameters.AddWithValue("$id", d.Id);
         }
@@ -672,7 +675,11 @@ public sealed class MailStore
         cmd.Parameters.AddWithValue("$k", d.ThreadKey);
         cmd.Parameters.AddWithValue("$src", (object?)d.SourceDraftRow ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$pu", d.PendingUpload ? 1 : 0);
-        cmd.Parameters.AddWithValue("$u", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        // Strictly increasing, so two saves within the same millisecond still count as a change.
+        var stamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (_stampGate) { if (stamp <= _lastStamp) stamp = _lastStamp + 1; _lastStamp = stamp; }
+        cmd.Parameters.AddWithValue("$u", stamp);
+        cmd.Parameters.AddWithValue("$mid", d.MessageId ?? "");
         var id = cmd.ExecuteScalar();
         if (id == null || id is DBNull)
         {
@@ -683,14 +690,18 @@ public sealed class MailStore
             return SaveLocalDraft(d);
         }
         d.Id = Convert.ToInt64(id);
+        d.Updated = DateTimeOffset.FromUnixTimeMilliseconds(stamp);
         return d.Id;
     }
+
+    private readonly object _stampGate = new();
+    private long _lastStamp;
 
     public List<LocalDraft> GetLocalDrafts(bool pendingOnly = false)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id,account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated FROM local_drafts"
+        cmd.CommandText = "SELECT id,account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated,message_id FROM local_drafts"
             + (pendingOnly ? " WHERE pending_upload=1" : "") + " ORDER BY updated DESC";
         var list = new List<LocalDraft>();
         using var r = cmd.ExecuteReader();
@@ -700,7 +711,7 @@ public sealed class MailStore
                 Id = r.GetInt64(0), AccountId = r.GetString(1), Mime = (byte[])r.GetValue(2), Subject = r.GetString(3),
                 ToText = r.GetString(4), Preview = r.GetString(5), ThreadKey = r.GetString(6),
                 SourceDraftRow = r.IsDBNull(7) ? null : r.GetInt64(7), PendingUpload = r.GetInt32(8) != 0,
-                Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(9)),
+                Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(9)), MessageId = r.GetString(10),
             });
         return list;
     }
@@ -718,6 +729,17 @@ public sealed class MailStore
     {
         using var c = Open();
         Exec(c, "DELETE FROM local_drafts WHERE id=$id", ("$id", id));
+    }
+
+    /// <summary>Deletes the row only if it was not saved again since <paramref name="updated"/>. True if deleted.</summary>
+    public bool DeleteLocalDraftIfUnchanged(long id, DateTimeOffset updated)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM local_drafts WHERE id=$id AND updated=$u";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$u", updated.ToUnixTimeMilliseconds());
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     public void DeleteLocalDraftsForAccount(string accountId)

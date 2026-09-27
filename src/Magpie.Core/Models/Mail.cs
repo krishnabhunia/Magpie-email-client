@@ -109,6 +109,8 @@ public sealed class LocalDraft
     public long? SourceDraftRow { get; set; }
     public bool PendingUpload { get; set; }
     public DateTimeOffset Updated { get; set; }
+    /// <summary>The draft's Message-ID, kept the same across saves.</summary>
+    public string MessageId { get; set; } = "";
 }
 
 public sealed class OutboxItem

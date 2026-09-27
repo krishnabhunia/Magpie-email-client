@@ -206,7 +206,11 @@ public partial class MainWindow : Window
 
     // List context menu
     private void OnArchive(object sender, RoutedEventArgs e) => _vm.Reader.ArchiveCommand.Execute(null);
-    private void OnDelete(object sender, RoutedEventArgs e) => _vm.Reader.DeleteCommand.Execute(null);
+    private void OnDelete(object sender, RoutedEventArgs e)
+    {
+        if (_vm.Selected?.LocalDraftId != null) _vm.DeleteSelectedLocalDraft();
+        else _vm.Reader.DeleteCommand.Execute(null);
+    }
     private void OnPin(object sender, RoutedEventArgs e) => _vm.Reader.TogglePinCommand.Execute(null);
     private void OnMarkUnread(object sender, RoutedEventArgs e) => _vm.Reader.MarkUnreadCommand.Execute(null);
     private void OnReply(object sender, RoutedEventArgs e) => _vm.Reader.ReplyCommand.Execute(null);
@@ -234,6 +238,12 @@ public partial class MainWindow : Window
         if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None && ThreadList.IsKeyboardFocusWithin && _vm.Selected?.LocalDraftId != null)
         {
             _vm.OpenSelectedLocalDraft();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None && _vm.Selected?.LocalDraftId != null)
+        {
+            _vm.DeleteSelectedLocalDraft();
             e.Handled = true;
             return;
         }

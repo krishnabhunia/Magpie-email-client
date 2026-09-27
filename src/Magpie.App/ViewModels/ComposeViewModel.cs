@@ -118,14 +118,20 @@ public partial class ComposeViewModel : ObservableObject
     // Life cycle:
     //  · every edit schedules an autosave of the message on this PC (a local draft row);
     //  · while this window is open it "claims" its local draft, so the background upload never touches it;
+    //  · autosave, Keep and Send take turns (_saveGate), so two of them never build the message at the same time;
     //  · Send / Keep / Discard first stop autosave and wait for one that is still running, then act;
-    //  · Discard of a draft that was opened from this PC puts back the version it was opened with;
+    //  · Discard puts back the last version the user chose to keep: the one this window opened from this PC,
+    //    or what the last "Keep / Save draft" stored — never an older one;
     //  · closing without changes just releases the claim (a draft waiting to upload keeps waiting).
 
     private readonly Ui.Debouncer _autosave = new(TimeSpan.FromSeconds(3));
     private Task? _autosaveTask;
-    /// <summary>The local draft as it was when this window opened it (restored on Discard).</summary>
-    private readonly LocalDraft? _openedFrom;
+    /// <summary>The last kept local version (as opened, or as saved by Keep while offline); restored on Discard.
+    /// Null when there is nothing on this PC to go back to (new message, or the last Keep reached the server).</summary>
+    private LocalDraft? _openedFrom;
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    /// <summary>Counts edits, so a save only marks the window clean if nothing was typed while it ran.</summary>
+    private int _edits;
     /// <summary>Whether the local copy should be uploaded to the server once this window lets go of it.</summary>
     private bool _pendingUpload;
     private long? _claimed;
@@ -134,6 +140,7 @@ public partial class ComposeViewModel : ObservableObject
     public void MarkEdited()
     {
         if (!_constructed) return;   // filling the fields from the draft is not an edit
+        _edits++;
         Dirty = true;
         if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
     }
@@ -148,18 +155,23 @@ public partial class ComposeViewModel : ObservableObject
 
     private async Task SaveLocalNowAsync()
     {
+        // Keep or Send is building the message right now: try again in a moment.
+        if (!await _saveGate.WaitAsync(0)) { if (!_closed) _autosave.Run(() => _ = AutosaveAsync()); return; }
         try
         {
+            if (_closed || _queued) return;
             var d = await BuildDraftAsync(validate: false);
             if (d == null || _closed || _queued) return;
-            var existed = d.LocalDraftId != null;
             var pending = _pendingUpload;
-            var id = await Task.Run(() => _e.SaveLocalDraft(d, pending, insertIfMissing: !existed));
+            // Send / Discard / Keep can't delete the row under us (they wait for the gate and stop autosave first),
+            // so a missing row means the background upload took it just before this window opened: store it again.
+            var id = await Task.Run(() => _e.SaveLocalDraft(d, pending));
             if (id == 0) return;
-            Claim(id);
+            if (!_closed) Claim(id);
             Status = "Saved on this PC · " + DateTime.Now.ToString("HH:mm");
         }
         catch (Exception ex) { Log.Warn("autosave: " + ex.Message); }
+        finally { _saveGate.Release(); }
     }
 
     private void Claim(long id)
@@ -192,44 +204,87 @@ public partial class ComposeViewModel : ObservableObject
     public async Task<bool> KeepAsDraftAsync(bool closing)
     {
         await SettleAutosaveAsync(stop: closing);
-        var d = await BuildDraftAsync(validate: false);
-        if (d == null) return false;
-        Status = "Saving draft…";
+        await _saveGate.WaitAsync();
         try
         {
-            await _e.SaveDraftAsync(d);
-            if (d.LocalDraftId is { } id) { ReleaseClaim(); _e.DeleteLocalDraft(id); d.LocalDraftId = null; }
-            _pendingUpload = false;
-            Dirty = false;
-            Status = "✓ Saved in Drafts";
+            if (_queued) return true;                     // it was sent meanwhile
+            var edits = _edits;
+            var d = await BuildDraftAsync(validate: false);
+            if (d == null) { if (closing) Reopen(); return false; }
+            Status = "Saving draft…";
+            try
+            {
+                await _e.SaveDraftAsync(d);
+                if (d.LocalDraftId is { } id) { ReleaseClaim(); _e.DeleteLocalDraft(id); d.LocalDraftId = null; }
+                _pendingUpload = false;
+                _openedFrom = null;                       // the server has it now; Discard must not bring back an older copy
+                Status = "✓ Saved in Drafts";
+            }
+            catch (Exception ex)
+            {
+                Log.Info("draft kept on this PC (server save failed: " + ex.Message + ")");
+                long id;
+                try { id = await Task.Run(() => _e.SaveLocalDraft(d, pendingUpload: true)); }
+                catch (Exception ex2)
+                {
+                    Log.Error("keep draft on this PC", ex2);
+                    Status = "Couldn't save the draft";
+                    Ui.Error("Keep as draft", "Magpie couldn't save this message, neither to the server nor on this PC:\n\n" + ex2.Message);
+                    if (closing) Reopen();                 // the window stays open, keep autosaving
+                    return false;
+                }
+                _pendingUpload = true;
+                _openedFrom = _e.Store.GetLocalDraft(id);  // Discard from now on goes back to this kept version
+                if (!closing && id != 0) Claim(id);
+                Status = "Offline · saved on this PC " + DateTime.Now.ToString("HH:mm");
+            }
+            // Typing while the save ran is not saved yet: stay "changed" and autosave it.
+            if (_edits == edits) Dirty = false;
+            else if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
+            return true;
         }
-        catch (Exception ex)
-        {
-            Log.Info("draft kept on this PC (server save failed: " + ex.Message + ")");
-            _pendingUpload = true;
-            var id = await Task.Run(() => _e.SaveLocalDraft(d, pendingUpload: true));
-            if (!closing && id != 0) Claim(id);
-            Dirty = false;
-            Status = "Offline · saved on this PC " + DateTime.Now.ToString("HH:mm");
-        }
-        return true;
+        finally { _saveGate.Release(); }
     }
 
     /// <summary>
     /// "Discard": drops this window's changes. A draft opened from this PC goes back to how it was when opened;
     /// a new message's local copy is removed; a server draft it was opened from is left as it was.
     /// </summary>
-    public async Task DiscardAsync()
+    /// <summary>A close was cancelled after autosave had been stopped: resume it and re-claim this window's copy.</summary>
+    private void Reopen()
+    {
+        _closed = false;
+        if (_draft.LocalDraftId is { } id) Claim(id);
+    }
+
+    /// <returns>False if putting back the kept version failed (the window then stays open).</returns>
+    public async Task<bool> DiscardAsync()
     {
         await SettleAutosaveAsync(stop: true);
-        if (_openedFrom != null)
+        await _saveGate.WaitAsync();
+        try
         {
-            _e.Store.SaveLocalDraft(_openedFrom);        // puts the opened version back (re-creates it if needed)
-            _e.NotifyLocalDraftsChanged();
+            if (_queued) return true;
+            var current = _draft.LocalDraftId;
+            if (_openedFrom != null)
+            {
+                _e.Store.SaveLocalDraft(_openedFrom);        // puts the kept version back (re-creates it if needed)
+                if (current is { } cur && cur != _openedFrom.Id) _e.Store.DeleteLocalDraft(cur);
+                _e.NotifyLocalDraftsChanged();
+            }
+            else if (current is { } id)
+                _e.DeleteLocalDraft(id);
+            _draft.LocalDraftId = _openedFrom?.Id;
+            return true;
         }
-        else if (_draft.LocalDraftId is { } id)
-            _e.DeleteLocalDraft(id);
-        _draft.LocalDraftId = _openedFrom?.Id;
+        catch (Exception ex)
+        {
+            Log.Error("discard", ex);
+            Ui.Error("Discard", "Magpie couldn't restore the saved version of this draft, so the window stays open:\n\n" + ex.Message);
+            Reopen();
+            return false;
+        }
+        finally { _saveGate.Release(); }
     }
 
     private readonly Action _onSettings;
@@ -323,15 +378,25 @@ public partial class ComposeViewModel : ObservableObject
                 return;
             }
             if (string.IsNullOrWhiteSpace(Subject) && !Ui.Confirm("No subject", "Send this message without a subject?")) return;
-            var d = await BuildDraftAsync();
-            if (d == null) return;
-            var undo = _e.Config.UndoSendSeconds;
-            var sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
-            var id = _e.QueueSend(d, sendAt, remindIfNoReply);
-            _queued = true;
+            // Wait for an autosave that is building the message (it shares attachment streams with this build).
+            await _saveGate.WaitAsync();
+            Draft? d;
+            DateTimeOffset sendAt;
+            int undo;
+            long id;
+            try
+            {
+                d = await BuildDraftAsync();
+                if (d == null) return;
+                undo = _e.Config.UndoSendSeconds;
+                sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
+                id = _e.QueueSend(d, sendAt, remindIfNoReply);
+                _queued = true;
+                if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
+                if (d.LocalDraftId is { } localId) { ReleaseClaim(); _e.DeleteLocalDraft(localId); d.LocalDraftId = null; }
+            }
+            finally { _saveGate.Release(); }
             await SettleAutosaveAsync(stop: true);
-            if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
-            if (d.LocalDraftId is { } localId) { ReleaseClaim(); _e.DeleteLocalDraft(localId); d.LocalDraftId = null; }
             Dirty = false;
             var main = System.Windows.Application.Current.MainWindow as MainWindow;
             if (main?.DataContext is MainViewModel vm)
