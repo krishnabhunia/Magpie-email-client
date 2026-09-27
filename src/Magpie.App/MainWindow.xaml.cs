@@ -222,6 +222,21 @@ public partial class MainWindow : Window
         if (ctrl && e.Key == Key.F) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F5) { _vm.SyncAllCommand.Execute(null); e.Handled = true; return; }
         if (Keyboard.FocusedElement is TextBox) return;
+        // Sidebar headings and accounts (design Q2): ← closes, → opens the focused one.
+        if (e.Key is Key.Left or Key.Right && Keyboard.FocusedElement is ToggleButton section && section.Style is { } st
+            && (ReferenceEquals(st, TryFindResource("Toggle.SectionHeader")) || ReferenceEquals(st, TryFindResource("Toggle.Account"))))
+        {
+            section.IsChecked = e.Key == Key.Right;
+            e.Handled = true;
+            return;
+        }
+        // A draft kept on this PC opens in a compose window on Enter (review #5: J/K only select it).
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None && ThreadList.IsKeyboardFocusWithin && _vm.Selected?.LocalDraftId != null)
+        {
+            _vm.OpenSelectedLocalDraft();
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.None && Keyboard.Modifiers != ModifierKeys.Shift) return;
         var r = _vm.Reader;
         switch (e.Key)
@@ -240,6 +255,14 @@ public partial class MainWindow : Window
             default: return;
         }
         e.Handled = true;
+    }
+
+    private void OnThreadListClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject src) return;
+        var item = ItemsControl.ContainerFromElement(ThreadList, src) as ListBoxItem;
+        if (item?.DataContext is ThreadItem { LocalDraftId: not null } t && ReferenceEquals(t, _vm.Selected))
+            _vm.OpenSelectedLocalDraft();
     }
 
     private void OnSearchKey(object sender, KeyEventArgs e)
@@ -309,7 +332,7 @@ public partial class MainWindow : Window
             }
             p.Maximized = WindowState == WindowState.Maximized;
             p.ListWidth = ListColumn.ActualWidth > 0 ? ListColumn.ActualWidth : p.ListWidth;
-            AppServices.Engine.Settings.Save();
+            AppServices.Engine.Settings.Save(notify: false);
         }
         catch (Exception ex) { Log.Warn("save placement: " + ex.Message); }
     }

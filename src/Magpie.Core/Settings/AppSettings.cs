@@ -77,6 +77,18 @@ public sealed class QuickTemplate
     public string Body { get; set; } = "";
 }
 
+/// <summary>Which sidebar sections, accounts and folders are open (design Q2). Remembered between runs.</summary>
+public sealed class SidebarState
+{
+    public bool FoldersOpen { get; set; } = true;
+    public bool AccountsOpen { get; set; } = true;
+    public bool TagsOpen { get; set; } = true;
+    /// <summary>Account ids whose folder list is open (accounts start closed).</summary>
+    public List<string> OpenAccounts { get; set; } = new();
+    /// <summary>"accountId|folderPath" of folders whose subfolders are shown (folders start closed).</summary>
+    public List<string> OpenFolders { get; set; } = new();
+}
+
 public sealed class WindowPlacement
 {
     public double Left { get; set; } = double.NaN;
@@ -132,6 +144,7 @@ public sealed class AppSettings
 
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
+    public SidebarState Sidebar { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -185,13 +198,17 @@ public sealed class SettingsStore
         s.Templates ??= new();
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
+        s.Sidebar ??= new();
+        s.Sidebar.OpenAccounts ??= new();
+        s.Sidebar.OpenFolders ??= new();
         s.SenderCategories = new Dictionary<string, Category>(s.SenderCategories ?? new(), StringComparer.OrdinalIgnoreCase);
         s.UndoSendSeconds = Math.Clamp(s.UndoSendSeconds, 0, 30);
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);
         if (string.IsNullOrWhiteSpace(s.Ai.Endpoint)) (s.Ai.Endpoint, _) = AiSettings.Preset(s.Ai.Provider);
     }
 
-    public void Save(AppSettings? s = null)
+    /// <summary>Writes settings.json. <paramref name="notify"/> false = UI-state only (sidebar, window size): no Changed event.</summary>
+    public void Save(AppSettings? s = null, bool notify = true)
     {
         lock (_gate)
         {
@@ -201,6 +218,6 @@ public sealed class SettingsStore
             File.WriteAllText(tmp, JsonSerializer.Serialize(Current, AppSettings.Json));
             File.Move(tmp, _path, true);
         }
-        Changed?.Invoke();
+        if (notify) Changed?.Invoke();
     }
 }

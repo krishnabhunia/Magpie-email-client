@@ -3,7 +3,7 @@
 A Windows email client that combines the power features of **eM Client** with the calm, smart inbox of **Spark** —
 local-first, with optional AI you control from one Settings page.
 
-**Version 1.0.0 · Build 1** · C# / .NET 8 / WPF · single-file `Magpie.exe` (no install needed; an installer is built by CI)
+**Version 1.0.1** · C# / .NET 8 / WPF · single-file `Magpie.exe` (no install needed; an installer is built by CI)
 
 ## What's in Build 1
 
@@ -20,8 +20,12 @@ local-first, with optional AI you control from one Settings page.
 | 9 | Views | Inbox, Pinned, Snoozed, Follow up, Scheduled, Sent, Drafts, Archive, Spam, Trash, Tags |
 | 10 | Desktop | Tray icon, close-to-tray, start with Windows, notifications (optionally people only), single instance, keyboard shortcuts (J/K, R, A, F, E, Ctrl+N, Ctrl+F, F5, /) |
 | 11 | **AI features** (optional) | One master switch + four feature switches — see below |
+| 12 | Drafts | Autosaved on this PC while you type; kept offline and uploaded to Drafts when you are back online |
+| 13 | Sidebar | Collapsible Folders / Accounts / Tags, folder tree with subfolders, state remembered |
 
 ## AI features — one page, five switches (approved designs S1–S5)
+
+**Quick setup** at the top of the page sets all five switches in one click: **Off** · **A** provider only (set up and tested, nothing calls it) · **B** Summarise · **C** full assistant. Any other mix shows as **Custom**.
 
 | # | Switch | What appears when ON | Sends to the model |
 |---|--------|----------------------|--------------------|
@@ -45,14 +49,12 @@ provider is down or switched off.
 
 Data lives in `%APPDATA%\Magpie` (mail cache, settings, `magpie.log`).
 
-## Known limits in Build 1
+## Known limits
 
 | # | Limit | Planned |
 |---|-------|---------|
-| 1 | Drafts are saved to the server's Drafts folder, so **Save draft needs a connection**; offline you can keep the window open or send later | Local draft autosave |
-| 2 | A second send inside the undo window replaces the Undo toast (the first message can then only be stopped from Scheduled) | Stacked toasts |
-| 3 | Light theme only; dialogs use the Windows title-bar colour | Dark theme |
-| 4 | Not code-signed, so Windows shows "unknown publisher" for the join script / installer | Signing |
+| 1 | Light theme only; dialogs use the Windows title-bar colour | Dark theme (1.1.0) |
+| 2 | Not code-signed, so Windows shows "unknown publisher" for the installer | Signing (needs a certificate) |
 
 ## Build
 

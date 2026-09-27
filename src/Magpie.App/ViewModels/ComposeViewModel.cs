@@ -65,6 +65,8 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _customRewrite = "";
 
     public string InitialHtml { get; }
+    /// <summary>Id of this message's copy on this PC, once autosaved.</summary>
+    public long? LocalDraftId => _draft.LocalDraftId;
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
     public string ProviderLabel => _e.Ai.ProviderLabel;
@@ -91,21 +93,151 @@ public partial class ComposeViewModel : ObservableObject
         InitialHtml = html;
         // A message pulled back by Undo send / Cancel & edit exists nowhere else any more: treat it as unsaved
         // so closing the window asks before discarding it.
-        StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null;
+        StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null && draft.LocalDraftId == null;
         RefreshAi();
+        if (draft.LocalDraftId is { } localId)
+        {
+            _openedFrom = _e.Store.GetLocalDraft(localId);
+            _pendingUpload = _openedFrom?.PendingUpload ?? false;
+            Claim(localId);
+        }
         _onSettings = () => Ui.Post(RefreshAi);
         _e.Settings.Changed += _onSettings;
+        _constructed = true;
     }
 
     /// <summary>True when the content would be lost if the window closed without saving or sending.</summary>
     public bool StartsUnsaved { get; }
 
     private bool _queued;
+    private bool _closed;
+    private readonly bool _constructed;
+
+    // ───────────────────────── drafts kept on this PC (design F1) ─────────────────────────
+    //
+    // Life cycle:
+    //  · every edit schedules an autosave of the message on this PC (a local draft row);
+    //  · while this window is open it "claims" its local draft, so the background upload never touches it;
+    //  · Send / Keep / Discard first stop autosave and wait for one that is still running, then act;
+    //  · Discard of a draft that was opened from this PC puts back the version it was opened with;
+    //  · closing without changes just releases the claim (a draft waiting to upload keeps waiting).
+
+    private readonly Ui.Debouncer _autosave = new(TimeSpan.FromSeconds(3));
+    private Task? _autosaveTask;
+    /// <summary>The local draft as it was when this window opened it (restored on Discard).</summary>
+    private readonly LocalDraft? _openedFrom;
+    /// <summary>Whether the local copy should be uploaded to the server once this window lets go of it.</summary>
+    private bool _pendingUpload;
+    private long? _claimed;
+
+    /// <summary>Call on every edit: marks the message changed and autosaves it on this PC a moment later.</summary>
+    public void MarkEdited()
+    {
+        if (!_constructed) return;   // filling the fields from the draft is not an edit
+        Dirty = true;
+        if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
+    }
+
+    private async Task AutosaveAsync()
+    {
+        if (_closed || _queued || Sending || From == null || !Dirty) return;
+        if (_autosaveTask is { IsCompleted: false }) { _autosave.Run(() => _ = AutosaveAsync()); return; }
+        _autosaveTask = SaveLocalNowAsync();
+        await _autosaveTask;
+    }
+
+    private async Task SaveLocalNowAsync()
+    {
+        try
+        {
+            var d = await BuildDraftAsync(validate: false);
+            if (d == null || _closed || _queued) return;
+            var existed = d.LocalDraftId != null;
+            var pending = _pendingUpload;
+            var id = await Task.Run(() => _e.SaveLocalDraft(d, pending, insertIfMissing: !existed));
+            if (id == 0) return;
+            Claim(id);
+            Status = "Saved on this PC · " + DateTime.Now.ToString("HH:mm");
+        }
+        catch (Exception ex) { Log.Warn("autosave: " + ex.Message); }
+    }
+
+    private void Claim(long id)
+    {
+        if (_claimed == id) return;
+        if (_claimed is { } old) _e.ReleaseLocalDraft(old);
+        _e.ClaimLocalDraft(id);
+        _claimed = id;
+    }
+
+    private void ReleaseClaim()
+    {
+        if (_claimed is { } id) _e.ReleaseLocalDraft(id);
+        _claimed = null;
+    }
+
+    /// <summary>Stops further autosaves and waits for one that is already writing.</summary>
+    private async Task SettleAutosaveAsync(bool stop)
+    {
+        if (stop) _closed = true;
+        var t = _autosaveTask;
+        if (t != null) { try { await t; } catch { } }
+    }
+
+    /// <summary>
+    /// "Keep as draft" (and the Save draft button): saves to the server's Drafts folder, replacing earlier saves of
+    /// this message; when that fails (offline, server error) the message stays on this PC and uploads by itself
+    /// once this window has closed. Returns false only when there is nothing to save (no account).
+    /// </summary>
+    public async Task<bool> KeepAsDraftAsync(bool closing)
+    {
+        await SettleAutosaveAsync(stop: closing);
+        var d = await BuildDraftAsync(validate: false);
+        if (d == null) return false;
+        Status = "Saving draft…";
+        try
+        {
+            await _e.SaveDraftAsync(d);
+            if (d.LocalDraftId is { } id) { ReleaseClaim(); _e.DeleteLocalDraft(id); d.LocalDraftId = null; }
+            _pendingUpload = false;
+            Dirty = false;
+            Status = "✓ Saved in Drafts";
+        }
+        catch (Exception ex)
+        {
+            Log.Info("draft kept on this PC (server save failed: " + ex.Message + ")");
+            _pendingUpload = true;
+            var id = await Task.Run(() => _e.SaveLocalDraft(d, pendingUpload: true));
+            if (!closing && id != 0) Claim(id);
+            Dirty = false;
+            Status = "Offline · saved on this PC " + DateTime.Now.ToString("HH:mm");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// "Discard": drops this window's changes. A draft opened from this PC goes back to how it was when opened;
+    /// a new message's local copy is removed; a server draft it was opened from is left as it was.
+    /// </summary>
+    public async Task DiscardAsync()
+    {
+        await SettleAutosaveAsync(stop: true);
+        if (_openedFrom != null)
+        {
+            _e.Store.SaveLocalDraft(_openedFrom);        // puts the opened version back (re-creates it if needed)
+            _e.NotifyLocalDraftsChanged();
+        }
+        else if (_draft.LocalDraftId is { } id)
+            _e.DeleteLocalDraft(id);
+        _draft.LocalDraftId = _openedFrom?.Id;
+    }
 
     private readonly Action _onSettings;
 
     public void Detach()
     {
+        _closed = true;
+        ReleaseClaim();   // a draft still marked for upload is picked up by the background upload from now on
         _e.Settings.Changed -= _onSettings;
         _aiCts?.Cancel();
     }
@@ -118,10 +250,10 @@ public partial class ComposeViewModel : ObservableObject
         return sb.ToString();
     }
 
-    partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); Dirty = true; }
-    partial void OnToChanged(string value) => Dirty = true;
-    partial void OnCcChanged(string value) => Dirty = true;
-    partial void OnBccChanged(string value) => Dirty = true;
+    partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); }
+    partial void OnToChanged(string value) => MarkEdited();
+    partial void OnCcChanged(string value) => MarkEdited();
+    partial void OnBccChanged(string value) => MarkEdited();
 
     public void RefreshAi()
     {
@@ -145,7 +277,7 @@ public partial class ComposeViewModel : ObservableObject
             if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
                 continue;
             Attachments.Add(new AttachmentItem { Path = p });
-            Dirty = true;
+            MarkEdited();
         }
     }
 
@@ -155,14 +287,17 @@ public partial class ComposeViewModel : ObservableObject
         if (a == null) return;
         Attachments.Remove(a);
         if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
-        Dirty = true;
+        MarkEdited();
     }
 
-    private async Task<Draft?> BuildDraftAsync()
+    private async Task<Draft?> BuildDraftAsync(bool validate = true)
     {
-        if (From == null) { Ui.Error("Send", "Add an account first."); return null; }
-        var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
-        if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
+        if (From == null) { if (validate) Ui.Error("Send", "Add an account first."); return null; }
+        if (validate)
+        {
+            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
+            if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
+        }
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
         _draft.AccountId = From.Id;
         _draft.To = To;
@@ -194,7 +329,9 @@ public partial class ComposeViewModel : ObservableObject
             var sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
             var id = _e.QueueSend(d, sendAt, remindIfNoReply);
             _queued = true;
+            await SettleAutosaveAsync(stop: true);
             if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
+            if (d.LocalDraftId is { } localId) { ReleaseClaim(); _e.DeleteLocalDraft(localId); d.LocalDraftId = null; }
             Dirty = false;
             var main = System.Windows.Application.Current.MainWindow as MainWindow;
             if (main?.DataContext is MainViewModel vm)
@@ -212,25 +349,8 @@ public partial class ComposeViewModel : ObservableObject
         finally { Sending = false; }
     }
 
-    public async Task<bool> SaveDraftAsync()
-    {
-        var d = await BuildDraftAsync();
-        if (d == null) return false;
-        try
-        {
-            Status = "Saving draft…";
-            await _e.SaveDraftAsync(d);
-            Dirty = false;
-            Status = "Draft saved";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Status = "";
-            Ui.Error("Save draft", Connector.Friendly(ex));
-            return false;
-        }
-    }
+    /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
+    public Task<bool> SaveDraftAsync() => KeepAsDraftAsync(closing: false);
 
     public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert", t.Body);
 
@@ -303,7 +423,7 @@ public partial class ComposeViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(AiPreview) || EditorCommand == null) return;
         var mode = PreviewKind == "rewrite" ? "replaceSelection" : how == "replace" ? "replaceBody" : "insert";
         await EditorCommand(mode, AiPreview);
-        Dirty = true;
+        MarkEdited();
         DiscardPreview();
     }
 

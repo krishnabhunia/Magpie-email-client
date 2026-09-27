@@ -49,6 +49,19 @@ public partial class ComposeWindow : Window
 
     public static void OpenDraft(Draft d) => Show(d, null);
 
+    /// <summary>Brings forward the window already editing this local draft. False when none is open.</summary>
+    public static bool ActivateLocal(long localDraftId)
+    {
+        foreach (var w in Application.Current.Windows.OfType<ComposeWindow>())
+        {
+            if (w._vm.LocalDraftId != localDraftId) continue;
+            if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+            w.Activate();
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>mailto:a@b.com?subject=..&amp;body=..&amp;cc=..</summary>
     public static void OpenMailto(string mailto, string? accountId = null)
     {
@@ -138,7 +151,7 @@ public partial class ComposeWindow : Window
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
-        PlainEditor.TextChanged += (_, _) => _vm.Dirty = true;
+        PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
         _editorReady = true;
     }
 
@@ -154,10 +167,10 @@ public partial class ComposeWindow : Window
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
                     _editorReady = true;
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
-                    _vm.Dirty = _vm.StartsUnsaved || _typedBeforeReady;
+                    if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
                     if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
                     break;
-                case "dirty": _vm.Dirty = true; break;
+                case "dirty": _vm.MarkEdited(); break;
                 case "sel": _vm.SelectedText = (root.GetProperty("text").GetString() ?? "").Trim(); break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
@@ -273,7 +286,7 @@ public partial class ComposeWindow : Window
     {
         if (_forceClose || !_vm.Dirty) return;
         e.Cancel = true;
-        if (await AskToKeepAsync("Save this message as a draft?"))
+        if (await AskToKeepAsync("Keep this message as a draft?\n\nYes — keep it (it goes to your Drafts folder; if you are offline it waits on this PC and uploads later).\nNo — discard it."))
         {
             _forceClose = true;
             // Close() may not be called from inside this window's own Closing event (WPF throws), so post it.
@@ -292,8 +305,9 @@ public partial class ComposeWindow : Window
             Activate();
             var answer = MessageBox.Show(this, question, "Magpie", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Cancel) return false;
-            if (answer == MessageBoxResult.Yes && !await _vm.SaveDraftAsync()) return false;
-            return true;
+            if (answer == MessageBoxResult.No) { await _vm.DiscardAsync(); return true; }
+            // Keep: server Drafts, or this PC when offline — only "no account" can stop it.
+            return await _vm.KeepAsDraftAsync(closing: true);
         }
         finally { _asking = false; }
     }
@@ -304,7 +318,7 @@ public partial class ComposeWindow : Window
     /// <summary>Called when Magpie quits: asks about an unsent message first. False = the user cancelled quitting.</summary>
     public async Task<bool> CloseForExitAsync()
     {
-        if (!_forceClose && _vm.Dirty && !await AskToKeepAsync("Magpie is closing. Save this message as a draft first?"))
+        if (!_forceClose && _vm.Dirty && !await AskToKeepAsync("Magpie is closing. Keep this message as a draft?\n\nYes — keep it (Drafts, or on this PC if offline).\nNo — discard it."))
             return false;
         _forceClose = true;
         Close();

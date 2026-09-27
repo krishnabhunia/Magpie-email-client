@@ -8,6 +8,101 @@
     <!-- Four-point sparkle used on every AI control (14×14 box) -->
     <PathGeometry x:Key="Geo.Sparkle" Figures="M7,1.4 L8.5,5.1 L12.2,6.6 L8.5,8.1 L7,12.6 L5.5,8.1 L1.8,6.6 L5.5,5.1 Z" />
 
+    <!-- AI "Quick setup" preset button: outlined, filled teal when its IsSelected is true -->
+    <Style x:Key="Button.Preset" TargetType="Button" BasedOn="{StaticResource Button.Secondary}">
+        <Setter Property="MinHeight" Value="58" />
+        <Setter Property="VerticalContentAlignment" Value="Top" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Accent}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.Text.OnAccent}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Chevron used by collapsible sidebar headings, accounts and folders (points down; rotated -90° when closed) -->
+    <PathGeometry x:Key="Geo.Chevron" Figures="M3,4.5 L6,7.5 L9,4.5" />
+
+    <!-- Collapsible sidebar heading (FOLDERS / ACCOUNTS / TAGS): chevron (rotates with IsChecked) + content -->
+    <Style x:Key="Toggle.SectionHeader" TargetType="ToggleButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="8,14,8,4" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Padding="6,4">
+                        <DockPanel>
+                            <Path x:Name="Chev" Data="{StaticResource Geo.Chevron}" Stroke="{DynamicResource Brush.Text.Secondary}" StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="12" Height="12" Margin="0,0,6,0"
+                                  VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform><RotateTransform x:Name="Rot" Angle="-90" /></Path.RenderTransform>
+                            </Path>
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chev" Property="RenderTransform">
+                                <Setter.Value><RotateTransform Angle="0" /></Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Hover}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Account row in the sidebar: same chevron behaviour, normal text weight -->
+    <Style x:Key="Toggle.Account" TargetType="ToggleButton" BasedOn="{StaticResource Toggle.SectionHeader}">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Nav.Text}" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Margin" Value="8,1" />
+    </Style>
+
+    <!-- Tiny chevron button in front of a folder that has subfolders; DataContext is the folder's NavItem -->
+    <Style x:Key="Button.FolderChevron" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="4">
+                        <Path x:Name="Chev" Data="{StaticResource Geo.Chevron}" Stroke="{DynamicResource Brush.Text.Secondary}" StrokeThickness="1.4"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="12" Height="12"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                            <Path.RenderTransform><RotateTransform Angle="-90" /></Path.RenderTransform>
+                        </Path>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                            <Setter TargetName="Chev" Property="RenderTransform">
+                                <Setter.Value><RotateTransform Angle="0" /></Setter.Value>
+                            </Setter>
+                        </DataTrigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Hover}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ═══════════════ Text ═══════════════ -->
     <Style x:Key="Text.Serif" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Font.Serif}" />

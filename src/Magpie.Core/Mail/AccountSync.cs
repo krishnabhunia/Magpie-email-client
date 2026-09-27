@@ -655,6 +655,49 @@ public sealed class AccountSync : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Saves a draft in the Drafts folder, first removing earlier saves of the same message (same Message-ID),
+    /// so repeated saves replace the draft instead of piling up copies.
+    /// </summary>
+    public async Task<bool> ReplaceDraftAsync(MimeMessage msg, CancellationToken ct)
+    {
+        var target = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Drafts);
+        if (target == null) return false;
+        await _ui.UseAsync(async client =>
+        {
+            var f = await client.GetFolderAsync(target.Path, ct);
+            await RemoveByMessageIdAsync(client, f, msg.MessageId, ct);
+            await f.AppendAsync(new AppendRequest(msg, KitFlags.Draft | KitFlags.Seen), ct);
+        }, ct);
+        return true;
+    }
+
+    /// <summary>After a message is sent: removes its saved drafts (same Message-ID) from the Drafts folder.</summary>
+    public async Task DeleteDraftsByMessageIdAsync(string messageId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(messageId)) return;
+        var target = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Drafts);
+        if (target == null) return;
+        await _ui.UseAsync(async client =>
+        {
+            var f = await client.GetFolderAsync(target.Path, ct);
+            await RemoveByMessageIdAsync(client, f, messageId, ct);
+            return true;
+        }, ct);
+    }
+
+    private static async Task RemoveByMessageIdAsync(ImapClient client, IMailFolder f, string? messageId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(messageId)) return;
+        if (!f.IsOpen || f.Access != FolderAccess.ReadWrite) await f.OpenAsync(FolderAccess.ReadWrite, ct);
+        var id = messageId.Trim().Trim('<', '>');
+        var uids = await f.SearchAsync(KitSearch.HeaderContains("Message-ID", id), ct);
+        if (uids.Count == 0) return;
+        await f.StoreAsync(uids, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+        if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await f.ExpungeAsync(uids, ct);
+        else await f.ExpungeAsync(ct);
+    }
+
     /// <summary>Creates a folder (e.g. "Archive") at the top level of the personal namespace.</summary>
     public async Task<MailFolder?> EnsureFolderAsync(string name, FolderRole role, CancellationToken ct)
     {

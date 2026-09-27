@@ -62,6 +62,15 @@ public partial class EditableTemplate : ObservableObject
 
 public sealed record Choice<T>(T Value, string Label);
 
+/// <summary>One "Quick setup" button on the AI page (Off · A · B · C · Custom).</summary>
+public partial class AiPreset : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    [ObservableProperty] private bool _isSelected;
+}
+
 /// <summary>Settings window. Edits a copy; Save applies everything at once.</summary>
 public partial class SettingsViewModel : ObservableObject
 {
@@ -110,6 +119,53 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _testing;
     public string ApiKey { get; set; } = "";
     public bool ApiKeyChanged { get; set; }
+
+    /// <summary>Quick setup: each preset sets the master switch and the four feature switches.</summary>
+    public List<AiPreset> Presets { get; } = new()
+    {
+        new() { Id = "Off", Name = "Off", Description = "No AI anywhere" },
+        new() { Id = "A", Name = "A · Provider only", Description = "Set up and tested, nothing calls it" },
+        new() { Id = "B", Name = "B · Summarise", Description = "One button in threads" },
+        new() { Id = "C", Name = "C · Full assistant", Description = "Summaries, drafts, rewrite, replies" },
+        new() { Id = "Custom", Name = "Custom", Description = "Your own mix of switches" },
+    };
+
+    /// <summary>Which preset the current switches match (Custom when none).</summary>
+    public string CurrentPreset => AiPresets.Match(AiEnabled, Summarise, Draft, Rewrite, Replies);
+
+    public string PresetSummary => CurrentPreset switch
+    {
+        "Off" => "Off — no AI controls anywhere and nothing is ever sent to a model.",
+        "A" => "Option A — the provider is set up and tested, but nothing in your mail calls it yet. Turn on a feature (or pick B / C) when you are ready.",
+        "B" => "Option B — only the Summarise button appears in threads. Compose is untouched.",
+        "C" => "Option C — the full assistant: summaries, the compose rail, rewrite chips and suggested replies.",
+        _ => "Custom — your own mix of switches. Each feature still asks for consent the first time it sends data to a cloud provider.",
+    };
+
+    [RelayCommand]
+    private void ApplyPreset(string? id)
+    {
+        if (id == null || !AiPresets.TryGet(id, out var p)) return;   // "Custom" is only a state, not an action
+        AiEnabled = p.Master;
+        Summarise = p.Summarise;
+        Draft = p.Draft;
+        Rewrite = p.Rewrite;
+        Replies = p.Replies;
+    }
+
+    private void RefreshPreset()
+    {
+        var cur = CurrentPreset;
+        foreach (var p in Presets) p.IsSelected = p.Id == cur;
+        OnPropertyChanged(nameof(CurrentPreset));
+        OnPropertyChanged(nameof(PresetSummary));
+    }
+
+    partial void OnAiEnabledChanged(bool value) => RefreshPreset();
+    partial void OnSummariseChanged(bool value) => RefreshPreset();
+    partial void OnDraftChanged(bool value) => RefreshPreset();
+    partial void OnRewriteChanged(bool value) => RefreshPreset();
+    partial void OnRepliesChanged(bool value) => RefreshPreset();
     public List<Choice<AiProviderKind>> Providers { get; } = new()
     {
         new(AiProviderKind.OpenAI, "OpenAI"),
@@ -156,6 +212,7 @@ public partial class SettingsViewModel : ObservableObject
         _rewrite = ai.Rewrite;
         _replies = ai.Replies;
         ApiKey = _e.Vault.Get(SecretVault.AiKey) ?? "";
+        RefreshPreset();
     }
 
     partial void OnProviderChanged(AiProviderKind value)

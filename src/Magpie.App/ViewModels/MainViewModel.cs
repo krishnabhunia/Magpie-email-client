@@ -23,9 +23,15 @@ public partial class NavItem : ObservableObject
     public string TagColor { get; init; } = "#14606E";
     public int Depth { get; init; }
     public System.Windows.Thickness Indent => new(Depth * 14, 0, 0, 0);
+    /// <summary>Folder tree (design Q2): server path, parent path ("" = top level), and whether it has subfolders.</summary>
+    public string Path { get; init; } = "";
+    public string ParentPath { get; init; } = "";
+    public bool HasChildren { get; set; }
 
     [ObservableProperty] private int _count;
     [ObservableProperty] private bool _isSelected;
+    [ObservableProperty] private bool _isExpanded;
+    [ObservableProperty] private bool _isVisible = true;
 
     public string Key => $"{Kind}|{Role}|{FolderId}|{AccountId}|{TagName}";
 }
@@ -75,6 +81,10 @@ public sealed class ThreadItem
     public bool IsPinned => Row.Flagged;
     public bool HasAttachments => Row.HasAttachments;
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
+    /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>
+    public long? LocalDraftId { get; init; }
+    public string LocalBadge => LocalDraftId != null ? (LocalPending ? "On this PC · uploads when online" : "On this PC") : "";
+    public bool LocalPending { get; init; }
     public string? SnoozeText { get; }
     public List<string> Tags { get; }
     public string Key => Row.AccountId + "|" + Row.ThreadKey;
@@ -91,6 +101,31 @@ public sealed class ScheduledItem
         ? $"Not sent yet — {Item.LastError}"
         : "Sends " + TimePresets.Describe(Item.SendAt, DateTime.Now);
     public bool Failed => Item.Status == OutboxStatus.Failed;
+}
+
+/// <summary>One "Sending … Undo" row (design F2).</summary>
+public partial class UndoToast : ObservableObject
+{
+    public long OutboxId { get; }
+    public string Text { get; }
+    public DateTimeOffset Until { get; }
+    private readonly bool _showCountdown;
+    [ObservableProperty] private string _countdown = "";
+
+    public UndoToast(long outboxId, string text, DateTimeOffset until, bool showCountdown)
+    {
+        OutboxId = outboxId;
+        Text = text;
+        Until = until;
+        _showCountdown = showCountdown;
+        Refresh(DateTimeOffset.Now);
+    }
+
+    public void Refresh(DateTimeOffset now)
+    {
+        var left = (int)Math.Ceiling((Until - now).TotalSeconds);
+        Countdown = _showCountdown && left > 0 ? left + " s" : "";
+    }
 }
 
 public partial class MainViewModel : ObservableObject
@@ -118,11 +153,17 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _unreadOnly;
     [ObservableProperty] private int _peopleCount, _notificationsCount, _newslettersCount;
 
-    // Undo send toast
-    [ObservableProperty] private bool _undoVisible;
-    [ObservableProperty] private string _undoText = "";
-    private long _undoId;
-    private System.Windows.Threading.DispatcherTimer? _undoTimer;
+    // Sidebar sections (design Q2) — open/closed is remembered in settings.
+    [ObservableProperty] private bool _foldersOpen = true;
+    [ObservableProperty] private bool _accountsOpen = true;
+    [ObservableProperty] private bool _tagsOpen = true;
+    /// <summary>Shown on a closed FOLDERS heading: unread count in the unified inbox.</summary>
+    public string FoldersBadge => !FoldersOpen && Smart.Count > 0 && Smart[0].Count > 0 ? Smart[0].Count.ToString() : "";
+    /// <summary>Shown on a closed ACCOUNTS heading when an account needs attention.</summary>
+    public string AccountsWarning => AccountsOpen ? "" :
+        AccountNodes.Any(n => n.NeedsSignIn) ? $"{AccountNodes.Count(n => n.NeedsSignIn)} needs sign-in" :
+        AccountNodes.Any(n => n.HasProblem) ? "check connection" : "";
+
 
     public bool IsInbox => Current?.Kind == NavKind.Inbox;
     public bool ShowCategories => IsInbox && _e.Config.SmartInbox && string.IsNullOrWhiteSpace(SearchText);
@@ -132,6 +173,10 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel()
     {
         if (!_e.Config.SmartInbox) _category = null;
+        var sb = _e.Config.Sidebar;
+        _foldersOpen = sb.FoldersOpen;
+        _accountsOpen = sb.AccountsOpen;
+        _tagsOpen = sb.TagsOpen;
         _e.Changed += cs => Ui.Post(() => { _reload.Run(ReloadList); if (cs.FoldersChanged) BuildNav(); else _navRefresh.Run(RefreshCounts); });
         _e.StatusChanged += (id, st) => Ui.Post(() => UpdateStatus(id, st));
         _e.OutboxChanged += () => Ui.Post(() => { _navRefresh.Run(RefreshCounts); if (IsScheduledView) _reload.Run(ReloadList); });
@@ -158,27 +203,37 @@ public partial class MainViewModel : ObservableObject
         Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Junk, Label = "Spam", Glyph = "" });
         Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Trash, Label = "Trash", Glyph = "" });
 
-        var expanded = AccountNodes.Where(a => a.IsExpanded).Select(a => a.Account.Id).ToHashSet();
+        foreach (var old in AccountNodes) old.PropertyChanged -= OnAccountNodeChanged;
         AccountNodes.Clear();
+        var sbs = _e.Config.Sidebar;
+        var openAccounts = sbs.OpenAccounts.ToHashSet();
+        var openFolders = sbs.OpenFolders.ToHashSet();
         var folders = _e.Folders();
         foreach (var a in _e.Accounts)
         {
-            var node = new AccountNode { Account = a, IsExpanded = expanded.Contains(a.Id) };
-            foreach (var f in folders.Where(f => f.AccountId == a.Id).OrderBy(f => f.Role == FolderRole.Inbox ? 0 : f.Role == FolderRole.Other ? 2 : 1).ThenBy(f => f.Path, StringComparer.OrdinalIgnoreCase))
+            var node = new AccountNode { Account = a, IsExpanded = openAccounts.Contains(a.Id) };
+            foreach (var (f, depth, parent) in FolderTree.Order(folders.Where(f => f.AccountId == a.Id)))
             {
-                node.Folders.Add(new NavItem
+                var item = new NavItem
                 {
                     Kind = NavKind.Folder, FolderId = f.Id, AccountId = a.Id, Label = f.Name, Role = f.Role,
+                    Path = f.Path, ParentPath = parent,
                     Glyph = f.Role switch
                     {
                         FolderRole.Inbox => "", FolderRole.Sent => "", FolderRole.Drafts => "", FolderRole.Trash => "",
                         FolderRole.Junk => "", FolderRole.Archive => "", FolderRole.All => "", FolderRole.Flagged => "",
                         _ => "",
                     },
-                    Depth = f.Role == FolderRole.Other ? Math.Min(f.Depth, 4) : 0,
-                });
+                    Depth = Math.Min(depth, 5),
+                };
+                item.IsExpanded = openFolders.Contains(a.Id + "|" + f.Path);
+                node.Folders.Add(item);
             }
+            var parents = node.Folders.Select(i => i.ParentPath).Where(p => p.Length > 0).ToHashSet();
+            foreach (var i in node.Folders) i.HasChildren = parents.Contains(i.Path);
+            ApplyFolderVisibility(node);
             if (_e.StatusOf(a.Id) is { } st) ApplyStatus(node, st);
+            node.PropertyChanged += OnAccountNodeChanged;
             AccountNodes.Add(node);
         }
 
@@ -319,6 +374,28 @@ public partial class MainViewModel : ObservableObject
             return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "");
         }).ToList();
 
+        // Drafts kept on this PC (design F1) are listed first in Drafts views.
+        var draftsAccount = nav.Kind == NavKind.Role && nav.Role == FolderRole.Drafts ? "*"
+            : nav.Kind == NavKind.Folder && nav.Role == FolderRole.Drafts ? nav.AccountId : null;
+        if (draftsAccount != null && search == null)
+        {
+            var locals = _e.LocalDrafts().Where(l => draftsAccount == "*" || l.AccountId == draftsAccount).Select(l =>
+            {
+                var acc = _e.AccountById(l.AccountId);
+                var row = new ThreadRow
+                {
+                    AccountId = l.AccountId, ThreadKey = "local:" + l.Id, Count = 1,
+                    Latest = new MessageRow
+                    {
+                        AccountId = l.AccountId, FromAddress = acc?.Email ?? "", To = l.ToText, Subject = l.Subject,
+                        Preview = l.Preview, Date = l.Updated.ToLocalTime(), SortDate = l.Updated, Flags = MessageFlags.Seen,
+                    },
+                };
+                return new ThreadItem(row, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "") { LocalDraftId = l.Id, LocalPending = l.PendingUpload };
+            });
+            items.InsertRange(0, locals);
+        }
+
         // Rebuild the list. While it is cleared the ListBox pushes Selected = null through the two-way
         // binding; _reloading stops that from closing the open conversation (it would blank the reader
         // every time opening a thread marks it read and the list reloads).
@@ -357,7 +434,7 @@ public partial class MainViewModel : ObservableObject
                 NavKind.Snoozed => _e.Store.CountSnoozedThreads(now),
                 NavKind.FollowUp => _e.DueReminders().Count,
                 NavKind.Scheduled => _e.Outbox().Count(o => o.Status is OutboxStatus.Queued or OutboxStatus.Failed),
-                NavKind.Role when n.Role is FolderRole.Drafts => _e.Folders().Where(f => f.Role == FolderRole.Drafts).Sum(f => f.Total),
+                NavKind.Role when n.Role is FolderRole.Drafts => _e.Folders().Where(f => f.Role == FolderRole.Drafts).Sum(f => f.Total) + _e.Store.CountLocalDrafts(),
                 _ => 0,
             };
         }
@@ -369,6 +446,7 @@ public partial class MainViewModel : ObservableObject
         NotificationsCount = _e.Store.CountUnreadThreads(inbox, now, Core.Models.Category.Notifications);
         NewslettersCount = _e.Store.CountUnreadThreads(inbox, now, Core.Models.Category.Newsletters);
         var unread = Smart[0].Count;
+        OnPropertyChanged(nameof(FoldersBadge));
         AppServices.Tray?.SetTooltip(unread > 0 ? $"Magpie — {unread} unread" : "Magpie");
     }
 
@@ -376,6 +454,7 @@ public partial class MainViewModel : ObservableObject
     {
         var node = AccountNodes.FirstOrDefault(n => n.Account.Id == accountId);
         if (node != null) ApplyStatus(node, st);
+        OnPropertyChanged(nameof(AccountsWarning));
         var problems = AccountNodes.Where(n => n.HasProblem).ToList();
         var busy = AccountNodes.Any(n => n.Status.StartsWith("Connecting") || n.Status.StartsWith("Checking"));
         StatusText = problems.Count > 0 ? $"{problems[0].Email}: {problems[0].Status}" : busy ? "Checking for mail…" : "";
@@ -388,6 +467,68 @@ public partial class MainViewModel : ObservableObject
         node.NeedsSignIn = st.State == SyncState.NeedsSignIn;
     }
 
+    // ───────────────────────── sidebar sections (design Q2) ─────────────────────────
+
+    partial void OnFoldersOpenChanged(bool value) { OnPropertyChanged(nameof(FoldersBadge)); SaveSidebar(); }
+    partial void OnAccountsOpenChanged(bool value) { OnPropertyChanged(nameof(AccountsWarning)); SaveSidebar(); }
+    partial void OnTagsOpenChanged(bool value) => SaveSidebar();
+
+    private void OnAccountNodeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AccountNode.IsExpanded)) SaveSidebar();
+    }
+
+    /// <summary>Opens/closes a folder's subfolders.</summary>
+    [RelayCommand]
+    private void ToggleFolder(NavItem? item)
+    {
+        if (item == null || !item.HasChildren) return;
+        item.IsExpanded = !item.IsExpanded;
+        var node = AccountNodes.FirstOrDefault(n => n.Account.Id == item.AccountId);
+        if (node != null) ApplyFolderVisibility(node);
+        SaveSidebar();
+    }
+
+    /// <summary>A folder shows only when every ancestor is open.</summary>
+    private static void ApplyFolderVisibility(AccountNode node)
+    {
+        var byPath = new Dictionary<string, NavItem>(StringComparer.Ordinal);
+        foreach (var f in node.Folders) byPath.TryAdd(f.Path, f);
+        foreach (var f in node.Folders)
+        {
+            var visible = true;
+            var parent = f.ParentPath;
+            var guard = 0;
+            while (parent.Length > 0 && byPath.TryGetValue(parent, out var p) && guard++ < 32)
+            {
+                if (!p.IsExpanded) { visible = false; break; }
+                parent = p.ParentPath;
+            }
+            f.IsVisible = visible;
+        }
+    }
+
+    private readonly Ui.Debouncer _saveSidebar = new(TimeSpan.FromMilliseconds(500));
+
+    private void SaveSidebar()
+    {
+        var sb = _e.Config.Sidebar;
+        sb.FoldersOpen = FoldersOpen;
+        sb.AccountsOpen = AccountsOpen;
+        sb.TagsOpen = TagsOpen;
+        // Only replace entries for accounts shown now; keep the rest (e.g. an account that failed to load).
+        var known = AccountNodes.Select(n => n.Account.Id).ToHashSet();
+        sb.OpenAccounts = sb.OpenAccounts.Where(id => !known.Contains(id))
+            .Concat(AccountNodes.Where(n => n.IsExpanded).Select(n => n.Account.Id)).Distinct().ToList();
+        sb.OpenFolders = sb.OpenFolders.Where(k => !known.Contains(k.Split('|')[0]))
+            .Concat(AccountNodes.SelectMany(n => n.Folders).Where(f => f.HasChildren && f.IsExpanded).Select(f => f.AccountId + "|" + f.Path))
+            .Distinct().ToList();
+        _saveSidebar.Run(() =>
+        {
+            try { _e.Settings.Save(notify: false); } catch (Exception ex) { Log.Warn("save sidebar: " + ex.Message); }
+        });
+    }
+
     // ───────────────────────── selection & actions ─────────────────────────
 
     private bool _reloading;
@@ -396,6 +537,12 @@ public partial class MainViewModel : ObservableObject
     {
         if (_reloading) return;
         if (value == null) { Reader.Clear(); return; }
+        if (value.LocalDraftId != null)
+        {
+            // Drafts kept on this PC open in Compose on click or Enter (not on arrow keys / J / K).
+            Reader.Clear("Draft saved on this PC", "Click it or press Enter to open it in a new window.");
+            return;
+        }
         Reader.Show(value.Row, this);
     }
 
@@ -406,6 +553,15 @@ public partial class MainViewModel : ObservableObject
         var i = Threads.IndexOf(Selected);
         Threads.Remove(Selected);
         Selected = Threads.Count == 0 ? null : Threads[Math.Clamp(i, 0, Threads.Count - 1)];
+    }
+
+    /// <summary>Opens the selected local draft in Compose (or brings its open window forward).</summary>
+    public void OpenSelectedLocalDraft()
+    {
+        if (Selected?.LocalDraftId is not { } id) return;
+        if (Views.ComposeWindow.ActivateLocal(id)) return;
+        if (_e.OpenLocalDraft(id) is { } d) Views.ComposeWindow.OpenDraft(d);
+        else ReloadList();   // it was sent / uploaded meanwhile
     }
 
     public void SelectByKey(string accountId, string threadKey)
@@ -453,38 +609,78 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
 
-    // ───────────────────────── undo send ─────────────────────────
+    // ───────────────────────── undo send (design F2: one row per message) ─────────────────────────
+
+    public ObservableCollection<UndoToast> Toasts { get; } = new();
+    public ObservableCollection<UndoToast> VisibleToasts { get; } = new();
+    [ObservableProperty] private string _toastOverflow = "";
+    private const int MaxToasts = 3;
+    private System.Windows.Threading.DispatcherTimer? _toastTimer;
 
     public void ShowUndo(long outboxId, int seconds, string subject)
     {
         if (seconds <= 0) return;
-        _undoId = outboxId;
-        UndoText = $"Sending \"{(subject.Length > 40 ? subject[..40] + "…" : subject)}\"";
-        UndoVisible = true;
-        _undoTimer?.Stop();
-        _undoTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
-        _undoTimer.Tick += (_, _) => { _undoTimer?.Stop(); UndoVisible = false; };
-        _undoTimer.Start();
+        AddToast(new UndoToast(outboxId, $"Sending \"{Shorten(subject, 44)}\"", DateTimeOffset.Now.AddSeconds(seconds), showCountdown: true));
     }
 
     public void ShowScheduled(long outboxId, DateTimeOffset when, string subject)
     {
-        _undoId = outboxId;
-        UndoText = $"\"{(subject.Length > 30 ? subject[..30] + "…" : subject)}\" scheduled for {TimePresets.Describe(when, DateTime.Now)}";
-        UndoVisible = true;
-        _undoTimer?.Stop();
-        _undoTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-        _undoTimer.Tick += (_, _) => { _undoTimer?.Stop(); UndoVisible = false; };
-        _undoTimer.Start();
+        AddToast(new UndoToast(outboxId, $"\"{Shorten(subject, 30)}\" scheduled for {TimePresets.Describe(when, DateTime.Now)}",
+            DateTimeOffset.Now.AddSeconds(8), showCountdown: false));
+    }
+
+    private static string Shorten(string s, int n) => string.IsNullOrEmpty(s) ? "(no subject)" : s.Length > n ? s[..n] + "…" : s;
+
+    private void AddToast(UndoToast t)
+    {
+        Toasts.Add(t);
+        RefreshToasts();
+        if (_toastTimer == null)
+        {
+            _toastTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _toastTimer.Tick += (_, _) => TickToasts();
+        }
+        _toastTimer.Start();
+    }
+
+    private void TickToasts()
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var t in Toasts.Where(t => t.Until <= now).ToList()) Toasts.Remove(t);
+        foreach (var t in Toasts) t.Refresh(now);
+        RefreshToasts();
+        if (Toasts.Count == 0) _toastTimer?.Stop();
+    }
+
+    /// <summary>Newest three are shown (oldest first, newest at the bottom); the rest fold into "+N more".</summary>
+    private void RefreshToasts()
+    {
+        var shown = Toasts.Skip(Math.Max(0, Toasts.Count - MaxToasts)).ToList();
+        if (!shown.SequenceEqual(VisibleToasts))
+        {
+            VisibleToasts.Clear();
+            foreach (var t in shown) VisibleToasts.Add(t);
+        }
+        var hidden = Toasts.Count - shown.Count;
+        ToastOverflow = hidden > 0 ? $"+{hidden} more — see Scheduled" : "";
     }
 
     [RelayCommand]
-    private void UndoSend()
+    private void UndoSend(UndoToast? toast)
     {
-        _undoTimer?.Stop();
-        UndoVisible = false;
-        var d = _e.Recall(_undoId);
+        toast ??= Toasts.LastOrDefault();
+        if (toast == null) return;
+        Toasts.Remove(toast);
+        RefreshToasts();
+        var d = _e.Recall(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
+    }
+
+    [RelayCommand]
+    private void ShowScheduledView()
+    {
+        var item = Smart.FirstOrDefault(n => n.Kind == NavKind.Scheduled);
+        if (item != null) Current = item;
     }
 }

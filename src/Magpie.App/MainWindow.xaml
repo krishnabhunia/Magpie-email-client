@@ -77,7 +77,18 @@
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,0,8">
-                            <ItemsControl ItemsSource="{Binding Smart}">
+                            <!-- Collapsible sections (design Q2). A closed section still shows what matters. -->
+                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding FoldersOpen, Mode=TwoWay}" Margin="8,2,8,4"
+                                          AutomationProperties.Name="Folders" ToolTip="Show or hide folders">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Accent}" CornerRadius="8" Padding="6,0"
+                                            Visibility="{Binding FoldersBadge, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding FoldersBadge}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" />
+                                    </Border>
+                                    <TextBlock Text="FOLDERS" VerticalAlignment="Center" />
+                                </DockPanel>
+                            </ToggleButton>
+                            <ItemsControl ItemsSource="{Binding Smart}" Visibility="{Binding FoldersOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:NavItem}">
                                         <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}"
@@ -98,32 +109,28 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <TextBlock Text="ACCOUNTS" Style="{StaticResource Text.SectionCaps}" Margin="20,18,0,6" Visibility="{Binding HasAccounts, Converter={StaticResource BoolToVis}}" />
-                            <ItemsControl ItemsSource="{Binding AccountNodes}">
+                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding AccountsOpen, Mode=TwoWay}"
+                                          AutomationProperties.Name="Accounts" ToolTip="Show or hide accounts"
+                                          Visibility="{Binding HasAccounts, Converter={StaticResource BoolToVis}}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding AccountsWarning}" Foreground="{DynamicResource Brush.Warning}" FontSize="10.5" FontWeight="Normal" VerticalAlignment="Center" />
+                                    <TextBlock Text="ACCOUNTS" VerticalAlignment="Center" />
+                                </DockPanel>
+                            </ToggleButton>
+                            <ItemsControl ItemsSource="{Binding AccountNodes}" Visibility="{Binding AccountsOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:AccountNode}">
                                         <StackPanel>
-                                            <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay}" Margin="8,1" Cursor="Hand" FocusVisualStyle="{x:Null}" ToolTip="{Binding Status}">
-                                                <ToggleButton.Template>
-                                                    <ControlTemplate TargetType="ToggleButton">
-                                                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Padding="10,6">
-                                                            <ContentPresenter />
-                                                        </Border>
-                                                        <ControlTemplate.Triggers>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Hover}" />
-                                                            </Trigger>
-                                                        </ControlTemplate.Triggers>
-                                                    </ControlTemplate>
-                                                </ToggleButton.Template>
+                                            <ToggleButton Style="{StaticResource Toggle.Account}" IsChecked="{Binding IsExpanded, Mode=TwoWay}" ToolTip="{Binding Status}"
+                                                          AutomationProperties.Name="{Binding Email}">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <Ellipse Width="8" Height="8" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding Email}" FontSize="12.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                    <Ellipse Width="8" Height="8" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Email}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                                     <TextBlock Grid.Column="2" Text="&#xE7BA;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
                                                                VerticalAlignment="Center" Margin="6,0,0,0" Visibility="{Binding HasProblem, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
@@ -134,16 +141,21 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate DataType="{x:Type vm:NavItem}">
                                                         <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30"
+                                                                     Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}"
                                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                                             <Grid Margin="{Binding Indent}">
                                                                 <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="18" />
                                                                     <ColumnDefinition Width="22" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Nav.Icon}" VerticalAlignment="Center" />
-                                                                <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                                <TextBlock Grid.Column="2" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center"
+                                                                <Button Style="{StaticResource Button.FolderChevron}" Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}"
+                                                                        Command="{Binding DataContext.ToggleFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                        ToolTip="Show or hide subfolders" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding Glyph}" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Nav.Icon}" VerticalAlignment="Center" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Grid.Column="3" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center"
                                                                            Visibility="{Binding Count, Converter={StaticResource BoolToVis}}" />
                                                             </Grid>
                                                         </RadioButton>
@@ -155,8 +167,11 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <TextBlock Text="TAGS" Style="{StaticResource Text.SectionCaps}" Margin="20,18,0,6" />
-                            <ItemsControl ItemsSource="{Binding TagItems}">
+                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding TagsOpen, Mode=TwoWay}"
+                                          AutomationProperties.Name="Tags" ToolTip="Show or hide tags">
+                                <TextBlock Text="TAGS" VerticalAlignment="Center" />
+                            </ToggleButton>
+                            <ItemsControl ItemsSource="{Binding TagItems}" Visibility="{Binding TagsOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:NavItem}">
                                         <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30"
@@ -215,7 +230,7 @@
 
                     <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0">
                         <Grid>
-                            <ListBox x:Name="ThreadList" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                            <ListBox x:Name="ThreadList" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">
@@ -239,6 +254,10 @@
                                             </DockPanel>
                                             <DockPanel Grid.Row="1" Margin="0,2,0,0">
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                    <Border Background="{DynamicResource Brush.Badge.Local.Background}" CornerRadius="9" Padding="7,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding LocalBadge, Converter={StaticResource BoolToVis}}">
+                                                        <TextBlock Text="{Binding LocalBadge}" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Badge.Local.Text}" />
+                                                    </Border>
                                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0"
                                                                Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" ToolTip="Has attachments" />
                                                     <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent}" Margin="6,0,0,0"
@@ -321,12 +340,25 @@
                     </Border>
 
                     <!-- Undo send -->
-                    <Border Grid.Row="4" Background="{DynamicResource Brush.TitleBar.Background}" Padding="14,8" Visibility="{Binding UndoVisible, Converter={StaticResource BoolToVis}}">
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Command="{Binding UndoSendCommand}" Foreground="#9FE3EC" MinHeight="24" Padding="8,2" />
-                            <TextBlock Text="{Binding UndoText}" Foreground="{DynamicResource Brush.TitleBar.Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        </DockPanel>
-                    </Border>
+                    <!-- Undo send: one row per message, newest at the bottom (design F2) -->
+                    <StackPanel Grid.Row="4" Background="{DynamicResource Brush.TitleBar.Background}">
+                        <ItemsControl ItemsSource="{Binding VisibleToasts}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:UndoToast}">
+                                    <Border BorderBrush="#2C3238" BorderThickness="0,0,0,1" Padding="14,6">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
+                                                    Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Countdown}" Foreground="#9AA1A8" FontSize="11.5" VerticalAlignment="Center" Margin="8,0,4,0" />
+                                            <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Brush.TitleBar.Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Style="{StaticResource Button.Link}" Content="{Binding ToastOverflow}" Foreground="#9FE3EC" FontSize="12" HorizontalAlignment="Left" Margin="14,4,0,6"
+                                Command="{Binding ShowScheduledViewCommand}" Visibility="{Binding ToastOverflow, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
                 </Grid>
             </Border>
 

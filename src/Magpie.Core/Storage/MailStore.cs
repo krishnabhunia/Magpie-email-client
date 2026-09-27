@@ -27,7 +27,8 @@ public sealed class ListQuery
 public sealed class MailStore
 {
     private readonly string _cs;
-    public const int SchemaVersion = 1;
+    /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
+    public const int SchemaVersion = 2;
 
     public MailStore(string dbPath)
     {
@@ -109,6 +110,11 @@ public sealed class MailStore
             CREATE TABLE IF NOT EXISTS summaries(
               account_id TEXT NOT NULL, thread_key TEXT NOT NULL, digest TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL,
               PRIMARY KEY(account_id, thread_key));
+            CREATE TABLE IF NOT EXISTS local_drafts(
+              id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, mime BLOB NOT NULL,
+              subject TEXT NOT NULL DEFAULT '', to_text TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '',
+              thread_key TEXT NOT NULL DEFAULT '', source_draft_row INTEGER NULL,
+              pending_upload INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL);
             """);
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
@@ -634,6 +640,90 @@ public sealed class MailStore
     {
         return GetPendingOps(accountId).Where(o => o.Kind is PendingOpKind.Move or PendingOpKind.Delete)
             .Select(o => (o.FolderId, o.Uid)).ToHashSet();
+    }
+
+    // ───────────────────────── local drafts (design F1) ─────────────────────────
+
+    /// <summary>Inserts (id 0) or updates a draft kept on this PC. Returns its id.</summary>
+    public long SaveLocalDraft(LocalDraft d, bool insertIfMissing = true)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        if (d.Id == 0)
+        {
+            cmd.CommandText = """
+                INSERT INTO local_drafts(account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated)
+                VALUES($a,$m,$s,$t,$p,$k,$src,$pu,$u) RETURNING id
+                """;
+        }
+        else
+        {
+            cmd.CommandText = """
+                UPDATE local_drafts SET account_id=$a, mime=$m, subject=$s, to_text=$t, preview=$p, thread_key=$k,
+                  source_draft_row=$src, pending_upload=$pu, updated=$u WHERE id=$id RETURNING id
+                """;
+            cmd.Parameters.AddWithValue("$id", d.Id);
+        }
+        cmd.Parameters.AddWithValue("$a", d.AccountId);
+        cmd.Parameters.AddWithValue("$m", d.Mime);
+        cmd.Parameters.AddWithValue("$s", d.Subject);
+        cmd.Parameters.AddWithValue("$t", d.ToText);
+        cmd.Parameters.AddWithValue("$p", d.Preview);
+        cmd.Parameters.AddWithValue("$k", d.ThreadKey);
+        cmd.Parameters.AddWithValue("$src", (object?)d.SourceDraftRow ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$pu", d.PendingUpload ? 1 : 0);
+        cmd.Parameters.AddWithValue("$u", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var id = cmd.ExecuteScalar();
+        if (id == null || id is DBNull)
+        {
+            // The row was deleted meanwhile (sent, discarded, uploaded). An explicit save stores it again;
+            // an autosave (insertIfMissing = false) does not bring it back.
+            if (!insertIfMissing) return 0;
+            d.Id = 0;
+            return SaveLocalDraft(d);
+        }
+        d.Id = Convert.ToInt64(id);
+        return d.Id;
+    }
+
+    public List<LocalDraft> GetLocalDrafts(bool pendingOnly = false)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id,account_id,mime,subject,to_text,preview,thread_key,source_draft_row,pending_upload,updated FROM local_drafts"
+            + (pendingOnly ? " WHERE pending_upload=1" : "") + " ORDER BY updated DESC";
+        var list = new List<LocalDraft>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new LocalDraft
+            {
+                Id = r.GetInt64(0), AccountId = r.GetString(1), Mime = (byte[])r.GetValue(2), Subject = r.GetString(3),
+                ToText = r.GetString(4), Preview = r.GetString(5), ThreadKey = r.GetString(6),
+                SourceDraftRow = r.IsDBNull(7) ? null : r.GetInt64(7), PendingUpload = r.GetInt32(8) != 0,
+                Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(9)),
+            });
+        return list;
+    }
+
+    public LocalDraft? GetLocalDraft(long id) => GetLocalDrafts().FirstOrDefault(d => d.Id == id);
+
+    /// <summary>Local drafts that are new messages (not newer copies of a server draft, which is counted already).</summary>
+    public int CountLocalDrafts()
+    {
+        using var c = Open();
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM local_drafts WHERE source_draft_row IS NULL"));
+    }
+
+    public void DeleteLocalDraft(long id)
+    {
+        using var c = Open();
+        Exec(c, "DELETE FROM local_drafts WHERE id=$id", ("$id", id));
+    }
+
+    public void DeleteLocalDraftsForAccount(string accountId)
+    {
+        using var c = Open();
+        Exec(c, "DELETE FROM local_drafts WHERE account_id=$a", ("$a", accountId));
     }
 
     // ───────────────────────── outbox ─────────────────────────

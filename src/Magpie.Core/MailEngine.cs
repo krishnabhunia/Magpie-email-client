@@ -154,6 +154,7 @@ public sealed class MailEngine : IDisposable
         Vault.RemovePrefix($"account:{accountId}:");
         OAuth.Forget(accountId);
         Store.DeleteAccount(accountId);
+        Store.DeleteLocalDraftsForAccount(accountId);
         try
         {
             var dir = Path.GetDirectoryName(Paths.MimePath(accountId, 0));
@@ -392,10 +393,103 @@ public sealed class MailEngine : IDisposable
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
         var msg = Composer.Build(d, account);
-        if (!await sync.AppendAsync(FolderRole.Drafts, msg, MailKit.MessageFlags.Draft | MailKit.MessageFlags.Seen, ct))
+        if (!await sync.ReplaceDraftAsync(msg, ct))
             throw new InvalidOperationException("This account has no Drafts folder.");
-        if (d.SourceDraftRow is { } old) DeleteDraft(old);
+        if (d.SourceDraftRow is { } old) { DeleteDraft(old); d.SourceDraftRow = null; }
         SyncNow(account.Id);
+    }
+
+    // ───────────────────────── drafts kept on this PC (design F1) ─────────────────────────
+
+    /// <summary>Saves the compose window's content on this PC. Returns the local draft id.</summary>
+    /// <param name="insertIfMissing">false for an autosave of an existing copy: if that copy was removed meanwhile
+    /// (sent, discarded) nothing is written and 0 is returned.</param>
+    public long SaveLocalDraft(Draft d, bool pendingUpload, bool insertIfMissing = true)
+    {
+        var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
+        var msg = Composer.Build(d, account);
+        var text = MimeText.HtmlToText(d.Html);
+        var preview = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+        var local = new LocalDraft
+        {
+            Id = d.LocalDraftId ?? 0,
+            AccountId = d.AccountId,
+            Mime = Composer.ToBytes(msg),
+            Subject = d.Subject ?? "",
+            ToText = d.To ?? "",
+            Preview = preview.Length > 160 ? preview[..160] : preview,
+            ThreadKey = d.ThreadKey ?? "",
+            SourceDraftRow = d.SourceDraftRow,
+            PendingUpload = pendingUpload,
+        };
+        var id = Store.SaveLocalDraft(local, insertIfMissing);
+        if (id == 0) return 0;
+        d.LocalDraftId = id;
+        Changed?.Invoke(new ChangeSet { AccountId = d.AccountId });
+        return id;
+    }
+
+    public List<LocalDraft> LocalDrafts() => Store.GetLocalDrafts();
+
+    public void NotifyLocalDraftsChanged() => Changed?.Invoke(new ChangeSet());
+
+    /// <summary>Turns a local draft back into something the compose window can open.</summary>
+    public Draft? OpenLocalDraft(long id)
+    {
+        var l = Store.GetLocalDraft(id);
+        return l == null ? null : DraftFromLocal(l);
+    }
+
+    private static Draft DraftFromLocal(LocalDraft l)
+    {
+        var d = Composer.FromMime(Composer.FromBytes(l.Mime), l.AccountId, l.ThreadKey);
+        d.Mode = ComposeMode.EditDraft;
+        d.SourceDraftRow = l.SourceDraftRow;
+        d.LocalDraftId = l.Id;
+        return d;
+    }
+
+    public void DeleteLocalDraft(long id)
+    {
+        Store.DeleteLocalDraft(id);
+        Changed?.Invoke(new ChangeSet());
+    }
+
+    private int _flushingDrafts;
+    private readonly ConcurrentDictionary<long, byte> _openLocalDrafts = new();
+
+    /// <summary>A compose window is editing this local draft: the background upload leaves it alone until released.</summary>
+    public void ClaimLocalDraft(long id) => _openLocalDrafts[id] = 0;
+    public void ReleaseLocalDraft(long id) => _openLocalDrafts.TryRemove(id, out _);
+    public bool IsLocalDraftOpen(long id) => _openLocalDrafts.ContainsKey(id);
+
+    /// <summary>Uploads drafts that were kept on this PC while offline, once their account is connected again.</summary>
+    private async Task FlushPendingDraftsAsync(CancellationToken ct)
+    {
+        if (Interlocked.Exchange(ref _flushingDrafts, 1) == 1) return;
+        try
+        {
+            foreach (var listed in Store.GetLocalDrafts(pendingOnly: true))
+            {
+                if (StatusOf(listed.AccountId)?.State != SyncState.Idle) continue;   // offline / signing in / busy: try later
+                if (IsLocalDraftOpen(listed.Id)) continue;                          // its compose window decides
+                var l = Store.GetLocalDraft(listed.Id);                              // re-read: it may have changed or gone
+                if (l == null || !l.PendingUpload) continue;
+                var d = DraftFromLocal(l);
+                try
+                {
+                    await SaveDraftAsync(d, ct);
+                    // Only remove the local copy if nobody changed or opened it while it was uploading.
+                    var now = Store.GetLocalDraft(l.Id);
+                    if (now != null && now.Updated == l.Updated && !IsLocalDraftOpen(l.Id)) Store.DeleteLocalDraft(l.Id);
+                    Log.Info($"uploaded draft kept on this PC: '{l.Subject}'");
+                    Changed?.Invoke(new ChangeSet { AccountId = l.AccountId });
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex) { Log.Warn("draft upload still failing: " + ex.Message); }
+            }
+        }
+        finally { Interlocked.Exchange(ref _flushingDrafts, 0); }
     }
 
     /// <summary>Deletes a server draft (after it was sent or re-saved).</summary>
@@ -437,6 +531,11 @@ public sealed class MailEngine : IDisposable
                 {
                     try { await sync.AppendToSentAsync(msg, ct); }
                     catch (Exception ex) { Log.Warn("could not save a copy in Sent: " + ex.Message); }
+                }
+                if (_syncs.TryGetValue(account.Id, out var draftsSync))
+                {
+                    try { await draftsSync.DeleteDraftsByMessageIdAsync(msg.MessageId ?? "", ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("could not remove the sent message's draft: " + ex.Message); }
                 }
                 if (item.RemindAt is { } due)
                     Store.AddReminder(new Reminder { AccountId = item.AccountId, ThreadKey = item.ThreadKey, Subject = item.Subject, After = DateTimeOffset.Now, Due = due });
@@ -491,6 +590,12 @@ public sealed class MailEngine : IDisposable
                     lastMinute = DateTimeOffset.Now;
                     CheckReminders();
                     if (Interlocked.Exchange(ref _promotePending, 0) == 1) PromoteKnownSenders();
+                    _ = Task.Run(async () =>
+                    {
+                        try { await FlushPendingDraftsAsync(ct); }
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex) { Log.Warn("draft upload: " + ex.Message); }
+                    });
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }

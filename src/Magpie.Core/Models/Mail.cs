@@ -95,6 +95,22 @@ public sealed class MessageBody
 
 public enum OutboxStatus { Queued = 0, Sending = 1, Failed = 2, Sent = 3, Cancelled = 4 }
 
+/// <summary>A message being written, kept on this PC (design F1): autosaved while composing, and held
+/// until it reaches the server's Drafts folder (<see cref="PendingUpload"/>) when saving there failed.</summary>
+public sealed class LocalDraft
+{
+    public long Id { get; set; }
+    public string AccountId { get; set; } = "";
+    public byte[] Mime { get; set; } = Array.Empty<byte>();
+    public string Subject { get; set; } = "";
+    public string ToText { get; set; } = "";
+    public string Preview { get; set; } = "";
+    public string ThreadKey { get; set; } = "";
+    public long? SourceDraftRow { get; set; }
+    public bool PendingUpload { get; set; }
+    public DateTimeOffset Updated { get; set; }
+}
+
 public sealed class OutboxItem
 {
     public long Id { get; set; }

@@ -276,6 +276,36 @@
                         <TextBlock Text="AI features" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Connect an AI provider and choose which features use it. Mail works normally whether this is on or off." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
 
+                        <!-- Quick setup presets (design Q1): Off · A · B · C · Custom -->
+                        <Border Style="{StaticResource Card}" Padding="22,16" Margin="0,0,0,14">
+                            <StackPanel>
+                                <WrapPanel>
+                                    <TextBlock Text="Quick setup" FontWeight="SemiBold" FontSize="14" Margin="0,0,10,0" />
+                                    <TextBlock Text="Pick an option to set the switches below. Change any switch yourself and it becomes Custom." Style="{StaticResource Text.Caption}" VerticalAlignment="Bottom" />
+                                </WrapPanel>
+                                <ItemsControl ItemsSource="{Binding Presets}" Margin="0,12,0,0" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><UniformGrid Columns="5" /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Style="{StaticResource Button.Preset}" Margin="0,0,8,0" Padding="12,9" HorizontalContentAlignment="Left"
+                                                    Command="{Binding DataContext.ApplyPresetCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding Id}"
+                                                    ToolTip="{Binding Description}">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Description}" FontSize="11.5" Opacity="0.85" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Background="{DynamicResource Brush.Accent.Subtle}" CornerRadius="6" Padding="12,8" Margin="0,12,0,0">
+                                    <TextBlock Text="{Binding PresetSummary}" TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Primary}" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Master switch -->
                         <Border Style="{StaticResource Card}" Padding="22,18">
                             <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AiEnabled, Mode=TwoWay}">

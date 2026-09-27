@@ -28,6 +28,13 @@ public sealed class Draft
     public string ThreadKey { get; set; } = "";
     /// <summary>Local row of the server draft this came from (deleted after sending).</summary>
     public long? SourceDraftRow { get; set; }
+    /// <summary>Id of the copy kept on this PC (design F1), once one exists.</summary>
+    public long? LocalDraftId { get; set; }
+    /// <summary>
+    /// Message-ID used for every save and the final send of this message. Keeping it stable lets a re-save
+    /// replace the previous server draft and a send remove it, instead of leaving copies behind.
+    /// </summary>
+    public string MessageId { get; set; } = "";
 }
 
 /// <summary>Builds replies/forwards and the final MIME message.</summary>
@@ -164,7 +171,8 @@ public static class Composer
         msg.Subject = d.Subject ?? "";
         msg.Date = DateTimeOffset.Now;
         var domain = account.Email.Contains('@') ? account.Email.Split('@')[1] : "magpie.local";
-        msg.MessageId = MimeUtils.GenerateMessageId(domain);
+        if (string.IsNullOrWhiteSpace(d.MessageId)) d.MessageId = MimeUtils.GenerateMessageId(domain);
+        msg.MessageId = d.MessageId;
         if (!string.IsNullOrWhiteSpace(d.InReplyTo)) msg.InReplyTo = d.InReplyTo.Trim().Trim('<', '>');
         foreach (var r in Threading.ParseReferences(d.References)) msg.References.Add(r);
         msg.Headers.Add("X-Mailer", "Magpie 1.0");
@@ -222,6 +230,7 @@ public static class Composer
             InReplyTo = string.IsNullOrEmpty(msg.InReplyTo) ? "" : "<" + msg.InReplyTo + ">",
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,
+            MessageId = msg.MessageId ?? "",
         };
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");

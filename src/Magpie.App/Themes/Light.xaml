@@ -49,6 +49,8 @@
     <SolidColorBrush x:Key="Brush.Warning" Color="#8A5300" />
     <SolidColorBrush x:Key="Brush.Warning.Subtle" Color="#FDF1DC" />
     <SolidColorBrush x:Key="Brush.Info.Subtle" Color="#E6F0F2" />
+    <SolidColorBrush x:Key="Brush.Badge.Local.Background" Color="#FCEBD2" />
+    <SolidColorBrush x:Key="Brush.Badge.Local.Text" Color="#8A4A00" />
 
     <SolidColorBrush x:Key="Brush.Control.Background" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Brush.Control.Border" Color="#C9C4B9" />

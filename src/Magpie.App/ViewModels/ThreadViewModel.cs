@@ -69,7 +69,7 @@ public partial class ThreadViewModel : ObservableObject
         OnPropertyChanged(nameof(ProviderLabel));
     }
 
-    public void Clear()
+    public void Clear(string title = "No conversation selected", string text = "Pick a conversation from the list.")
     {
         _cts.Cancel();
         _aiCts?.Cancel();
@@ -81,7 +81,7 @@ public partial class ThreadViewModel : ObservableObject
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
-        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("No conversation selected", "Pick a conversation from the list."), "view"));
+        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text), "view"));
     }
 
     public void Show(ThreadRow row, MainViewModel main)

@@ -314,4 +314,28 @@ public class IntegrationTests
         await WaitUntil(() => { lock (due) return due.Count > 0; }, "reminder due", 45);
         Assert.Single(e.DueReminders());
     }
+
+    [Fact]
+    public async Task Draft_kept_on_this_PC_uploads_to_server_Drafts_when_connected()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Hello", "hi", "h1@vendor.test"));
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => e.StatusOf(acc.Id)?.State == SyncState.Idle && e.Folders(acc.Id).Any(f => f.Role == FolderRole.Drafts), "account connected", 30);
+
+        var d = new Draft { AccountId = acc.Id, To = "anita@vendor.test", Subject = "Written offline", Html = "<p>kept on this PC</p>" };
+        e.SaveLocalDraft(d, pendingUpload: true);
+        Assert.Single(e.LocalDrafts());
+
+        // The timer loop uploads pending drafts (about every 30 s) and then deletes the local copy.
+        await WaitUntil(() => e.LocalDrafts().Count == 0, "local draft uploaded", 75);
+        var drafts = e.FolderIds(FolderRole.Drafts, acc.Id);
+        await WaitUntil(() => e.Store.ListThreads(new ListQuery { FolderIds = drafts }, DateTimeOffset.Now)
+            .Any(t => t.Latest.Subject == "Written offline"), "draft visible in server Drafts", 30);
+    }
 }
