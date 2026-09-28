@@ -29,8 +29,11 @@ public partial class NavItem : ObservableObject
     public string ParentPath { get; init; } = "";
     public bool HasChildren { get; set; }
 
-    [ObservableProperty] private int _count;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BadgeText), nameof(HasBadge))] private int _count;
     [ObservableProperty] private bool _isSelected;
+    /// <summary>Badge on the icon rail (design H1): the unread count, or the count for count-only rows.</summary>
+    public string BadgeText => Count > 0 ? FolderCounts.Format(Count) : "";
+    public bool HasBadge => Count > 0;
     /// <summary>Icon key (design C1) and the number shown (design C2): "3" + " / 10", or "15", or nothing.</summary>
     public string IconKey { get; init; } = "folder";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasCount))] private string _countMain = "";
@@ -66,11 +69,18 @@ public partial class AccountNode : ObservableObject
     [ObservableProperty] private string _unreadText = "";
     public string Email => Account.Email;
     public string Color => Account.Color;
+    /// <summary>Tooltip: the address too, for the icon rail where only the dot shows.</summary>
+    public string Tip => string.IsNullOrEmpty(Status) ? Email : Email + " — " + Status;
+    partial void OnStatusChanged(string value) => OnPropertyChanged(nameof(Tip));
 }
 
 /// <summary>One conversation row in the message list.</summary>
-public sealed class ThreadItem
+public sealed partial class ThreadItem : ObservableObject
 {
+    /// <summary>Ticked for a bulk action (design H3).</summary>
+    [ObservableProperty] private bool _isChecked;
+    /// <summary>A menu opened from this row's buttons is showing: the buttons stay while it is.</summary>
+    [ObservableProperty] private bool _menuOpen;
     public ThreadRow Row { get; }
     public string AccountColor { get; }
     public bool ShowAccountDot { get; }
@@ -176,22 +186,38 @@ public sealed class ScheduledItem
 public partial class UndoToast : ObservableObject
 {
     public long OutboxId { get; }
-    public string Text { get; }
-    public DateTimeOffset Until { get; }
     private readonly bool _showCountdown;
     [ObservableProperty] private string _countdown = "";
+
+    /// <summary>After "Send now": the row says "Sent ✓" for a moment, without buttons (design SN1).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasButtons), nameof(CanSendNow))] private bool _done;
+    public bool HasButtons => !Done;
+    /// <summary>"Send now" only for a message in its undo window — not for one scheduled for later (that has its own button in Scheduled).</summary>
+    public bool CanSendNow => !Done && _showCountdown;
 
     public UndoToast(long outboxId, string text, DateTimeOffset until, bool showCountdown)
     {
         OutboxId = outboxId;
-        Text = text;
+        _text = text;
         Until = until;
         _showCountdown = showCountdown;
         Refresh(DateTimeOffset.Now);
     }
 
+    public DateTimeOffset Until { get; private set; }
+    [ObservableProperty] private string _text;
+
+    public void MarkSent(string subject)
+    {
+        Done = true;
+        Text = $"Sent \"{subject}\" ✓";
+        Countdown = "";
+        Until = DateTimeOffset.Now.AddSeconds(3);
+    }
+
     public void Refresh(DateTimeOffset now)
     {
+        if (Done) return;
         var left = (int)Math.Ceiling((Until - now).TotalSeconds);
         Countdown = _showCountdown && left > 0 ? left + " s" : "";
     }
@@ -265,6 +291,10 @@ public partial class MainViewModel : ObservableObject
         Reader.ThreadRemoved += () => SelectNeighbour();
         _e.Settings.Changed += () => Ui.Post(BuildToolbar);
         BuildToolbar();
+        var w = _e.Config.Window;
+        _sidebarWidth = w.SidebarWidth is >= WindowPlacement.SidebarMin and <= WindowPlacement.SidebarMax ? w.SidebarWidth : WindowPlacement.SidebarDefault;
+        _sidebarRail = w.SidebarRail;
+        _sidebarHidden = w.SidebarHidden;
         StatusBar = new StatusBarViewModel(this);
         BuildNav();
         Current = Smart.FirstOrDefault();
@@ -376,6 +406,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
         Selected = null;
+        ClearSelection();
         if (newValue?.Kind is NavKind.Folder or NavKind.Role) _e.Prioritise(FolderIdsFor(newValue));
         ReloadList();
     }
@@ -470,11 +501,14 @@ public partial class MainViewModel : ObservableObject
             rows = _e.Store.ListThreads(q, now);
         }
 
+        // Conversations a bulk action is about to remove (design H3: Undo still possible) are not shown.
+        if (_pendingBulk != null) rows = rows.Where(r => !_pendingBulk.Keys.Contains(r.AccountId + "|" + r.ThreadKey)).ToList();
         var multi = _e.Accounts.Count > 1;
+        var checkedKeys = Threads.Where(t => t.IsChecked).Select(t => t.Key).ToHashSet();
         var items = rows.Select(r =>
         {
             var acc = _e.AccountById(r.AccountId);
-            return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "");
+            return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "") { IsChecked = checkedKeys.Contains(r.AccountId + "|" + r.ThreadKey) };
         }).ToList();
 
         // Drafts kept on this PC (design F1) are listed first in Drafts views.
@@ -511,6 +545,7 @@ public partial class MainViewModel : ObservableObject
             Selected = keepKey == null ? null : Threads.FirstOrDefault(t => t.Key == keepKey);
         }
         finally { _reloading = false; }
+        RefreshSelectionCount();
 
         EmptyText = Threads.Count > 0 ? "" : !HasAccounts ? "Add an account to get started." :
             search != null ? "No messages match your search." :
@@ -860,13 +895,33 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void UndoSend(UndoToast? toast)
     {
-        toast ??= Toasts.LastOrDefault();
+        toast ??= Toasts.LastOrDefault(t => !t.Done);
         if (toast == null) return;
         Toasts.Remove(toast);
         RefreshToasts();
         var d = _e.Recall(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
+    }
+
+    /// <summary>"Send now" (design SN1): skip the rest of the undo wait; the row says "Sent ✓" for a moment.</summary>
+    [RelayCommand]
+    private void SendNow(UndoToast? toast)
+    {
+        toast ??= Toasts.LastOrDefault(t => t.CanSendNow);
+        if (toast == null) return;
+        SendOutboxNow(toast.OutboxId);
+    }
+
+    /// <summary>Send now from the status bar or a toast.</summary>
+    public void SendOutboxNow(long outboxId)
+    {
+        var item = _e.OutboxSummary().FirstOrDefault(o => o.Id == outboxId);
+        if (item == null || !_e.SendNow(outboxId)) { Ui.Error("Send now", "That message is already on its way."); return; }
+        var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
+        if (toast == null) { toast = new UndoToast(outboxId, "", DateTimeOffset.Now.AddSeconds(3), false); AddToast(toast); }
+        toast.MarkSent(Shorten(item.Subject, 40));
+        if (_toastTimer?.IsEnabled != true) _toastTimer?.Start();
     }
 
     /// <summary>Undo from the status bar: take this message back into a compose window.</summary>
@@ -879,6 +934,315 @@ public partial class MainViewModel : ObservableObject
         Views.ComposeWindow.OpenDraft(d);
     }
 
+    // ───────────────────────── sidebar width (design H1) ─────────────────────────
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SidebarColumnWidth))] private double _sidebarWidth;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SidebarWide), nameof(SidebarColumnWidth), nameof(SidebarMode))] private bool _sidebarRail;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SidebarColumnWidth), nameof(SidebarMode))] private bool _sidebarHidden;
+    /// <summary>Labels, numbers and section headings show only in the full sidebar; the rail shows icons with a badge.</summary>
+    public bool SidebarWide => !SidebarRail;
+    public double SidebarColumnWidth => SidebarHidden ? 0 : SidebarRail ? WindowPlacement.RailWidth : SidebarWidth;
+    public string SidebarMode => SidebarHidden ? "hidden" : SidebarRail ? "icon rail" : $"{SidebarWidth:0} px";
+
+    /// <summary>While dragging the edge: narrower than the minimum snaps to the icon rail.</summary>
+    public void DragSidebar(double dragged)
+    {
+        var (w, rail) = WindowPlacement.SnapSidebar(dragged);
+        if (!rail) SidebarWidth = w;
+        SidebarRail = rail;
+        SidebarHidden = false;
+    }
+
+    public void ResetSidebar() { SidebarWidth = WindowPlacement.SidebarDefault; SidebarRail = false; SidebarHidden = false; SaveSidebarWidth(); }
+
+    /// <summary>Ctrl+Shift+← / →: 40 px steps; below the minimum it becomes the rail, and back.</summary>
+    public void NudgeSidebar(int direction)
+    {
+        if (SidebarHidden) { SidebarHidden = false; SaveSidebarWidth(); return; }
+        if (SidebarRail)
+        {
+            if (direction > 0) { SidebarRail = false; SidebarWidth = WindowPlacement.SidebarMin; }
+        }
+        else if (direction < 0 && SidebarWidth <= WindowPlacement.SidebarMin) SidebarRail = true;
+        else SidebarWidth = Math.Clamp(SidebarWidth + 40 * direction, WindowPlacement.SidebarMin, WindowPlacement.SidebarMax);
+        SaveSidebarWidth();
+    }
+
+    public void ToggleSidebarHidden() { SidebarHidden = !SidebarHidden; SaveSidebarWidth(); }
+
+    public void SaveSidebarWidth()
+    {
+        var w = _e.Config.Window;
+        w.SidebarWidth = SidebarWidth;
+        w.SidebarRail = SidebarRail;
+        w.SidebarHidden = SidebarHidden;
+        _saveSidebar.Run(() => { try { _e.Settings.Save(notify: false); } catch (Exception ex) { Log.Warn("save sidebar width: " + ex.Message); } });
+    }
+
+    // ───────────────────────── folder details on hover (design H2) ─────────────────────────
+
+    public HoverCardViewModel HoverCard { get; } = new();
+    public bool HoverCardsOn => _e.Config.Appearance.FolderHover.Enabled || SidebarRail;
+    private int _hoverGen;
+
+    /// <summary>Builds the card for a sidebar row in the background and shows it (unless another row was hovered meanwhile).</summary>
+    public void ShowHoverCard(NavItem item, Action<HoverCardViewModel> open)
+    {
+        var gen = ++_hoverGen;
+        var fh = _e.Config.Appearance.FolderHover;
+        var lines = fh.Enabled ? fh.Lines : new List<string> { "unread", "total" };
+        var where = item.Kind switch
+        {
+            NavKind.Folder => _e.AccountById(item.AccountId ?? "")?.Email ?? "",
+            NavKind.Tag => "tag",
+            _ => _e.Accounts.Count > 1 ? "all accounts" : "",
+        };
+        _ = Task.Run(() =>
+        {
+            var now = DateTimeOffset.Now;
+            var ids = item.Kind == NavKind.Pinned ? _e.AllMailFolderIds() : FolderIdsFor(item);
+            var d = item.Kind switch
+            {
+                NavKind.Scheduled or NavKind.FollowUp => null,
+                NavKind.Tag => _e.Store.GetFolderDetails(ids, now, tag: item.TagName),
+                NavKind.Pinned => _e.Store.GetFolderDetails(ids, now, flaggedOnly: true),
+                NavKind.Snoozed => _e.Store.GetFolderDetails(ids, now, snoozedOnly: true),
+                _ => _e.Store.GetFolderDetails(ids, now),
+            };
+            return (d, now);
+        }).ContinueWith(t =>
+        {
+            if (t.IsFaulted || t.Result.d == null || gen != _hoverGen) return;
+            var (d, now) = t.Result;
+            Ui.Post(() =>
+            {
+                if (gen != _hoverGen) return;
+                HoverCard.Set(item, where, lines.Select(id => new HoverLine(FolderHoverSettings.NameOf(id),
+                    d!.Line(id, now, x => HtmlRenderer.FriendlyDate(x, now)), id == "unread" && d.Unread > 0 ? Icons.Accent(item.IconKey) : Icons.Brush("#23293A"))));
+                open(HoverCard);
+            });
+        }, TaskScheduler.Default);
+    }
+
+    public void HideHoverCard() { _hoverGen++; HoverCard.IsOpen = false; }
+
+    // ───────────────────────── row actions + multi-select (design H3) ─────────────────────────
+
+    /// <summary>The action buttons on every email row, in the user's order.</summary>
+    public ObservableCollection<ToolbarButtonVm> RowActionButtons { get; } = new();
+    public bool RowActionsAlways => _e.Config.Appearance.RowActions.Mode == RowActionsMode.Always;
+    public bool RowActionsOnHover => _e.Config.Appearance.RowActions.Mode == RowActionsMode.OnHover;
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectionText))] private int _selectedCount;
+    public bool HasSelection => SelectedCount > 0 || _pendingBulk != null;
+    public string SelectionText => SelectedCount == 1 ? "1 selected" : $"{SelectedCount} selected";
+
+    public void ToggleCheck(ThreadItem item)
+    {
+        if (item.LocalDraftId != null) return;
+        item.IsChecked = !item.IsChecked;
+        RefreshSelectionCount();
+    }
+
+    public void RefreshSelectionCount()
+    {
+        SelectedCount = Threads.Count(t => t.IsChecked);
+        OnPropertyChanged(nameof(HasSelection));
+    }
+
+    public void ClearSelection()
+    {
+        foreach (var t in Threads) t.IsChecked = false;
+        RefreshSelectionCount();
+    }
+
+    public List<ThreadItem> CheckedItems => Threads.Where(t => t.IsChecked && t.LocalDraftId == null).ToList();
+
+    /// <summary>Runs an action on one conversation (a hover button) or on the ticked ones (the bulk bar).</summary>
+    public async Task RunOnAsync(IReadOnlyList<ThreadItem> items, string id, object? arg = null)
+    {
+        if (items.Count == 0) return;
+        try
+        {
+            switch (id)
+            {
+                case "archive": case "delete": case "spam": case "move":
+                    if (id == "delete" && items.Count > 1 && _e.Config.Appearance.RowActions.ConfirmDeleteOver > 0 && items.Count > _e.Config.Appearance.RowActions.ConfirmDeleteOver
+                        && !Ui.Confirm("Delete", $"Move {items.Count} conversations to Trash?")) return;
+                    StartPendingBulk(items, id, arg as MailFolder);
+                    return;
+                case "read":
+                {
+                    var anyUnread = items.Any(t => t.IsUnread);
+                    foreach (var t in items) _e.SetRead(t.Row.AccountId, t.Row.ThreadKey, anyUnread);
+                    break;
+                }
+                case "markread": foreach (var t in items) _e.SetRead(t.Row.AccountId, t.Row.ThreadKey, true); break;
+                case "unread": foreach (var t in items) _e.MarkLatestUnread(t.Row.AccountId, t.Row.ThreadKey); break;
+                case "pin":
+                {
+                    var pin = items.Any(t => !t.IsPinned);
+                    foreach (var t in items) _e.SetPinned(t.Row.AccountId, t.Row.ThreadKey, pin);
+                    if (Selected != null && items.Contains(Selected)) Reader.IsPinned = pin;
+                    break;
+                }
+                case "snooze" when arg is DateTimeOffset until:
+                    foreach (var t in items) _e.Snooze(t.Row.AccountId, t.Row.ThreadKey, until);
+                    if (Selected != null && items.Contains(Selected)) SelectNeighbour();
+                    break;
+                case "remind" when arg is (DateTimeOffset when, bool always):
+                    foreach (var t in items) _e.RemindMe(t.Row.AccountId, t.Row.ThreadKey, t.Subject, when, always);
+                    break;
+                case "tag" when arg is string tag:
+                {
+                    var add = items.Any(t => !t.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+                    foreach (var t in items)
+                    {
+                        var tags = t.Tags.ToList();
+                        if (add) { if (!tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) tags.Add(tag); }
+                        else tags.RemoveAll(x => x.Equals(tag, StringComparison.OrdinalIgnoreCase));
+                        _e.SetTags(t.Row.AccountId, t.Row.ThreadKey, tags);
+                    }
+                    if (Selected != null && items.Contains(Selected)) Reader.RefreshIfShowing(Selected.Row);
+                    break;
+                }
+                default: return;
+            }
+            ClearSelection();
+            ReloadList();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("row action " + id, ex);
+            Ui.Error("Magpie", ex.Message);
+        }
+        await Task.CompletedTask;
+    }
+
+    /// <summary>A bulk archive / delete / move waits a few seconds so it can be undone; the rows vanish at once.</summary>
+    private sealed class PendingBulk
+    {
+        public HashSet<string> Keys = new();
+        public List<ThreadItem> Items = new();
+        public string Action = "";
+        public MailFolder? Folder;
+        public DateTimeOffset Until;
+    }
+
+    private PendingBulk? _pendingBulk;
+    private System.Windows.Threading.DispatcherTimer? _bulkTimer;
+    [ObservableProperty] private string _bulkPendingText = "";
+    public bool BulkPending => _pendingBulk != null;
+
+    private void StartPendingBulk(IReadOnlyList<ThreadItem> items, string action, MailFolder? folder)
+    {
+        _ = CommitPendingBulk();   // one at a time: an earlier one goes ahead now
+        var secs = _e.Config.Appearance.RowActions.BulkUndoSeconds;
+        var pb = new PendingBulk { Action = action, Folder = folder, Until = DateTimeOffset.Now.AddSeconds(secs), Items = items.ToList() };
+        foreach (var t in items) pb.Keys.Add(t.Key);
+        _pendingBulk = pb;
+        foreach (var t in items) t.IsChecked = false;
+        if (Selected != null && pb.Keys.Contains(Selected.Key)) { Selected = null; Reader.Clear(); }
+        ReloadList();
+        if (secs <= 0) { _ = CommitPendingBulk(); return; }
+        _bulkTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _bulkTimer.Tick -= OnBulkTick;
+        _bulkTimer.Tick += OnBulkTick;
+        _bulkTimer.Start();
+        RefreshBulkText();
+    }
+
+    private void OnBulkTick(object? s, EventArgs e)
+    {
+        if (_pendingBulk == null) { _bulkTimer?.Stop(); return; }
+        if (DateTimeOffset.Now >= _pendingBulk.Until) _ = CommitPendingBulk();
+        else RefreshBulkText();
+    }
+
+    private void RefreshBulkText()
+    {
+        var pb = _pendingBulk;
+        if (pb == null) { BulkPendingText = ""; }
+        else
+        {
+            var n = pb.Items.Count;
+            var what = pb.Action switch
+            {
+                "archive" => "Archiving", "delete" => "Deleting", "spam" => "Moving to Spam", "move" => "Moving to " + (pb.Folder?.Name ?? "folder"), _ => pb.Action,
+            };
+            var left = Math.Max(1, (int)Math.Ceiling((pb.Until - DateTimeOffset.Now).TotalSeconds));
+            BulkPendingText = $"{what} {n} conversation{(n == 1 ? "" : "s")} · {left} s";
+        }
+        OnPropertyChanged(nameof(BulkPending));
+        OnPropertyChanged(nameof(HasSelection));
+    }
+
+    /// <summary>Undo in the bulk bar: nothing has happened yet, the rows just come back.</summary>
+    public void UndoBulk()
+    {
+        _pendingBulk = null;
+        _bulkTimer?.Stop();
+        RefreshBulkText();
+        ReloadList();
+    }
+
+    /// <summary>Runs the waiting bulk action now (time is up, or another one starts, or the window closes).</summary>
+    public Task CommitPendingBulk()
+    {
+        var pb = _pendingBulk;
+        if (pb == null) return Task.CompletedTask;
+        _pendingBulk = null;
+        _bulkTimer?.Stop();
+        RefreshBulkText();
+        return Task.Run(async () =>
+        {
+            foreach (var t in pb.Items)
+            {
+                try
+                {
+                    var folders = ActionFoldersFor(t.Row.AccountId);
+                    switch (pb.Action)
+                    {
+                        case "archive": await _e.ArchiveAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
+                        case "delete": await _e.TrashAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
+                        case "spam":
+                        {
+                            var junk = _e.Folders(t.Row.AccountId).FirstOrDefault(f => f.Role == FolderRole.Junk);
+                            if (junk == null) throw new InvalidOperationException("This account has no Spam folder.");
+                            _e.MoveTo(t.Row.AccountId, t.Row.ThreadKey, folders, junk);
+                            break;
+                        }
+                        case "move" when pb.Folder != null && pb.Folder.AccountId == t.Row.AccountId:
+                            _e.MoveTo(t.Row.AccountId, t.Row.ThreadKey, folders, pb.Folder);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("bulk " + pb.Action, ex);
+                    Ui.Post(() => Ui.Error("Magpie", ex.Message));
+                    break;
+                }
+            }
+            Ui.Post(ReloadList);
+        });
+    }
+
+    /// <summary>Folders an action applies to for the current view — safe to call off the UI thread.</summary>
+    private List<long> ActionFoldersFor(string accountId)
+    {
+        var cur = Current;
+        if (cur == null) return new();
+        var ids = cur.Kind switch
+        {
+            NavKind.Pinned or NavKind.Tag or NavKind.FollowUp => _e.Folders(accountId)
+                .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important)).Select(f => f.Id).ToList(),
+            _ => FolderIdsFor(cur),
+        };
+        var own = _e.Folders(accountId).Select(f => f.Id).ToHashSet();
+        return ids.Where(own.Contains).ToList();
+    }
+
     // ───────────────────────── toolbar (designs C1, C3) ─────────────────────────
 
     public void BuildToolbar()
@@ -887,6 +1251,11 @@ public partial class MainViewModel : ObservableObject
         ToolbarButtons.Clear();
         foreach (var b in a.Toolbar.Where(b => b.Visible)) ToolbarButtons.Add(ToolbarButtonVm.For(b.Id, a.ButtonStyle));
         HiddenButtons = a.Toolbar.Where(b => !b.Visible).Select(b => ToolbarButtonVm.For(b.Id, a.ButtonStyle)).ToList();
+        RowActionButtons.Clear();
+        foreach (var id in a.RowActions.Ids) RowActionButtons.Add(ToolbarButtonVm.For(id, ButtonStyle.IconOnly));
+        OnPropertyChanged(nameof(RowActionsAlways));
+        OnPropertyChanged(nameof(RowActionsOnHover));
+        OnPropertyChanged(nameof(HoverCardsOn));
     }
 
     [RelayCommand]
@@ -894,5 +1263,31 @@ public partial class MainViewModel : ObservableObject
     {
         var item = Smart.FirstOrDefault(n => n.Kind == NavKind.Scheduled);
         if (item != null) Current = item;
+    }
+}
+
+/// <summary>One line of the folder hover card.</summary>
+public sealed record HoverLine(string Key, string Value, System.Windows.Media.Brush Brush);
+
+/// <summary>The folder details card (design H2).</summary>
+public partial class HoverCardViewModel : ObservableObject
+{
+    [ObservableProperty] private bool _isOpen;
+    [ObservableProperty] private string _title = "";
+    [ObservableProperty] private string _iconKey = "folder";
+    [ObservableProperty] private string _where = "";
+    [ObservableProperty] private string _tagColor = "#14606E";
+    [ObservableProperty] private bool _isTag;
+    public ObservableCollection<HoverLine> Lines { get; } = new();
+
+    public void Set(NavItem item, string where, IEnumerable<HoverLine> lines)
+    {
+        Title = item.Label;
+        IconKey = item.IconKey;
+        Where = where;
+        IsTag = item.Kind == NavKind.Tag;
+        TagColor = item.TagColor;
+        Lines.Clear();
+        foreach (var l in lines) Lines.Add(l);
     }
 }

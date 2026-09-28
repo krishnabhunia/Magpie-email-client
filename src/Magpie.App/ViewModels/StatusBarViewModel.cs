@@ -27,9 +27,13 @@ public sealed class StatusSegment
     public string Link { get; init; } = "";
     public bool HasLink => Link.Length > 0;
     public IRelayCommand? LinkCommand { get; init; }
+    /// <summary>A second action, e.g. "Send now" before "Undo" (design SN1).</summary>
+    public string Link2 { get; init; } = "";
+    public bool HasLink2 => Link2.Length > 0;
+    public IRelayCommand? Link2Command { get; init; }
     public bool IsFirst { get; set; }
 
-    public string Signature => $"{Key}|{Text}|{Link}|{Progress:0.00}|{Bold}";
+    public string Signature => $"{Key}|{Text}|{Link}|{Link2}|{Progress:0.00}|{Bold}";
 }
 
 public sealed class AccountActivity
@@ -231,7 +235,7 @@ public partial class StatusBarViewModel : ObservableObject
             var left = Math.Max(1, (int)Math.Ceiling((o.SendAt - now).TotalSeconds));
             var more = undoWindow.Count > 1 ? $" (+{undoWindow.Count - 1})" : "";
             segs.Add(Seg("undo" + o.Id, $"Sending \"{Short(o.Subject, 36)}\" to {Short(o.ToText, 28)} · undo {left} s{more}", "sending", link: "Undo",
-                cmd: new RelayCommand(() => _main.UndoOutbox(o.Id))));
+                cmd: new RelayCommand(() => _main.UndoOutbox(o.Id)), link2: "Send now", cmd2: new RelayCommand(() => _main.SendOutboxNow(o.Id))));
         }
         if (_sent is { } sent && now - sent.At < TimeSpan.FromSeconds(30))
             segs.Add(Seg("sent", $"Sent {sent.Count} at {sent.At.LocalDateTime:HH:mm} ✓", "sent"));
@@ -339,9 +343,9 @@ public partial class StatusBarViewModel : ObservableObject
     private static string S(int n) => n == 1 ? "" : "s";
 
     private static StatusSegment Seg(string key, string text, string icon, bool bold = false, double? progress = null, string link = "",
-        IRelayCommand? cmd = null, bool neutral = false) => new()
+        IRelayCommand? cmd = null, bool neutral = false, string link2 = "", IRelayCommand? cmd2 = null) => new()
     {
-        Key = key, Text = text, IconKey = icon, Bold = bold, Progress = progress, Link = link, LinkCommand = cmd,
+        Key = key, Text = text, IconKey = icon, Bold = bold, Progress = progress, Link = link, LinkCommand = cmd, Link2 = link2, Link2Command = cmd2,
         Brush = neutral || icon.Length == 0 ? Icons.Accent("drafts") : Icons.Accent(icon),
     };
 }

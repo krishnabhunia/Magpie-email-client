@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -74,6 +75,28 @@ public partial class EditableToolbarButton : ObservableObject
     public string DownLabel => "Move " + Name + " down";
     [ObservableProperty] private bool _visible;
 }
+
+/// <summary>One line the folder hover card can show (design H2).</summary>
+public partial class EditableHoverLine : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => FolderHoverSettings.NameOf(Id);
+    [ObservableProperty] private bool _on;
+}
+
+/// <summary>One action a row can offer (design H3): ticked ones show, in this order (at most five).</summary>
+public partial class EditableRowAction : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => ToolbarButtonVm.NameOf(Id);
+    public string IconKey => ToolbarButtonVm.IconOf(Id);
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+    [ObservableProperty] private bool _on;
+}
+
+/// <summary>One hit of the Settings search (design SS1).</summary>
+public sealed record SettingHit(string Name, string Page, string PageLabel, string Description, string IconKey, string Anchor);
 
 /// <summary>One "Quick setup" button on the AI page (Off · A · B · C · Custom).</summary>
 public partial class AiPreset : ObservableObject
@@ -190,6 +213,211 @@ public partial class SettingsViewModel : ObservableObject
     public string KeyHint => IsLocal ? "(not needed for local models)" : Provider == AiProviderKind.Custom ? "(if your endpoint needs one)" : "";
 
     public string Version => "Magpie " + UpdateService.Current;
+    public string VersionNumber => UpdateService.Current.ToString();
+
+    // ── About Me (design A1): Krishna's standard block ──
+    public string AuthorName => "Krishna Dipayan Bhunia";
+    public string FeedbackEmail => "kri.subsc@gmail.com";
+    public string LinkedIn => "linkedin.com/in/krishnabhunia";
+    public string Facebook => "facebook.com/kdbhunia";
+    public string VersionLine => "Magpie · Version " + VersionNumber;
+    public string ReleasedLine => "Released on " + ReleaseDate;
+    /// <summary>dd-MMM-yyyy from the assembly's ReleaseDate metadata (Directory.Build.props).</summary>
+    public static string ReleaseDate
+    {
+        get
+        {
+            var raw = typeof(SettingsViewModel).Assembly.GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "ReleaseDate")?.Value;
+            return DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)
+                ? d.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture) : (raw ?? "");
+        }
+    }
+    public static readonly string[] FeedbackKinds = { "New feature request", "Bug found", "Crash / error report", "Feedback", "Other" };
+
+    /// <summary>Opens Magpie's own compose window with the feedback email pre-filled (subject "[Magpie v1.1.2] Bug found", version, device info, recent log lines for bugs).</summary>
+    public void ComposeFeedback(string kind)
+    {
+        var body = new System.Text.StringBuilder();
+        body.AppendLine("App: Magpie " + VersionNumber + " (released " + ReleaseDate + ")");
+        body.AppendLine("Windows: " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
+        body.AppendLine("Machine: " + Environment.MachineName + " · .NET " + Environment.Version);
+        body.AppendLine("Accounts: " + _e.Accounts.Count);
+        if (kind is "Bug found" or "Crash / error report")
+        {
+            var tail = Log.Tail(20);
+            if (tail.Length > 0) { body.AppendLine(); body.AppendLine("Last 20 log lines:"); body.AppendLine(tail); }
+        }
+        body.AppendLine();
+        body.AppendLine("--- Describe below ---");
+        body.AppendLine();
+        var mailto = "mailto:" + FeedbackEmail + "?subject=" + Uri.EscapeDataString($"[Magpie v{VersionNumber}] {kind}") + "&body=" + Uri.EscapeDataString(body.ToString());
+        Views.ComposeWindow.OpenMailto(mailto);
+    }
+
+    [RelayCommand] private void OpenLinkedIn() => Ui.OpenExternal("https://www." + LinkedIn);
+    [RelayCommand] private void OpenFacebook() => Ui.OpenExternal("https://www." + Facebook);
+
+    // ── Search (design SS1) ──
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsSearching), nameof(SearchHeading), nameof(SearchSub))] private string _searchText = "";
+    public bool IsSearching => SearchText.Trim().Length > 0;
+    public ObservableCollection<SettingHit> SearchHits { get; } = new();
+    public string SearchHeading => IsSearching ? $"Results for \"{SearchText.Trim()}\"" : "";
+    public string SearchSub => !IsSearching ? "" : SearchHits.Count == 0 ? "Nothing matches. Try another word." : $"{SearchHits.Count} setting{(SearchHits.Count == 1 ? "" : "s")} found — click one to go to it";
+    /// <summary>Matches per page, shown as a badge in the page list; "" when not searching or none.</summary>
+    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
+
+    private static readonly (string Name, string Page, string Desc, string Keys, string Anchor)[] Index =
+    {
+        ("Smart inbox", "General", "People · Notifications · Newsletters tabs", "smart inbox people newsletters categories tabs", "RowSmartInbox"),
+        ("Mark as read when opened", "General", "Otherwise conversations stay unread", "read unread mark open", "RowMarkRead"),
+        ("Pictures from the internet", "General", "Block remote images to stop tracking", "images pictures photos tracking privacy remote load", "RowImages"),
+        ("Undo send", "General", "How long you can take a message back after pressing Send", "undo send cancel recall seconds send now", "RowUndo"),
+        ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
+        ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
+        ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
+        ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
+        ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
+        ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
+        ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
+        ("Show the status bar", "Toolbar", "One row at the bottom of the window", "status bar bottom activity", "RowLook"),
+        ("Folder numbers", "Toolbar", "Unread / total · Unread only · Off", "counts numbers unread total badge folder", "RowLook"),
+        ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
+        ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
+        ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
+        ("Accounts", "Accounts", "Name, signature, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
+        ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
+        ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
+        ("AI provider", "AI", "OpenAI · Anthropic · Ollama · other; endpoint, key, model", "ai provider key model openai anthropic ollama endpoint api", "RowAiProvider"),
+        ("AI features", "AI", "Summarise, drafts, rewrite, suggested replies", "summarise summary draft rewrite replies suggest ai", "RowAiFeatures"),
+        ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
+        ("Only for mail from people", "Notifications", "Stay quiet for newsletters and automatic mail", "notifications people only newsletters quiet", "RowNotifyPeople"),
+        ("Notification sound", "Notifications", "Play a sound for new mail", "sound notifications alert new mail", "RowNotifySound"),
+        ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
+        ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
+        ("Check for updates", "Updates", "Check now, download, restart into the new version", "update check download restart version github", "RowUpdateCard"),
+        ("Check for updates automatically", "Updates", "At start, then once a day", "update automatic check daily", "RowUpdateSwitches"),
+        ("Download updates in the background", "Updates", "Ask before restarting", "update download background", "RowUpdateSwitches"),
+        ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
+        ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
+        ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
+        ("Dark theme", "Toolbar", "Coming in 1.2.0 — Match Windows / Light / Dark", "dark theme night light appearance", "RowLook"),
+    };
+
+    private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
+    {
+        ["General"] = ("General", "general"), ["Toolbar"] = ("Toolbar & buttons", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"),
+        ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
+        ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
+    };
+
+    /// <summary>Every setting whose name, description or plain words contain the text; "" finds nothing.</summary>
+    public static List<SettingHit> Search(string text)
+    {
+        var q = (text ?? "").Trim().ToLowerInvariant();
+        if (q.Length == 0) return new();
+        var words = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return Index.Where(i =>
+            {
+                var hay = (i.Name + " " + i.Desc + " " + i.Keys + " " + Pages[i.Page].Label).ToLowerInvariant();
+                return words.All(hay.Contains);
+            })
+            .Select(i => new SettingHit(i.Name, i.Page, Pages[i.Page].Label, i.Desc, Pages[i.Page].Icon, i.Anchor)).ToList();
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        SearchHits.Clear();
+        foreach (var h in Search(value)) SearchHits.Add(h);
+        string Badge(string page) => IsSearching ? (SearchHits.Count(h => h.Page == page) is var n && n > 0 ? n.ToString() : "") : "";
+        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsNotifications = Badge("Notifications");
+        HitsTemplates = Badge("Templates"); HitsKeys = Badge("Keys"); HitsUpdates = Badge("Updates"); HitsAbout = Badge("About");
+        OnPropertyChanged(nameof(SearchSub));
+    }
+
+    /// <summary>Raised when a search result is chosen: the window opens that page and flashes the row.</summary>
+    public event Action<string>? HighlightRequested;
+
+    [RelayCommand]
+    private void GoToHit(SettingHit? hit)
+    {
+        if (hit == null) return;
+        SearchText = "";
+        Page = hit.Page;
+        HighlightRequested?.Invoke(hit.Anchor);
+    }
+
+    // ── Folder details on hover (design H2) ──
+    [ObservableProperty] private bool _hoverEnabled;
+    [ObservableProperty] private int _hoverDelay;
+    public ObservableCollection<EditableHoverLine> HoverLines { get; } = new();
+    public int[] HoverDelayChoices { get; } = { 300, 600, 1000 };
+
+    // ── Buttons on email rows (design H3) ──
+    [ObservableProperty] private RowActionsMode _rowMode;
+    [ObservableProperty] private int _confirmDeleteOver;
+    public ObservableCollection<EditableRowAction> RowActions { get; } = new();
+    public ObservableCollection<ToolbarButtonVm> RowPreview { get; } = new();
+    public List<Choice<RowActionsMode>> RowModes { get; } = new()
+    {
+        new(RowActionsMode.OnHover, "On hover"), new(RowActionsMode.Always, "Always"), new(RowActionsMode.Never, "Never"),
+    };
+    public int[] ConfirmChoices { get; } = { 0, 5, 10, 20, 50 };
+    [ObservableProperty] private string _rowLimitNote = "";
+
+    private void LoadRowActions(RowActionsSettings r)
+    {
+        foreach (var a in RowActions) a.PropertyChanged -= OnRowActionChanged;
+        RowActions.Clear();
+        foreach (var id in r.Ids.Concat(RowActionsSettings.ActionIds.Where(id => !r.Ids.Contains(id))))
+        {
+            var row = new EditableRowAction { Id = id, On = r.Ids.Contains(id) };
+            row.PropertyChanged += OnRowActionChanged;
+            RowActions.Add(row);
+        }
+        RefreshRowPreview();
+    }
+
+    private void OnRowActionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(EditableRowAction.On)) return;
+        // At most five: the sixth tick is undone.
+        if (sender is EditableRowAction { On: true } r && RowActions.Count(a => a.On) > RowActionsSettings.MaxButtons)
+        {
+            r.On = false;
+            RowLimitNote = "Up to 5 buttons fit on a row — untick one first.";
+        }
+        else RowLimitNote = "";
+        RefreshRowPreview();
+    }
+
+    private void RefreshRowPreview()
+    {
+        RowPreview.Clear();
+        foreach (var a in RowActions.Where(a => a.On)) RowPreview.Add(ToolbarButtonVm.For(a.Id, ButtonStyle.IconOnly));
+    }
+
+    [RelayCommand]
+    private void MoveRowActionUp(EditableRowAction? row)
+    {
+        if (row == null) return;
+        var i = RowActions.IndexOf(row);
+        if (i > 0) { RowActions.Move(i, i - 1); RefreshRowPreview(); }
+    }
+
+    [RelayCommand]
+    private void MoveRowActionDown(EditableRowAction? row)
+    {
+        if (row == null) return;
+        var i = RowActions.IndexOf(row);
+        if (i >= 0 && i < RowActions.Count - 1) { RowActions.Move(i, i + 1); RefreshRowPreview(); }
+    }
+
+    [RelayCommand]
+    private void SetRowMode(string? mode)
+    {
+        if (Enum.TryParse<RowActionsMode>(mode, out var v)) RowMode = v;
+    }
 
     // ── Toolbar & buttons (design C3) ──
     public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
@@ -268,6 +496,12 @@ public partial class SettingsViewModel : ObservableObject
         ShowStatusBar = d.ShowStatusBar;
         MenuFollowsToolbar = d.MenuFollowsToolbar;
         LoadToolbar(d);
+        HoverEnabled = d.FolderHover.Enabled;
+        HoverDelay = d.FolderHover.DelayMs;
+        foreach (var l in HoverLines) l.On = d.FolderHover.Lines.Contains(l.Id);
+        RowMode = d.RowActions.Mode;
+        ConfirmDeleteOver = d.RowActions.ConfirmDeleteOver;
+        LoadRowActions(d.RowActions);
     }
 
     // ── Updates (design U1): the live state comes from the update service; the switches save with the rest ──
@@ -320,6 +554,12 @@ public partial class SettingsViewModel : ObservableObject
         _showStatusBar = ap.ShowStatusBar;
         _menuFollowsToolbar = ap.MenuFollowsToolbar;
         LoadToolbar(ap);
+        _hoverEnabled = ap.FolderHover.Enabled;
+        _hoverDelay = ap.FolderHover.DelayMs;
+        foreach (var id in FolderHoverSettings.LineIds) HoverLines.Add(new EditableHoverLine { Id = id, On = ap.FolderHover.Lines.Contains(id) });
+        _rowMode = ap.RowActions.Mode;
+        _confirmDeleteOver = ap.RowActions.ConfirmDeleteOver;
+        LoadRowActions(ap.RowActions);
         _autoCheckUpdates = c.Updates.AutoCheck;
         _autoDownloadUpdates = c.Updates.AutoDownload;
         _includePrerelease = c.Updates.IncludePrerelease;
@@ -341,7 +581,7 @@ public partial class SettingsViewModel : ObservableObject
         TestStatus = "";
     }
 
-    [RelayCommand] private void Go(string page) => Page = page;
+    [RelayCommand] private void Go(string page) { SearchText = ""; Page = page; }
 
     [RelayCommand]
     private async Task TestConnection()
@@ -439,7 +679,11 @@ public partial class SettingsViewModel : ObservableObject
         {
             ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
+            RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
+                BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
         };
+        c.Appearance.Normalise();
         c.Updates.AutoCheck = AutoCheckUpdates;
         c.Updates.AutoDownload = AutoDownloadUpdates;
         c.Updates.IncludePrerelease = IncludePrerelease;

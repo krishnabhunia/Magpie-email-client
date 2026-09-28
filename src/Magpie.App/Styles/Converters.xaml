@@ -14,5 +14,6 @@
     <conv:BoolToBrushConverter x:Key="BoolToBrush" />
     <conv:FirstSegmentBorderConverter x:Key="FirstSegmentBorder" />
     <conv:ZeroToVisibilityConverter x:Key="ZeroToVis" />
+    <conv:DoubleToGridLengthConverter x:Key="GridLen" />
 
 </ResourceDictionary>

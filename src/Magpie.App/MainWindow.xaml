@@ -17,6 +17,83 @@
         TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
         Icon="pack://application:,,,/Assets/app.ico">
 
+    <Window.Resources>
+        <!-- Shown only in the full sidebar (design H1: the icon rail hides labels, numbers and headings) -->
+        <Style x:Key="WideOnly" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.SidebarRail, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="WideOnly.Text" TargetType="TextBlock" BasedOn="{StaticResource WideOnly}" />
+        <Style x:Key="WideOnly.Toggle" TargetType="ToggleButton" BasedOn="{StaticResource Toggle.SectionHeader}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.SidebarRail, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Unread badge on a rail icon -->
+        <Style x:Key="RailBadge" TargetType="Border">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="0,-5,-8,0" />
+            <Setter Property="MinWidth" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding DataContext.SidebarRail, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                        <Condition Binding="{Binding HasBadge}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Action buttons on an email row (design H3): on hover, always, or never -->
+        <Style x:Key="RowStrip" TargetType="ItemsControl">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.RowActionsAlways, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding MenuOpen}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding DataContext.RowActionsOnHover, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="RowDate" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.RowActionsAlways, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding MenuOpen}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding DataContext.RowActionsOnHover, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="46" ResizeBorderThickness="6" GlassFrameThickness="0,0,0,1" CornerRadius="0" UseAeroCaptionButtons="False" NonClientFrameEdges="None" />
     </WindowChrome.WindowChrome>
@@ -59,36 +136,68 @@
         <!-- ═══ Body ═══ -->
         <Grid Grid.Row="1" x:Name="BodyGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="264" />
+                <ColumnDefinition x:Name="SidebarColumn" Width="{Binding SidebarColumnWidth, Mode=OneWay, Converter={StaticResource GridLen}}" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition x:Name="ListColumn" Width="400" MinWidth="300" MaxWidth="700" />
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="*" MinWidth="420" />
             </Grid.ColumnDefinitions>
 
-            <!-- ─── Sidebar ─── -->
-            <Border Grid.Column="0" Background="{DynamicResource Brush.Sidebar.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+            <!-- ─── Sidebar (design H1: drag its edge; narrower than 200 px becomes the icon rail) ─── -->
+            <Border Grid.Column="0" Background="{DynamicResource Brush.Sidebar.Background}" ClipToBounds="True">
                 <DockPanel>
-                    <Button DockPanel.Dock="Top" Style="{StaticResource Button.Primary}" Margin="12,14,12,10" Command="{Binding ComposeCommand}" ToolTip="New message (Ctrl+N)">
+                    <Button DockPanel.Dock="Top" Style="{StaticResource Button.Primary}" Margin="12,14,12,10" Command="{Binding ComposeCommand}" ToolTip="New message (Ctrl+N)" Padding="8,7">
                         <StackPanel Orientation="Horizontal">
-                            <svc:IconChip Icon="compose" Size="16" Plain="True" Stroke="{DynamicResource Brush.Text.OnAccent}" Margin="0,0,8,0" />
-                            <TextBlock Text="New message" VerticalAlignment="Center" />
+                            <svc:IconChip Icon="compose" Size="16" Plain="True" Stroke="{DynamicResource Brush.Text.OnAccent}" />
+                            <TextBlock Text="New message" VerticalAlignment="Center" Margin="8,0,0,0" Style="{StaticResource WideOnly.Text}" />
                         </StackPanel>
                     </Button>
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="12,6,12,12">
                         <Border Style="{StaticResource Divider}" Margin="0,0,0,8" />
-                        <Button Style="{StaticResource Button.Ghost}" HorizontalContentAlignment="Left" Click="OnAddAccount">
+                        <Button Style="{StaticResource Button.Ghost}" HorizontalContentAlignment="Left" Click="OnAddAccount" ToolTip="Add account">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE710;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBlock Text="Add account" />
+                                <TextBlock Text="&#xE710;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" />
+                                <TextBlock Text="Add account" Margin="8,0,0,0" Style="{StaticResource WideOnly.Text}" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
 
+                    <!-- Folder details on hover (design H2); in the rail also the folder's name -->
+                    <Popup x:Name="HoverPopup" DockPanel.Dock="Top" DataContext="{Binding HoverCard}" IsOpen="{Binding IsOpen, Mode=TwoWay}" StaysOpen="True" Placement="Right" HorizontalOffset="6"
+                           AllowsTransparency="True" PopupAnimation="Fade" IsHitTestVisible="False">
+                        <Border Width="260" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="8">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.18" />
+                            </Border.Effect>
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <svc:IconChip DockPanel.Dock="Left" Icon="{Binding IconKey}" Size="26" Margin="0,0,10,0" Visibility="{Binding IsTag, Converter={StaticResource InvBoolToVis}}" />
+                                    <Border DockPanel.Dock="Left" Width="12" Height="12" CornerRadius="3" Background="{Binding TagColor, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="4,0,14,0"
+                                            Visibility="{Binding IsTag, Converter={StaticResource BoolToVis}}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Where}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:HoverLine}">
+                                            <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,4">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Value}" FontSize="12.5" FontWeight="SemiBold" Foreground="{Binding Brush}" Margin="12,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                                                    <TextBlock Text="{Binding Key}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                                </DockPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,0,8">
                             <!-- Collapsible sections (design Q2). A closed section still shows what matters. -->
-                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding FoldersOpen, Mode=TwoWay}" Margin="8,2,8,4"
+                            <ToggleButton Style="{StaticResource WideOnly.Toggle}" IsChecked="{Binding FoldersOpen, Mode=TwoWay}" Margin="8,2,8,4"
                                           AutomationProperties.Name="Folders" ToolTip="Show or hide folders">
                                 <DockPanel>
                                     <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Accent}" CornerRadius="8" Padding="6,0"
@@ -101,7 +210,7 @@
                             <ItemsControl ItemsSource="{Binding Smart}" Visibility="{Binding FoldersOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:NavItem}">
-                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" MouseEnter="OnNavEnter" MouseLeave="OnNavLeave"
                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
@@ -109,9 +218,14 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <svc:IconChip Icon="{Binding IconKey}" Size="24" HorizontalAlignment="Left" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="2" FontSize="12" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                <Grid HorizontalAlignment="Left">
+                                                    <svc:IconChip Icon="{Binding IconKey}" Size="24" />
+                                                    <Border Style="{StaticResource RailBadge}" Background="{Binding CountBrush}">
+                                                        <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                    </Border>
+                                                </Grid>
+                                                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Style="{StaticResource WideOnly.Text}" />
+                                                <TextBlock Grid.Column="2" FontSize="12" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}">
                                                     <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding CountBrush}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                                 </TextBlock>
                                             </Grid>
@@ -120,19 +234,22 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding AccountsOpen, Mode=TwoWay}"
-                                          AutomationProperties.Name="Accounts" ToolTip="Show or hide accounts"
-                                          Visibility="{Binding HasAccounts, Converter={StaticResource BoolToVis}}">
-                                <DockPanel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding AccountsWarning}" Foreground="{DynamicResource Brush.Warning}" FontSize="10.5" FontWeight="Normal" VerticalAlignment="Center" />
-                                    <TextBlock Text="ACCOUNTS" VerticalAlignment="Center" />
-                                </DockPanel>
-                            </ToggleButton>
+                            <Border Style="{StaticResource Divider}" Margin="14,8" Visibility="{Binding SidebarRail, Converter={StaticResource BoolToVis}}" />
+                            <Grid Style="{StaticResource WideOnly}">
+                                <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding AccountsOpen, Mode=TwoWay}"
+                                              AutomationProperties.Name="Accounts" ToolTip="Show or hide accounts"
+                                              Visibility="{Binding HasAccounts, Converter={StaticResource BoolToVis}}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding AccountsWarning}" Foreground="{DynamicResource Brush.Warning}" FontSize="10.5" FontWeight="Normal" VerticalAlignment="Center" />
+                                        <TextBlock Text="ACCOUNTS" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                </ToggleButton>
+                            </Grid>
                             <ItemsControl ItemsSource="{Binding AccountNodes}" Visibility="{Binding AccountsOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:AccountNode}">
                                         <StackPanel>
-                                            <ToggleButton Style="{StaticResource Toggle.Account}" IsChecked="{Binding IsExpanded, Mode=TwoWay}" ToolTip="{Binding Status}"
+                                            <ToggleButton Style="{StaticResource Toggle.Account}" IsChecked="{Binding IsExpanded, Mode=TwoWay}" ToolTip="{Binding Tip}"
                                                           AutomationProperties.Name="{Binding Email}">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
@@ -142,8 +259,8 @@
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
                                                     <Ellipse Width="9" Height="9" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding Email}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="2" Text="{Binding UnreadText}" FontSize="12" FontWeight="Bold" Foreground="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Email}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding UnreadText}" FontSize="12" FontWeight="Bold" Foreground="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="6,0,0,0" Style="{StaticResource WideOnly.Text}" />
                                                     <TextBlock Grid.Column="3" Text="&#xE7BA;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
                                                                VerticalAlignment="Center" Margin="6,0,0,0" Visibility="{Binding HasProblem, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
@@ -153,22 +270,39 @@
                                             <ItemsControl ItemsSource="{Binding Folders}" Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate DataType="{x:Type vm:NavItem}">
-                                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30"
+                                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30" MouseEnter="OnNavEnter" MouseLeave="OnNavLeave"
                                                                      Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}"
                                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
-                                                            <Grid Margin="{Binding Indent}">
+                                                            <Grid>
+                                                                <Grid.Style>
+                                                                    <Style TargetType="Grid">
+                                                                        <Setter Property="Margin" Value="{Binding Indent}" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding DataContext.SidebarRail, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                                <Setter Property="Margin" Value="0" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Grid.Style>
                                                                 <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="18" />
+                                                                    <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="28" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
-                                                                <Button Style="{StaticResource Button.FolderChevron}" Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}"
-                                                                        Command="{Binding DataContext.ToggleFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                                        ToolTip="Show or hide subfolders" />
-                                                                <svc:IconChip Grid.Column="1" Icon="{Binding IconKey}" Size="21" HorizontalAlignment="Left" />
-                                                                <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                                <TextBlock Grid.Column="3" FontSize="11.5" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                                <Grid Width="18" Style="{StaticResource WideOnly}">
+                                                                    <Button Style="{StaticResource Button.FolderChevron}" Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}"
+                                                                            Command="{Binding DataContext.ToggleFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                            ToolTip="Show or hide subfolders" />
+                                                                </Grid>
+                                                                <Grid Grid.Column="1" HorizontalAlignment="Left">
+                                                                    <svc:IconChip Icon="{Binding IconKey}" Size="21" />
+                                                                    <Border Style="{StaticResource RailBadge}" Background="{Binding CountBrush}">
+                                                                        <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                                    </Border>
+                                                                </Grid>
+                                                                <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Style="{StaticResource WideOnly.Text}" />
+                                                                <TextBlock Grid.Column="3" FontSize="11.5" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}">
                                                                     <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding CountBrush}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                                                 </TextBlock>
                                                             </Grid>
@@ -181,21 +315,27 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding TagsOpen, Mode=TwoWay}"
+                            <Border Style="{StaticResource Divider}" Margin="14,8" Visibility="{Binding SidebarRail, Converter={StaticResource BoolToVis}}" />
+                            <ToggleButton Style="{StaticResource WideOnly.Toggle}" IsChecked="{Binding TagsOpen, Mode=TwoWay}"
                                           AutomationProperties.Name="Tags" ToolTip="Show or hide tags">
                                 <TextBlock Text="TAGS" VerticalAlignment="Center" />
                             </ToggleButton>
                             <ItemsControl ItemsSource="{Binding TagItems}" Visibility="{Binding TagsOpen, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:NavItem}">
-                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30"
+                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30" MouseEnter="OnNavEnter" MouseLeave="OnNavLeave"
                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                             <DockPanel>
-                                                <TextBlock DockPanel.Dock="Right" FontSize="11.5" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock DockPanel.Dock="Right" FontSize="11.5" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}">
                                                     <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding TagColor, Converter={StaticResource HexBrush}}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                                 </TextBlock>
-                                                <Border Width="10" Height="10" CornerRadius="3" Background="{Binding TagColor, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="6,0,12,0" />
-                                                <TextBlock Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" />
+                                                <Grid DockPanel.Dock="Left" Margin="6,0,12,0" VerticalAlignment="Center">
+                                                    <Border Width="10" Height="10" CornerRadius="3" Background="{Binding TagColor, Converter={StaticResource HexBrush}}" />
+                                                    <Border Style="{StaticResource RailBadge}" Background="{Binding TagColor, Converter={StaticResource HexBrush}}" Margin="0,-10,-12,0">
+                                                        <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                    </Border>
+                                                </Grid>
+                                                <TextBlock Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" />
                                             </DockPanel>
                                         </RadioButton>
                                     </DataTemplate>
@@ -206,8 +346,30 @@
                 </DockPanel>
             </Border>
 
+            <!-- Drag to resize the sidebar · double-click to reset (design H1) -->
+            <Thumb Grid.Column="1" x:Name="SidebarHandle" Width="7" Cursor="SizeWE" DragStarted="OnSidebarDragStarted" DragDelta="OnSidebarDragDelta" DragCompleted="OnSidebarDragCompleted"
+                   MouseDoubleClick="OnSidebarHandleDoubleClick" ToolTip="Drag to resize the sidebar · double-click to reset" Focusable="False">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="Bd" Background="{DynamicResource Brush.Sidebar.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+                            <Border x:Name="Grip" Width="3" Height="36" CornerRadius="2" Background="{DynamicResource Brush.Text.Tertiary}" Opacity="0" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Grip" Property="Opacity" Value="1" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Hover}" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Grip" Property="Opacity" Value="1" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Accent.Subtle}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
+
             <!-- ─── Message list ─── -->
-            <Border Grid.Column="1" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="2" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -247,14 +409,47 @@
 
                     <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0">
                         <Grid>
-                            <ListBox x:Name="ThreadList" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Bulk bar (design H3): tick avatars, then act on all of them at once; Undo while it waits -->
+                            <Border Grid.Row="0" Background="{DynamicResource Brush.TitleBar.Background}" Padding="12,6" Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="✕" Foreground="#9AA1A8" MinHeight="24" Padding="6,0" ToolTip="Clear selection (Esc)" Click="OnBulkClear" />
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" FontWeight="SemiBold" MinHeight="24" Padding="8,0" Click="OnBulkUndo"
+                                            Visibility="{Binding BulkPending, Converter={StaticResource BoolToVis}}" />
+                                    <TextBlock Text="{Binding BulkPendingText}" Foreground="{DynamicResource Brush.TitleBar.Text}" VerticalAlignment="Center" FontSize="12.5"
+                                               Visibility="{Binding BulkPending, Converter={StaticResource BoolToVis}}" />
+                                    <WrapPanel VerticalAlignment="Center" Visibility="{Binding BulkPending, Converter={StaticResource InvBoolToVis}}">
+                                        <TextBlock Text="{Binding SelectionText}" Foreground="{DynamicResource Brush.TitleBar.Text}" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Archive" Tag="archive" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Delete" Tag="delete" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Mark read" Tag="markread" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Move ▾" Tag="move" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Tag ▾" Tag="tag" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Snooze ▾" Tag="snooze" Click="OnBulkAction" />
+                                    </WrapPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <ListBox Grid.Row="1" x:Name="ThreadList" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">
                                         <DockPanel>
-                                        <Border DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="17" Background="{Binding AvatarBrush}" VerticalAlignment="Top" Margin="0,2,11,0">
-                                            <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
+                                        <!-- Avatar: click it to tick the conversation for a bulk action (design H3) -->
+                                        <Grid DockPanel.Dock="Left" Width="34" Height="34" VerticalAlignment="Top" Margin="0,2,11,0" Background="Transparent" Cursor="Hand"
+                                              PreviewMouseLeftButtonDown="OnAvatarClick" ToolTip="Select for a bulk action">
+                                            <Border CornerRadius="17" Background="{Binding AvatarBrush}" Visibility="{Binding IsChecked, Converter={StaticResource InvBoolToVis}}">
+                                                <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <Border CornerRadius="17" BorderThickness="2" BorderBrush="White" Opacity="0.85" Visibility="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BoolToVis}}" />
+                                            <Border CornerRadius="17" Background="{DynamicResource Brush.Accent}" Visibility="{Binding IsChecked, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="✓" Foreground="White" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                        </Grid>
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto" />
@@ -264,7 +459,22 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <DockPanel Grid.Row="0">
-                                                <TextBlock DockPanel.Dock="Right" Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                <Grid DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" Style="{StaticResource RowDate}" />
+                                                    <!-- Action buttons (design H3): the ones chosen in Settings, in their order -->
+                                                    <ItemsControl Style="{StaticResource RowStrip}" ItemsSource="{Binding DataContext.RowActionButtons, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
+                                                                <Button Style="{StaticResource Button.RowAction}" Tag="{Binding}" Click="OnRowAction" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding Name}">
+                                                                    <svc:IconChip Icon="{Binding IconKey}" Size="22" />
+                                                                </Button>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </Grid>
                                                 <StackPanel Orientation="Horizontal">
                                                     <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
                                                     <Ellipse Width="7" Height="7" Fill="{Binding AccountColor, Converter={StaticResource HexBrush}}" Margin="0,0,7,0" VerticalAlignment="Center" Opacity="0.55"
@@ -362,7 +572,12 @@
                                     <Border BorderBrush="#2C3238" BorderThickness="0,0,0,1" Padding="14,6">
                                         <DockPanel>
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
-                                                    Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                    Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Take the message back (Ctrl+Z)" />
+                                            <!-- Send now (design SN1): skip the rest of the wait -->
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.SendNow}" Content="Send now" Margin="6,0"
+                                                    Command="{Binding DataContext.SendNowCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding CanSendNow, Converter={StaticResource BoolToVis}}" ToolTip="Send it right away (Ctrl+Shift+Enter)" />
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding Countdown}" Foreground="#9AA1A8" FontSize="11.5" VerticalAlignment="Center" Margin="8,0,4,0" />
                                             <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Brush.TitleBar.Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                         </DockPanel>
@@ -376,10 +591,10 @@
                 </Grid>
             </Border>
 
-            <GridSplitter Grid.Column="2" Width="5" HorizontalAlignment="Stretch" Background="Transparent" ResizeBehavior="PreviousAndNext" ShowsPreview="False" DragCompleted="OnSplitterDragged" />
+            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" ResizeBehavior="PreviousAndNext" ShowsPreview="False" DragCompleted="OnSplitterDragged" />
 
             <!-- ─── Reading pane ─── -->
-            <Grid Grid.Column="3" Background="{DynamicResource Brush.Card.Background}" DataContext="{Binding Reader}">
+            <Grid Grid.Column="4" Background="{DynamicResource Brush.Card.Background}" DataContext="{Binding Reader}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -570,6 +785,8 @@
                                             <Border Width="{Binding ProgressWidth}" HorizontalAlignment="Left" CornerRadius="3" Background="{Binding Brush}" />
                                         </Border>
                                         <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontSize="12" FontWeight="{Binding Bold, Converter={StaticResource BoldIfTrue}}" VerticalAlignment="Center" />
+                                        <Button Style="{StaticResource Button.Link}" Content="{Binding Link2}" Command="{Binding Link2Command}" FontSize="12" FontWeight="SemiBold" MinHeight="18" Padding="8,0,0,0"
+                                                Foreground="{DynamicResource Brush.Success}" Visibility="{Binding HasLink2, Converter={StaticResource BoolToVis}}" />
                                         <Button Style="{StaticResource Button.Link}" Content="{Binding Link}" Command="{Binding LinkCommand}" FontSize="12" FontWeight="SemiBold" MinHeight="18" Padding="8,0,0,0"
                                                 Visibility="{Binding HasLink, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>

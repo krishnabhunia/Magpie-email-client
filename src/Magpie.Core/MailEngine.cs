@@ -554,6 +554,22 @@ public sealed class MailEngine : IDisposable
         OutboxChanged?.Invoke();
     }
 
+    /// <summary>"Send now" (design SN1): the message goes out at once instead of at the next 2 s pass. False when it is already on its way.</summary>
+    public bool SendNow(long outboxId)
+    {
+        var item = Store.GetOutbox().FirstOrDefault(o => o.Id == outboxId);
+        if (item == null || item.Status is not (OutboxStatus.Queued or OutboxStatus.Failed)) return false;
+        Store.RescheduleOutbox(outboxId, DateTimeOffset.Now);
+        OutboxChanged?.Invoke();
+        _ = Task.Run(async () =>
+        {
+            try { await ProcessOutboxAsync(_cts?.Token ?? CancellationToken.None); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Warn("send now: " + ex.Message); }
+        });
+        return true;
+    }
+
     public List<OutboxItem> Outbox() => Store.GetOutbox();
     /// <summary>The outbox without the messages themselves — cheap enough to read every second (status bar).</summary>
     public List<OutboxItem> OutboxSummary() => Store.GetOutbox(withMime: false);

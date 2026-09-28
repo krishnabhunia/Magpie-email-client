@@ -26,6 +26,9 @@ public sealed class ToolbarButtonVm
         ["unread"] = ("Mark unread", "unread", "U", "Mark as unread"),
         ["replyall"] = ("Reply all", "replyall", "A", "Reply to everyone"),
         ["forward"] = ("Forward", "forward", "F", "Forward"),
+        // Row hover actions only (design H3)
+        ["read"] = ("Read / unread", "unread", "", "Mark as read or unread"),
+        ["spam"] = ("Spam", "spam", "", "Move to Spam"),
     };
 
     public static string NameOf(string id) => Defs.TryGetValue(id, out var d) ? d.Name : id;

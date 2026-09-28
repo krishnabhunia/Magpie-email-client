@@ -1034,6 +1034,47 @@ public sealed class MailStore
         return r.Read() ? (Convert.ToInt32(r.GetValue(1)), Convert.ToInt32(r.GetValue(0))) : (0, 0);
     }
 
+    /// <summary>
+    /// Everything the folder hover card can show (design H2), in one pass over the given folders (or a tag).
+    /// Conversations are counted like the sidebar; messages, size and attachments count every email.
+    /// </summary>
+    public Mail.FolderDetails GetFolderDetails(IReadOnlyCollection<long> folderIds, DateTimeOffset now, string? tag = null, bool flaggedOnly = false, bool snoozedOnly = false)
+    {
+        var d = new Mail.FolderDetails();
+        if (folderIds.Count == 0) return d;
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
+        var where = new List<string> { $"folder_id IN ({string.Join(',', ps)})" };
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        where.Add(snoozedOnly ? "(snooze_until IS NOT NULL AND snooze_until > $now)" : "(snooze_until IS NULL OR snooze_until <= $now)");
+        if (tag != null) { where.Add("(',' || tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{tag},%"); }
+        if (flaggedOnly) where.Add("(flags & 2)<>0");
+        cmd.Parameters.AddWithValue("$day", new DateTimeOffset(now.LocalDateTime.Date, now.Offset).ToUnixTimeMilliseconds());
+        cmd.CommandText = $"""
+            WITH m AS (SELECT * FROM messages WHERE {string.Join(" AND ", where)}),
+            t AS (SELECT MAX(CASE WHEN (flags & 1)=0 THEN 1 ELSE 0 END) AS u, MAX(date) AS d FROM m GROUP BY account_id, thread_key)
+            SELECT
+              (SELECT COUNT(*) FROM t), (SELECT COALESCE(SUM(u),0) FROM t), (SELECT COUNT(*) FROM t WHERE d >= $day),
+              (SELECT MIN(date) FROM m WHERE (flags & 1)=0),
+              (SELECT MAX(date) FROM m),
+              (SELECT CASE WHEN from_name<>'' THEN from_name ELSE from_addr END FROM m ORDER BY date DESC, id DESC LIMIT 1),
+              (SELECT COUNT(*) FROM m), (SELECT COALESCE(SUM(size),0) FROM m), (SELECT COUNT(*) FROM m WHERE has_attach=1)
+            """;
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return d;
+        d.Total = Convert.ToInt32(r.GetValue(0));
+        d.Unread = Convert.ToInt32(r.GetValue(1));
+        d.Today = Convert.ToInt32(r.GetValue(2));
+        d.OldestUnread = r.IsDBNull(3) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(3));
+        d.LastReceived = r.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(4));
+        d.LastSender = r.IsDBNull(5) ? "" : r.GetString(5);
+        d.Messages = Convert.ToInt32(r.GetValue(6));
+        d.Size = Convert.ToInt64(r.GetValue(7));
+        d.WithAttachments = Convert.ToInt32(r.GetValue(8));
+        return d;
+    }
+
     /// <summary>Unread and total conversations per folder, in one pass (snoozed ones left out).</summary>
     public Dictionary<long, (int Unread, int Total)> CountThreadsByFolder(DateTimeOffset now)
     {

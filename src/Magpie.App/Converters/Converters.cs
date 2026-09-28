@@ -121,3 +121,12 @@ public sealed class BoolToBrushConverter : IValueConverter
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => Binding.DoNothing;
 }
+
+/// <summary>A pixel width (double) as a Grid column width.</summary>
+public sealed class DoubleToGridLengthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        new GridLength(value is double d && d >= 0 ? d : 0, GridUnitType.Pixel);
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is GridLength g ? g.Value : Binding.DoNothing;
+}

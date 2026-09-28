@@ -39,6 +39,21 @@ public static class Log
         Write("ERROR", sb.ToString());
     }
 
+    /// <summary>The last <paramref name="count"/> lines of the log (for bug reports); empty when there is no log.</summary>
+    public static string Tail(int count)
+    {
+        if (FilePath == null || !File.Exists(FilePath)) return "";
+        try
+        {
+            lock (Gate)
+            {
+                var lines = File.ReadAllLines(FilePath);
+                return string.Join(Environment.NewLine, lines.Skip(Math.Max(0, lines.Length - count)));
+            }
+        }
+        catch { return ""; }
+    }
+
     /// <summary>Removes secrets that might appear in protocol errors.</summary>
     public static string Redact(string s)
     {

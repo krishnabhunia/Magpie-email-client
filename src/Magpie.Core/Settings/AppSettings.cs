@@ -115,6 +115,8 @@ public sealed class Appearance
     /// <summary>The message list's right-click menu follows the toolbar's order.</summary>
     public bool MenuFollowsToolbar { get; set; } = true;
     public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+    public FolderHoverSettings FolderHover { get; set; } = new();
+    public RowActionsSettings RowActions { get; set; } = new();
 
     public static List<ToolbarButton> DefaultToolbar() =>
         ToolbarIds.Select((id, i) => new ToolbarButton { Id = id, Visible = i < DefaultVisible }).ToList();
@@ -127,12 +129,15 @@ public sealed class Appearance
         Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
         foreach (var id in ToolbarIds)
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+        (FolderHover ??= new()).Normalise();
+        (RowActions ??= new()).Normalise();
     }
 
     public Appearance Clone() => new()
     {
         ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+        FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(),
     };
 }
 
@@ -155,6 +160,77 @@ public sealed class WindowPlacement
     public double Height { get; set; } = 840;
     public bool Maximized { get; set; }
     public double ListWidth { get; set; } = 400;
+    /// <summary>Sidebar width (design H1): 200–420 px; narrower than that snaps to the icon rail.</summary>
+    public double SidebarWidth { get; set; } = SidebarDefault;
+    /// <summary>The sidebar is the slim icon rail.</summary>
+    public bool SidebarRail { get; set; }
+    /// <summary>The sidebar is hidden (Ctrl+Shift+B).</summary>
+    public bool SidebarHidden { get; set; }
+
+    public const double SidebarDefault = 264, SidebarMin = 200, SidebarMax = 420, RailWidth = 64;
+
+    /// <summary>Snaps a dragged width: below the minimum → rail; otherwise clamped to the allowed range.</summary>
+    public static (double width, bool rail) SnapSidebar(double dragged) =>
+        dragged < SidebarMin ? (SidebarDefault, true) : (Math.Clamp(dragged, SidebarMin, SidebarMax), false);
+}
+
+/// <summary>Folder details on hover (design H2).</summary>
+public sealed class FolderHoverSettings
+{
+    /// <summary>Every line the card can show, in display order.</summary>
+    public static readonly string[] LineIds = { "unread", "total", "today", "oldest", "last", "messages", "size", "attach" };
+    public static readonly string[] DefaultLines = { "unread", "total", "today", "oldest", "last" };
+    public static string NameOf(string id) => id switch
+    {
+        "unread" => "Unread conversations", "total" => "Total conversations", "today" => "Today", "oldest" => "Oldest unread",
+        "last" => "Last received", "messages" => "Messages (every email)", "size" => "Size on server", "attach" => "With attachments", _ => id,
+    };
+
+    public bool Enabled { get; set; } = true;
+    public List<string> Lines { get; set; } = DefaultLines.ToList();
+    /// <summary>Delay before the card appears, ms (300 / 600 / 1000).</summary>
+    public int DelayMs { get; set; } = 600;
+
+    public void Normalise()
+    {
+        Lines ??= DefaultLines.ToList();
+        var seen = new HashSet<string>();
+        Lines = LineIds.Where(id => Lines.Contains(id) && seen.Add(id)).ToList();
+        if (DelayMs is not (300 or 600 or 1000)) DelayMs = 600;
+    }
+
+    public FolderHoverSettings Clone() => new() { Enabled = Enabled, Lines = Lines.ToList(), DelayMs = DelayMs };
+}
+
+/// <summary>When the action buttons on an email row show (design H3).</summary>
+public enum RowActionsMode { OnHover = 0, Always = 1, Never = 2 }
+
+/// <summary>Action buttons on email rows + multi-select (design H3).</summary>
+public sealed class RowActionsSettings
+{
+    /// <summary>Every action a row can offer, in the order they are listed in Settings.</summary>
+    public static readonly string[] ActionIds = { "archive", "delete", "snooze", "read", "pin", "remind", "tag", "move", "spam" };
+    public static readonly string[] DefaultIds = { "archive", "delete", "snooze", "read", "pin" };
+    public const int MaxButtons = 5;
+
+    public RowActionsMode Mode { get; set; } = RowActionsMode.OnHover;
+    /// <summary>Chosen buttons in order (at most <see cref="MaxButtons"/>).</summary>
+    public List<string> Ids { get; set; } = DefaultIds.ToList();
+    /// <summary>Ask before deleting more than this many conversations at once (0 = never ask).</summary>
+    public int ConfirmDeleteOver { get; set; } = 10;
+    /// <summary>Seconds a bulk archive / delete / move waits before it happens (Undo in the bar).</summary>
+    public int BulkUndoSeconds { get; set; } = 8;
+
+    public void Normalise()
+    {
+        Ids ??= DefaultIds.ToList();
+        var seen = new HashSet<string>();
+        Ids = Ids.Where(id => id != null && ActionIds.Contains(id) && seen.Add(id)).Take(MaxButtons).ToList();
+        ConfirmDeleteOver = Math.Clamp(ConfirmDeleteOver, 0, 1000);
+        BulkUndoSeconds = Math.Clamp(BulkUndoSeconds, 0, 30);
+    }
+
+    public RowActionsSettings Clone() => new() { Mode = Mode, Ids = Ids.ToList(), ConfirmDeleteOver = ConfirmDeleteOver, BulkUndoSeconds = BulkUndoSeconds };
 }
 
 public sealed class AppSettings

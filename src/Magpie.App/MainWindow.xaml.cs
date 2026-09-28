@@ -38,6 +38,167 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => _vm.StatusBar.SetWindowVisible(IsVisible && WindowState != WindowState.Minimized);
         Loaded += async (_, _) => await InitWebAsync();
         Closing += OnClosing;
+        Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); };
+    }
+
+    // ───────────────────────── sidebar width (design H1) ─────────────────────────
+
+    private double _dragGrab;
+
+    // The width follows the mouse itself (not the thumb's own deltas, which shift as the column moves), so the drag
+    // is 1:1 and the snap to the rail can't bounce.
+    private void OnSidebarDragStarted(object sender, DragStartedEventArgs e)
+    {
+        var x = Mouse.GetPosition(BodyGrid).X;
+        _dragGrab = x - (_vm.SidebarRail ? Core.Settings.WindowPlacement.SidebarMin - 20 : _vm.SidebarWidth);
+    }
+    private void OnSidebarDragDelta(object sender, DragDeltaEventArgs e) => _vm.DragSidebar(Mouse.GetPosition(BodyGrid).X - _dragGrab);
+    private void OnSidebarDragCompleted(object sender, DragCompletedEventArgs e) => _vm.SaveSidebarWidth();
+    private void OnSidebarHandleDoubleClick(object sender, MouseButtonEventArgs e) { _vm.ResetSidebar(); e.Handled = true; }
+
+    // ───────────────────────── folder details on hover (design H2) ─────────────────────────
+
+    private System.Windows.Threading.DispatcherTimer? _hoverTimer;
+    private FrameworkElement? _hoverTarget;
+
+    private void OnNavEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: NavItem item } el) return;
+        if (!_vm.HoverCardsOn) return;
+        _hoverTarget = el;
+        _hoverTimer ??= new System.Windows.Threading.DispatcherTimer();
+        _hoverTimer.Stop();
+        _hoverTimer.Interval = TimeSpan.FromMilliseconds(_vm.SidebarRail ? 300 : AppServices.Engine.Config.Appearance.FolderHover.DelayMs);
+        _hoverTimer.Tick -= OnHoverTick;
+        _hoverTimer.Tick += OnHoverTick;
+        _hoverTimer.Start();
+    }
+
+    private void OnHoverTick(object? sender, EventArgs e)
+    {
+        _hoverTimer?.Stop();
+        if (_hoverTarget is not { IsMouseOver: true, DataContext: NavItem item } target) return;
+        _vm.ShowHoverCard(item, card =>
+        {
+            if (!ReferenceEquals(_hoverTarget, target) || !target.IsMouseOver) return;
+            HoverPopup.PlacementTarget = target;
+            card.IsOpen = true;
+        });
+    }
+
+    private void OnNavLeave(object sender, MouseEventArgs e)
+    {
+        _hoverTimer?.Stop();
+        _hoverTarget = null;
+        _vm.HideHoverCard();
+    }
+
+    // ───────────────────────── row actions + multi-select (design H3) ─────────────────────────
+
+    private static ThreadItem? RowOf(DependencyObject? src)
+    {
+        for (var d = src; d != null; d = System.Windows.Media.VisualTreeHelper.GetParent(d))
+            if (d is ListBoxItem { DataContext: ThreadItem t }) return t;
+        return null;
+    }
+
+    private void OnAvatarClick(object sender, MouseButtonEventArgs e)
+    {
+        if (RowOf(sender as DependencyObject) is { } item) { _vm.ToggleCheck(item); e.Handled = true; }
+    }
+
+    /// <summary>A hover button on a row acts on that row only (even when another conversation is open).</summary>
+    private async void OnRowAction(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ToolbarButtonVm b } anchor || RowOf(anchor) is not { } item) return;
+        e.Handled = true;
+        if (item.LocalDraftId != null)   // a draft kept on this PC has no server copy: only its own actions apply
+        {
+            if (b.Id == "delete") { _vm.Selected = item; _vm.DeleteSelectedLocalDraft(); }
+            return;
+        }
+        _vm.HideHoverCard();
+        await RunOnItemsAsync(new[] { item }, b.Id, anchor);
+    }
+
+    private void OnBulkAction(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id } anchor) return;
+        var items = _vm.CheckedItems;
+        if (items.Count == 0) return;
+        _ = RunOnItemsAsync(items, id, anchor);
+    }
+
+    private void OnBulkClear(object sender, RoutedEventArgs e) => _vm.ClearSelection();
+    private void OnBulkUndo(object sender, RoutedEventArgs e) => _vm.UndoBulk();
+
+    /// <summary>Actions that need a choice (snooze / remind / tag / move) open their menu next to the button first.</summary>
+    private async Task RunOnItemsAsync(IReadOnlyList<ThreadItem> items, string id, FrameworkElement anchor)
+    {
+        // A menu opened from a row's hover buttons keeps those buttons on screen until it closes.
+        void ShowMenu(FrameworkElement a, ContextMenu m)
+        {
+            var row = items.Count == 1 ? RowOf(a) : null;
+            if (row != null) { row.MenuOpen = true; m.Closed += (_, _) => row.MenuOpen = false; }
+            MainWindow.ShowMenu(a, m);
+        }
+        switch (id)
+        {
+            case "snooze":
+            {
+                var menu = new ContextMenu();
+                foreach (var p in TimePresets.For(DateTime.Now))
+                    menu.Items.Add(Item($"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}", () => _ = _vm.RunOnAsync(items, "snooze", (DateTimeOffset)p.When)));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(Item("Pick date & time…", () =>
+                {
+                    var when = PickTimeDialog.Ask(this, "Snooze until", "The conversations leave your inbox and come back at this time.", DateTime.Now.AddDays(1).Date.AddHours(8));
+                    if (when != null) _ = _vm.RunOnAsync(items, "snooze", (DateTimeOffset)when.Value);
+                }));
+                ShowMenu(anchor, menu);
+                return;
+            }
+            case "remind":
+            {
+                var menu = new ContextMenu();
+                menu.Items.Add(new MenuItem { Header = "Bring back to the top on…", IsEnabled = false });
+                foreach (var p in TimePresets.For(DateTime.Now))
+                    menu.Items.Add(Item($"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}", () => _ = _vm.RunOnAsync(items, "remind", ((DateTimeOffset)p.When, true))));
+                ShowMenu(anchor, menu);
+                return;
+            }
+            case "tag":
+            {
+                var menu = new ContextMenu();
+                foreach (var t in AppServices.Engine.Config.Tags)
+                {
+                    var tag = t.Name;
+                    menu.Items.Add(Item(tag, () => _ = _vm.RunOnAsync(items, "tag", tag), isChecked: items.All(i => i.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))));
+                }
+                menu.Items.Add(new Separator());
+                menu.Items.Add(Item("Manage tags…", () => SettingsWindow.Open("General")));
+                ShowMenu(anchor, menu);
+                return;
+            }
+            case "move":
+            {
+                var accountId = items[0].Row.AccountId;
+                if (items.Any(i => i.Row.AccountId != accountId)) { Ui.Error("Move", "Pick conversations from one account at a time to move them."); return; }
+                var menu = new ContextMenu();
+                foreach (var f in AppServices.Engine.Folders(accountId).Where(f => f.Role is not (FolderRole.All or FolderRole.Flagged or FolderRole.Important)))
+                {
+                    var folder = f;
+                    var mi = Item(new string(' ', Math.Min(f.Depth, 4) * 2) + f.Name, () => _ = _vm.RunOnAsync(items, "move", folder));
+                    mi.Icon = new IconChip { Icon = Icons.ForRole(f.Role), Size = 18 };
+                    menu.Items.Add(mi);
+                }
+                ShowMenu(anchor, menu);
+                return;
+            }
+            default:
+                await _vm.RunOnAsync(items, id);
+                return;
+        }
     }
 
     // ───────────────────────── WebView2 reading pane ─────────────────────────
@@ -328,6 +489,15 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        // Sidebar (design H1): Ctrl+Shift+← / → narrower / wider, Ctrl+Shift+B show / hide.
+        if (ctrl && shift && e.Key == Key.Left) { _vm.NudgeSidebar(-1); e.Handled = true; return; }
+        if (ctrl && shift && e.Key == Key.Right) { _vm.NudgeSidebar(1); e.Handled = true; return; }
+        if (ctrl && shift && e.Key == Key.B) { _vm.ToggleSidebarHidden(); e.Handled = true; return; }
+        // Send now / Undo on the newest waiting message (design SN1).
+        if (ctrl && shift && e.Key == Key.Enter && _vm.Toasts.Any(t => t.CanSendNow)) { _vm.SendNowCommand.Execute(null); e.Handled = true; return; }
+        if (ctrl && !shift && e.Key == Key.Z && Keyboard.FocusedElement is not TextBox && _vm.Toasts.Any(t => !t.Done)) { _vm.UndoSendCommand.Execute(null); e.Handled = true; return; }
+        if (e.Key == Key.Escape && Keyboard.FocusedElement is not TextBox && _vm.SelectedCount > 0) { _vm.ClearSelection(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.N) { _vm.ComposeCommand.Execute(null); e.Handled = true; return; }
         if (ctrl && e.Key == Key.F) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F5) { _vm.SyncAllCommand.Execute(null); e.Handled = true; return; }
@@ -407,6 +577,8 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         SavePlacement();
+        // A bulk action still waiting for its Undo goes ahead — and finishes before the engine is disposed.
+        try { _vm.CommitPendingBulk().GetAwaiter().GetResult(); } catch (Exception ex) { Log.Warn("bulk on close: " + ex.Message); }
         if (AppServices.Engine.Config.CloseToTray && AppServices.Tray != null)
         {
             e.Cancel = true;

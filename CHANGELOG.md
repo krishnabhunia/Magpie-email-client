@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2 (28 Sep 2026)
+- **About Me** in Settings → About: Krishna's details, the feedback address (click it, say what the email is about, and a new message opens in Magpie with the version, Windows details and — for bugs — the last log lines already filled in), LinkedIn and Facebook, version and release date.
+- **Send now** next to every **Undo**: in the rows under the list and in the status bar. Ctrl+Shift+Enter sends the newest waiting message now; Ctrl+Z takes it back.
+- **Search in Settings**: a search box at the top of Settings (Ctrl+F). Every setting is found by its name or plain words; the page list shows how many matches each page has; click a result and the setting flashes on its page. Esc clears.
+- **Sidebar width**: drag the sidebar's edge (200–420 px). Narrower than that and it snaps to a slim **icon rail** with unread badges; point at an icon for its name and numbers. Double-click the edge to reset; the width is remembered. Ctrl+Shift+← / → and Ctrl+Shift+B (show / hide).
+- **Folder details on hover**: point at any folder, account folder or tag and a card shows unread and total conversations, today's mail, the oldest unread, the last received, messages, size and attachments — choose the lines and the delay in Settings → Toolbar & buttons, or turn it off.
+- **Buttons on email rows**: up to five action buttons on each conversation in the list (archive, delete, snooze, read/unread, pin, remind, tag, move, spam — your pick and order), shown on hover, always, or never. Click a sender's initials to tick several conversations: a bar appears with Archive · Delete · Mark read · Move · Tag · Snooze. Archive, delete and move wait a few seconds with **Undo**; deleting more than 10 asks first.
+
 ## 1.1.1 (28 Sep 2026)
 - **Every folder now shows all its emails.** Before, a folder only listed mail from the last 90 days and never went back for the rest, so a folder holding only older mail (a 2022 email in a Gmail label, say) looked empty. Now the first sync still shows recent mail quickly, then Magpie keeps listing older emails in every folder — headers first, newest first, the folder you are looking at before the others — and an email's body is downloaded when you click it. A folder that is still loading says "Getting this folder's emails from the server…"; the status bar shows "Getting older emails · account · folder · N left".
 - **Gmail's All Mail, Starred and Important are listed too** (archived Gmail mail lives only in All Mail). An email that sits in several folders is shown and counted once in Pinned, tag and search views; Archive / Delete from those views leave the All Mail and Starred copies alone.
