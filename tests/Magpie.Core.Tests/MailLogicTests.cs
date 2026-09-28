@@ -349,7 +349,8 @@ public class ComposerImageTests
         var msg = Composer.Build(d, new Account { Email = "me@test.local" });
         Assert.DoesNotContain("data:image", msg.HtmlBody);
         Assert.Contains("cid:", msg.HtmlBody);
-        var cid = System.Text.RegularExpressions.Regex.Match(msg.HtmlBody, "cid:([^\"]+)").Groups[1].Value;
+        var html = msg.HtmlBody ?? "";
+        var cid = System.Text.RegularExpressions.Regex.Match(html, "cid:([^\"]+)").Groups[1].Value;
         Assert.Contains(msg.BodyParts.OfType<MimePart>(), p => p.ContentId == cid && p.ContentType.MimeType == "image/png");
     }
 }
