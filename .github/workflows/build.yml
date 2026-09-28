@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+# One release job at a time, so a push to main and a tag push can't race to create the same release.
+concurrency:
+  group: magpie-build-${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -87,13 +92,47 @@ jobs:
             installer/Output/*.exe
             installer/Output/*.sha256
 
-      - name: GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet
+      # publishes one — tag v<version>, EXE, installer and checksums, notes from CHANGELOG.md.
+      # Magpie's built-in updater reads the newest release, so "push a new version" = "ship it".
+      - name: Is this version released yet?
+        id: rel
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.ver.outputs.version }}"
+          # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
+          $assets = gh release view $tag --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
+          if ($LASTEXITCODE -eq 0 -and ($assets -contains 'Magpie.exe') -and ($assets -contains 'Magpie.exe.sha256')) {
+            "needed=false" >> $env:GITHUB_OUTPUT; Write-Host "$tag already released"
+          } else {
+            "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "$tag will be released (or its files completed)"
+          }
+          $global:LASTEXITCODE = 0
+          # Release notes = this version's section of CHANGELOG.md
+          $lines = Get-Content CHANGELOG.md -Encoding utf8
+          $start = ($lines | Select-String -Pattern "^## ${{ steps.ver.outputs.version }}( |$)" | Select-Object -First 1).LineNumber
+          if ($start) {
+            $rest = $lines[$start..($lines.Count - 1)]
+            $end = ($rest | Select-String -Pattern '^## ' | Select-Object -First 1).LineNumber
+            $section = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          } else { $section = @("Magpie ${{ steps.ver.outputs.version }}") }
+          $section | Out-File release-notes.md -Encoding utf8
+
+      - name: Publish GitHub Release
+        if: steps.rel.outputs.needed == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Magpie ${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
+          make_latest: ${{ !contains(steps.ver.outputs.version, '-') }}
           files: |
             publish/Magpie.exe
             publish/Magpie.exe.sha256
             installer/Output/*.exe
             installer/Output/*.sha256
-          generate_release_notes: true

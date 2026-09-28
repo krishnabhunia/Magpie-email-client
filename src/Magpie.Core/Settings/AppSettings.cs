@@ -89,6 +89,64 @@ public sealed class SidebarState
     public List<string> OpenFolders { get; set; } = new();
 }
 
+public enum ButtonStyle { IconAndName = 0, IconOnly = 1, NameOnly = 2 }
+
+/// <summary>Folder numbers (design C2): unread / total, unread only, or none.</summary>
+public enum CountsMode { UnreadAndTotal = 0, UnreadOnly = 1, Off = 2 }
+
+/// <summary>One reading-pane toolbar button (design C3). <see cref="Id"/> is one of <see cref="Appearance.ToolbarIds"/>.</summary>
+public sealed class ToolbarButton
+{
+    public string Id { get; set; } = "";
+    public bool Visible { get; set; } = true;
+}
+
+/// <summary>Look and toolbar choices (designs C1–C3, S1).</summary>
+public sealed class Appearance
+{
+    /// <summary>Every button the toolbar can show, in default order; the first <see cref="DefaultVisible"/> are on.</summary>
+    public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
+    public const int DefaultVisible = 7;
+
+    public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.IconAndName;
+    public bool Colourful { get; set; } = true;
+    public CountsMode Counts { get; set; } = CountsMode.UnreadAndTotal;
+    public bool ShowStatusBar { get; set; } = true;
+    /// <summary>The message list's right-click menu follows the toolbar's order.</summary>
+    public bool MenuFollowsToolbar { get; set; } = true;
+    public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+
+    public static List<ToolbarButton> DefaultToolbar() =>
+        ToolbarIds.Select((id, i) => new ToolbarButton { Id = id, Visible = i < DefaultVisible }).ToList();
+
+    /// <summary>Drops unknown or repeated ids and appends buttons added in newer versions (hidden).</summary>
+    public void Normalise()
+    {
+        Toolbar ??= DefaultToolbar();
+        var seen = new HashSet<string>();
+        Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
+        foreach (var id in ToolbarIds)
+            if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+    }
+
+    public Appearance Clone() => new()
+    {
+        ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+        Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+    };
+}
+
+/// <summary>Updates from GitHub Releases (design U1).</summary>
+public sealed class UpdateSettings
+{
+    public bool AutoCheck { get; set; } = true;
+    public bool AutoDownload { get; set; } = true;
+    public bool IncludePrerelease { get; set; }
+    /// <summary>"Skip this version": not offered again by automatic checks.</summary>
+    public string SkippedVersion { get; set; } = "";
+    public DateTimeOffset? LastCheck { get; set; }
+}
+
 public sealed class WindowPlacement
 {
     public double Left { get; set; } = double.NaN;
@@ -145,6 +203,8 @@ public sealed class AppSettings
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
+    public Appearance Appearance { get; set; } = new();
+    public UpdateSettings Updates { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -201,6 +261,10 @@ public sealed class SettingsStore
         s.Sidebar ??= new();
         s.Sidebar.OpenAccounts ??= new();
         s.Sidebar.OpenFolders ??= new();
+        s.Appearance ??= new();
+        s.Appearance.Normalise();
+        s.Updates ??= new();
+        s.Updates.SkippedVersion ??= "";
         s.SenderCategories = new Dictionary<string, Category>(s.SenderCategories ?? new(), StringComparer.OrdinalIgnoreCase);
         s.UndoSendSeconds = Math.Clamp(s.UndoSendSeconds, 0, 30);
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);

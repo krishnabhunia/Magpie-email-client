@@ -268,7 +268,7 @@ public class IntegrationTests
         Assert.Contains("undo me", back.Html);
 
         // Send later: queued now, goes out at its time
-        var laterId = e.QueueSend(new Draft { AccountId = acc.Id, To = friend, Subject = "Scheduled", Html = "<p>later</p>" }, DateTimeOffset.Now.AddSeconds(4), DateTimeOffset.Now.AddSeconds(5));
+        var laterId = e.QueueSend(new Draft { AccountId = acc.Id, To = friend, Subject = "Scheduled", Html = "<p>later</p>" }, DateTimeOffset.Now.AddSeconds(4), DateTimeOffset.Now.AddMinutes(10));
         Assert.Contains(e.Outbox(), o => o.Id == laterId && o.Status == OutboxStatus.Queued);
         await WaitUntil(() => { lock (sentEvents) return sentEvents.Any(s => s.Id == laterId); }, "scheduled send", 30);
         Assert.Single(e.WaitingReminders()); // "remind me if no reply" armed after sending

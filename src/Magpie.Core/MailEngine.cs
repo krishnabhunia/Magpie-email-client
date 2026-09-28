@@ -532,6 +532,8 @@ public sealed class MailEngine : IDisposable
     }
 
     public List<OutboxItem> Outbox() => Store.GetOutbox();
+    /// <summary>The outbox without the messages themselves — cheap enough to read every second (status bar).</summary>
+    public List<OutboxItem> OutboxSummary() => Store.GetOutbox(withMime: false);
 
     private async Task ProcessOutboxAsync(CancellationToken ct)
     {

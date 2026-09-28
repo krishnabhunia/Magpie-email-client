@@ -25,6 +25,8 @@ public partial class ThreadViewModel : ObservableObject
     public event Action? ThreadRemoved;
     /// <summary>Raised with a page URL for the WebView2 to show.</summary>
     public event Action<string>? PageReady;
+    /// <summary>Another conversation was picked: show "Loading…" at once (HTML for the page body).</summary>
+    public event Action<string>? Loading;
 
     public ObservableCollection<MessageRow> Messages { get; } = new();
     public ObservableCollection<string> Replies { get; } = new();
@@ -103,6 +105,12 @@ public partial class ThreadViewModel : ObservableObject
         AccountId = row.AccountId;
         ThreadKey = row.ThreadKey;
         HasThread = true;
+        if (!same)
+        {
+            var m = row.Latest;
+            var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
+            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm")));
+        }
         _ = LoadAsync(_cts.Token, markRead: true);
     }
 
@@ -123,6 +131,10 @@ public partial class ThreadViewModel : ObservableObject
     {
         try
         {
+            // Let the list highlight and the "Loading…" page paint before any work starts.
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            ct.ThrowIfCancellationRequested();
+            _loadErrors = new Dictionary<long, string>();
             var rows = _e.Store.GetThread(AccountId, ThreadKey);
             if (rows.Count == 0) { Clear(); return; }
             Messages.Clear();
@@ -142,7 +154,7 @@ public partial class ThreadViewModel : ObservableObject
             // 1. Instant render from what is stored locally.
             var bodies = new Dictionary<long, (MessageBody?, Dictionary<string, string>)>();
             foreach (var r in rows) bodies[r.Id] = (_e.Store.GetBody(r.Id), new Dictionary<string, string>());
-            Render(rows, bodies);
+            await RenderAsync(rows, bodies, ct);
 
             // 2. Download what is missing and inline images, then render again.
             bool fetched = false;
@@ -163,11 +175,12 @@ public partial class ThreadViewModel : ObservableObject
                 catch (Exception ex)
                 {
                     Log.Warn("load body failed: " + ex.Message);
-                    bodies[r.Id] = (new MessageBody { Html = $"<p style=\"color:#B3261E\">Couldn't download this message: {System.Net.WebUtility.HtmlEncode(Connector.Friendly(ex))}</p>" }, new());
+                    // Keep what we had (if anything); the page shows why and a "Try again" button (design R1).
+                    if (bodies[r.Id].Item1 == null) _loadErrors[r.Id] = Connector.Friendly(ex);
                 }
             }
             ct.ThrowIfCancellationRequested();
-            if (fetched) Render(rows, bodies);
+            if (fetched) await RenderAsync(rows, bodies, ct);
 
             if (markRead && _e.Config.MarkReadOnOpen && rows.Any(r => !r.IsSeen))
                 _e.SetRead(AccountId, ThreadKey, true);
@@ -185,22 +198,67 @@ public partial class ThreadViewModel : ObservableObject
 
     private Dictionary<long, (MessageBody?, Dictionary<string, string>)> _lastBodies = new();
 
-    private void Render(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies)
+    /// <summary>Builds the page off the UI thread (cleaning big newsletters can take a moment) and shows it
+    /// only if the user is still on this conversation.</summary>
+    private async Task RenderAsync(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies, CancellationToken ct)
     {
         _lastBodies = bodies;
-        var latest = rows[^1];
-        var sender = latest.FromAddress;
-        var allow = _imagesAllowedOnce || _e.Config.RemoteImages == RemoteImages.Always
-                    || (_e.Config.RemoteImages == RemoteImages.Ask && rows.All(r => IsMine(r) || _e.Config.TrustedImageSenders.Contains(r.FromAddress, StringComparer.OrdinalIgnoreCase)));
-        var list = rows.Select((r, i) => new RenderMessage
+        var subject = Subject;
+        var allow = ImagesAllowed(rows);
+        var list = BuildRenderList(rows, bodies);
+        var (url, blocked) = await Task.Run(() =>
+        {
+            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now);
+            ct.ThrowIfCancellationRequested();
+            return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
+        }, ct);
+        ct.ThrowIfCancellationRequested();
+        BlockedImages = allow ? 0 : blocked;
+        PageReady?.Invoke(url);
+    }
+
+    private bool ImagesAllowed(List<MessageRow> rows) =>
+        _imagesAllowedOnce || _e.Config.RemoteImages == RemoteImages.Always
+        || (_e.Config.RemoteImages == RemoteImages.Ask && rows.All(r => IsMine(r) || _e.Config.TrustedImageSenders.Contains(r.FromAddress, StringComparer.OrdinalIgnoreCase)));
+
+    private Dictionary<long, string> _loadErrors = new();
+
+    private List<RenderMessage> BuildRenderList(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies)
+    {
+        var account = _e.AccountById(AccountId);
+        var where = account?.Kind switch
+        {
+            AccountKind.Gmail => "Gmail",
+            AccountKind.Microsoft => "Outlook",
+            _ => account?.ImapHost is { Length: > 0 } h ? h : "the server",
+        };
+        return rows.Select((r, i) => new RenderMessage
         {
             Row = r,
             Body = bodies.TryGetValue(r.Id, out var b) ? b.body : null,
             InlineImages = bodies.TryGetValue(r.Id, out var b2) ? b2.images : new(),
             Expanded = i == rows.Count - 1 || !r.IsSeen || rows.Count <= 2,
             IsMine = IsMine(r),
+            LoadingText = $"Downloading from {where}…",
+            LoadError = _loadErrors.TryGetValue(r.Id, out var err) ? err : null,
         }).ToList();
-        var result = HtmlRenderer.BuildConversation(Subject, list, allow, DateTimeOffset.Now);
+    }
+
+    /// <summary>"Try again" on a message that couldn't be downloaded.</summary>
+    public void RetryLoad()
+    {
+        if (!HasThread) return;
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        _ = LoadAsync(_cts.Token, markRead: false);
+    }
+
+    /// <summary>Re-render the open conversation right away (e.g. after "Show images").</summary>
+    private void Render(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies)
+    {
+        _lastBodies = bodies;
+        var allow = ImagesAllowed(rows);
+        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now);
         BlockedImages = allow ? 0 : result.BlockedImages;
         PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
     }

@@ -3,9 +3,9 @@
 A Windows email client that combines the power features of **eM Client** with the calm, smart inbox of **Spark** —
 local-first, with optional AI you control from one Settings page.
 
-**Version 1.0.1** · C# / .NET 8 / WPF · single-file `Magpie.exe` (no install needed; an installer is built by CI)
+**Version 1.1.0** · C# / .NET 8 / WPF · installer or single-file `Magpie.exe` from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) · updates itself from GitHub
 
-## What's in Build 1
+## Features
 
 | # | Area | Features |
 |---|------|----------|
@@ -22,6 +22,11 @@ local-first, with optional AI you control from one Settings page.
 | 11 | **AI features** (optional) | One master switch + four feature switches — see below |
 | 12 | Drafts | Autosaved on this PC while you type; kept offline and uploaded to Drafts when you are back online |
 | 13 | Sidebar | Collapsible Folders / Accounts / Tags, folder tree with subfolders, state remembered |
+| 14 | Look | A coloured icon for every folder and action (the same colour everywhere), coloured sender initials, tags in their colours |
+| 15 | Toolbar | Icon + name on every button; Settings → Toolbar & buttons: show/hide, order, style, colourful on/off |
+| 16 | Folder numbers | Unread / total conversations where mail arrives (3 / 10), a single count for Pinned, Drafts, Trash…, none for Sent |
+| 17 | Status bar | Online/offline, sync progress, what just arrived, sending + Undo, problems with their fix; click for activity |
+| 18 | Updates | Checks GitHub Releases daily, downloads and verifies in the background, "Restart now" swaps the EXE (rollback if it fails) |
 
 ## AI features — one page, five switches (approved designs S1–S5)
 
@@ -42,18 +47,24 @@ provider is down or switched off.
 
 ## First run
 
-1. Run `Magpie.exe` → **Add account**.
+1. Download **Magpie-Setup-x.y.z.exe** from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) and run it (installs for your user only; no admin rights), or run the single-file `Magpie.exe`. Then **Add account**.
 2. Gmail / Outlook with one-click sign-in need your own free sign-in app (once, ~5 min): see [`docs/SIGN-IN-SETUP.md`](docs/SIGN-IN-SETUP.md).
    Without it, Gmail works with an **app password**, and any IMAP mailbox with its normal password.
 3. Optional: **Settings → AI features** → switch on, pick a provider, paste an API key (or choose Ollama), **Test connection**, then switch on the features you want.
 
-Data lives in `%APPDATA%\Magpie` (mail cache, settings, `magpie.log`).
+Data lives in `%APPDATA%\Magpie` (mail cache, settings, `magpie.log`). Updates download to `%LOCALAPPDATA%\Magpie\updates`.
+
+## Releases
+
+A push to `main` that raises the version in `Directory.Build.props` makes GitHub Actions publish Release `v<version>`
+(EXE, installer, SHA-256 files, notes from `CHANGELOG.md`). A version with a suffix (`1.2.0-beta.1`) is published as a
+pre-release, offered only to copies with "Include test versions" ticked.
 
 ## Known limits
 
 | # | Limit | Planned |
 |---|-------|---------|
-| 1 | Light theme only; dialogs use the Windows title-bar colour | Dark theme (1.1.0) |
+| 1 | Light theme only; dialogs use the Windows title-bar colour | Dark theme (1.2.0) |
 | 2 | Not code-signed, so Windows shows "unknown publisher" for the installer | Signing (needs a certificate) |
 
 ## Build

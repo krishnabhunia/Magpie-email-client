@@ -19,6 +19,12 @@ public sealed class SyncStatus
     public SyncState State { get; init; }
     public string Message { get; init; } = "";
     public DateTimeOffset At { get; init; } = DateTimeOffset.Now;
+    /// <summary>While syncing (status bar, design S1): the folder being checked, and headers downloaded of those found new.</summary>
+    public string Folder { get; init; } = "";
+    public int Done { get; init; }
+    public int Total { get; init; }
+    /// <summary>When this account last finished a sync without error.</summary>
+    public DateTimeOffset? LastSuccess { get; init; }
 }
 
 public sealed class ChangeSet
@@ -135,9 +141,21 @@ public sealed class AccountSync : IDisposable
     /// <summary>Ask for a sync now (e.g. after an action or when the user presses F5).</summary>
     public void Poke() => _wake.Release();
 
+    private DateTimeOffset? _lastSuccess;
+
     private void SetStatus(SyncState state, string msg = "")
     {
-        Status = new SyncStatus { State = state, Message = msg };
+        if (state == SyncState.Idle) _lastSuccess = DateTimeOffset.Now;
+        Status = new SyncStatus { State = state, Message = msg, LastSuccess = _lastSuccess };
+        StatusChanged?.Invoke(this, Status);
+    }
+
+    /// <summary>Progress within the current sync (keeps its state and message).</summary>
+    private void SetProgress(string folder, int done, int total)
+    {
+        var cur = Status;
+        if (cur.State is not (SyncState.Syncing or SyncState.Connecting)) return;
+        Status = new SyncStatus { State = cur.State, Message = cur.Message, Folder = folder, Done = done, Total = total, LastSuccess = _lastSuccess };
         StatusChanged?.Invoke(this, Status);
     }
 
@@ -262,6 +280,7 @@ public sealed class AccountSync : IDisposable
             {
                 ct.ThrowIfCancellationRequested();
                 var stored = _store.GetFolder(local.Id) ?? local;
+                SetProgress(stored.Name, 0, 0);
                 try
                 {
                     var f = await client.GetFolderAsync(path, ct);
@@ -337,11 +356,14 @@ public sealed class AccountSync : IDisposable
                 }
             }
             newUids = newUids.Where(u => !pendingRemovals.Contains((local.Id, u.Id))).ToList();
+            var fetchedSoFar = 0;
             foreach (var batch in newUids.OrderByDescending(u => u.Id).Chunk(150))
             {
                 ct.ThrowIfCancellationRequested();
                 var rows = await FetchRowsAsync(client, f, local, batch, ct);
                 added.AddRange(_store.InsertMessages(rows));
+                fetchedSoFar += batch.Length;
+                SetProgress(local.Name, fetchedSoFar, newUids.Count);
             }
             if (added.Count > 0)
             {

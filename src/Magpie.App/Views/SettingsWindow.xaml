@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
         xmlns:set="clr-namespace:Magpie.Core.Settings;assembly=Magpie.Core"
+        xmlns:svc="clr-namespace:Magpie.App.Services"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
         Title="Magpie — Settings" Width="1040" Height="800" MinWidth="820" MinHeight="560"
@@ -22,7 +23,7 @@
         </Style>
         <Style x:Key="Nav.Settings" TargetType="RadioButton" BasedOn="{StaticResource Button.Folder}">
             <Setter Property="GroupName" Value="SettingsNav" />
-            <Setter Property="Height" Value="34" />
+            <Setter Property="Height" Value="38" />
         </Style>
         <Style x:Key="FeatureRow" TargetType="Border">
             <Setter Property="Padding" Value="22,14" />
@@ -43,20 +44,42 @@
             <DockPanel Margin="0,18,0,12">
                 <TextBlock DockPanel.Dock="Bottom" Text="{Binding Version}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="20,0,0,0" />
                 <StackPanel>
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="General" Command="{Binding GoCommand}" CommandParameter="General"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Accounts" Command="{Binding GoCommand}" CommandParameter="Accounts"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="AI features" Command="{Binding GoCommand}" CommandParameter="AI"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AI}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Notifications" Command="{Binding GoCommand}" CommandParameter="Notifications"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Templates" Command="{Binding GoCommand}" CommandParameter="Templates"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Templates}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="Keyboard shortcuts" Command="{Binding GoCommand}" CommandParameter="Keys"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Keys}" />
-                    <RadioButton Style="{StaticResource Nav.Settings}" Content="About" Command="{Binding GoCommand}" CommandParameter="About"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=About}" />
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="General"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="general" Size="24" Margin="0,0,10,0" /><TextBlock Text="General" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Toolbar &amp; buttons" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Accounts"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="accounts" Size="24" Margin="0,0,10,0" /><TextBlock Text="Accounts" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="AI"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AI}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="summarise" Size="24" Margin="0,0,10,0" /><TextBlock Text="AI features" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Notifications"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="notifications" Size="24" Margin="0,0,10,0" /><TextBlock Text="Notifications" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Templates"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Templates}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="templates" Size="24" Margin="0,0,10,0" /><TextBlock Text="Templates" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Keys"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Keys}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="keys" Size="24" Margin="0,0,10,0" /><TextBlock Text="Keyboard shortcuts" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Updates"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Updates}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="update" Size="24" Margin="0,0,10,0" /><TextBlock Text="Updates" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="About"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=About}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="about" Size="24" Margin="0,0,10,0" /><TextBlock Text="About" VerticalAlignment="Center" /></StackPanel>
+                    </RadioButton>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -525,6 +548,170 @@
                         </Border>
                     </StackPanel>
 
+                    <!-- ═══════════ Toolbar & buttons (design C3) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Toolbar}">
+                        <TextBlock Text="Toolbar &amp; buttons" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Choose which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
+
+                        <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,0,6" />
+                        <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="10" Padding="10,8,4,4" Background="{DynamicResource Brush.Window.Background}">
+                            <ItemsControl ItemsSource="{Binding ToolbarPreview}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
+                                        <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="7" Background="{DynamicResource Brush.Control.Background}"
+                                                Padding="6,4,10,4" Margin="0,0,6,4" ToolTip="{Binding ToolTip}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" Mono="{Binding DataContext.Colourful, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvBool}}"
+                                                              Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium" VerticalAlignment="Center" Margin="6,0,0,0"
+                                                           Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="20" />
+                                <ColumnDefinition Width="280" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource Card}" Padding="0">
+                                <StackPanel>
+                                    <Grid Margin="14,9,10,7" TextElement.FontSize="11.5" TextElement.FontWeight="SemiBold" TextElement.Foreground="{DynamicResource Brush.Text.Secondary}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="56" /><ColumnDefinition Width="76" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Show" />
+                                        <TextBlock Grid.Column="1" Text="Button" />
+                                        <TextBlock Grid.Column="2" Text="Key" />
+                                        <TextBlock Grid.Column="3" Text="Order" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding ToolbarRows}" AlternationCount="2" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableToolbarButton}">
+                                                <Border x:Name="Row" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="14,5,10,5">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="56" /><ColumnDefinition Width="76" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox IsChecked="{Binding Visible, Mode=TwoWay}" VerticalAlignment="Center" AutomationProperties.Name="{Binding ShowLabel}" />
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                            <svc:IconChip Icon="{Binding IconKey}" Size="24" Mono="{Binding DataContext.Colourful, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvBool}}" Margin="0,0,10,0" />
+                                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" Text="{Binding Shortcut}" FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
+                                                        <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                            <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0" FontWeight="Normal"
+                                                                    Command="{Binding DataContext.MoveToolbarUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                    AutomationProperties.Name="{Binding UpLabel}" ToolTip="{Binding UpLabel}" />
+                                                            <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0" FontWeight="Normal"
+                                                                    Command="{Binding DataContext.MoveToolbarDownCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                    AutomationProperties.Name="{Binding DownLabel}" ToolTip="{Binding DownLabel}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                                <DataTemplate.Triggers>
+                                                    <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                                        <Setter TargetName="Row" Property="Background" Value="{DynamicResource Brush.Row.Alt}" />
+                                                    </Trigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Grid.Column="2">
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Button style" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                        <RadioButton GroupName="BtnStyle" Content="Icon + name" Margin="0,3"
+                                                     IsChecked="{Binding ButtonStyle, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=IconAndName}"
+                                                     Command="{Binding SetButtonStyleCommand}" CommandParameter="IconAndName" />
+                                        <RadioButton GroupName="BtnStyle" Content="Icon only (name shows on hover)" Margin="0,3"
+                                                     IsChecked="{Binding ButtonStyle, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=IconOnly}"
+                                                     Command="{Binding SetButtonStyleCommand}" CommandParameter="IconOnly" />
+                                        <RadioButton GroupName="BtnStyle" Content="Name only" Margin="0,3"
+                                                     IsChecked="{Binding ButtonStyle, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=NameOnly}"
+                                                     Command="{Binding SetButtonStyleCommand}" CommandParameter="NameOnly" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Look" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                        <CheckBox Content="Colourful icons" IsChecked="{Binding Colourful, Mode=TwoWay}" Margin="0,3" />
+                                        <CheckBox Content="Same order in the list's right-click menu" IsChecked="{Binding MenuFollowsToolbar, Mode=TwoWay}" Margin="0,3" />
+                                        <CheckBox Content="Show the status bar" IsChecked="{Binding ShowStatusBar, Mode=TwoWay}" Margin="0,3" />
+                                        <TextBlock Text="Folder numbers" Margin="0,10,0,4" />
+                                        <ComboBox ItemsSource="{Binding CountChoices}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Counts, Mode=TwoWay}" />
+                                    </StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Button.Secondary}" Content="Reset to default" HorizontalAlignment="Left" Margin="0,12,0,0" FontWeight="Normal" Command="{Binding ResetToolbarCommand}" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           Text="Reply and Summarise always stay on the right. Changes apply when you press Save." />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- ═══════════ Updates (design U1) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Updates}">
+                        <StackPanel Orientation="Horizontal">
+                            <svc:IconChip Icon="update" Size="44" Margin="0,0,14,0" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Updates" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock Style="{StaticResource Text.Caption}">
+                                    <Run Text="You have " /><Run Text="{Binding Version, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding UpdateSource, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Style="{StaticResource Card}" Margin="0,18,0,0" DataContext="{Binding Updates}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Background="{DynamicResource Brush.Success.Subtle}" CornerRadius="9" Padding="8,1" Margin="0,0,10,0" VerticalAlignment="Center"
+                                            Visibility="{Binding Badge, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding Badge}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.Success}" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="8" Margin="0,10,0,0" Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
+                                <Border Background="{DynamicResource Brush.Window.Background}" CornerRadius="8" Padding="12,10" Margin="0,12,0,0" Visibility="{Binding ShowNotes, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel>
+                                        <TextBlock Text="What's new" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                        <TextBlock Text="{Binding Notes}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19" />
+                                        <Button Style="{StaticResource Button.Link}" Content="Full release notes on GitHub" HorizontalAlignment="Left" FontSize="12" Padding="0,4,0,0" MinHeight="20"
+                                                Command="{Binding OpenReleasePageCommand}" />
+                                    </StackPanel>
+                                </Border>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button Style="{StaticResource Button.Primary}" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvBool}}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Later" FontWeight="Normal" Command="{Binding LaterCommand}" Margin="0,0,8,0"
+                                            Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Skip this version" FontWeight="Normal" Command="{Binding SkipCommand}"
+                                            Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding LastChecked}" Style="{StaticResource Text.Caption}" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                            <StackPanel>
+                                <CheckBox Content="Check for updates automatically (at start, then once a day)" IsChecked="{Binding AutoCheckUpdates, Mode=TwoWay}" Margin="0,3" />
+                                <CheckBox Content="Download in the background, ask before restarting" IsChecked="{Binding AutoDownloadUpdates, Mode=TwoWay}" Margin="0,3" />
+                                <CheckBox Content="Include test versions (pre-releases)" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" Margin="0,3" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                                   Text="Each download is checked against the SHA-256 published with the release. Restarting replaces only Magpie.exe — your mail, settings and sign-ins stay as they are — and the old version is kept as Magpie.previous.exe. If the new one fails to start, Magpie goes back to it." />
+                    </StackPanel>
+
                     <!-- ═══════════ About ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=About}">
                         <StackPanel Orientation="Horizontal">
@@ -532,6 +719,8 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Text="A local-first mail app for Windows." Style="{StaticResource Text.Caption}" />
+                                <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
+                                        Command="{Binding GoCommand}" CommandParameter="Updates" />
                             </StackPanel>
                         </StackPanel>
                         <Border Style="{StaticResource Card}" Margin="0,20,0,0">

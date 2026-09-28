@@ -33,6 +33,22 @@ public sealed class BoolToVisibilityConverter : IValueConverter
     };
 }
 
+/// <summary>Status bar (design S1): no divider before the first segment.</summary>
+public sealed class FirstSegmentBorderConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? new Thickness(0) : new Thickness(1, 0, 0, 0);
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
+/// <summary>0 (or empty) → Visible: for "nothing here yet" texts.</summary>
+public sealed class ZeroToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        BoolToVisibilityConverter.Truthy(value) ? Visibility.Collapsed : Visibility.Visible;
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
 public sealed class InverseBoolConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => !BoolToVisibilityConverter.Truthy(value);

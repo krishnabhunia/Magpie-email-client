@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -29,20 +30,23 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Error("start-up failed", ex);
+            if (Program.AfterUpdate && UpdateService.OfferRollback(ex)) { Shutdown(1); return; }
             MessageBox.Show("Magpie could not open its data folder:\n\n" + ex.Message, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             return;
         }
         AppServices.Engine = engine;
-        Log.Info($"Magpie {typeof(App).Assembly.GetName().Version} starting, {engine.Accounts.Count} account(s)");
+        Log.Info($"Magpie {UpdateService.Current} starting, {engine.Accounts.Count} account(s)" + (Program.AfterUpdate ? $" (updated from {Program.UpdatedFrom})" : ""));
+        Icons.Colourful = engine.Config.Appearance.Colourful;
         try { StartUi(engine); }
         catch (Exception ex)
         {
             // Without this, a failure here would leave an invisible process holding the single-instance lock.
             Log.Error("start-up failed", ex);
-            MessageBox.Show("Magpie could not start:\n\n" + ex.Message + "\n\nDetails are in " + Log.FilePath, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             try { engine.Dispose(); } catch { }
             AppServices.Tray?.Dispose();
+            if (Program.AfterUpdate && UpdateService.OfferRollback(ex)) { Shutdown(1); return; }
+            MessageBox.Show("Magpie could not start:\n\n" + ex.Message + "\n\nDetails are in " + Log.FilePath, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
@@ -89,6 +93,16 @@ public partial class App : Application
         }, _cts.Token);
 
         engine.Start();
+        var updates = new UpdateService();
+        AppServices.Updates = updates;
+        updates.Start();
+        (main.DataContext as ViewModels.MainViewModel)?.StatusBar.AttachUpdates(updates);
+        main.AttachUpdates(updates);
+        engine.Settings.Changed += () => Ui.Post(() => Icons.Colourful = engine.Config.Appearance.Colourful);
+        if (Program.AfterUpdate)
+            main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
+                DispatcherPriority.ApplicationIdle);
+        Program.StartupComplete = true;
         if (engine.Accounts.Count == 0)
             main.Dispatcher.BeginInvoke(() => AddAccountWindow.ShowWelcome(main), DispatcherPriority.ApplicationIdle);
         var startMailto = Program.StartupArgs.FirstOrDefault(a => a.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
@@ -124,17 +138,35 @@ public partial class App : Application
 
     private bool _exitPending;
 
+    /// <summary>Open compose windows get to save or discard their message first. False = the user cancelled.</summary>
+    public async Task<bool> CloseComposeWindowsAsync()
+    {
+        foreach (var w in Windows.OfType<ComposeWindow>().ToList())
+            if (!await w.CloseForExitAsync()) return false;
+        return true;
+    }
+
     public async void ExitApp()
     {
         if (_exiting || _exitPending) return;
         _exitPending = true;
         try
         {
-            // Open compose windows get to save or discard their message first; Cancel stops quitting.
-            foreach (var w in Windows.OfType<ComposeWindow>().ToList())
-                if (!await w.CloseForExitAsync()) return;
+            if (!await CloseComposeWindowsAsync()) return;
         }
         finally { _exitPending = false; }
+        Quit();
+    }
+
+    /// <summary>The updater has started the new version: quit without asking (compose windows were handled already).</summary>
+    public void ExitForUpdate()
+    {
+        if (_exiting) return;
+        Quit();
+    }
+
+    private void Quit()
+    {
         _exiting = true;
         try { (MainWindow as MainWindow)?.SavePlacement(); } catch { }
         _cts.Cancel();
@@ -163,5 +195,6 @@ public static class AppServices
 {
     public static MailEngine Engine { get; set; } = null!;
     public static TrayIcon? Tray { get; set; }
+    public static UpdateService? Updates { get; set; }
     public static App Current => (App)Application.Current;
 }

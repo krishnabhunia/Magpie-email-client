@@ -380,4 +380,14 @@ public class Release101Tests
         Assert.Contains("data:image/png;base64,CQgH", d.Html);
         Assert.Equal("a.pdf", ((MimeKit.MimePart)Assert.Single(d.CarriedParts)).FileName);
     }
+
+    [Fact]
+    public void Loading_placeholder_shows_subject_and_sender_escaped()
+    {
+        var html = HtmlRenderer.LoadingBody("Q3 <b>numbers</b>", "Rohan & Co", "Mon 28 Sep, 10:42");
+        Assert.Contains("Q3 &lt;b&gt;numbers&lt;/b&gt;", html);
+        Assert.Contains("Rohan &amp; Co", html);
+        Assert.Contains("Loading…", html);
+        Assert.Contains("role=\"status\"", html);
+    }
 }

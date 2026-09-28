@@ -12,5 +12,7 @@
     <conv:HexToBrushConverter x:Key="HexBrush" />
     <conv:BoolToFontWeightConverter x:Key="BoldIfTrue" />
     <conv:BoolToBrushConverter x:Key="BoolToBrush" />
+    <conv:FirstSegmentBorderConverter x:Key="FirstSegmentBorder" />
+    <conv:ZeroToVisibilityConverter x:Key="ZeroToVis" />
 
 </ResourceDictionary>

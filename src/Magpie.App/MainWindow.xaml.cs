@@ -25,9 +25,17 @@ public partial class MainWindow : Window
         _vm = new MainViewModel();
         DataContext = _vm;
         _vm.Reader.PageReady += url => Ui.Post(() => ShowPage(url));
+        _vm.Reader.Loading += ShowLoading;
+        _vm.StatusBar.SignInRequested += id =>
+        {
+            if (AppServices.Engine.AccountById(id) is { } a) AddAccountWindow.ShowReauth(this, a);
+        };
         RestorePlacement();
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
         PreviewKeyDown += OnPreviewKeyDown;
+        // Status bar: no once-a-second refresh while Magpie sits in the tray or minimised.
+        IsVisibleChanged += (_, _) => _vm.StatusBar.SetWindowVisible(IsVisible && WindowState != WindowState.Minimized);
+        StateChanged += (_, _) => _vm.StatusBar.SetWindowVisible(IsVisible && WindowState != WindowState.Minimized);
         Loaded += async (_, _) => await InitWebAsync();
         Closing += OnClosing;
     }
@@ -81,6 +89,21 @@ public partial class MainWindow : Window
         try { Web.CoreWebView2.Navigate(url); } catch (Exception ex) { Log.Warn("navigate: " + ex.Message); }
     }
 
+    /// <summary>
+    /// Another conversation was picked: replace what is on screen with "Loading…" straight away, inside the
+    /// current page (no navigation, so it is instant), and stop any page that is still on its way in.
+    /// </summary>
+    private void ShowLoading(string bodyHtml)
+    {
+        if (!_webReady) return;
+        try
+        {
+            Web.CoreWebView2.Stop();
+            _ = Web.CoreWebView2.ExecuteScriptAsync("document.body.innerHTML=" + JsonSerializer.Serialize(bodyHtml) + ";window.scrollTo(0,0);");
+        }
+        catch (Exception ex) { Log.Warn("loading page: " + ex.Message); }
+    }
+
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         try
@@ -96,6 +119,7 @@ public partial class MainWindow : Window
                 case "replyall": _vm.Reader.Compose(ComposeMode.ReplyAll, id); break;
                 case "forward": _vm.Reader.Compose(ComposeMode.Forward, id); break;
                 case "att": _ = _vm.Reader.OpenAttachmentAsync(id, root.GetProperty("i").GetInt32()); break;
+                case "retry": _vm.Reader.RetryLoad(); break;
             }
         }
         catch (Exception ex) { Log.Warn("web message: " + ex.Message); }
@@ -173,24 +197,80 @@ public partial class MainWindow : Window
         ShowMenu((FrameworkElement)sender, menu);
     }
 
+    /// <summary>A reading-pane toolbar button (designs C1, C3).</summary>
+    private void OnToolbarButton(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ToolbarButtonVm b } anchor) RunAction(b.Id, anchor);
+    }
+
+    /// <summary>Runs a toolbar / menu action by its id (the ids of <see cref="Core.Settings.Appearance.ToolbarIds"/>).</summary>
+    private void RunAction(string id, FrameworkElement anchor)
+    {
+        var r = _vm.Reader;
+        if (id == "delete" && _vm.Selected?.LocalDraftId != null) { _vm.DeleteSelectedLocalDraft(); return; }
+        if (!r.HasThread) return;
+        switch (id)
+        {
+            case "archive": r.ArchiveCommand.Execute(null); break;
+            case "delete": r.DeleteCommand.Execute(null); break;
+            case "snooze": OnSnoozeMenu(anchor, new RoutedEventArgs()); break;
+            case "remind": OnRemindMenu(anchor, new RoutedEventArgs()); break;
+            case "tag": OnTagMenu(anchor, new RoutedEventArgs()); break;
+            case "pin": r.TogglePinCommand.Execute(null); break;
+            case "move": ShowMenu(anchor, MoveMenu()); break;
+            case "unread": r.MarkUnreadCommand.Execute(null); break;
+            case "replyall": r.ReplyAllCommand.Execute(null); break;
+            case "forward": r.ForwardCommand.Execute(null); break;
+        }
+    }
+
+    private static MenuItem IconItem(string header, string icon, Action onClick, string? gesture = null)
+    {
+        var mi = Item(header, onClick, gesture);
+        mi.Icon = new IconChip { Icon = icon, Size = 18 };
+        return mi;
+    }
+
+    private ContextMenu MoveMenu()
+    {
+        var r = _vm.Reader;
+        var menu = new ContextMenu();
+        foreach (var f in AppServices.Engine.Folders(r.AccountId).Where(f => f.Role is not (FolderRole.All or FolderRole.Flagged or FolderRole.Important)))
+        {
+            var folder = f;
+            var mi = Item(new string(' ', Math.Min(f.Depth, 4) * 2) + f.Name, () => r.MoveTo(folder));
+            mi.Icon = new IconChip { Icon = Icons.ForRole(f.Role), Size = 18 };
+            menu.Items.Add(mi);
+        }
+        return menu;
+    }
+
+    private MenuItem ActionItem(ToolbarButtonVm b, FrameworkElement anchor)
+    {
+        var r = _vm.Reader;
+        var name = b.Id == "pin" && r.IsPinned ? "Unpin" : b.Id == "unread" ? "Mark as unread" : b.Name;
+        if (b.Id == "move")
+        {
+            var move = new MenuItem { Header = "Move to", Icon = new IconChip { Icon = "move", Size = 18 } };
+            foreach (var item in MoveMenu().Items.OfType<MenuItem>().ToList())
+            {
+                ((ContextMenu)item.Parent).Items.Remove(item);
+                move.Items.Add(item);
+            }
+            return move;
+        }
+        return IconItem(name + (b.Id is "snooze" or "remind" or "tag" ? "…" : ""), b.IconKey, () => RunAction(b.Id, anchor), b.Shortcut.Length > 0 ? b.Shortcut : null);
+    }
+
+    /// <summary>··· More: the buttons hidden from the toolbar, then the less common actions.</summary>
     private void OnMoreMenu(object sender, RoutedEventArgs e)
     {
         if (!_vm.Reader.HasThread) return;
         var r = _vm.Reader;
+        var anchor = (FrameworkElement)sender;
         var menu = new ContextMenu();
-        menu.Items.Add(Item("Reply all", () => r.ReplyAllCommand.Execute(null), "A"));
-        menu.Items.Add(Item("Forward", () => r.ForwardCommand.Execute(null), "F"));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item(r.IsPinned ? "Unpin" : "Pin", () => r.TogglePinCommand.Execute(null), "P"));
-        menu.Items.Add(Item("Mark as unread", () => r.MarkUnreadCommand.Execute(null), "U"));
-
-        var move = new MenuItem { Header = "Move to" };
-        foreach (var f in AppServices.Engine.Folders(r.AccountId).Where(f => f.Role is not (FolderRole.All or FolderRole.Flagged or FolderRole.Important)))
-        {
-            var folder = f;
-            move.Items.Add(Item(new string(' ', Math.Min(f.Depth, 4) * 2) + f.Name, () => r.MoveTo(folder)));
-        }
-        menu.Items.Add(move);
+        foreach (var b in _vm.HiddenButtons) menu.Items.Add(ActionItem(b, anchor));
+        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
 
         if (r.SenderAddress is { } sender0)
         {
@@ -200,9 +280,35 @@ public partial class MainWindow : Window
             cat.Items.Add(Item("Newsletters", () => r.SetSenderCategory(Category.Newsletters)));
             menu.Items.Add(cat);
         }
-        if (r.CanUnsubscribe) menu.Items.Add(Item("Unsubscribe…", () => r.UnsubscribeCommand.Execute(null)));
-        ShowMenu((FrameworkElement)sender, menu);
+        if (r.CanUnsubscribe) menu.Items.Add(IconItem("Unsubscribe…", "unsubscribe", () => r.UnsubscribeCommand.Execute(null)));
+        menu.Items.Add(IconItem("Customise toolbar…", "toolbar", () => SettingsWindow.Open("Toolbar")));
+        ShowMenu(anchor, menu);
     }
+
+    /// <summary>Right-click on the list: same actions, in the toolbar's order when that option is on (design C3).</summary>
+    private void OnListMenuOpened(object sender, RoutedEventArgs e)
+    {
+        var menu = (ContextMenu)sender;
+        menu.Items.Clear();
+        var r = _vm.Reader;
+        if (_vm.Selected?.LocalDraftId != null)
+        {
+            menu.Items.Add(IconItem("Open draft", "drafts", _vm.OpenSelectedLocalDraft, "Enter"));
+            menu.Items.Add(IconItem("Delete draft", "delete", _vm.DeleteSelectedLocalDraft, "Del"));
+            return;
+        }
+        if (!r.HasThread) { menu.IsOpen = false; return; }
+        var a = AppServices.Engine.Config.Appearance;
+        var ids = a.MenuFollowsToolbar ? a.Toolbar.Where(b => b.Visible).Select(b => b.Id).ToList() : Core.Settings.Appearance.ToolbarIds.Take(Core.Settings.Appearance.DefaultVisible).ToList();
+        foreach (var id in ids.Where(id => id is not ("replyall" or "forward")))
+            menu.Items.Add(ActionItem(ToolbarButtonVm.For(id, a.ButtonStyle), ThreadList));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(IconItem("Reply", "reply", () => r.ReplyCommand.Execute(null), "R"));
+        menu.Items.Add(IconItem("Reply all", "replyall", () => r.ReplyAllCommand.Execute(null), "A"));
+        menu.Items.Add(IconItem("Forward", "forward", () => r.ForwardCommand.Execute(null), "F"));
+    }
+
+    public void AttachUpdates(UpdateService updates) => UpdatePill.DataContext = updates;
 
     // List context menu
     private void OnArchive(object sender, RoutedEventArgs e) => _vm.Reader.ArchiveCommand.Execute(null);

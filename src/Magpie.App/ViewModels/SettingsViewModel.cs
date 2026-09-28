@@ -62,6 +62,19 @@ public partial class EditableTemplate : ObservableObject
 
 public sealed record Choice<T>(T Value, string Label);
 
+/// <summary>One row of Settings → Toolbar &amp; buttons (design C3).</summary>
+public partial class EditableToolbarButton : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => ToolbarButtonVm.NameOf(Id);
+    public string IconKey => ToolbarButtonVm.IconOf(Id);
+    public string Shortcut => ToolbarButtonVm.KeyOf(Id) is { Length: > 0 } k ? k : "—";
+    public string ShowLabel => "Show " + Name;
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+    [ObservableProperty] private bool _visible;
+}
+
 /// <summary>One "Quick setup" button on the AI page (Off · A · B · C · Custom).</summary>
 public partial class AiPreset : ObservableObject
 {
@@ -176,7 +189,93 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsLocal => AiProviderFactory.IsLocalEndpoint(Endpoint);
     public string KeyHint => IsLocal ? "(not needed for local models)" : Provider == AiProviderKind.Custom ? "(if your endpoint needs one)" : "";
 
-    public string Version => "Magpie " + (typeof(App).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
+    public string Version => "Magpie " + UpdateService.Current;
+
+    // ── Toolbar & buttons (design C3) ──
+    public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
+    public ObservableCollection<ToolbarButtonVm> ToolbarPreview { get; } = new();
+    [ObservableProperty] private ButtonStyle _buttonStyle;
+    [ObservableProperty] private bool _colourful;
+    [ObservableProperty] private CountsMode _counts;
+    [ObservableProperty] private bool _showStatusBar;
+    [ObservableProperty] private bool _menuFollowsToolbar;
+    public List<Choice<ButtonStyle>> ButtonStyles { get; } = new()
+    {
+        new(ButtonStyle.IconAndName, "Icon + name"),
+        new(ButtonStyle.IconOnly, "Icon only (name shows on hover)"),
+        new(ButtonStyle.NameOnly, "Name only"),
+    };
+    public List<Choice<CountsMode>> CountChoices { get; } = new()
+    {
+        new(CountsMode.UnreadAndTotal, "Unread / total (3 / 10)"),
+        new(CountsMode.UnreadOnly, "Unread only (3)"),
+        new(CountsMode.Off, "Off"),
+    };
+
+    partial void OnButtonStyleChanged(ButtonStyle value) => RefreshPreview();
+    partial void OnColourfulChanged(bool value) => RefreshPreview();
+
+    private void LoadToolbar(Appearance a)
+    {
+        foreach (var r in ToolbarRows) r.PropertyChanged -= OnToolbarRowChanged;
+        ToolbarRows.Clear();
+        foreach (var b in a.Toolbar)
+        {
+            var row = new EditableToolbarButton { Id = b.Id, Visible = b.Visible };
+            row.PropertyChanged += OnToolbarRowChanged;
+            ToolbarRows.Add(row);
+        }
+        RefreshPreview();
+    }
+
+    private void OnToolbarRowChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => RefreshPreview();
+
+    private void RefreshPreview()
+    {
+        ToolbarPreview.Clear();
+        foreach (var r in ToolbarRows.Where(r => r.Visible)) ToolbarPreview.Add(ToolbarButtonVm.For(r.Id, ButtonStyle));
+    }
+
+    [RelayCommand]
+    private void MoveToolbarUp(EditableToolbarButton? row)
+    {
+        if (row == null) return;
+        var i = ToolbarRows.IndexOf(row);
+        if (i > 0) { ToolbarRows.Move(i, i - 1); RefreshPreview(); }
+    }
+
+    [RelayCommand]
+    private void MoveToolbarDown(EditableToolbarButton? row)
+    {
+        if (row == null) return;
+        var i = ToolbarRows.IndexOf(row);
+        if (i >= 0 && i < ToolbarRows.Count - 1) { ToolbarRows.Move(i, i + 1); RefreshPreview(); }
+    }
+
+    [RelayCommand]
+    private void SetButtonStyle(string? style)
+    {
+        if (Enum.TryParse<ButtonStyle>(style, out var v)) ButtonStyle = v;
+    }
+
+    [RelayCommand]
+    private void ResetToolbar()
+    {
+        var d = new Appearance();
+        ButtonStyle = d.ButtonStyle;
+        Colourful = d.Colourful;
+        Counts = d.Counts;
+        ShowStatusBar = d.ShowStatusBar;
+        MenuFollowsToolbar = d.MenuFollowsToolbar;
+        LoadToolbar(d);
+    }
+
+    // ── Updates (design U1): the live state comes from the update service; the switches save with the rest ──
+    public UpdateService? Updates => AppServices.Updates;
+    [ObservableProperty] private bool _autoCheckUpdates;
+    [ObservableProperty] private bool _autoDownloadUpdates;
+    [ObservableProperty] private bool _includePrerelease;
+    public string UpdateSource => "Updates come from github.com/" + Core.Updates.UpdateClient.Repo;
     public string DataFolder => _e.Paths.Root;
 
     public event Action? Saved;
@@ -213,6 +312,17 @@ public partial class SettingsViewModel : ObservableObject
         _replies = ai.Replies;
         ApiKey = _e.Vault.Get(SecretVault.AiKey) ?? "";
         RefreshPreset();
+
+        var ap = c.Appearance;
+        _buttonStyle = ap.ButtonStyle;
+        _colourful = ap.Colourful;
+        _counts = ap.Counts;
+        _showStatusBar = ap.ShowStatusBar;
+        _menuFollowsToolbar = ap.MenuFollowsToolbar;
+        LoadToolbar(ap);
+        _autoCheckUpdates = c.Updates.AutoCheck;
+        _autoDownloadUpdates = c.Updates.AutoDownload;
+        _includePrerelease = c.Updates.IncludePrerelease;
     }
 
     partial void OnProviderChanged(AiProviderKind value)
@@ -324,6 +434,15 @@ public partial class SettingsViewModel : ObservableObject
         ai.Rewrite = Rewrite;
         ai.Replies = Replies;
         if (ApiKeyChanged) _e.Vault.Set(SecretVault.AiKey, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim());
+
+        c.Appearance = new Appearance
+        {
+            ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+            Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+        };
+        c.Updates.AutoCheck = AutoCheckUpdates;
+        c.Updates.AutoDownload = AutoDownloadUpdates;
+        c.Updates.IncludePrerelease = IncludePrerelease;
 
         var err = StartupRegistration.Set(StartWithWindows);
         if (err != null) Log.Warn("start with Windows: " + err);

@@ -3,7 +3,7 @@
 
 #define MyAppName "Magpie Mail"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.1.0"
 #endif
 #define MyAppPublisher "Krishna Bhunia"
 #define MyAppURL "https://github.com/krishnabhunia/Magpie-email-client"
@@ -60,6 +60,12 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Registry]
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Magpie"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Tasks: autostart; Flags: uninsdeletevalue
+
+[UninstallDelete]
+; Left behind by in-app updates (design U1)
+Type: files; Name: "{app}\Magpie.previous.exe"
+Type: files; Name: "{app}\Magpie.exe.failed"
+Type: files; Name: "{app}\.magpie-write-test-*"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

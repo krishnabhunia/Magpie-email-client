@@ -49,6 +49,10 @@
     <SolidColorBrush x:Key="Brush.Warning" Color="#8A5300" />
     <SolidColorBrush x:Key="Brush.Warning.Subtle" Color="#FDF1DC" />
     <SolidColorBrush x:Key="Brush.Info.Subtle" Color="#E6F0F2" />
+    <!-- 1.1.0: update pill in the title bar (design U1) -->
+    <SolidColorBrush x:Key="Brush.UpdatePill.Background" Color="#22C55E" />
+    <SolidColorBrush x:Key="Brush.UpdatePill.Hover" Color="#4ADE80" />
+    <SolidColorBrush x:Key="Brush.UpdatePill.Text" Color="#06290F" />
     <SolidColorBrush x:Key="Brush.Badge.Local.Background" Color="#FCEBD2" />
     <SolidColorBrush x:Key="Brush.Badge.Local.Text" Color="#8A4A00" />
 

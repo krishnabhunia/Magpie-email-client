@@ -13,6 +13,10 @@ public sealed class RenderMessage
     public Dictionary<string, string> InlineImages { get; init; } = new();
     public bool Expanded { get; init; }
     public bool IsMine { get; init; }
+    /// <summary>Shown while the body is still being downloaded (design R1), e.g. "Downloading from Gmail…".</summary>
+    public string LoadingText { get; init; } = "Downloading this message…";
+    /// <summary>Why the body couldn't be downloaded; the page then offers "Try again".</summary>
+    public string? LoadError { get; init; }
 }
 
 public sealed class RenderResult
@@ -168,6 +172,7 @@ public static class HtmlRenderer
             .msg:not(.open) .to{display:none}
             iframe{width:100%;border:0;display:block;min-height:40px}
             .atts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+            .retry{margin:6px 0 4px}.retry button{border:1px solid #14606E;background:#14606E;color:#fff;border-radius:6px;font:inherit;font-size:12.5px;padding:5px 12px;cursor:pointer}
             .att{border:1px solid #DCD8CF;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;background:#fff;display:flex;gap:8px;align-items:center}
             .att:hover{background:var(--bg)}
             .att .sz{color:var(--muted)}
@@ -193,9 +198,11 @@ public static class HtmlRenderer
         foreach (var m in messages)
         {
             var row = m.Row;
-            var (bodyHtml, blocked) = m.Body == null
-                ? ("<p style=\"color:#5A6068\">Loading message…</p>", 0)
-                : SanitizeBody(m.Body.Html, m.InlineImages, allowRemote);
+            var (bodyHtml, blocked) = m.LoadError != null
+                ? ($"<p style=\"color:#B3261E\">Couldn't download this message: {Esc(m.LoadError)}</p>", 0)
+                : m.Body == null
+                    ? ($"<p style=\"color:#5A6068\">{Esc(m.LoadingText)}</p>", 0)
+                    : SanitizeBody(m.Body.Html, m.InlineImages, allowRemote);
             blockedTotal += blocked;
 
             var frameDoc = """
@@ -221,6 +228,8 @@ public static class HtmlRenderer
             sb.Append($"<button onclick=\"post({{t:'forward',id:{row.Id}}})\">Forward</button>");
             sb.Append("</div></div>");
             sb.Append("<div class=\"body\">");
+            if (m.LoadError != null)
+                sb.Append("<div class=\"retry\"><button onclick=\"post({t:'retry'})\">Try again</button></div>");
             sb.Append($"<iframe id=\"f{row.Id}\" sandbox=\"allow-same-origin allow-popups allow-popups-to-escape-sandbox\" onload=\"hook(this)\" srcdoc=\"{WebUtility.HtmlEncode(frameDoc)}\"></iframe>");
             if (m.Body?.Attachments.Count(a => !a.Inline) > 0)
             {
@@ -236,6 +245,27 @@ public static class HtmlRenderer
     }
 
     /// <summary>Plain page for empty/error states.</summary>
+    /// <summary>
+    /// What the reading pane shows the moment another conversation is picked, before its page is built:
+    /// the subject and sender we already know from the list, and "Loading…". Injected into the current page
+    /// (no navigation), so it appears at once instead of the previous message staying on screen.
+    /// </summary>
+    public static string LoadingBody(string subject, string sender, string when) =>
+        "<style>" +
+        "@keyframes mg-pulse{0%,100%{opacity:.45}50%{opacity:1}}" +
+        "@keyframes mg-spin{to{transform:rotate(360deg)}}" +
+        ".mg-l{font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:#14181C;padding:22px 30px;max-width:760px}" +
+        ".mg-l h1{font:600 22px 'IBM Plex Serif',Georgia,serif;margin:0 0 14px}" +
+        ".mg-l .who{display:flex;align-items:center;gap:10px;color:#5A6068;margin-bottom:22px}" +
+        ".mg-l .spin{width:16px;height:16px;border:2px solid #CFE3E7;border-top-color:#14606E;border-radius:50%;animation:mg-spin .8s linear infinite}" +
+        ".mg-l .bar{height:11px;border-radius:6px;background:#ECEEF2;margin:10px 0;animation:mg-pulse 1.2s ease-in-out infinite}" +
+        "</style>" +
+        "<div class=\"mg-l\" role=\"status\" aria-live=\"polite\">" +
+        "<h1>" + Esc(subject) + "</h1>" +
+        "<div class=\"who\"><span class=\"spin\"></span><span><b style=\"color:#14181C\">" + Esc(sender) + "</b> · " + Esc(when) + " · Loading…</span></div>" +
+        "<div class=\"bar\" style=\"width:92%\"></div><div class=\"bar\" style=\"width:84%\"></div><div class=\"bar\" style=\"width:88%\"></div><div class=\"bar\" style=\"width:52%\"></div>" +
+        "</div>";
+
     public static string Placeholder(string title, string detail) => $$"""
         <!doctype html><html><head><meta charset="utf-8"><style>
         body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#fff;font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:#5A6068;text-align:center}

@@ -28,7 +28,7 @@ public sealed class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     public MailStore(string dbPath)
     {
@@ -86,6 +86,7 @@ public sealed class MailStore
             CREATE INDEX IF NOT EXISTS ix_msg_msgid ON messages(account_id, message_id);
             CREATE INDEX IF NOT EXISTS ix_msg_irt ON messages(account_id, in_reply_to);
             CREATE INDEX IF NOT EXISTS ix_msg_snooze ON messages(snooze_until) WHERE snooze_until IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_msg_counts ON messages(folder_id, account_id, thread_key, flags, snooze_until);
             CREATE TABLE IF NOT EXISTS bodies(
               message_row INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
               html TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', attachments TEXT NOT NULL DEFAULT '[]');
@@ -771,11 +772,12 @@ public sealed class MailStore
         return o.Id;
     }
 
-    public List<OutboxItem> GetOutbox(bool includeDone = false)
+    /// <param name="withMime">false = leave the message itself out (status bar, counts: cheap to read often).</param>
+    public List<OutboxItem> GetOutbox(bool includeDone = false, bool withMime = true)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id,account_id,mime,send_at,status,attempts,last_error,subject,to_text,message_id,thread_key,remind_at,created FROM outbox"
+        cmd.CommandText = "SELECT id,account_id," + (withMime ? "mime" : "x''") + ",send_at,status,attempts,last_error,subject,to_text,message_id,thread_key,remind_at,created FROM outbox"
             + (includeDone ? "" : " WHERE status IN (0,1,2)") + " ORDER BY send_at";
         var list = new List<OutboxItem>();
         using var r = cmd.ExecuteReader();
@@ -978,6 +980,107 @@ public sealed class MailStore
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
         if (cat is { } cc) cmd.Parameters.AddWithValue("$c", (int)cc);
         return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// Unread and total conversations in these folders (design C2). A conversation counts once, and is unread
+    /// if any of its messages is. Snoozed conversations are left out unless <paramref name="includeSnoozed"/>.
+    /// </summary>
+    public (int Unread, int Total) CountThreads(IReadOnlyCollection<long> folderIds, DateTimeOffset now, Category? cat = null,
+        string? tag = null, bool flaggedOnly = false, bool includeSnoozed = false)
+    {
+        if (folderIds.Count == 0) return (0, 0);
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
+        var where = new List<string> { $"folder_id IN ({string.Join(',', ps)})" };
+        if (!includeSnoozed) { where.Add("(snooze_until IS NULL OR snooze_until <= $now)"); cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds()); }
+        if (cat is { } cc) { where.Add("category=$c"); cmd.Parameters.AddWithValue("$c", (int)cc); }
+        if (tag != null) { where.Add("(',' || tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{tag},%"); }
+        if (flaggedOnly) where.Add("(flags & 2)<>0");
+        cmd.CommandText = $"""
+            SELECT COUNT(*), COALESCE(SUM(u), 0) FROM (
+              SELECT MAX(CASE WHEN (flags & 1)=0 THEN 1 ELSE 0 END) AS u FROM messages
+              WHERE {string.Join(" AND ", where)}
+              GROUP BY account_id, thread_key)
+            """;
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? (Convert.ToInt32(r.GetValue(1)), Convert.ToInt32(r.GetValue(0))) : (0, 0);
+    }
+
+    /// <summary>Unread and total conversations per folder, in one pass (snoozed ones left out).</summary>
+    public Dictionary<long, (int Unread, int Total)> CountThreadsByFolder(DateTimeOffset now)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT folder_id, COUNT(*), SUM(u) FROM (
+              SELECT folder_id, MAX(CASE WHEN (flags & 1)=0 THEN 1 ELSE 0 END) AS u FROM messages
+              WHERE snooze_until IS NULL OR snooze_until <= $now
+              GROUP BY folder_id, account_id, thread_key)
+            GROUP BY folder_id
+            """;
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        var map = new Dictionary<long, (int, int)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) map[r.GetInt64(0)] = (Convert.ToInt32(r.GetValue(2)), Convert.ToInt32(r.GetValue(1)));
+        return map;
+    }
+
+    /// <summary>Unread and total conversations per tag (one pass; a conversation counts once per tag).</summary>
+    public Dictionary<string, (int Unread, int Total)> CountThreadsByTag(IReadOnlyCollection<long> folderIds, DateTimeOffset now)
+    {
+        var map = new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase);
+        if (folderIds.Count == 0) return map;
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
+        cmd.CommandText = $"""
+            SELECT GROUP_CONCAT(tags, ','), MAX(CASE WHEN (flags & 1)=0 THEN 1 ELSE 0 END) FROM messages
+            WHERE tags <> '' AND folder_id IN ({string.Join(',', ps)}) AND (snooze_until IS NULL OR snooze_until <= $now)
+            GROUP BY account_id, thread_key
+            """;
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var unread = Convert.ToInt32(r.GetValue(1));
+            foreach (var tag in r.GetString(0).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var (u, t) = map.TryGetValue(tag, out var x) ? x : (0, 0);
+                map[tag] = (u + unread, t + 1);
+            }
+        }
+        return map;
+    }
+
+    /// <summary>Unread and total conversations per smart-inbox category, by each conversation's latest message
+    /// (the same rule the list uses).</summary>
+    public Dictionary<Category, (int Unread, int Total)> CountThreadsByCategory(IReadOnlyCollection<long> folderIds, DateTimeOffset now)
+    {
+        var map = new Dictionary<Category, (int, int)>();
+        if (folderIds.Count == 0) return map;
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
+        cmd.CommandText = $"""
+            SELECT category, 0, u FROM (
+              SELECT category,
+                     MAX(CASE WHEN (flags & 1)=0 THEN 1 ELSE 0 END) OVER (PARTITION BY account_id, thread_key) AS u,
+                     ROW_NUMBER() OVER (PARTITION BY account_id, thread_key ORDER BY sort_date DESC, id DESC) AS rn
+              FROM messages
+              WHERE folder_id IN ({string.Join(',', ps)}) AND (snooze_until IS NULL OR snooze_until <= $now))
+            WHERE rn = 1
+            """;
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var cat = (Category)r.GetInt32(0);
+            var (u, t) = map.TryGetValue(cat, out var x) ? x : (0, 0);
+            map[cat] = (u + Convert.ToInt32(r.GetValue(2)), t + 1);
+        }
+        return map;
     }
 
     public int CountSnoozedThreads(DateTimeOffset now)

@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Magpie.App.Services;
 using Magpie.Core;
 using Magpie.Core.Mail;
+using Magpie.Core.Settings;
 using Magpie.Core.Models;
 using Magpie.Core.Storage;
 
@@ -30,6 +31,23 @@ public partial class NavItem : ObservableObject
 
     [ObservableProperty] private int _count;
     [ObservableProperty] private bool _isSelected;
+    /// <summary>Icon key (design C1) and the number shown (design C2): "3" + " / 10", or "15", or nothing.</summary>
+    public string IconKey { get; init; } = "folder";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasCount))] private string _countMain = "";
+    [ObservableProperty] private string _countRest = "";
+    [ObservableProperty] private System.Windows.Media.Brush _countBrush = System.Windows.Media.Brushes.Gray;
+    [ObservableProperty] private bool _countBold;
+    public bool HasCount => CountMain.Length > 0;
+
+    public void SetCounts(int unread, int total, CountKind kind, CountsMode mode)
+    {
+        Count = kind == CountKind.CountOnly ? total : unread;
+        var t = FolderCounts.Display(unread, total, kind, mode);
+        CountMain = t.Main;
+        CountRest = t.Rest;
+        CountBold = kind == CountKind.UnreadAndTotal && !t.Dim;
+        CountBrush = kind != CountKind.UnreadAndTotal ? Icons.Brush("#3B4453") : t.Dim ? Icons.Brush("#9AA2B1") : Icons.Accent(IconKey);
+    }
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isVisible = true;
 
@@ -44,6 +62,8 @@ public partial class AccountNode : ObservableObject
     [ObservableProperty] private bool _hasProblem;
     [ObservableProperty] private bool _needsSignIn;
     [ObservableProperty] private bool _isExpanded;
+    /// <summary>Unread conversations across this account's receiving folders (design C2).</summary>
+    [ObservableProperty] private string _unreadText = "";
     public string Email => Account.Email;
     public string Color => Account.Color;
 }
@@ -65,7 +85,36 @@ public sealed class ThreadItem
         DateText = HtmlRenderer.FriendlyDate(m.Date, now);
         if (row.SnoozeUntil is { } s && s > now) SnoozeText = "Snoozed until " + TimePresets.Describe(s, now.LocalDateTime);
         Tags = m.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+        TagChips = Tags.Select(TagChip.For).ToList();
+        // Coloured initials (design C1): the other person's, stable per address.
+        var who = mine ? FirstRecipient(m.To) : m.Sender;
+        var addr = mine ? (Composer.ParseAddresses(m.To).Mailboxes.FirstOrDefault()?.Address ?? who) : m.FromAddress;
+        Initials = MakeInitials(who);
+        AvatarBrush = Icons.Brush(AvatarPalette[(int)(StableHash(addr.ToLowerInvariant()) % (uint)AvatarPalette.Length)]);
     }
+
+    private static readonly string[] AvatarPalette = { "#2563EB", "#B91C1C", "#EA580C", "#6D28D9", "#0F766E", "#A21CAF", "#334155", "#0369A1", "#15803D", "#B45309", "#BE185D", "#4338CA" };
+
+    private static uint StableHash(string s)
+    {
+        uint h = 2166136261;
+        foreach (var c in s) { h ^= c; h *= 16777619; }
+        return h;
+    }
+
+    internal static string MakeInitials(string name)
+    {
+        var clean = new string((name ?? "").Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '.' || c == '@').ToArray()).Trim();
+        if (clean.Contains('@')) clean = clean.Split('@')[0].Replace('.', ' ');
+        var parts = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        var first = char.ToUpperInvariant(parts[0][0]).ToString();
+        return parts.Length > 1 ? first + char.ToUpperInvariant(parts[^1][0]) : parts[0].Length > 1 ? first + char.ToLowerInvariant(parts[0][1]) : first;
+    }
+
+    public string Initials { get; }
+    public System.Windows.Media.Brush AvatarBrush { get; }
+    public List<TagChip> TagChips { get; }
 
     private static string FirstRecipient(string to)
     {
@@ -88,6 +137,26 @@ public sealed class ThreadItem
     public string? SnoozeText { get; }
     public List<string> Tags { get; }
     public string Key => Row.AccountId + "|" + Row.ThreadKey;
+}
+
+/// <summary>A tag on a list row, in the tag's own colour.</summary>
+public sealed class TagChip
+{
+    public string Name { get; init; } = "";
+    public System.Windows.Media.Brush Foreground { get; init; } = System.Windows.Media.Brushes.Teal;
+    public System.Windows.Media.Brush Background { get; init; } = System.Windows.Media.Brushes.Transparent;
+
+    /// <summary>Tag name → colour, from Settings (refreshed when the list reloads).</summary>
+    public static Dictionary<string, string> Colors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public static TagChip For(string name)
+    {
+        var hex = Colors.TryGetValue(name, out var c) ? c : "#14606E";
+        var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x24, color.R, color.G, color.B));
+        bg.Freeze();
+        return new TagChip { Name = name, Foreground = Icons.Brush(hex), Background = bg };
+    }
 }
 
 public sealed class ScheduledItem
@@ -142,6 +211,12 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<ScheduledItem> Scheduled { get; } = new();
 
     public ThreadViewModel Reader { get; } = new();
+    public StatusBarViewModel StatusBar { get; }
+
+    /// <summary>Reading-pane toolbar (designs C1, C3): the buttons the user chose, in their order.</summary>
+    public ObservableCollection<ToolbarButtonVm> ToolbarButtons { get; } = new();
+    /// <summary>Buttons the user hid: they live in ··· More.</summary>
+    public List<ToolbarButtonVm> HiddenButtons { get; private set; } = new();
 
     [ObservableProperty] private NavItem? _current;
     [ObservableProperty] private ThreadItem? _selected;
@@ -151,7 +226,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _emptyText = "";
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private bool _unreadOnly;
-    [ObservableProperty] private int _peopleCount, _notificationsCount, _newslettersCount;
+    [ObservableProperty] private string _peopleCount = "", _notificationsCount = "", _newslettersCount = "";
 
     // Sidebar sections (design Q2) — open/closed is remembered in settings.
     [ObservableProperty] private bool _foldersOpen = true;
@@ -180,8 +255,17 @@ public partial class MainViewModel : ObservableObject
         _e.Changed += cs => Ui.Post(() => { _reload.Run(ReloadList); if (cs.FoldersChanged) BuildNav(); else _navRefresh.Run(RefreshCounts); });
         _e.StatusChanged += (id, st) => Ui.Post(() => UpdateStatus(id, st));
         _e.OutboxChanged += () => Ui.Post(() => { _navRefresh.Run(RefreshCounts); if (IsScheduledView) _reload.Run(ReloadList); });
-        _e.Settings.Changed += () => Ui.Post(() => { OnPropertyChanged(nameof(ShowCategories)); Reader.RefreshAiVisibility(); BuildNav(); });
+        _e.Settings.Changed += () => Ui.Post(() =>
+        {
+            Icons.Colourful = _e.Config.Appearance.Colourful;   // before the counts are coloured again
+            OnPropertyChanged(nameof(ShowCategories));
+            Reader.RefreshAiVisibility();
+            BuildNav();
+        });
         Reader.ThreadRemoved += () => SelectNeighbour();
+        _e.Settings.Changed += () => Ui.Post(BuildToolbar);
+        BuildToolbar();
+        StatusBar = new StatusBarViewModel(this);
         BuildNav();
         Current = Smart.FirstOrDefault();
     }
@@ -191,17 +275,21 @@ public partial class MainViewModel : ObservableObject
     public void BuildNav()
     {
         var keep = Current?.Key;
+        // Keep the numbers on screen while the new ones are counted (no blank flicker after Settings → Save).
+        var oldCounts = Smart.Concat(AccountNodes.SelectMany(n => n.Folders)).Concat(TagItems)
+            .GroupBy(n => n.Key).ToDictionary(g => g.Key, g => g.First());
+        var oldAccountUnread = AccountNodes.ToDictionary(n => n.Account.Id, n => n.UnreadText);
         Smart.Clear();
-        Smart.Add(new NavItem { Kind = NavKind.Inbox, Label = "Inbox", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Pinned, Label = "Pinned", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Snoozed, Label = "Snoozed", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.FollowUp, Label = "Follow up", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Scheduled, Label = "Scheduled", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Sent, Label = "Sent", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Drafts, Label = "Drafts", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Archive, Label = "Archive", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Junk, Label = "Spam", Glyph = "" });
-        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Trash, Label = "Trash", Glyph = "" });
+        Smart.Add(new NavItem { Kind = NavKind.Inbox, Label = "Inbox", Glyph = "", IconKey = "inbox" });
+        Smart.Add(new NavItem { Kind = NavKind.Pinned, Label = "Pinned", Glyph = "", IconKey = "pin" });
+        Smart.Add(new NavItem { Kind = NavKind.Snoozed, Label = "Snoozed", Glyph = "", IconKey = "snooze" });
+        Smart.Add(new NavItem { Kind = NavKind.FollowUp, Label = "Follow up", Glyph = "", IconKey = "followup" });
+        Smart.Add(new NavItem { Kind = NavKind.Scheduled, Label = "Scheduled", Glyph = "", IconKey = "scheduled" });
+        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Sent, Label = "Sent", Glyph = "", IconKey = "sent" });
+        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Drafts, Label = "Drafts", Glyph = "", IconKey = "drafts" });
+        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Archive, Label = "Archive", Glyph = "", IconKey = "archive" });
+        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Junk, Label = "Spam", Glyph = "", IconKey = "spam" });
+        Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Trash, Label = "Trash", Glyph = "", IconKey = "delete" });
 
         foreach (var old in AccountNodes) old.PropertyChanged -= OnAccountNodeChanged;
         AccountNodes.Clear();
@@ -217,7 +305,7 @@ public partial class MainViewModel : ObservableObject
                 var item = new NavItem
                 {
                     Kind = NavKind.Folder, FolderId = f.Id, AccountId = a.Id, Label = f.Name, Role = f.Role,
-                    Path = f.Path, ParentPath = parent,
+                    Path = f.Path, ParentPath = parent, IconKey = Icons.ForRole(f.Role),
                     Glyph = f.Role switch
                     {
                         FolderRole.Inbox => "", FolderRole.Sent => "", FolderRole.Drafts => "", FolderRole.Trash => "",
@@ -238,10 +326,22 @@ public partial class MainViewModel : ObservableObject
         }
 
         TagItems.Clear();
+        TagChip.Colors = _e.Config.Tags.GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Color, StringComparer.OrdinalIgnoreCase);
         foreach (var t in _e.Config.Tags)
-            TagItems.Add(new NavItem { Kind = NavKind.Tag, TagName = t.Name, TagColor = t.Color, Label = t.Name, Glyph = "" });
+            TagItems.Add(new NavItem { Kind = NavKind.Tag, TagName = t.Name, TagColor = t.Color, Label = t.Name, Glyph = "", IconKey = "tag" });
 
         var all = Smart.Concat(AccountNodes.SelectMany(n => n.Folders)).Concat(TagItems).ToList();
+        foreach (var n in all)
+            if (oldCounts.TryGetValue(n.Key, out var o))
+            {
+                n.Count = o.Count;
+                n.CountMain = o.CountMain;
+                n.CountRest = o.CountRest;
+                n.CountBrush = o.CountBrush;
+                n.CountBold = o.CountBold;
+            }
+        foreach (var node in AccountNodes)
+            if (oldAccountUnread.TryGetValue(node.Account.Id, out var u)) node.UnreadText = u;
         var restore = all.FirstOrDefault(n => n.Key == keep) ?? Smart[0];
         if (keep != null && restore.Key == keep)
         {
@@ -422,30 +522,110 @@ public partial class MainViewModel : ObservableObject
         if (Selected != null) Reader.RefreshIfShowing(Selected.Row);
     }
 
+    private int _countsGen;
+
+    private sealed class CountsSnapshot
+    {
+        public Dictionary<long, (int Unread, int Total)> ByFolder = new();
+        public Dictionary<FolderRole, List<long>> RoleIds = new();
+        public int Pinned, Snoozed, FollowUp, Scheduled, LocalDrafts;
+        public Dictionary<string, (int Unread, int Total)> Tags = new();
+        public Dictionary<Category, (int Unread, int Total)> Categories = new();
+    }
+
+    /// <summary>
+    /// Folder numbers (design C2), counted in conversations: unread / total where new mail arrives, a single
+    /// count where you file mail yourself, nothing for Sent (Settings can switch to unread only, or off).
+    /// The queries run in the background; the newest result is applied on the UI thread.
+    /// </summary>
     public void RefreshCounts()
     {
-        var now = DateTimeOffset.Now;
-        var inbox = _e.FolderIds(FolderRole.Inbox);
+        var gen = ++_countsGen;
+        var mode = _e.Config.Appearance.Counts;
+        _ = Task.Run(() =>
+        {
+            var now = DateTimeOffset.Now;
+            var snap = new CountsSnapshot { ByFolder = _e.Store.CountThreadsByFolder(now) };
+            foreach (var role in new[] { FolderRole.Inbox, FolderRole.Drafts, FolderRole.Archive, FolderRole.Junk, FolderRole.Trash, FolderRole.Sent })
+                snap.RoleIds[role] = _e.FolderIds(role).ToList();
+            var all = _e.AllMailFolderIds();
+            snap.Pinned = _e.Store.CountThreads(all, now, flaggedOnly: true).Total;
+            snap.Snoozed = _e.Store.CountSnoozedThreads(now);
+            snap.FollowUp = _e.DueReminders().Count;
+            snap.Scheduled = _e.OutboxSummary().Count(o => o.Status is OutboxStatus.Queued or OutboxStatus.Failed);
+            snap.LocalDrafts = _e.Store.CountLocalDrafts();
+            snap.Tags = _e.Store.CountThreadsByTag(all, now);
+            snap.Categories = _e.Store.CountThreadsByCategory(snap.RoleIds[FolderRole.Inbox], now);
+            return snap;
+        }).ContinueWith(t =>
+        {
+            if (t.IsFaulted) { Log.Warn("counts: " + t.Exception?.GetBaseException().Message); return; }
+            Ui.Post(() => { if (gen == _countsGen) ApplyCounts(t.Result, mode); });
+        }, TaskScheduler.Default);
+    }
+
+    private void ApplyCounts(CountsSnapshot snap, CountsMode mode)
+    {
+        (int, int) Sum(IEnumerable<long> ids)
+        {
+            int u = 0, t = 0;
+            foreach (var id in ids) if (snap.ByFolder.TryGetValue(id, out var c)) { u += c.Unread; t += c.Total; }
+            return (u, t);
+        }
+        List<long> Ids(FolderRole r) => snap.RoleIds.TryGetValue(r, out var l) ? l : new List<long>();
         foreach (var n in Smart)
         {
-            n.Count = n.Kind switch
+            switch (n.Kind)
             {
-                NavKind.Inbox => _e.Store.CountUnreadThreads(inbox, now),
-                NavKind.Snoozed => _e.Store.CountSnoozedThreads(now),
-                NavKind.FollowUp => _e.DueReminders().Count,
-                NavKind.Scheduled => _e.Outbox().Count(o => o.Status is OutboxStatus.Queued or OutboxStatus.Failed),
-                NavKind.Role when n.Role is FolderRole.Drafts => _e.Folders().Where(f => f.Role == FolderRole.Drafts).Sum(f => f.Total) + _e.Store.CountLocalDrafts(),
-                _ => 0,
-            };
+                case NavKind.Inbox:
+                {
+                    var (u, t) = Sum(Ids(FolderRole.Inbox));
+                    n.SetCounts(u, t, CountKind.UnreadAndTotal, mode);
+                    break;
+                }
+                case NavKind.Pinned: n.SetCounts(0, snap.Pinned, CountKind.CountOnly, mode); break;
+                case NavKind.Snoozed: n.SetCounts(0, snap.Snoozed, CountKind.CountOnly, mode); break;
+                case NavKind.FollowUp: n.SetCounts(0, snap.FollowUp, CountKind.CountOnly, mode); break;
+                case NavKind.Scheduled: n.SetCounts(0, snap.Scheduled, CountKind.CountOnly, mode); break;
+                case NavKind.Role when n.Role is FolderRole.Drafts:
+                    n.SetCounts(0, Sum(Ids(FolderRole.Drafts)).Item2 + snap.LocalDrafts, CountKind.CountOnly, mode);
+                    break;
+                case NavKind.Role:
+                {
+                    var (u, t) = Sum(Ids(n.Role));
+                    n.SetCounts(u, t, FolderCounts.KindOf(n.Role), mode);
+                    break;
+                }
+            }
         }
-        var folderMap = _e.Folders().ToDictionary(f => f.Id);
         foreach (var node in AccountNodes)
+        {
+            var unreadInAccount = 0;
             foreach (var f in node.Folders)
-                f.Count = folderMap.TryGetValue(f.FolderId, out var mf) && f.Role is not (FolderRole.Sent or FolderRole.Trash or FolderRole.Junk or FolderRole.All) ? mf.Unread : 0;
-        PeopleCount = _e.Store.CountUnreadThreads(inbox, now, Core.Models.Category.People);
-        NotificationsCount = _e.Store.CountUnreadThreads(inbox, now, Core.Models.Category.Notifications);
-        NewslettersCount = _e.Store.CountUnreadThreads(inbox, now, Core.Models.Category.Newsletters);
-        var unread = Smart[0].Count;
+            {
+                var (u, t) = snap.ByFolder.TryGetValue(f.FolderId, out var c) ? c : (0, 0);
+                var kind = FolderCounts.KindOf(f.Role);
+                f.SetCounts(u, t, kind, mode);
+                if (kind == CountKind.UnreadAndTotal && f.Role is not (FolderRole.Junk or FolderRole.All or FolderRole.Important or FolderRole.Archive))
+                    unreadInAccount += u;
+            }
+            node.UnreadText = mode != CountsMode.Off && unreadInAccount > 0 ? FolderCounts.Format(unreadInAccount) : "";
+        }
+        foreach (var tag in TagItems)
+        {
+            var (u, t) = tag.TagName != null && snap.Tags.TryGetValue(tag.TagName, out var c) ? c : (0, 0);
+            tag.SetCounts(u, t, CountKind.UnreadAndTotal, mode);
+        }
+        string Cat(Category c)
+        {
+            var (u, t) = snap.Categories.TryGetValue(c, out var x) ? x : (0, 0);
+            var d = FolderCounts.Display(u, t, CountKind.UnreadAndTotal, mode);
+            return d.Main + d.Rest;
+        }
+        PeopleCount = Cat(Core.Models.Category.People);
+        NotificationsCount = Cat(Core.Models.Category.Notifications);
+        NewslettersCount = Cat(Core.Models.Category.Newsletters);
+        var unread = Smart.Count > 0 ? Smart[0].Count : 0;
         OnPropertyChanged(nameof(FoldersBadge));
         AppServices.Tray?.SetTooltip(unread > 0 ? $"Magpie — {unread} unread" : "Magpie");
     }
@@ -684,6 +864,26 @@ public partial class MainViewModel : ObservableObject
         var d = _e.Recall(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
+    }
+
+    /// <summary>Undo from the status bar: take this message back into a compose window.</summary>
+    public void UndoOutbox(long outboxId)
+    {
+        var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
+        if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
+        var d = _e.Recall(outboxId);
+        if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
+        Views.ComposeWindow.OpenDraft(d);
+    }
+
+    // ───────────────────────── toolbar (designs C1, C3) ─────────────────────────
+
+    public void BuildToolbar()
+    {
+        var a = _e.Config.Appearance;
+        ToolbarButtons.Clear();
+        foreach (var b in a.Toolbar.Where(b => b.Visible)) ToolbarButtons.Add(ToolbarButtonVm.For(b.Id, a.ButtonStyle));
+        HiddenButtons = a.Toolbar.Where(b => !b.Visible).Select(b => ToolbarButtonVm.For(b.Id, a.ButtonStyle)).ToList();
     }
 
     [RelayCommand]

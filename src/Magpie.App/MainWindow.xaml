@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:svc="clr-namespace:Magpie.App.Services"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="Magpie"
@@ -24,12 +25,21 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="46" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- ═══ Title bar (dark) ═══ -->
         <Border Grid.Row="0" Background="{DynamicResource Brush.TitleBar.Background}">
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <!-- Update from GitHub (design U1): only while an update is available, downloading or ready -->
+                    <Button x:Name="UpdatePill" Style="{StaticResource Button.UpdatePill}" Margin="0,0,8,0" Command="{Binding PillCommand}"
+                            Visibility="{Binding ShowPill, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" ToolTip="Magpie update from GitHub">
+                        <StackPanel Orientation="Horizontal">
+                            <svc:IconChip Icon="update" Size="14" Plain="True" Stroke="{DynamicResource Brush.UpdatePill.Text}" Margin="0,0,7,0" />
+                            <TextBlock Text="{Binding PillText}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
                     <Border Width="1" Margin="4,12" Background="{DynamicResource Brush.TitleBar.Hover}" />
@@ -49,7 +59,7 @@
         <!-- ═══ Body ═══ -->
         <Grid Grid.Row="1" x:Name="BodyGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="232" />
+                <ColumnDefinition Width="264" />
                 <ColumnDefinition x:Name="ListColumn" Width="400" MinWidth="300" MaxWidth="700" />
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="*" MinWidth="420" />
@@ -60,8 +70,8 @@
                 <DockPanel>
                     <Button DockPanel.Dock="Top" Style="{StaticResource Button.Primary}" Margin="12,14,12,10" Command="{Binding ComposeCommand}" ToolTip="New message (Ctrl+N)">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE70F;" FontFamily="{StaticResource Font.Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBlock Text="New message" />
+                            <svc:IconChip Icon="compose" Size="16" Plain="True" Stroke="{DynamicResource Brush.Text.OnAccent}" Margin="0,0,8,0" />
+                            <TextBlock Text="New message" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
 
@@ -95,14 +105,15 @@
                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="24" />
+                                                    <ColumnDefinition Width="34" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource Font.Icons}" FontSize="14" Foreground="{DynamicResource Brush.Nav.Icon}" VerticalAlignment="Center" />
+                                                <svc:IconChip Icon="{Binding IconKey}" Size="24" HorizontalAlignment="Left" />
                                                 <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="2" Text="{Binding Count}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center"
-                                                           Visibility="{Binding Count, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Grid.Column="2" FontSize="12" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                    <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding CountBrush}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                                </TextBlock>
                                             </Grid>
                                         </RadioButton>
                                     </DataTemplate>
@@ -128,10 +139,12 @@
                                                         <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <Ellipse Width="8" Height="8" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                    <Ellipse Width="9" Height="9" Fill="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,8,0" />
                                                     <TextBlock Grid.Column="1" Text="{Binding Email}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="2" Text="&#xE7BA;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
+                                                    <TextBlock Grid.Column="2" Text="{Binding UnreadText}" FontSize="12" FontWeight="Bold" Foreground="{Binding Color, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                    <TextBlock Grid.Column="3" Text="&#xE7BA;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
                                                                VerticalAlignment="Center" Margin="6,0,0,0" Visibility="{Binding HasProblem, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
                                             </ToggleButton>
@@ -146,17 +159,18 @@
                                                             <Grid Margin="{Binding Indent}">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="18" />
-                                                                    <ColumnDefinition Width="22" />
+                                                                    <ColumnDefinition Width="28" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
                                                                 <Button Style="{StaticResource Button.FolderChevron}" Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}"
                                                                         Command="{Binding DataContext.ToggleFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                                         ToolTip="Show or hide subfolders" />
-                                                                <TextBlock Grid.Column="1" Text="{Binding Glyph}" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Nav.Icon}" VerticalAlignment="Center" />
+                                                                <svc:IconChip Grid.Column="1" Icon="{Binding IconKey}" Size="21" HorizontalAlignment="Left" />
                                                                 <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                                <TextBlock Grid.Column="3" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center"
-                                                                           Visibility="{Binding Count, Converter={StaticResource BoolToVis}}" />
+                                                                <TextBlock Grid.Column="3" FontSize="11.5" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                                    <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding CountBrush}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                                                </TextBlock>
                                                             </Grid>
                                                         </RadioButton>
                                                     </DataTemplate>
@@ -176,10 +190,13 @@
                                     <DataTemplate DataType="{x:Type vm:NavItem}">
                                         <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" Height="30"
                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <Ellipse Width="8" Height="8" Fill="{Binding TagColor, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="4,0,12,0" />
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" FontSize="11.5" VerticalAlignment="Center" Visibility="{Binding HasCount, Converter={StaticResource BoolToVis}}">
+                                                    <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding TagColor, Converter={StaticResource HexBrush}}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                                </TextBlock>
+                                                <Border Width="10" Height="10" CornerRadius="3" Background="{Binding TagColor, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="6,0,12,0" />
                                                 <TextBlock Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" />
-                                            </StackPanel>
+                                            </DockPanel>
                                         </RadioButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -234,6 +251,10 @@
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">
+                                        <DockPanel>
+                                        <Border DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="17" Background="{Binding AvatarBrush}" VerticalAlignment="Top" Margin="0,2,11,0">
+                                            <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto" />
@@ -266,15 +287,15 @@
                                                 <TextBlock Text="{Binding Subject}" FontSize="13" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" />
                                             </DockPanel>
                                             <TextBlock Grid.Row="2" Text="{Binding Preview}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
-                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding Tags, Converter={StaticResource BoolToVis}}">
-                                                <ItemsControl ItemsSource="{Binding Tags}">
+                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding TagChips, Converter={StaticResource BoolToVis}}">
+                                                <ItemsControl ItemsSource="{Binding TagChips}">
                                                     <ItemsControl.ItemsPanel>
                                                         <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
                                                     </ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Border Style="{StaticResource Tag.Teal}" Margin="0,0,6,0" Padding="6,1">
-                                                                <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource Brush.Accent}" />
+                                                        <DataTemplate DataType="{x:Type vm:TagChip}">
+                                                            <Border CornerRadius="9" Background="{Binding Background}" Margin="0,0,6,0" Padding="8,1">
+                                                                <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding Foreground}" />
                                                             </Border>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
@@ -283,19 +304,12 @@
                                             <TextBlock Grid.Row="4" Text="{Binding SnoozeText}" FontSize="11.5" Foreground="{DynamicResource Brush.Accent}" Margin="0,3,0,0"
                                                        Visibility="{Binding SnoozeText, Converter={StaticResource BoolToVis}}" />
                                         </Grid>
+                                        </DockPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                                 <ListBox.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="Archive" Click="OnArchive" InputGestureText="E" />
-                                        <MenuItem Header="Delete" Click="OnDelete" InputGestureText="Del" />
-                                        <MenuItem Header="Pin / unpin" Click="OnPin" InputGestureText="P" />
-                                        <MenuItem Header="Mark as unread" Click="OnMarkUnread" InputGestureText="U" />
-                                        <Separator />
-                                        <MenuItem Header="Reply" Click="OnReply" InputGestureText="R" />
-                                        <MenuItem Header="Reply all" Click="OnReplyAll" InputGestureText="A" />
-                                        <MenuItem Header="Forward" Click="OnForward" InputGestureText="F" />
-                                    </ContextMenu>
+                                    <!-- Filled when it opens, in the toolbar's order (design C3) -->
+                                    <ContextMenu x:Name="ListMenu" Opened="OnListMenuOpened" />
                                 </ListBox.ContextMenu>
                             </ListBox>
 
@@ -379,23 +393,40 @@
                 <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="18,10" Visibility="{Binding HasThread, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
-                            <Button Style="{StaticResource Button.Ai}" Margin="0,0,8,0" MinHeight="32" Padding="12,5" Command="{Binding SummariseCommand}"
+                            <Button Style="{StaticResource Button.Ai}" Margin="0,0,8,0" MinHeight="34" Padding="12,5" Command="{Binding SummariseCommand}"
                                     Visibility="{Binding ShowSummarise, Converter={StaticResource BoolToVis}}" ToolTip="Summarise this conversation with your AI provider">
                                 <StackPanel Orientation="Horizontal">
-                                    <Path Data="{StaticResource Geo.Sparkle}" Stroke="White" StrokeThickness="1.1" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="Summarise thread" VerticalAlignment="Center" />
+                                    <svc:IconChip Icon="summarise" Size="14" Plain="True" Stroke="White" Margin="0,0,6,0" />
+                                    <TextBlock Text="Summarise" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource Button.Primary}" MinHeight="32" Padding="16,5" Command="{Binding ReplyCommand}" Content="Reply" ToolTip="Reply (R)" />
+                            <Button Style="{StaticResource Button.Primary}" MinHeight="34" Padding="14,5" Command="{Binding ReplyCommand}" ToolTip="Reply (R)">
+                                <StackPanel Orientation="Horizontal">
+                                    <svc:IconChip Icon="reply" Size="14" Plain="True" Stroke="{DynamicResource Brush.Text.OnAccent}" Margin="0,0,6,0" />
+                                    <TextBlock Text="Reply" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
+                        <!-- Icon + name on every button, in the order chosen in Settings → Toolbar & buttons (designs C1, C3) -->
                         <WrapPanel>
-                            <Button Style="{StaticResource Button.Toolbar}" Content="Archive" Command="{Binding ArchiveCommand}" ToolTip="Archive (E)" />
-                            <Button Style="{StaticResource Button.Toolbar}" Content="Delete" Command="{Binding DeleteCommand}" ToolTip="Move to Trash (Delete)" />
-                            <Button Style="{StaticResource Button.Toolbar}" Content="Snooze" Click="OnSnoozeMenu" ToolTip="Hide until later (S)" />
-                            <Button Style="{StaticResource Button.Toolbar}" Content="Remind me" Click="OnRemindMenu" ToolTip="Bring this back if nobody replies" />
-                            <Button Style="{StaticResource Button.Toolbar}" Content="Tag" Click="OnTagMenu" />
-                            <Button Style="{StaticResource Button.Toolbar}" Click="OnMoreMenu" ToolTip="More actions">
-                                <TextBlock Text="&#xE712;" FontFamily="{StaticResource Font.Icons}" FontSize="13" />
+                            <ItemsControl ItemsSource="{Binding DataContext.ToolbarButtons, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
+                                        <Button Style="{StaticResource Button.ToolbarIcon}" Tag="{Binding}" Click="OnToolbarButton" ToolTip="{Binding ToolTip}"
+                                                AutomationProperties.Name="{Binding Name}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0,2,0" Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Style="{StaticResource Button.ToolbarIcon}" Click="OnMoreMenu" ToolTip="More actions" AutomationProperties.Name="More actions">
+                                <svc:IconChip Icon="more" Size="22" />
                             </Button>
                         </WrapPanel>
                     </DockPanel>
@@ -516,5 +547,99 @@
                 </Border>
             </Grid>
         </Grid>
+
+        <!-- ═══ Status bar (design S1): one row, what Magpie is doing right now ═══ -->
+        <Border Grid.Row="2" x:Name="StatusBarRow" DataContext="{Binding StatusBar}" Height="28" Background="{DynamicResource Brush.Sidebar.Background}"
+                BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,1,0,0" Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <DockPanel Margin="12,0" LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.StatusRight}" Command="{Binding TogglePanelCommand}" ToolTip="Show activity">
+                        <TextBlock Text="{Binding RightText}" TextTrimming="CharacterEllipsis" />
+                    </Button>
+                    <ItemsControl ItemsSource="{Binding Segments}" Focusable="False" VerticalAlignment="Center" ClipToBounds="True">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:StatusSegment}">
+                                <Border BorderBrush="{DynamicResource Brush.Divider}" Padding="10,0" Margin="0" BorderThickness="{Binding IsFirst, Converter={StaticResource FirstSegmentBorder}}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <svc:IconChip Icon="{Binding IconKey}" Size="13" Plain="True" Stroke="{Binding Brush}" Margin="0,0,6,0" Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                        <Border Width="60" Height="5" CornerRadius="3" Background="{DynamicResource Brush.Divider}" Margin="0,0,7,0" VerticalAlignment="Center"
+                                                Visibility="{Binding HasProgress, Converter={StaticResource BoolToVis}}">
+                                            <Border Width="{Binding ProgressWidth}" HorizontalAlignment="Left" CornerRadius="3" Background="{Binding Brush}" />
+                                        </Border>
+                                        <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontSize="12" FontWeight="{Binding Bold, Converter={StaticResource BoldIfTrue}}" VerticalAlignment="Center" />
+                                        <Button Style="{StaticResource Button.Link}" Content="{Binding Link}" Command="{Binding LinkCommand}" FontSize="12" FontWeight="SemiBold" MinHeight="18" Padding="8,0,0,0"
+                                                Visibility="{Binding HasLink, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+
+                <!-- Activity panel -->
+                <Popup IsOpen="{Binding PanelOpen, Mode=TwoWay}" StaysOpen="False" Placement="Top" HorizontalOffset="12" VerticalOffset="-4" AllowsTransparency="True" PopupAnimation="Fade">
+                    <Border Width="700" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="10" Margin="8">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.18" />
+                        </Border.Effect>
+                        <StackPanel>
+                            <DockPanel Margin="16,12,10,8">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Check all now" Command="{Binding SyncAllCommand}" FontSize="12" MinHeight="20" />
+                                <TextBlock Text="Activity" FontWeight="SemiBold" FontSize="14" />
+                            </DockPanel>
+                            <Grid Margin="16,0,16,4" TextElement.FontSize="12" TextElement.Foreground="{DynamicResource Brush.Text.Secondary}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" /><ColumnDefinition Width="*" /><ColumnDefinition Width="70" /><ColumnDefinition Width="70" /><ColumnDefinition Width="130" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Account" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="Now" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="2" Text="Last sync" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="3" Text="New today" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="4" Text="Outbox" FontWeight="SemiBold" />
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding Accounts}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:AccountActivity}">
+                                        <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,7">
+                                            <Grid TextElement.FontSize="12.5">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="220" /><ColumnDefinition Width="*" /><ColumnDefinition Width="70" /><ColumnDefinition Width="70" /><ColumnDefinition Width="130" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse Width="9" Height="9" Fill="{Binding Dot}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Email}" TextTrimming="CharacterEllipsis" MaxWidth="195" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Now}" Foreground="{Binding NowBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                                                <TextBlock Grid.Column="2" Text="{Binding LastSync}" />
+                                                <TextBlock Grid.Column="3" Text="{Binding NewToday}" />
+                                                <TextBlock Grid.Column="4" Text="{Binding Outbox}" TextTrimming="CharacterEllipsis" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,8,16,12">
+                                <StackPanel>
+                                    <TextBlock Text="Nothing yet this session." FontSize="12" Foreground="{DynamicResource Brush.Text.Tertiary}"
+                                               Visibility="{Binding Log.Count, Converter={StaticResource ZeroToVis}}" />
+                                    <ItemsControl ItemsSource="{Binding Log}" Focusable="False" MaxHeight="200">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:ActivityEntry}">
+                                                <TextBlock FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" Margin="0,1">
+                                                    <Run Text="{Binding Time, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Text, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

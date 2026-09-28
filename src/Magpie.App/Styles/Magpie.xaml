@@ -168,6 +168,51 @@
         <Setter Property="Margin" Value="0,0,8,0" />
     </Style>
 
+    <!-- 1.1.0 toolbar button: coloured icon tile + name (designs C1, C3) -->
+    <Style x:Key="Button.ToolbarIcon" TargetType="ButtonBase" BasedOn="{StaticResource Button.Toolbar}">
+        <Setter Property="Padding" Value="6,4,10,4" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Margin" Value="0,0,6,4" />
+        <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+
+    <!-- Title-bar "Update ready" pill (design U1) -->
+    <Style x:Key="Button.UpdatePill" TargetType="Button">
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="Background" Value="{DynamicResource Brush.UpdatePill.Background}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.UpdatePill.Text}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="15" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.UpdatePill.Hover}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Right end of the status bar (design S1): opens the activity panel -->
+    <Style x:Key="Button.StatusRight" TargetType="Button" BasedOn="{StaticResource Button.Ghost}">
+        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="MaxWidth" Value="460" />
+    </Style>
+
     <Style x:Key="Button.Icon" TargetType="ButtonBase" BasedOn="{StaticResource Button.Ghost}">
         <Setter Property="Width" Value="32" />
         <Setter Property="Height" Value="32" />
