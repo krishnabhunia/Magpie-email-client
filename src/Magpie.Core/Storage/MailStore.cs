@@ -389,11 +389,15 @@ public sealed class MailStore
         using var cmd = c.CreateCommand();
         var where = new List<string>();
         var fps = q.FolderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$fo" + i, id); return "$fo" + i; });
-        where.Add($"m.folder_id IN ({string.Join(',', fps)})");
+        var inFolders = $"m.folder_id IN ({string.Join(',', fps)})";
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
-        where.Add(q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now" : "(m.snooze_until IS NULL OR m.snooze_until <= $now)");
-        if (q.Tag != null) { where.Add("(',' || m.tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{q.Tag},%"); }
-        if (q.Search != null && !q.Search.IsEmpty) where.Add(q.Search.ToSql(cmd, "m"));
+        var snooze = q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now" : "(m.snooze_until IS NULL OR m.snooze_until <= $now)";
+        // Tag and search match any copy of an email (a body may be cached on one copy only); the snooze filter applies
+        // to the copy that represents it, so a snoozed Inbox email stays hidden in Pinned / tag views.
+        var match = new List<string> { inFolders };
+        if (q.Tag != null) { match.Add("(',' || m.tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{q.Tag},%"); }
+        if (q.Search != null && !q.Search.IsEmpty) match.Add(q.Search.ToSql(cmd, "m"));
+        where.Add(snooze);
 
         var having = new List<string>();
         if (q.UnreadOnly) having.Add("unread > 0");
@@ -402,6 +406,18 @@ public sealed class MailStore
         if (q.Category is { } cat) { outer.Add("category=$cat"); cmd.Parameters.AddWithValue("$cat", (int)cat); }
         if (having.Count > 0) outer.AddRange(having);
 
+        // Views over several folders (Pinned, tags, search everywhere, Gmail's All Mail next to its labels) can hold
+        // the same email twice; each email is counted once, preferring its Inbox / Sent / label copy.
+        var source = q.FolderIds.Count > 1
+            ? $"""
+              (SELECT * FROM (
+                 SELECT m.*, ROW_NUMBER() OVER (
+                   PARTITION BY m.account_id, CASE WHEN m.message_id='' THEN 'id:' || m.id ELSE m.message_id END
+                   ORDER BY {CopyRankSql("fo.role")}, m.id) AS dn
+                 FROM messages m JOIN folders fo ON fo.id=m.folder_id WHERE {string.Join(" AND ", match)}
+               ) WHERE dn=1) m WHERE {string.Join(" AND ", where)}
+              """
+            : $"messages m WHERE {string.Join(" AND ", match)} AND {string.Join(" AND ", where)}";
         cmd.CommandText = $"""
             WITH f AS (
               SELECT {MsgCols},
@@ -411,7 +427,7 @@ public sealed class MailStore
                 MAX(CASE WHEN (m.flags & 2)<>0 THEN 1 ELSE 0 END) OVER (PARTITION BY m.account_id, m.thread_key) AS flagged,
                 MAX(m.has_attach) OVER (PARTITION BY m.account_id, m.thread_key) AS anyatt,
                 GROUP_CONCAT(CASE WHEN m.from_name<>'' THEN m.from_name ELSE m.from_addr END, '|') OVER (PARTITION BY m.account_id, m.thread_key) AS people
-              FROM messages m WHERE {string.Join(" AND ", where)}
+              FROM {source}
             )
             SELECT * FROM f WHERE {string.Join(" AND ", outer)}
             ORDER BY sort_date DESC LIMIT $lim OFFSET $off
@@ -463,9 +479,19 @@ public sealed class MailStore
         return Dedupe(rows);
     }
 
+    /// <summary>Which copy of an email represents it when it sits in several folders (lower = preferred).</summary>
+    internal static int CopyRank(FolderRole r) => r switch
+    {
+        FolderRole.Inbox => 0, FolderRole.Sent => 1, FolderRole.Drafts => 2, FolderRole.Other => 3, FolderRole.Archive => 4,
+        FolderRole.Flagged => 5, FolderRole.Important => 6, FolderRole.All => 7, _ => 8,
+    };
+
+    private static string CopyRankSql(string col) =>
+        "CASE " + string.Join(" ", Enum.GetValues<FolderRole>().Select(r => $"WHEN {col}={(int)r} THEN {CopyRank(r)}")) + " ELSE 9 END";
+
     internal static List<MessageRow> Dedupe(List<(MessageRow m, FolderRole role)> rows)
     {
-        static int Rank(FolderRole r) => r switch { FolderRole.Inbox => 0, FolderRole.Sent => 1, FolderRole.Drafts => 2, FolderRole.Other => 3, FolderRole.Archive => 4, FolderRole.All => 5, _ => 6 };
+        static int Rank(FolderRole r) => CopyRank(r);
         var result = new List<MessageRow>();
         foreach (var g in rows.GroupBy(x => string.IsNullOrEmpty(x.m.MessageId) ? "#" + x.m.Id : x.m.MessageId))
             result.Add(g.OrderBy(x => Rank(x.role)).First().m);

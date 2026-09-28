@@ -69,11 +69,20 @@ public class IntegrationTests
         return m;
     }
 
-    private static async Task Append(string user, string folder, MimeMessage m, KitFlags flags = KitFlags.None)
+    private static async Task Append(string user, string folder, MimeMessage m, KitFlags flags = KitFlags.None, DateTimeOffset? received = null)
     {
         using var c = await Raw(user);
         var f = folder == "INBOX" ? c.Inbox : await c.GetFolderAsync(folder);
-        await f.AppendAsync(new AppendRequest(m, flags));
+        await f.AppendAsync(new AppendRequest(m, flags) { InternalDate = received });
+        await c.DisconnectAsync(true);
+    }
+
+    private static async Task CreateFolder(string user, string name)
+    {
+        using var c = await Raw(user);
+        var ns = c.PersonalNamespaces[0];
+        var top = await c.GetFolderAsync(ns.Path);
+        await top.CreateAsync(name, true);
         await c.DisconnectAsync(true);
     }
 
@@ -107,6 +116,62 @@ public class IntegrationTests
 
     private static List<ThreadRow> Inbox(MailEngine e, Category? cat = null) =>
         e.Store.ListThreads(new ListQuery { FolderIds = e.FolderIds(FolderRole.Inbox), Category = cat }, DateTimeOffset.Now);
+
+    [Fact]
+    public async Task Older_mail_is_listed_in_every_folder_without_notifications()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await CreateFolder(me, "Godrej Hill Retreat");
+        var longAgo = new DateTimeOffset(2022, 6, 22, 9, 46, 0, TimeSpan.FromHours(5.5));
+        // Only old mail in the label folder (nothing in the last 90 days) — used to show an empty folder.
+        await Append(me, "Godrej Hill Retreat", Msg("godrej@props.test", me, "Demand Note (Level 2)", "Please find the demand note", date: longAgo), KitFlags.Seen, longAgo);
+        // Inbox: 2 recent + 5 old (2021).
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Recent one", "hi"));
+        await Append(me, "INBOX", Msg("bob@y.test", me, "Recent two", "hi"));
+        for (int i = 0; i < 5; i++)
+        {
+            var d = new DateTimeOffset(2021, 1, 10 + i, 10, 0, 0, TimeSpan.Zero);
+            await Append(me, "INBOX", Msg($"old{i}@z.test", me, $"Old unread {i}", "from 2021", date: d), KitFlags.None, d);
+        }
+
+        var perRound = AccountSync.BackfillPerRound;
+        AccountSync.BackfillPerRound = 2; // several rounds
+        try
+        {
+            using var dir = new TempDir();
+            using var e = NewEngine(dir);
+            var notified = new List<MessageRow>();
+            e.NewMail += rows => { lock (notified) notified.AddRange(rows); };
+            e.Start();
+            var acc = AccountFor(me);
+            e.AddAccount(acc, "secret", null);
+
+            await WaitUntil(() => e.Folders(acc.Id).Any(f => f.Name == "Godrej Hill Retreat"), "folder listed");
+            var godrej = e.Folders(acc.Id).Single(f => f.Name == "Godrej Hill Retreat");
+            e.Prioritise(new[] { godrej.Id });
+
+            await WaitUntil(() => e.Store.ListThreads(new ListQuery { FolderIds = new[] { godrej.Id } }, DateTimeOffset.Now).Count == 1, "old email in the label folder", 40);
+            await WaitUntil(() => Inbox(e).Count == 7, "all 7 inbox emails incl. 2021", 40);
+            await WaitUntil(() => !e.StillListing(e.Folders(acc.Id).Select(f => f.Id)), "every folder complete", 40);
+            Assert.Equal(0, e.StatusOf(acc.Id)!.Backlog);
+
+            // Opening an old email downloads its body on demand.
+            var old = Inbox(e).First(t => t.Latest.Subject == "Old unread 0").Latest;
+            var (body, _) = await e.LoadAsync(old, false, CancellationToken.None);
+            Assert.Contains("from 2021", body!.Text);
+
+            // Old unread mail found later is not "new mail".
+            await Task.Delay(500);
+            lock (notified) Assert.DoesNotContain(notified, m => m.Subject.StartsWith("Old unread"));
+
+            // New mail still arrives while/after listing.
+            await Append(me, "INBOX", Msg("carol@z.test", me, "Brand new", "now"));
+            e.SyncNow(acc.Id);
+            await WaitUntil(() => Inbox(e).Count == 8, "new mail after the backfill");
+        }
+        finally { AccountSync.BackfillPerRound = perRound; }
+    }
 
     [Fact]
     public async Task Sync_threads_categories_and_server_roundtrips()

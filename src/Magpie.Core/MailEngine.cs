@@ -118,6 +118,29 @@ public sealed class MailEngine : IDisposable
             if (accountId == null || id == accountId) s.Poke();
     }
 
+    /// <summary>The user opened these folders: list their older emails first.</summary>
+    public void Prioritise(IEnumerable<long> folderIds)
+    {
+        var folders = Store.GetFolders().ToDictionary(f => f.Id);
+        foreach (var id in folderIds)
+            if (folders.TryGetValue(id, out var f) && _syncs.TryGetValue(f.AccountId, out var s)) { s.Prioritise(id); break; }
+    }
+
+    /// <summary>True while any of these folders is still being listed from the server (not checked yet, or older emails still coming).</summary>
+    public bool StillListing(IEnumerable<long> folderIds)
+    {
+        var folders = Store.GetFolders().ToDictionary(f => f.Id);
+        foreach (var id in folderIds)
+        {
+            if (!folders.TryGetValue(id, out var f) || !_syncs.TryGetValue(f.AccountId, out var s)) continue;
+            if (!Accounts.Any(a => a.Id == f.AccountId && a.Enabled)) continue;
+            var st = s.Status.State;
+            if (st is SyncState.Offline or SyncState.NeedsSignIn or SyncState.Error) continue;
+            if (s.Remaining(id) != 0) return true;
+        }
+        return false;
+    }
+
     // ───────────────────────── accounts ─────────────────────────
 
     public void AddAccount(Account a, string? password, OAuthTokens? tokens)

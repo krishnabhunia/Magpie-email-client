@@ -25,6 +25,8 @@ public sealed class SyncStatus
     public int Total { get; init; }
     /// <summary>When this account last finished a sync without error.</summary>
     public DateTimeOffset? LastSuccess { get; init; }
+    /// <summary>Older emails still to be listed (headers only) across this account's folders; 0 when every folder is complete.</summary>
+    public int Backlog { get; init; }
 }
 
 public sealed class ChangeSet
@@ -92,6 +94,12 @@ public sealed class AccountSync : IDisposable
 {
     public const int InitialInboxLimit = 3000;
     public const int InitialFolderLimit = 800;
+    /// <summary>
+    /// Older emails listed per sync round (headers only — bodies download when a message is opened).
+    /// The rest follow in the next rounds, which run back to back until every folder is complete,
+    /// so new mail is still checked every few seconds while a big mailbox fills in.
+    /// </summary>
+    public static int BackfillPerRound { get; set; } = 1000;
 
     private static readonly string[] ExtraHeaders =
     {
@@ -110,6 +118,17 @@ public sealed class AccountSync : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop, _idleLoop;
     private bool _initialDone;
+    /// <summary>Folder id → older emails still to list. Missing = not checked yet in this session.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _remaining = new();
+    /// <summary>UIDs already tried this session, so one message the server won't return can't loop forever.</summary>
+    private readonly HashSet<(long folder, uint uid)> _tried = new();
+    private long _priorityFolder;
+    private int _budget;
+    /// <summary>Per folder: server UIDs still to list, newest first (filled by a full check, drained by backfill rounds).</summary>
+    private readonly Dictionary<long, List<UniqueId>> _queue = new();
+    private DateTimeOffset _lastFullCheck = DateTimeOffset.MinValue;
+    private int _pokes;
+    private DateTimeOffset _lastChanged = DateTimeOffset.MinValue;
 
     public SyncStatus Status { get; private set; } = new() { State = SyncState.Idle };
     public event Action<AccountSync, SyncStatus>? StatusChanged;
@@ -139,14 +158,26 @@ public sealed class AccountSync : IDisposable
     }
 
     /// <summary>Ask for a sync now (e.g. after an action or when the user presses F5).</summary>
-    public void Poke() => _wake.Release();
+    public void Poke() { Interlocked.Exchange(ref _pokes, 1); _wake.Release(); }
+
+    /// <summary>Older emails still to list in a folder: -1 = not checked yet this session, 0 = complete.</summary>
+    public int Remaining(long folderId) => _remaining.TryGetValue(folderId, out var n) ? n : -1;
+
+    public int Backlog => _remaining.Values.Where(v => v > 0).Sum();
+
+    /// <summary>The folder the user is looking at: its older emails are listed first.</summary>
+    public void Prioritise(long folderId)
+    {
+        Interlocked.Exchange(ref _priorityFolder, folderId);
+        if (Remaining(folderId) != 0) _wake.Release(); // a backfill round, not a full check
+    }
 
     private DateTimeOffset? _lastSuccess;
 
     private void SetStatus(SyncState state, string msg = "")
     {
         if (state == SyncState.Idle) _lastSuccess = DateTimeOffset.Now;
-        Status = new SyncStatus { State = state, Message = msg, LastSuccess = _lastSuccess };
+        Status = new SyncStatus { State = state, Message = msg, LastSuccess = _lastSuccess, Backlog = Backlog };
         StatusChanged?.Invoke(this, Status);
     }
 
@@ -154,8 +185,8 @@ public sealed class AccountSync : IDisposable
     private void SetProgress(string folder, int done, int total)
     {
         var cur = Status;
-        if (cur.State is not (SyncState.Syncing or SyncState.Connecting)) return;
-        Status = new SyncStatus { State = cur.State, Message = cur.Message, Folder = folder, Done = done, Total = total, LastSuccess = _lastSuccess };
+        if (cur.State is not (SyncState.Syncing or SyncState.Connecting) && !(cur.State == SyncState.Idle && Backlog > 0)) return;
+        Status = new SyncStatus { State = cur.State, Message = cur.Message, Folder = folder, Done = done, Total = total, LastSuccess = _lastSuccess, Backlog = Backlog };
         StatusChanged?.Invoke(this, Status);
     }
 
@@ -166,13 +197,29 @@ public sealed class AccountSync : IDisposable
         {
             try
             {
-                SetStatus(_initialDone ? SyncState.Syncing : SyncState.Connecting, _initialDone ? "Checking for mail…" : "Connecting…");
-                await FlushPendingOpsAsync(ct);
-                await SyncAllAsync(ct);
+                // A full check (new mail, flags, deletions in every folder) at start, on each poke and every poll interval.
+                // In between, while older emails are still being listed, short "backfill" rounds run back to back
+                // touching only the folders that still have some; the account stays "Idle" (drafts upload, ✓ time is right).
+                var poked = Interlocked.Exchange(ref _pokes, 0) == 1;
+                var full = !_initialDone || poked || DateTimeOffset.Now - _lastFullCheck >= PollInterval;
+                if (full)
+                {
+                    SetStatus(_initialDone ? SyncState.Syncing : SyncState.Connecting, _initialDone ? "Checking for mail…" : "Connecting…");
+                    await FlushPendingOpsAsync(ct);
+                }
+                await SyncAllAsync(full, ct);
+                if (full) _lastFullCheck = DateTimeOffset.Now;
                 _initialDone = true;
                 backoff = TimeSpan.FromSeconds(15);
                 var pending = _store.PendingOpCount(Account.Id);
-                SetStatus(SyncState.Idle, pending > 0 ? $"{pending} change(s) waiting to reach the server" : "Up to date");
+                var backlog = Backlog;
+                if (full || backlog == 0)
+                    SetStatus(SyncState.Idle, pending > 0 ? $"{pending} change(s) waiting to reach the server" : backlog > 0 ? "Getting older emails…" : "Up to date");
+                if (backlog > 0)
+                {
+                    await _wake.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
+                    continue;
+                }
                 await _wake.WaitAsync(PollInterval, ct);
                 while (_wake.CurrentCount > 0) await _wake.WaitAsync(0, ct); // coalesce pokes
             }
@@ -221,9 +268,11 @@ public sealed class AccountSync : IDisposable
         _ => FolderRole.Other,
     };
 
-    /// <summary>Gmail's virtual folders duplicate every message; we list them but don't mirror them.</summary>
-    internal static bool ShouldMirror(FolderRole role, bool gmail) =>
-        !(gmail && role is FolderRole.All or FolderRole.Important or FolderRole.Flagged);
+    /// <summary>
+    /// Every folder is mirrored (headers only), including Gmail's All Mail / Starred / Important: archived Gmail mail
+    /// lives only in All Mail. The copies of one email in several folders are shown once (see MailStore.ListThreads).
+    /// </summary>
+    internal static bool ShouldMirror(FolderRole role, bool gmail) => true;
 
     private async Task<List<(MailFolder local, string path)>> SyncFolderListAsync(ImapClient client, CancellationToken ct)
     {
@@ -264,16 +313,23 @@ public sealed class AccountSync : IDisposable
         return result;
     }
 
-    private async Task SyncAllAsync(CancellationToken ct)
+    private async Task SyncAllAsync(bool full, CancellationToken ct)
     {
         await _sync.UseAsync(async client =>
         {
-            var folders = await SyncFolderListAsync(client, ct);
+            var folders = full ? await SyncFolderListAsync(client, ct)
+                : _store.GetFolders(Account.Id).Select(f => (local: f, path: f.Path)).ToList();
             var before = _store.GetFolders(Account.Id).ToDictionary(f => f.Id);
-            // Inbox first, then Sent (for conversations), then the rest.
-            var order = folders.Where(f => f.local.Synced)
-                .OrderBy(f => f.local.Role switch { FolderRole.Inbox => 0, FolderRole.Sent => 1, FolderRole.Drafts => 2, FolderRole.Other => 3, _ => 4 })
+            // The folder being looked at first, then Inbox, Sent (for conversations), then the rest.
+            // Older emails are listed in the same order, up to the round's budget.
+            var priority = Interlocked.Read(ref _priorityFolder);
+            var order = folders.Where(f => f.local.Synced && (full || Remaining(f.local.Id) != 0))
+                .OrderBy(f => f.local.Id == priority ? -1 : f.local.Role switch { FolderRole.Inbox => 0, FolderRole.Sent => 1, FolderRole.Drafts => 2, FolderRole.Other => 3, _ => 4 })
                 .ToList();
+            // The first round only lists recent mail in every folder, so everything shows up quickly; older emails follow.
+            _budget = _initialDone ? BackfillPerRound : 0;
+            if (full)
+                foreach (var gone in _remaining.Keys.Where(id => !folders.Any(o => o.local.Id == id)).ToList()) { _remaining.TryRemove(gone, out _); lock (_queue) _queue.Remove(gone); }
             var initial = !_initialDone && before.Values.All(f => f.LastSync == 0);
             var changes = new ChangeSet { AccountId = Account.Id, FoldersChanged = !_initialDone };
             foreach (var (local, path) in order)
@@ -284,8 +340,11 @@ public sealed class AccountSync : IDisposable
                 try
                 {
                     var f = await client.GetFolderAsync(path, ct);
-                    var (added, touched) = await SyncFolderAsync(client, f, stored, ct);
-                    if (touched || stored.LastSync == 0) changes.FolderIds.Add(stored.Id);
+                    var leftBefore = Remaining(stored.Id);
+                    var (added, touched) = await SyncFolderAsync(client, f, stored, full, ct);
+                    var leftAfter = Remaining(stored.Id);
+                    // Also when the folder's "still loading" state changes, so an empty list can stop saying so.
+                    if (touched || stored.LastSync == 0 || (leftBefore != leftAfter && (leftBefore <= 0 || leftAfter == 0))) changes.FolderIds.Add(stored.Id);
                     if (stored.Role == FolderRole.Inbox && stored.LastSync != 0 && !initial)
                         changes.NewInboxMessages.AddRange(added.Where(m => !m.IsSeen));
                 }
@@ -293,24 +352,41 @@ public sealed class AccountSync : IDisposable
                 catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
                 {
                     Log.Error($"[{Account.Email}] folder {path} failed", ex);
+                    // Don't spin on a folder that keeps failing: its older emails are retried at the next full check.
+                    _remaining[stored.Id] = 0;
+                    lock (_queue) _queue.Remove(stored.Id);
                 }
-                if (stored.Role == FolderRole.Inbox && changes.FolderIds.Count > 0)
+                if (changes.FolderIds.Count > 0 && (stored.Role == FolderRole.Inbox || stored.Id == priority))
                 {
-                    // Show the inbox as soon as it is ready on first run.
+                    // Show the inbox (first run) or the folder being looked at as soon as it is ready.
                     Changed?.Invoke(changes);
+                    _lastChanged = DateTimeOffset.Now;
                     changes = new ChangeSet { AccountId = Account.Id };
                 }
             }
-            if (changes.FolderIds.Count > 0 || changes.FoldersChanged) Changed?.Invoke(changes);
+            // Backfill-only rounds are frequent: updates for folders nobody is looking at are batched (about every 2 s).
+            foreach (var id in changes.FolderIds) _deferred.Add(id);
+            if (_deferred.Count > 0 || changes.FoldersChanged)
+            {
+                if (full || Backlog == 0 || DateTimeOffset.Now - _lastChanged >= TimeSpan.FromSeconds(2))
+                {
+                    var cs = new ChangeSet { AccountId = Account.Id, FoldersChanged = changes.FoldersChanged };
+                    foreach (var id in _deferred) cs.FolderIds.Add(id);
+                    cs.NewInboxMessages.AddRange(changes.NewInboxMessages);
+                    _deferred.Clear();
+                    Changed?.Invoke(cs);
+                    _lastChanged = DateTimeOffset.Now;
+                }
+            }
 
             // Prefetch bodies of the newest inbox messages so they open instantly (and become searchable).
             var inboxFolder = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Inbox);
-            if (inboxFolder != null) await PrefetchBodiesAsync(client, inboxFolder, 40, ct);
+            if (full && inboxFolder != null) await PrefetchBodiesAsync(client, inboxFolder, 40, ct);
         }, ct);
     }
 
     /// <summary>Returns rows newly added in this folder, and whether anything in it changed.</summary>
-    private async Task<(List<MessageRow> added, bool changed)> SyncFolderAsync(ImapClient client, IMailFolder f, MailFolder local, CancellationToken ct)
+    private async Task<(List<MessageRow> added, bool changed)> SyncFolderAsync(ImapClient client, IMailFolder f, MailFolder local, bool full, CancellationToken ct)
     {
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
         try
@@ -320,15 +396,29 @@ public sealed class AccountSync : IDisposable
                 Log.Info($"[{Account.Email}] {local.Path}: UIDVALIDITY changed, resyncing");
                 _store.WipeFolderMessages(local.Id);
                 local.HighestModSeq = 0;
+                local.UidNext = 0;
+                lock (_tried) _tried.RemoveWhere(t => t.folder == local.Id);
+                lock (_queue) _queue.Remove(local.Id);
+                full = true;
             }
             var map = _store.GetUidMap(local.Id);
             var pendingRemovals = _store.PendingRemovals(Account.Id);
             var added = new List<MessageRow>();
             bool changed = false;
+            if (!full)
+            {
+                // Backfill-only round: just list some more older emails from the queue built by the last full check.
+                var backfilledOnly = await BackfillAsync(client, f, local, map, pendingRemovals, null, ct);
+                return (added, backfilledOnly > 0);
+            }
+            // Everything at or above this UID is "new mail" (step 1); everything below is old mail listed by step 4.
+            var uidCeiling = f.UidNext?.Id ?? uint.MaxValue;
 
             // 1. New messages
+            // "New" = arrived since the last check (UID at or above the UIDNEXT we saw then). Anything older that
+            // isn't listed yet is filled in by step 4 and never counts as new mail.
             IList<UniqueId> newUids;
-            if (map.Count == 0)
+            if (map.Count == 0 && local.UidNext == 0)
             {
                 if (f.Count == 0) newUids = Array.Empty<UniqueId>();
                 else
@@ -347,12 +437,13 @@ public sealed class AccountSync : IDisposable
             }
             else
             {
-                var max = map.Keys.Max();
-                if (f.UidNext is { } next && next.Id <= max + 1) newUids = Array.Empty<UniqueId>();
+                var floor = Math.Max(map.Count > 0 ? map.Keys.Max() + 1 : 1, local.UidNext);
+                uidCeiling = (uint)Math.Clamp(floor, 1, uint.MaxValue);
+                if (f.UidNext is { } next && next.Id <= floor) newUids = Array.Empty<UniqueId>();
                 else
                 {
-                    var range = new UniqueIdRange(new UniqueId(f.UidValidity, (uint)Math.Min(max + 1, uint.MaxValue)), UniqueId.MaxValue);
-                    newUids = (await f.SearchAsync(KitSearch.Uids(range), ct)).Where(u => u.Id > max).ToList();
+                    var range = new UniqueIdRange(new UniqueId(f.UidValidity, (uint)Math.Clamp(floor, 1, uint.MaxValue)), UniqueId.MaxValue);
+                    newUids = (await f.SearchAsync(KitSearch.Uids(range), ct)).Where(u => u.Id >= floor).ToList();
                 }
             }
             newUids = newUids.Where(u => !pendingRemovals.Contains((local.Id, u.Id))).ToList();
@@ -376,6 +467,9 @@ public sealed class AccountSync : IDisposable
                 else
                     _store.TouchContacts(added.Where(m => m.Category == Category.People).Select(m => (m.FromAddress, m.FromName)), DateTimeOffset.Now);
             }
+
+            // The whole list of UIDs on the server (for deletions and for older emails not listed yet).
+            var serverAll = (await f.SearchAsync(KitSearch.All, ct)).ToList();
 
             // 2. Flag changes and 3. deletions on messages we already had
             if (map.Count > 0)
@@ -411,20 +505,81 @@ public sealed class AccountSync : IDisposable
                 changes.RemoveAll(c => pendingFlags.Contains(c.uid));
                 if (changes.Count > 0) _store.UpdateFlags(local.Id, changes);
 
-                var serverUids = (await f.SearchAsync(KitSearch.All, ct)).Select(u => (long)u.Id).ToHashSet();
+                var serverUids = serverAll.Select(u => (long)u.Id).ToHashSet();
                 var gone = map.Keys.Where(u => !serverUids.Contains(u)).ToList();
                 if (gone.Count > 0) _store.DeleteUids(local.Id, gone);
                 changed = changes.Count > 0 || gone.Count > 0;
             }
 
+            // 4. Older emails: everything on the server (below the new-mail line) not listed here yet — the first sync
+            //    only lists recent mail so the Inbox appears quickly. Headers only, newest first, within this round's budget.
+            var have = map.Keys.ToHashSet();
+            foreach (var u in newUids) have.Add(u.Id);
+            List<UniqueId> missing;
+            lock (_tried)
+                missing = serverAll.Where(u => u.Id < uidCeiling && !have.Contains(u.Id) && !pendingRemovals.Contains((local.Id, u.Id)) && !_tried.Contains((local.Id, u.Id)))
+                    .OrderByDescending(u => u.Id).ToList();
+            var backfilled = await BackfillAsync(client, f, local, map, pendingRemovals, missing, ct);
+
             _store.UpdateFolderState(local.Id, f.UidValidity, f.UidNext?.Id ?? 0, (long)f.HighestModSeq);
             _store.RefreshFolderCounts(local.Id);
-            return (added, changed || added.Count > 0);
+            return (added, changed || added.Count > 0 || backfilled > 0);
         }
         finally
         {
             try { await f.CloseAsync(false, ct); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Lists older emails from the folder's queue (headers only), newest first, within the round's budget.
+    /// <paramref name="missing"/> replaces the queue when given (full check); otherwise the queue is drained.
+    /// A batch the server refuses is skipped (its UIDs are not asked for again this session) rather than stalling the folder.
+    /// </summary>
+    private async Task<int> BackfillAsync(ImapClient client, IMailFolder f, MailFolder local, Dictionary<long, (long id, MFlags flags)> map,
+        HashSet<(long, long)> pendingRemovals, List<UniqueId>? missing, CancellationToken ct)
+    {
+        List<UniqueId> queue;
+        lock (_queue)
+        {
+            if (missing != null) _queue[local.Id] = missing;
+            if (!_queue.TryGetValue(local.Id, out queue!)) { _remaining[local.Id] = 0; return 0; }
+        }
+        var take = queue.Take(Math.Max(0, _budget)).ToList();
+        var backfilled = 0;
+        var done = 0;
+        foreach (var batch in take.Chunk(150))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var rows = await FetchRowsAsync(client, f, local, batch, ct);
+                var inserted = _store.InsertMessages(rows);
+                // A UID the server didn't return (expunged meanwhile) is not asked for again this session.
+                var returned = rows.Select(r => r.Uid).ToHashSet();
+                lock (_tried) foreach (var u in batch) if (!returned.Contains(u.Id)) _tried.Add((local.Id, u.Id));
+                backfilled += inserted.Count;
+                if (local.Role == FolderRole.Sent && inserted.Count > 0)
+                {
+                    var people = inserted.SelectMany(m => Composer.ParseAddresses(m.To + "," + m.Cc).Mailboxes).Select(mb => (mb.Address, mb.Name ?? "")).ToList();
+                    _store.TouchContacts(people, inserted.Max(m => m.Date), sentTo: true);
+                    ContactsLearned?.Invoke(people.Select(p => p.Address));
+                }
+            }
+            catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
+            {
+                Log.Warn($"[{Account.Email}] {local.Path}: {batch.Length} older emails skipped: {ex.Message}");
+                lock (_tried) foreach (var u in batch) _tried.Add((local.Id, u.Id));
+            }
+            done += batch.Length;
+            _budget -= batch.Length;
+            lock (_queue) queue.RemoveRange(0, Math.Min(batch.Length, queue.Count));
+            _remaining[local.Id] = queue.Count;
+            SetProgress(local.Name, done, take.Count);
+        }
+        _remaining[local.Id] = queue.Count;
+        if (queue.Count == 0) lock (_queue) _queue.Remove(local.Id);
+        return backfilled;
     }
 
     internal static MFlags Merge(MFlags current, KitFlags server)
@@ -462,6 +617,7 @@ public sealed class AccountSync : IDisposable
         return rows;
     }
 
+    private readonly HashSet<long> _deferred = new();
     private readonly Dictionary<string, string> _batchKeys = new();
     /// <summary>Merges decided while building a batch; rows of the same batch still carrying an old key are fixed before insert.</summary>
     private readonly List<(string keep, List<string> merged)> _pendingBatchMerges = new();

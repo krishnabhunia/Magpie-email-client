@@ -376,6 +376,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
         Selected = null;
+        if (newValue?.Kind is NavKind.Folder or NavKind.Role) _e.Prioritise(FolderIdsFor(newValue));
         ReloadList();
     }
 
@@ -413,7 +414,9 @@ public partial class MainViewModel : ObservableObject
         if (Current == null) return new();
         var ids = Current.Kind switch
         {
-            NavKind.Pinned or NavKind.Tag or NavKind.FollowUp => _e.Folders(accountId).Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts)).Select(f => f.Id).ToList(),
+            // Not Gmail's All Mail / Starred / Important: "moving" a copy out of those would unstar or un-archive the email.
+            NavKind.Pinned or NavKind.Tag or NavKind.FollowUp => _e.Folders(accountId)
+                .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important)).Select(f => f.Id).ToList(),
             _ => FolderIdsFor(Current),
         };
         var own = _e.Folders(accountId).Select(f => f.Id).ToHashSet();
@@ -517,7 +520,7 @@ public partial class MainViewModel : ObservableObject
                 NavKind.Pinned => "Pin conversations you want to keep handy.",
                 NavKind.Snoozed => "Snoozed conversations wait here until their time.",
                 NavKind.FollowUp => "Use \"Remind me\" on a conversation to follow it up.",
-                _ => "No conversations here.",
+                _ => _e.StillListing(FolderIdsFor(nav)) ? "Getting this folder's emails from the server…" : "No conversations here.",
             };
         if (Selected != null) Reader.RefreshIfShowing(Selected.Row);
     }

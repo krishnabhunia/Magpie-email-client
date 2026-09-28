@@ -240,7 +240,14 @@ public partial class StatusBarViewModel : ObservableObject
         if (!allOffline)
             foreach (var a in accounts)
             {
-                if (!_status.TryGetValue(a.Id, out var st) || st.State is not (SyncState.Syncing or SyncState.Connecting)) continue;
+                if (!_status.TryGetValue(a.Id, out var st)) continue;
+                if (st.State == SyncState.Idle && st.Backlog > 0)
+                {
+                    // Older emails still being listed (headers only) — shown without the 1 s delay: it lasts a while.
+                    segs.Add(Seg("sync" + a.Id, $"Getting older emails · {ShortName(a.Id)}" + (st.Folder.Length > 0 ? " · " + st.Folder : "") + $" · {st.Backlog:#,0} left", "sync"));
+                    break;
+                }
+                if (st.State is not (SyncState.Syncing or SyncState.Connecting)) continue;
                 if (!_syncSince.TryGetValue(a.Id, out var since) || now - since < TimeSpan.FromSeconds(1)) continue;
                 var what = st.State == SyncState.Connecting && st.Folder.Length == 0 ? $"Connecting {ShortName(a.Id)}…"
                     : st.Total > 0 ? $"Syncing {ShortName(a.Id)} · {st.Folder} {st.Done:#,0} / {st.Total:#,0}"
@@ -311,7 +318,7 @@ public partial class StatusBarViewModel : ObservableObject
                 Dot = Icons.Brush(string.IsNullOrEmpty(a.Color) ? "#14606E" : a.Color),
                 Now = !a.Enabled ? "Paused" : st == null ? "Starting…" : st.State switch
                 {
-                    SyncState.Idle => "Up to date · watching Inbox",
+                    SyncState.Idle => st.Backlog > 0 ? $"Getting older emails · {st.Backlog:#,0} left" : "Up to date · watching Inbox",
                     SyncState.Syncing or SyncState.Connecting => st.Total > 0 ? $"Syncing {st.Folder} {st.Done:#,0} / {st.Total:#,0}" : st.Folder.Length > 0 ? "Checking " + st.Folder : st.Message,
                     _ => st.Message,
                 },
