@@ -120,17 +120,19 @@ jobs:
       - name: Release zip (installer + portable)
         run: python build/release_prep.py zip ${{ steps.ver.outputs.version }} --setup installer/Output --exe publish --out release
 
+      # The CI download follows the same rule as the release zip: only installer\ and portable\ inside.
+      - name: Unpack the zip for the CI download
+        shell: pwsh
+        run: |
+          Expand-Archive release/Magpie-${{ steps.ver.outputs.version }}.zip -DestinationPath ci-download
+          python build/release_prep.py check-folders ci-download
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: Magpie-${{ steps.ver.outputs.version }}-${{ github.sha }}
-          path: |
-            publish/Magpie.exe
-            publish/Magpie.exe.sha256
-            installer/Output/*.exe
-            installer/Output/*.sha256
-            release/Magpie-*.zip
-            release/Magpie-*.zip.sha256
+          path: ci-download/
+          if-no-files-found: error
 
       # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet
       # publishes one — tag v<version>, EXE, installer, the installer + portable zip and checksums, notes from CHANGELOG.md.

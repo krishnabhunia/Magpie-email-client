@@ -156,6 +156,17 @@ class ReleaseZipTests(unittest.TestCase):
         with self.assertRaises(rp.ReleaseError):
             rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"))
 
+    def test_unpacked_zip_passes_folder_check_and_extras_fail(self):
+        import zipfile
+        out = rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"))
+        dest = os.path.join(self.root, "ci-download")
+        with zipfile.ZipFile(out) as z:
+            z.extractall(dest)
+        rp.check_folders(dest)
+        os.makedirs(os.path.join(dest, "publish"))
+        with self.assertRaises(rp.ReleaseError):
+            rp.check_folders(dest)
+
     def test_portable_marker_name_matches_the_app(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "Magpie.Core", "AppPaths.cs"), encoding="utf-8") as f:
             self.assertIn(f'PortableMarker = "{rp.PORTABLE_MARKER}"', f.read())

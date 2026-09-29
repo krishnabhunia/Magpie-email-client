@@ -46,6 +46,9 @@ Every release and test version also carries `Magpie-<version>.zip` (+ `.sha256`)
 
 The loose `Magpie.exe` / `.sha256` stay on each release too: installed copies update from them.
 
+The CI download of every run (Actions → the run → Artifacts) is the same zip unpacked: only `installer/` and
+`portable/` (`release_prep.py check-folders` fails the build otherwise).
+
 ## Build checks that fail the build
 
 | Check | Catches |

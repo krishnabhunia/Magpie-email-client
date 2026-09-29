@@ -15,6 +15,8 @@ and date the heading. The PR's CI publishes a test version; merging it publishes
                                                      -> that version's CHANGELOG section
     python3 build/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
     python3 build/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
+    python3 build/release_prep.py check-folders ci-download
+                                                     -> fails unless the folder holds only installer/ and portable/
     python3 build/release_prep.py check 1.2.0         -> fails unless 1.2.0 is set everywhere and its
                                                         CHANGELOG section is dated (run by CI)
     python3 build/release_prep.py zip 1.2.0 --setup installer/Output --exe publish --out release
@@ -203,6 +205,13 @@ def sha256_file(file):
     return h.hexdigest().upper()
 
 
+def check_folders(folder):
+    """A folder (the unpacked CI download) holding only installer/ and portable/ (Krishna's standing rule)."""
+    found = sorted(os.listdir(folder))
+    if found != sorted(ZIP_FOLDERS) or not all(os.path.isdir(os.path.join(folder, f)) for f in found):
+        raise ReleaseError(f"{folder}: must hold exactly {', '.join(ZIP_FOLDERS)}; found {found}")
+
+
 def make_zip(version, setup_dir, exe_dir, out_dir):
     """Design Z1: Magpie-<version>.zip with only installer/ (setup EXE + checksum) and portable/
     (Magpie.exe + checksum + portable.txt). Returns the zip's path; also writes <zip>.sha256."""
@@ -254,6 +263,8 @@ def main(argv=None):
         if name == "notes":
             sp.add_argument("--out", help="write the notes to this file (UTF-8) instead of printing them")
             sp.add_argument("--header", default="", help="a paragraph put before the notes")
+    cf = sub.add_parser("check-folders")
+    cf.add_argument("folder")
     zp = sub.add_parser("zip")
     zp.add_argument("version")
     zp.add_argument("--setup", required=True, help="folder with the one setup EXE (installer/Output)")
@@ -279,6 +290,9 @@ def main(argv=None):
         elif args.cmd == "check":
             check(args.version)
             print(f"{args.version} is ready to release")
+        elif args.cmd == "check-folders":
+            check_folders(args.folder)
+            print(f"{args.folder}: installer/ and portable/ only")
         elif args.cmd == "zip":
             print(make_zip(args.version, args.setup, args.exe, args.out))
     except ReleaseError as e:
