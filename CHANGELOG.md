@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (not released yet)
+## 1.2.0 (29 Sep 2026)
 - **Version in the title bar**: the version number now sits next to "Magpie" at the top of the window. Point at it for the release date; click it for Settings → About.
 - **Dark theme**: Settings → Appearance → Theme: **Match Windows** (the default — Magpie turns dark or light with your Windows setting, straight away), **Light** or **Dark**. Everything follows: the window, menus, icons, the reading pane and the message editor. Emails that bring their own colours (newsletters, receipts) keep them on a white card so they stay readable. The "Toolbar & buttons" page in Settings is now called **Appearance**.
 - **Meeting invites** in a conversation show as a card above it: the date, title, time in your time zone, place, a **Join the video call** link (Meet, Teams, Zoom), who organised it and how many are invited, and **Accept / Maybe / Decline** (with "Add a note to my reply"). Your answer goes to the organiser as a proper calendar reply, with the usual Undo. Changes and cancellations from the organiser show on the card, and it warns when the time clashes with another invite you said yes or maybe to.
