@@ -1,0 +1,96 @@
+name: Release PR
+
+# Design R1: every push to main (a merged feature PR) keeps one pull request "Release x.y.z" up to date.
+# It bumps the version, sets the release date and dates the CHANGELOG section. Its CI run publishes a test
+# version (x.y.z-beta.N, see build.yml). Merging it is the release: build.yml then publishes vx.y.z.
+# The version comes from CHANGELOG.md: the first "## x.y.z (not released yet)" heading.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    env:
+      # A PR opened with the built-in token gets no CI run, so the release PR needs RELEASE_TOKEN
+      # (fine-grained token for this repo: Contents + Pull requests read/write). See docs/CI-CD.md.
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Release script tests
+        run: python3 build/test_release_prep.py
+
+      - name: Open or update the release PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          version="$(python3 build/release_prep.py pending)"
+          existing="$(gh pr list --repo "$repo" --head release/next --state open --json number --jq '.[0].number // empty')"
+
+          if [ -z "$version" ]; then
+            echo "Nothing waiting to be released (no '## x.y.z (not released yet)' in CHANGELOG.md)."
+            if [ -n "$existing" ]; then
+              gh pr close "$existing" --repo "$repo" --delete-branch --comment "Nothing left to release — closing."
+            fi
+            exit 0
+          fi
+
+          today="$(TZ=Asia/Kolkata date +%Y-%m-%d)"
+          git switch -C release/next
+          python3 build/release_prep.py apply --date "$today"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $version" -m "Version, release date and CHANGELOG heading, prepared automatically by release-pr.yml."
+          git push --force origin release/next
+
+          {
+            echo "## Magpie $version"
+            echo
+            python3 build/release_prep.py notes "$version"
+            echo
+            echo "---"
+            echo
+            echo "**Before merging:** this PR's CI run publishes a test version \`$version-beta.N\` (a pre-release)."
+            echo "Try it on Windows: Settings → Updates → *Include test versions* → Check now."
+            echo
+            echo "**Merging** publishes Magpie $version to everyone (EXE, installer, checksums); installed copies update themselves."
+            echo "Merge more feature PRs first and this PR updates itself."
+            if [ "$HAS_RELEASE_TOKEN" != "true" ]; then
+              echo
+              echo "> ⚠️ \`RELEASE_TOKEN\` isn't set, so CI didn't run on this PR (no checks, no test version). See docs/CI-CD.md."
+            fi
+            closes="$(python3 build/release_prep.py closes "$version")"
+            if [ -n "$closes" ]; then
+              echo
+              for n in $closes; do echo "Closes #$n"; done
+            fi
+          } > release-pr.md
+
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$repo" --title "Release $version" --body-file release-pr.md
+            echo "Updated release PR #$existing for $version"
+          elif gh pr create --repo "$repo" --base main --head release/next --title "Release $version" --body-file release-pr.md; then
+            echo "Opened the release PR for $version"
+          elif [ "$HAS_RELEASE_TOKEN" != "true" ]; then
+            # Without RELEASE_TOKEN GitHub may not let the built-in token open PRs: say so, don't fail main.
+            echo "::warning::Couldn't open the release PR for $version. Add the RELEASE_TOKEN secret (docs/CI-CD.md), then re-run this workflow."
+          else
+            exit 1
+          fi

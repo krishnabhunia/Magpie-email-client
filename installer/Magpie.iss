@@ -5,6 +5,10 @@
 #ifndef MyAppVersion
   #define MyAppVersion "1.1.2"
 #endif
+; Windows file versions are numbers only: a test build (1.2.0-beta.3) passes /DMyAppNumericVersion=1.2.0 as well.
+#ifndef MyAppNumericVersion
+  #define MyAppNumericVersion MyAppVersion
+#endif
 #define MyAppPublisher "Krishna Bhunia"
 #define MyAppURL "https://github.com/krishnabhunia/Magpie-email-client"
 #define MyAppExeName "Magpie.exe"
@@ -21,7 +25,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppNumericVersion}
 DefaultDirName={autopf}\Magpie
 DefaultGroupName=Magpie
 DisableProgramGroupPage=yes

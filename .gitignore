@@ -6,3 +6,6 @@ build/app-types.json
 *.user
 .vs/
 TestResults/
+
+# Python bytecode (build scripts)
+__pycache__/
