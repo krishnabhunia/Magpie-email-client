@@ -99,6 +99,8 @@ public sealed class MailEngine : IDisposable
                 catch (Exception ex) { Log.Error("gatekeeper failed", ex); }
                 try { quiet.UnionWith(RunRules(cs.AccountId, cs.NewInboxArrivals.Where(m => !quiet.Contains(m.Id)).ToList())); }
                 catch (Exception ex) { Log.Error("rules failed", ex); }
+                try { TagArrivals(cs.AccountId, cs.NewInboxArrivals); }
+                catch (Exception ex) { Log.Error("auto-delete tagging failed", ex); }
                 if (quiet.Count > 0) notify = cs.NewInboxMessages.Where(m => !quiet.Contains(m.Id)).ToList();
             }
             Changed?.Invoke(cs);
@@ -508,6 +510,127 @@ public sealed class MailEngine : IDisposable
             return true;
         }
         return false;
+    }
+
+    // ───────────────────────── auto-delete / OTP delete (designs AD1–AD4) ─────────────────────────
+
+    /// <summary>Raised when auto-delete rules or timers change (Settings table, sidebar "Deleting soon").</summary>
+    public event Action? AutoDeleteChanged;
+
+    public List<AutoDeleteRule> AutoDeleteRules() => Store.GetAutoDeleteRules();
+
+    /// <summary>
+    /// Creates or updates a rule. With <paramref name="startOnExisting"/> the emails already in the Inbox from that
+    /// sender get a timer too, counted from now. Returns how many emails got a timer.
+    /// </summary>
+    public int SaveAutoDeleteRule(AutoDeleteRule rule, bool startOnExisting)
+    {
+        rule.Pattern = AutoDelete.NormalisePattern(rule.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
+        rule.Amount = Math.Clamp(rule.Amount, 1, 100);
+        rule.AccountId ??= "";
+        Store.SaveAutoDeleteRule(rule);
+        var n = 0;
+        if (startOnExisting && !rule.Paused)
+        {
+            var now = DateTimeOffset.Now;
+            n = Store.SetDeleteTimers(ExistingFor(rule).Select(m => (m.Id, AutoDelete.DeleteAt(rule, now))), rule.Id);
+        }
+        Log.Info($"auto-delete rule saved: {rule.Pattern}, {AutoDelete.Describe(rule)}" + (n > 0 ? $", {n} existing email(s)" : ""));
+        AutoDeleteTouched();
+        return n;
+    }
+
+    /// <summary>Emails already in the Inbox (not pinned) that a rule would put a timer on.</summary>
+    public List<MessageRow> ExistingFor(AutoDeleteRule rule)
+    {
+        var pattern = AutoDelete.NormalisePattern(rule.Pattern);
+        if (pattern == null) return new();
+        return Accounts.Where(a => AutoDelete.AppliesToAccount(rule, a.Id))
+            .SelectMany(a => Store.MessagesFrom(FolderIds(FolderRole.Inbox, a.Id), pattern))
+            .Where(m => !m.IsFlagged).ToList();
+    }
+
+    public void PauseAutoDeleteRule(string id, bool paused)
+    {
+        var rule = Store.GetAutoDeleteRules().FirstOrDefault(r => r.Id == id);
+        if (rule == null) return;
+        rule.Paused = paused;
+        Store.SaveAutoDeleteRule(rule);
+        AutoDeleteTouched();
+    }
+
+    /// <summary>Remove asks (design AD4): keep the timers already on emails, or clear them all.</summary>
+    public void RemoveAutoDeleteRule(string id, bool clearTimers)
+    {
+        Store.DeleteAutoDeleteRule(id, clearTimers);
+        AutoDeleteTouched();
+    }
+
+    /// <summary>New Inbox mail from a sender with a rule gets its timer (the earliest, if several rules match).</summary>
+    public void TagArrivals(string accountId, IReadOnlyList<MessageRow> arrivals)
+    {
+        if (arrivals.Count == 0) return;
+        var rules = Store.GetAutoDeleteRules().Where(r => !r.Paused && AutoDelete.AppliesToAccount(r, accountId)).ToList();
+        if (rules.Count == 0) return;
+        var now = DateTimeOffset.Now;
+        var tagged = 0;
+        foreach (var rule in rules)
+        {
+            var rows = arrivals.Where(m => !m.IsFlagged && AutoDelete.Matches(rule.Pattern, m.FromAddress))
+                .Select(m => (m.Id, AutoDelete.DeleteAt(rule, m.Date < now ? m.Date : now))).ToList();
+            if (rows.Count > 0) tagged += Store.SetDeleteTimers(rows, rule.Id);
+        }
+        if (tagged > 0) AutoDeleteTouched(accountId);
+    }
+
+    /// <summary>"Keep this one" (design AD3): the conversation's timers come off, for good.</summary>
+    public void KeepFromAutoDelete(string accountId, string threadKey)
+    {
+        Store.KeepRows(Store.DeleteTimers(accountId, threadKey).Select(t => t.Id));
+        AutoDeleteTouched(accountId);
+    }
+
+    /// <summary>"Keep all" in Deleting soon: every timer due in the next 7 days comes off.</summary>
+    public void KeepAllDeletingSoon()
+    {
+        Store.KeepRows(Store.RowsDeletingBefore(DateTimeOffset.Now.AddDays(7)));
+        AutoDeleteTouched();
+    }
+
+    /// <summary>The timer pass: due emails move to Trash (queued for the server). Pinned ones and paused rules are skipped.</summary>
+    public int RunDueDeletes(DateTimeOffset now)
+    {
+        var due = Store.DueDeletes(now);
+        if (due.Count == 0) return 0;
+        foreach (var acc in due.GroupBy(m => m.AccountId))
+        {
+            var folders = Store.GetFolders(acc.Key);
+            var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
+            var touched = new HashSet<long>();
+            foreach (var m in acc)
+            {
+                if (trash == null) Queue(m, PendingOpKind.Delete);
+                else if (m.FolderId != trash.Id) Queue(m, PendingOpKind.Move, trash.Id);
+                Store.DeleteRow(m.Id);
+                touched.Add(m.FolderId);
+                if (trash != null) touched.Add(trash.Id);
+            }
+            Touched(acc.Key, touched);
+        }
+        Log.Info($"auto-delete: {due.Count} email(s) moved to Trash");
+        AutoDeleteChanged?.Invoke();
+        return due.Count;
+    }
+
+    private void AutoDeleteTouched(string? accountId = null)
+    {
+        foreach (var a in Accounts.Where(a => accountId == null || a.Id == accountId))
+        {
+            var cs = new ChangeSet { AccountId = a.Id };
+            foreach (var f in FolderIds(FolderRole.Inbox, a.Id)) cs.FolderIds.Add(f);
+            Changed?.Invoke(cs);
+        }
+        AutoDeleteChanged?.Invoke();
     }
 
     // ───────────────────────── Gatekeeper (design B7) ─────────────────────────
@@ -931,6 +1054,7 @@ public sealed class MailEngine : IDisposable
                 {
                     lastMinute = DateTimeOffset.Now;
                     CheckReminders();
+                    RunDueDeletes(DateTimeOffset.Now);   // also the overdue ones at start (this runs straight away)
                     if (Interlocked.Exchange(ref _promotePending, 0) == 1) PromoteKnownSenders();
                     _ = Task.Run(async () =>
                     {

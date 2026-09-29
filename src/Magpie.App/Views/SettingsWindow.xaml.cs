@@ -16,7 +16,7 @@ public partial class SettingsWindow : Window
     {
         if (_open != null)
         {
-            if (page != null) _open._vm.Page = page;
+            if (page != null) _open._vm.GoTo(page);
             _open.Activate();
             return;
         }
@@ -39,6 +39,9 @@ public partial class SettingsWindow : Window
         _vm.Saved += Close;
         _vm.HighlightRequested += Highlight;
         _vm.SignatureAccountChanged += a => _ = LoadSignatureAsync(a);
+        Action onAutoDelete = () => Ui.Post(_vm.LoadAutoDelete);
+        AppServices.Engine.AutoDeleteChanged += onAutoDelete;
+        Closed += (_, _) => AppServices.Engine.AutoDeleteChanged -= onAutoDelete;
         _vm.PropertyChanged += (_, a) => { if (a.PropertyName == nameof(SettingsViewModel.Page) && _vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
         Loaded += (_, _) => { if (_vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
         PreviewKeyDown += (_, e) =>

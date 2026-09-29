@@ -16,6 +16,8 @@ public sealed class ListQuery
     public bool Snoozed { get; init; }
     /// <summary>The Set aside pile (design B7).</summary>
     public bool SetAside { get; init; }
+    /// <summary>Only conversations with an auto-delete timer before this time ("Deleting soon", design AD4).</summary>
+    public DateTimeOffset? DeletingBefore { get; init; }
     public string? Tag { get; init; }
     public SearchQuery? Search { get; init; }
     public int Limit { get; init; } = 300;
@@ -30,7 +32,7 @@ public sealed class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 5;
 
     public MailStore(string dbPath)
     {
@@ -122,6 +124,18 @@ public sealed class MailStore
         // v2 → v3: local drafts remember their Message-ID (stale copies are dropped once the message is sent or saved).
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('local_drafts') WHERE name='message_id'")) == 0)
             Exec(c, "ALTER TABLE local_drafts ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
+        // v4 → v5 (1.2.0): auto-delete / OTP delete (designs AD1–AD4). delete_rule is the rule's id, or "-" for "Keep this one".
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='delete_at'")) == 0)
+        {
+            Exec(c, "ALTER TABLE messages ADD COLUMN delete_at INTEGER NULL");
+            Exec(c, "ALTER TABLE messages ADD COLUMN delete_rule TEXT NOT NULL DEFAULT ''");
+        }
+        Exec(c, """
+            CREATE INDEX IF NOT EXISTS ix_msg_delete ON messages(delete_at) WHERE delete_at IS NOT NULL;
+            CREATE TABLE IF NOT EXISTS auto_delete_rules(
+              id TEXT PRIMARY KEY, pattern TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '', otp INTEGER NOT NULL DEFAULT 0,
+              amount INTEGER NOT NULL DEFAULT 7, unit INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+            """);
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }
@@ -403,7 +417,14 @@ public sealed class MailStore
         var match = new List<string> { inFolders };
         if (q.Tag != null) { match.Add("(',' || m.tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{q.Tag},%"); }
         if (q.Search != null && !q.Search.IsEmpty) match.Add(q.Search.ToSql(cmd, "m"));
-        where.Add(snooze);
+        // "Deleting soon" lists everything with a timer, snoozed / set aside / waiting at the door included.
+        if (q.DeletingBefore == null) where.Add(snooze);
+
+        if (q.DeletingBefore is { } db)
+        {
+            where.Add("m.delete_at IS NOT NULL AND m.delete_at <= $delb AND (m.flags & 2)=0");
+            cmd.Parameters.AddWithValue("$delb", db.ToUnixTimeMilliseconds());
+        }
 
         var having = new List<string>();
         if (q.UnreadOnly) having.Add("unread > 0");
@@ -432,7 +453,10 @@ public sealed class MailStore
                 SUM(CASE WHEN (m.flags & 1)=0 THEN 1 ELSE 0 END) OVER (PARTITION BY m.account_id, m.thread_key) AS unread,
                 MAX(CASE WHEN (m.flags & 2)<>0 THEN 1 ELSE 0 END) OVER (PARTITION BY m.account_id, m.thread_key) AS flagged,
                 MAX(m.has_attach) OVER (PARTITION BY m.account_id, m.thread_key) AS anyatt,
-                GROUP_CONCAT(CASE WHEN m.from_name<>'' THEN m.from_name ELSE m.from_addr END, '|') OVER (PARTITION BY m.account_id, m.thread_key) AS people
+                GROUP_CONCAT(CASE WHEN m.from_name<>'' THEN m.from_name ELSE m.from_addr END, '|') OVER (PARTITION BY m.account_id, m.thread_key) AS people,
+                MIN(CASE WHEN (m.flags & 2)=0 THEN m.delete_at END) OVER (PARTITION BY m.account_id, m.thread_key) AS del_at,
+                FIRST_VALUE(CASE WHEN (m.flags & 2)=0 AND m.delete_at IS NOT NULL THEN m.delete_rule ELSE '' END) OVER (
+                  PARTITION BY m.account_id, m.thread_key ORDER BY (CASE WHEN (m.flags & 2)=0 AND m.delete_at IS NOT NULL THEN 0 ELSE 1 END), m.delete_at) AS del_rule
               FROM {source}
             )
             SELECT * FROM f WHERE {string.Join(" AND ", outer)}
@@ -442,6 +466,8 @@ public sealed class MailStore
         cmd.Parameters.AddWithValue("$off", q.Offset);
         var list = new List<ThreadRow>();
         using var r = cmd.ExecuteReader();
+        var delAt = r.GetOrdinal("del_at");
+        var delRule = r.GetOrdinal("del_rule");
         while (r.Read())
         {
             var m = ReadMsg(r);
@@ -452,6 +478,8 @@ public sealed class MailStore
                 Count = r.GetInt32(26), UnreadCount = r.GetInt32(27), Flagged = r.GetInt32(28) != 0, HasAttachments = r.GetInt32(29) != 0,
                 Participants = string.Join(", ", people.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(FirstName).Distinct().Take(4)),
                 SnoozeUntil = m.SnoozeUntil,
+                DeleteAt = r.IsDBNull(delAt) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(delAt)),
+                DeleteRule = r.IsDBNull(delRule) ? "" : r.GetString(delRule),
             });
         }
         return list;
@@ -1191,6 +1219,151 @@ public sealed class MailStore
     /// <summary>Set aside is a snooze that never wakes (see <see cref="MessageRow.SetAsideMark"/>).</summary>
     private static readonly long AsideMs = MessageRow.SetAsideMark.ToUnixTimeMilliseconds();
     private static readonly long GateMs = MessageRow.GateMark.ToUnixTimeMilliseconds();
+
+    // ───────────────────────── auto-delete (designs AD1–AD4) ─────────────────────────
+
+    public List<Mail.AutoDeleteRule> GetAutoDeleteRules()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id,pattern,account_id,otp,amount,unit,paused,created FROM auto_delete_rules ORDER BY created";
+        var list = new List<Mail.AutoDeleteRule>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new Mail.AutoDeleteRule
+            {
+                Id = r.GetString(0), Pattern = r.GetString(1), AccountId = r.GetString(2), Otp = r.GetInt32(3) != 0, Amount = r.GetInt32(4),
+                Unit = (Mail.DeleteUnit)r.GetInt32(5), Paused = r.GetInt32(6) != 0, Created = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(7)),
+            });
+        return list;
+    }
+
+    public void SaveAutoDeleteRule(Mail.AutoDeleteRule rule)
+    {
+        using var c = Open();
+        Exec(c, """
+            INSERT INTO auto_delete_rules(id,pattern,account_id,otp,amount,unit,paused,created) VALUES($id,$p,$a,$o,$n,$u,$z,$c)
+            ON CONFLICT(id) DO UPDATE SET pattern=$p, account_id=$a, otp=$o, amount=$n, unit=$u, paused=$z
+            """, ("$id", rule.Id), ("$p", rule.Pattern), ("$a", rule.AccountId), ("$o", rule.Otp ? 1 : 0), ("$n", rule.Amount), ("$u", (int)rule.Unit),
+            ("$z", rule.Paused ? 1 : 0), ("$c", rule.Created.ToUnixTimeMilliseconds()));
+    }
+
+    /// <summary>Removes a rule; <paramref name="clearTimers"/> also takes its timers off the emails that carry them.</summary>
+    public void DeleteAutoDeleteRule(string id, bool clearTimers)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        Exec(c, "DELETE FROM auto_delete_rules WHERE id=$id", ("$id", id));
+        if (clearTimers) Exec(c, "UPDATE messages SET delete_at=NULL, delete_rule='' WHERE delete_rule=$id", ("$id", id));
+        tx.Commit();
+    }
+
+    /// <summary>Puts a timer on each row (keeps an earlier one already there). Rows kept by hand ("-") are left alone.</summary>
+    public int SetDeleteTimers(IEnumerable<(long RowId, DateTimeOffset At)> rows, string ruleId)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        var n = 0;
+        foreach (var (id, at) in rows)
+            n += Exec(c, "UPDATE messages SET delete_at=$t, delete_rule=$r WHERE id=$id AND delete_rule<>'-' AND (delete_at IS NULL OR delete_at > $t)",
+                ("$t", at.ToUnixTimeMilliseconds()), ("$r", ruleId), ("$id", id));
+        tx.Commit();
+        return n;
+    }
+
+    /// <summary>"Keep this one" / "Keep all": the timer comes off and never comes back on these rows.</summary>
+    public void KeepRows(IEnumerable<long> rowIds)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in rowIds) Exec(c, "UPDATE messages SET delete_at=NULL, delete_rule='-' WHERE id=$id AND delete_at IS NOT NULL", ("$id", id));
+        tx.Commit();
+    }
+
+    /// <summary>Rows whose time has come: not pinned, and their rule isn't paused.</summary>
+    public List<MessageRow> DueDeletes(DateTimeOffset now)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT {MsgCols} FROM messages m LEFT JOIN auto_delete_rules r ON r.id=m.delete_rule
+            WHERE m.delete_at IS NOT NULL AND m.delete_at <= $now AND (m.flags & 2)=0 AND COALESCE(r.paused,0)=0
+            """;
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        var list = new List<MessageRow>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadMsg(r));
+        return list;
+    }
+
+    /// <summary>Per rule: emails waiting and the next delete (the AD4 table).</summary>
+    public Dictionary<string, (int Waiting, DateTimeOffset? Next)> AutoDeleteStats()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT delete_rule, COUNT(*), MIN(delete_at) FROM messages WHERE delete_at IS NOT NULL AND (flags & 2)=0 GROUP BY delete_rule";
+        var map = new Dictionary<string, (int, DateTimeOffset?)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) map[r.GetString(0)] = (r.GetInt32(1), r.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(2)));
+        return map;
+    }
+
+    /// <summary>Conversations with a timer before <paramref name="until"/> ("Deleting soon").</summary>
+    public int CountDeletingSoon(DateTimeOffset until)
+    {
+        using var c = Open();
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0",
+            ("$u", until.ToUnixTimeMilliseconds())));
+    }
+
+    /// <summary>Rows of a conversation that carry a timer (reader bar, Keep this one).</summary>
+    public List<(long Id, DateTimeOffset At, string Rule)> DeleteTimers(string accountId, string threadKey)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id, delete_at, delete_rule FROM messages WHERE account_id=$a AND thread_key=$t AND delete_at IS NOT NULL AND (flags & 2)=0 ORDER BY delete_at";
+        cmd.Parameters.AddWithValue("$a", accountId);
+        cmd.Parameters.AddWithValue("$t", threadKey);
+        var list = new List<(long, DateTimeOffset, string)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add((r.GetInt64(0), DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(1)), r.GetString(2)));
+        return list;
+    }
+
+    /// <summary>Rows with a timer before <paramref name="until"/> ("Keep all" in Deleting soon).</summary>
+    public List<long> RowsDeletingBefore(DateTimeOffset until)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0";
+        cmd.Parameters.AddWithValue("$u", until.ToUnixTimeMilliseconds());
+        var list = new List<long>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(r.GetInt64(0));
+        return list;
+    }
+
+    /// <summary>Messages in these folders from an address or "*@domain" (existing mail for a new auto-delete rule).</summary>
+    public List<MessageRow> MessagesFrom(IReadOnlyCollection<long> folderIds, string pattern)
+    {
+        var list = new List<MessageRow>();
+        if (folderIds.Count == 0) return list;
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
+        var p = pattern.Trim().ToLowerInvariant();
+        string match;
+        if (p.StartsWith("*@", StringComparison.Ordinal))
+        {
+            match = "lower(m.from_addr) LIKE $p ESCAPE '\\'";
+            cmd.Parameters.AddWithValue("$p", "%" + p[1..].Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_"));
+        }
+        else { match = "lower(m.from_addr)=$p"; cmd.Parameters.AddWithValue("$p", p); }
+        cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.folder_id IN ({string.Join(',', ps)}) AND {match}";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadMsg(r));
+        return list;
+    }
 
     // ───────────────────────── Gatekeeper (design B7) ─────────────────────────
 

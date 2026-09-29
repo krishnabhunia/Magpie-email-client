@@ -344,6 +344,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
+        ("Auto-delete rules", "Rules", "Emails from a sender or domain go to Trash a set time after they arrive; OTP delete after 24 hours", "auto delete autodelete otp codes expire trash timer clean up old", "RowAutoDelete"),
         ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
         ("Signature", "Signatures", "A signature for each account, with pictures; new messages and replies", "signature sign off logo picture name footer html rich", "RowSignatures"),
         ("Quick replies", "Signatures", "Short answers you send with one click under a conversation", "quick replies canned answers thanks one click send chips", "RowQuickReplies"),
@@ -390,6 +391,8 @@ public partial class SettingsViewModel : ObservableObject
         if (hit == null) return;
         SearchText = "";
         Page = hit.Page;
+        if (hit.Anchor == "RowAutoDelete") RulesTab = "AutoDelete";
+        else if (hit.Anchor == "RowRules") RulesTab = "Filters";
         HighlightRequested?.Invoke(hit.Anchor);
     }
 
@@ -574,7 +577,9 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(string? page)
     {
         var c = _e.Config;
-        _page = page ?? "General";
+        var parts = (page ?? "General").Split(':', 2);
+        _page = parts[0];
+        if (parts.Length > 1) _rulesTab = parts[1];
         _smartInbox = c.SmartInbox;
         _markReadOnOpen = c.MarkReadOnOpen;
         _remoteImages = c.RemoteImages;

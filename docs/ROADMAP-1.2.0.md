@@ -16,8 +16,8 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 10 | Rules / filters | B5 | Built — not yet tried on Windows | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
 | 11 | Signatures per account + quick replies | B6 | Built — not yet tried on Windows | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
 | 12 | Gatekeeper + Set aside (key L) | B7 | Built — not yet tried on Windows; set aside / gate are kept on this PC (not synced to phone) | [#8](https://github.com/krishnabhunia/Magpie-email-client/issues/8) |
-| 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Approved | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
-| 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Approved | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
+| 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Built — not yet tried on Windows (schema v5) | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
+| 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Built — not yet tried on Windows | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.

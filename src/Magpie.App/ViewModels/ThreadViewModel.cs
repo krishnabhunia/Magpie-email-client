@@ -83,6 +83,7 @@ public partial class ThreadViewModel : ObservableObject
         SummaryVisible = false;
         ShowReplies = false;
         ShowQuickReplies = false;
+        HasDeleteTimer = false;
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
@@ -165,6 +166,7 @@ public partial class ThreadViewModel : ObservableObject
             IsPinned = rows.Any(r => r.IsFlagged);
             IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && !r.IsSetAside);
             IsSetAside = rows.Any(r => r.IsSetAside);
+            RefreshDeleteBar();
             TagsText = latest.Tags.Replace(",", " · ");
             CanUnsubscribe = rows.Any(r => r.ListUnsubscribe.Length > 0);
             var folders = _e.Folders(AccountId).ToDictionary(f => f.Id);
@@ -320,6 +322,35 @@ public partial class ThreadViewModel : ObservableObject
     {
         _e.Snooze(AccountId, ThreadKey, until);
         ThreadRemoved?.Invoke();
+    }
+
+    // ───────────────────────── auto-delete bar (design AD3) ─────────────────────────
+
+    [ObservableProperty] private bool _hasDeleteTimer;
+    [ObservableProperty] private string _deleteBarText = "";
+    [ObservableProperty] private string _deleteRuleText = "";
+    public string DeleteRuleId { get; private set; } = "";
+
+    public void RefreshDeleteBar()
+    {
+        var timers = HasThread ? _e.Store.DeleteTimers(AccountId, ThreadKey) : new();
+        HasDeleteTimer = timers.Count > 0;
+        if (!HasDeleteTimer) { DeleteBarText = DeleteRuleText = DeleteRuleId = ""; return; }
+        var (_, at, ruleId) = timers[0];
+        DeleteRuleId = ruleId;
+        DeleteBarText = AutoDelete.BarText(at, DateTimeOffset.Now);
+        var rule = _e.AutoDeleteRules().FirstOrDefault(r => r.Id == ruleId);
+        DeleteRuleText = rule == null ? "Rule: removed (this email keeps its date)"
+            : $"Rule: {AutoDelete.Who(rule.Pattern)} · {AutoDelete.Describe(rule)}" + (rule.Paused ? " · paused" : "");
+    }
+
+    /// <summary>"Keep this one": the timer comes off this conversation only (pinning keeps it too).</summary>
+    [RelayCommand]
+    private void KeepFromAutoDelete()
+    {
+        if (!HasThread) return;
+        _e.KeepFromAutoDelete(AccountId, ThreadKey);
+        RefreshDeleteBar();
     }
 
     /// <summary>Set aside (design B7, key L): out of the Inbox without a date; in the pile it puts the conversation back.</summary>

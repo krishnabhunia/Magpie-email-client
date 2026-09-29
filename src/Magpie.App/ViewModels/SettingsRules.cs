@@ -137,6 +137,20 @@ public partial class EditableRule : ObservableObject
 
 public sealed record RuleMatchLine(string Sender, string Subject, string When);
 
+/// <summary>One row of Settings → Rules → Auto-delete (design AD4).</summary>
+public sealed class AutoDeleteRow
+{
+    public AutoDeleteRule Rule { get; init; } = new();
+    public string From => Rule.Pattern.StartsWith("*@", StringComparison.Ordinal) ? "Anyone at " + Rule.Pattern[2..] : Rule.Pattern;
+    public string After => Rule.Otp ? "OTP · 24 hours" : AutoDelete.After(Rule.Amount, Rule.Unit);
+    public string Accounts { get; init; } = "";
+    public string Waiting { get; init; } = "";
+    public string NextDelete { get; init; } = "";
+    public bool Paused => Rule.Paused;
+    public string PauseLabel => Rule.Paused ? "Resume" : "Pause";
+    public string StateText => Rule.Paused ? "Paused" : "";
+}
+
 /// <summary>Settings → Rules (design B5). Rules are saved with "Save rule" (and with Save); list toggles and order save at once.</summary>
 public partial class SettingsViewModel
 {
@@ -156,6 +170,87 @@ public partial class SettingsViewModel
     /// <summary>Each rule as last saved; the list's switches and order apply to these, so unsaved edits never slip in.</summary>
     private readonly Dictionary<string, MailRule> _savedRules = new();
 
+    // ── Auto-delete tab (design AD4) ──
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsFiltersTab), nameof(IsAutoDeleteTab))] private string _rulesTab = "Filters";
+    public bool IsFiltersTab => RulesTab != "AutoDelete";
+    public bool IsAutoDeleteTab => RulesTab == "AutoDelete";
+    public ObservableCollection<AutoDeleteRow> AutoDeleteList { get; } = new();
+    public string FiltersTabLabel => RuleList.Count == 0 ? "Filters" : $"Filters {RuleList.Count}";
+    public string AutoDeleteTabLabel => AutoDeleteList.Count == 0 ? "Auto-delete" : $"Auto-delete {AutoDeleteList.Count}";
+
+    [RelayCommand] private void ShowRulesTab(string? tab) => RulesTab = tab == "AutoDelete" ? "AutoDelete" : "Filters";
+
+    /// <summary>Settings.Open("Rules:AutoDelete") opens a page and a tab.</summary>
+    public void GoTo(string page)
+    {
+        var parts = page.Split(':', 2);
+        SearchText = "";
+        Page = parts[0];
+        if (parts.Length > 1) RulesTab = parts[1];
+    }
+
+    public void LoadAutoDelete()
+    {
+        var stats = _e.Store.AutoDeleteStats();
+        var now = DateTimeOffset.Now;
+        AutoDeleteList.Clear();
+        foreach (var r in _e.AutoDeleteRules())
+        {
+            var (waiting, next) = stats.TryGetValue(r.Id, out var st) ? st : (0, null);
+            AutoDeleteList.Add(new AutoDeleteRow
+            {
+                Rule = r,
+                Accounts = r.AccountId.Length == 0 ? "All accounts" : _e.AccountById(r.AccountId)?.Email ?? "(removed account)",
+                Waiting = waiting == 0 ? "—" : waiting.ToString("#,0"),
+                NextDelete = next is { } n ? (r.Paused ? "paused" : AutoDelete.TagText(n, now, r.Otp).Replace("Deletes ", "").Replace("OTP · deletes ", "")) : "—",
+            });
+        }
+        OnPropertyChanged(nameof(AutoDeleteTabLabel));
+    }
+
+    [RelayCommand]
+    private void NewAutoDelete()
+    {
+        if (Views.AutoDeleteDialog.Show(Ui.ActiveWindow, new AutoDeleteRule(), editing: false) != null) LoadAutoDelete();
+    }
+
+    [RelayCommand]
+    private void EditAutoDelete(AutoDeleteRow? row)
+    {
+        if (row != null && Views.AutoDeleteDialog.Show(Ui.ActiveWindow, row.Rule, editing: true) != null) LoadAutoDelete();
+    }
+
+    [RelayCommand]
+    private void PauseAutoDelete(AutoDeleteRow? row)
+    {
+        if (row == null) return;
+        _e.PauseAutoDeleteRule(row.Rule.Id, !row.Rule.Paused);
+        LoadAutoDelete();
+    }
+
+    [RelayCommand]
+    private void RemoveAutoDelete(AutoDeleteRow? row)
+    {
+        if (row == null) return;
+        var waiting = _e.Store.AutoDeleteStats().TryGetValue(row.Rule.Id, out var st) ? st.Waiting : 0;
+        bool clear;
+        if (waiting == 0)
+        {
+            if (!Ui.Confirm("Remove rule", $"Remove the auto-delete rule for {row.From}?")) return;
+            clear = true;
+        }
+        else
+        {
+            var choice = Views.ChoiceDialog.Ask(Ui.ActiveWindow, "Remove rule",
+                $"{waiting:#,0} email{(waiting == 1 ? " is" : "s are")} already waiting under this rule. Keep their delete dates, or clear them all?",
+                "Keep their dates", "Clear them all");
+            if (choice < 0) return;
+            clear = choice == 1;
+        }
+        _e.RemoveAutoDeleteRule(row.Rule.Id, clear);
+        LoadAutoDelete();
+    }
+
     private void LoadRules()
     {
         _savedRules.Clear();
@@ -166,6 +261,8 @@ public partial class SettingsViewModel
         foreach (var r in _e.Config.Rules) RuleList.Add(ToEditable(r.Clone()));
         SelectedRule = RuleList.FirstOrDefault();
         OnPropertyChanged(nameof(RulesCount));
+        OnPropertyChanged(nameof(FiltersTabLabel));
+        LoadAutoDelete();
     }
 
     private EditableRule ToEditable(MailRule r)
@@ -349,6 +446,7 @@ public partial class SettingsViewModel
         _e.Config.Rules = list;
         _e.Settings.Save();
         OnPropertyChanged(nameof(RulesCount));
+        OnPropertyChanged(nameof(FiltersTabLabel));
     }
 
     /// <summary>The main Save button also keeps finished edits to rules (half-written ones stay unsaved).</summary>

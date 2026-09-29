@@ -84,6 +84,9 @@ public sealed class ThreadRow
     public bool HasAttachments { get; set; }
     public string Participants { get; set; } = "";
     public DateTimeOffset? SnoozeUntil { get; set; }
+    /// <summary>Earliest auto-delete timer on the conversation (design AD3) and the rule that set it.</summary>
+    public DateTimeOffset? DeleteAt { get; set; }
+    public string DeleteRule { get; set; } = "";
     public bool IsSetAside => SnoozeUntil == MessageRow.SetAsideMark;
     public bool IsSnoozed(DateTimeOffset now) => SnoozeUntil is { } s && s > now && s < MessageRow.GateMark;
 }

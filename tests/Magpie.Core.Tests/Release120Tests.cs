@@ -5,7 +5,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>1.2.0: dark theme (B1), rules (B5), signatures + quick replies (B6), Gatekeeper + set aside (B7).</summary>
+/// <summary>1.2.0: dark theme (B1), rules (B5), signatures + quick replies (B6), Gatekeeper + set aside (B7), auto-delete (AD1–AD4).</summary>
 public class Release120Tests
 {
     // ───────────── B1 dark theme ─────────────
@@ -413,6 +413,158 @@ public class Release120Tests
         Assert.NotNull(e.Recall(id));                                                                 // and it works
         Assert.DoesNotContain(e.Outbox(), o => o.Status == OutboxStatus.Queued);
     }
+
+    // ───────────── AD1–AD4 auto-delete / OTP delete ─────────────
+
+    [Theory]
+    [InlineData("Codes@Bank.com", "codes@bank.com")]
+    [InlineData(" *@XYZ.com ", "*@xyz.com")]
+    [InlineData("@xyz.com", "*@xyz.com")]
+    [InlineData("xyz.com", null)]
+    [InlineData("a*b@xyz.com", null)]
+    [InlineData("*@*.com", null)]
+    [InlineData("a@b", null)]
+    [InlineData("a @b.com", null)]
+    public void Auto_delete_patterns_are_an_address_or_everyone_at_a_domain(string input, string? expected) =>
+        Assert.Equal(expected, AutoDelete.NormalisePattern(input));
+
+    [Fact]
+    public void Auto_delete_matching_dates_tags_and_colours()
+    {
+        Assert.True(AutoDelete.Matches("*@xyz.com", "Alerts@XYZ.com"));
+        Assert.False(AutoDelete.Matches("*@xyz.com", "a@notxyz.com.au"));
+        Assert.True(AutoDelete.Matches("codes@bank.com", "CODES@bank.com"));
+        Assert.False(AutoDelete.Matches("codes@bank.com", "other@bank.com"));
+        Assert.Equal("*@xyz.com", AutoDelete.DomainPattern("news@XYZ.com"));
+
+        var t = new DateTimeOffset(2026, 9, 27, 11, 20, 0, TimeSpan.Zero);
+        Assert.Equal(t.AddHours(24), AutoDelete.DeleteAt(new AutoDeleteRule { Otp = true, Amount = 30, Unit = DeleteUnit.Years }, t));
+        Assert.Equal(t.AddDays(7), AutoDelete.DeleteAt(new AutoDeleteRule { Amount = 7 }, t));
+        Assert.Equal(t.AddMonths(3), AutoDelete.DeleteAt(new AutoDeleteRule { Amount = 3, Unit = DeleteUnit.Months }, t));
+        Assert.Equal(t.AddYears(10), AutoDelete.DeleteAt(new AutoDeleteRule { Amount = 10, Unit = DeleteUnit.Years }, t));
+        Assert.Equal("OTP · 24 hours after arrival", AutoDelete.Describe(new AutoDeleteRule { Otp = true }));
+        Assert.Equal("1 month after arrival", AutoDelete.Describe(new AutoDeleteRule { Amount = 1, Unit = DeleteUnit.Months }));
+
+        var now = DateTimeOffset.Now;
+        Assert.Equal("OTP · deletes in 23 h 54 m", AutoDelete.TagText(now.AddHours(23).AddMinutes(54).AddSeconds(30), now, otp: true));
+        Assert.Equal("Deletes tomorrow", AutoDelete.TagText(new DateTimeOffset(now.LocalDateTime.Date.AddDays(1).AddHours(12)), now, otp: false));
+        Assert.Equal("Deletes 20 Sep 2036", AutoDelete.TagText(new DateTimeOffset(new DateTime(2036, 9, 20, 12, 0, 0)), now, otp: false));
+        Assert.Equal(DeleteUrgency.Soon, AutoDelete.Urgency(now.AddDays(20), now, otp: true));      // every OTP is red
+        Assert.Equal(DeleteUrgency.Soon, AutoDelete.Urgency(now.AddHours(47), now, otp: false));
+        Assert.Equal(DeleteUrgency.Weeks, AutoDelete.Urgency(now.AddDays(6), now, otp: false));
+        Assert.Equal(DeleteUrgency.Later, AutoDelete.Urgency(now.AddDays(45), now, otp: false));
+        Assert.EndsWith("(in 6 days).", AutoDelete.BarText(now.AddDays(6).AddMinutes(1), now));
+        Assert.Equal(17, AutoDelete.Choices.Length);
+    }
+
+    [Fact]
+    public void Store_from_1_1_2_gets_the_auto_delete_columns()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("mail.db");
+        _ = new MailStore(path);
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DROP INDEX ix_msg_delete; ALTER TABLE messages DROP COLUMN delete_at; ALTER TABLE messages DROP COLUMN delete_rule; DROP TABLE auto_delete_rules; PRAGMA user_version=4;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s = new MailStore(path);
+        var inbox = s.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Name = "Inbox", Role = FolderRole.Inbox });
+        var row = s.InsertMessages(new[] { Rows.Make("A", inbox, "t") })[0];
+        s.SaveAutoDeleteRule(new AutoDeleteRule { Id = "r1", Pattern = "anita@x.com" });
+        Assert.Equal(1, s.SetDeleteTimers(new[] { (row.Id, DateTimeOffset.Now.AddDays(1)) }, "r1"));
+        Assert.Single(s.GetAutoDeleteRules());
+    }
+
+    [Fact]
+    public void Auto_delete_tags_new_mail_moves_due_mail_to_trash_and_respects_pin_pause_and_keep()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out var trash);
+        var now = DateTimeOffset.Now;
+        e.SaveAutoDeleteRule(new AutoDeleteRule { Pattern = "codes@bank.com", Otp = true }, startOnExisting: false);
+        e.SaveAutoDeleteRule(new AutoDeleteRule { Pattern = "*@shop.com", Amount = 7 }, startOnExisting: false);
+        e.SaveAutoDeleteRule(new AutoDeleteRule { Pattern = "deals@shop.com", Amount = 1 }, startOnExisting: false);   // earlier than the domain rule
+        var otpRule = e.AutoDeleteRules().Single(r => r.Otp);
+
+        var arrived = e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "otp", from: "codes@bank.com", date: now.AddHours(-1)),
+            Rows.Make("A", inbox, "news", from: "news@shop.com", date: now),
+            Rows.Make("A", inbox, "deals", from: "deals@shop.com", date: now),
+            Rows.Make("A", inbox, "pinned", from: "codes@bank.com", date: now, flags: MessageFlags.Flagged),
+            Rows.Make("A", inbox, "friend", from: "friend@x.com", date: now),
+        });
+        e.TagArrivals("A", arrived);
+
+        var list = e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, now).ToDictionary(t => t.ThreadKey);
+        Near(now.AddHours(23).ToUnixTimeMilliseconds(), list["otp"].DeleteAt!.Value);
+        Assert.Equal(otpRule.Id, list["otp"].DeleteRule);
+        Near(now.AddDays(7).ToUnixTimeMilliseconds(), list["news"].DeleteAt!.Value);
+        Near(now.AddDays(1).ToUnixTimeMilliseconds(), list["deals"].DeleteAt!.Value);
+        Assert.Null(list["pinned"].DeleteAt);                                                   // pinned mail is never auto-deleted
+        Assert.Null(list["friend"].DeleteAt);
+        Assert.Equal(2, e.Store.CountDeletingSoon(now.AddDays(1).AddMinutes(1)));             // otp + deals
+        Assert.Equal(new[] { "deals", "otp" }, e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox }, DeletingBefore = now.AddDays(1).AddMinutes(1) }, now)
+            .Select(t => t.ThreadKey).OrderBy(k => k));
+
+        // Keep this one: the timer comes off and a later rule run can't put it back.
+        e.KeepFromAutoDelete("A", "news");
+        Assert.Empty(e.Store.DeleteTimers("A", "news"));
+        e.SaveAutoDeleteRule(new AutoDeleteRule { Pattern = "news@shop.com", Amount = 3 }, startOnExisting: true);
+        Assert.Empty(e.Store.DeleteTimers("A", "news"));
+
+        // Paused rules delete nothing; due mail goes to Trash (queued) once resumed.
+        e.PauseAutoDeleteRule(otpRule.Id, true);
+        Assert.Equal(1, e.RunDueDeletes(now.AddDays(1).AddMinutes(1)));                        // only "deals"
+        e.PauseAutoDeleteRule(otpRule.Id, false);
+        Assert.Equal(1, e.RunDueDeletes(now.AddDays(1).AddMinutes(1)));                        // now "otp"
+        var left = e.Store.GetMessagesIn(new[] { inbox }).Select(m => m.ThreadKey).ToHashSet();
+        Assert.DoesNotContain("otp", left);
+        Assert.DoesNotContain("deals", left);
+        Assert.Contains("pinned", left);
+        Assert.Equal(2, e.Store.GetPendingOps("A").Count(o => o.Kind == PendingOpKind.Move && o.Arg == trash));
+    }
+
+    [Fact]
+    public void Existing_mail_is_opt_in_and_removing_a_rule_can_keep_or_clear_its_timers()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "a1", from: "alerts@xyz.com", date: DateTimeOffset.Now.AddYears(-2)),
+            Rows.Make("A", inbox, "a2", from: "promo@xyz.com"),
+            Rows.Make("A", inbox, "a3", from: "promo@xyz.com", flags: MessageFlags.Flagged),
+        });
+        var rule = new AutoDeleteRule { Pattern = "*@XYZ.com", Amount = 7 };
+        Assert.Equal(2, e.ExistingFor(rule).Count);                                           // pinned one left out
+        Assert.Throws<ArgumentException>(() => e.SaveAutoDeleteRule(new AutoDeleteRule { Pattern = "xyz" }, false));
+
+        Assert.Equal(0, e.SaveAutoDeleteRule(rule, startOnExisting: false));
+        Assert.Equal(0, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));           // existing mail untouched by default
+        Assert.Equal(2, e.SaveAutoDeleteRule(rule, startOnExisting: true));
+        var t = e.Store.DeleteTimers("A", "a1").Single();
+        Assert.True(t.At > DateTimeOffset.Now.AddDays(6));                                     // counted from now, not from 2 years ago
+        Assert.Equal((2, t.At), (e.Store.AutoDeleteStats()[rule.Id].Waiting, e.Store.AutoDeleteStats()[rule.Id].Next!.Value));
+
+        e.RemoveAutoDeleteRule(rule.Id, clearTimers: false);
+        Assert.Empty(e.AutoDeleteRules());
+        Assert.Equal(2, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));           // timers kept
+        e.SaveAutoDeleteRule(rule, startOnExisting: false);
+        e.RemoveAutoDeleteRule(rule.Id, clearTimers: true);
+        Assert.Equal(0, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));
+
+        e.SaveAutoDeleteRule(rule, startOnExisting: true);
+        e.KeepAllDeletingSoon();                                                               // 7 days out → all kept
+        Assert.Equal(0, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));
+    }
+
+    private static void Near(long expectedMs, DateTimeOffset actual) =>
+        Assert.InRange(actual.ToUnixTimeMilliseconds(), expectedMs - 2000, expectedMs + 2000);
 
     private static int Count(string s, string what)
     {

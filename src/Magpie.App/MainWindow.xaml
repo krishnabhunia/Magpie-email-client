@@ -399,6 +399,12 @@
                             <TextBlock Text="{Binding GateBannerText}" Foreground="{DynamicResource Brush.Warning}" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         </DockPanel>
                     </Border>
+                    <!-- Deleting soon (design AD4) -->
+                    <DockPanel Margin="16,0,14,8" Visibility="{Binding IsDeletingSoonView, Converter={StaticResource BoolToVis}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Keep all" Padding="6,0" MinHeight="22" Command="{Binding KeepAllDeletingCommand}"
+                                ToolTip="Take the auto-delete timer off all of these" />
+                        <TextBlock Text="These go to Trash within 7 days (auto-delete rules). Pinned mail is always kept." Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
                     <!-- Set aside pile (design B7) -->
                     <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"
@@ -513,7 +519,11 @@
                                                 <TextBlock Text="{Binding Subject}" FontSize="13" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" />
                                             </DockPanel>
                                             <TextBlock Grid.Row="2" Text="{Binding Preview}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
-                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding TagChips, Converter={StaticResource BoolToVis}}">
+                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding HasTagLine, Converter={StaticResource BoolToVis}}">
+                                                <Border CornerRadius="4" Background="{Binding DeleteTagBg}" Margin="0,0,6,0" Padding="6,1" ToolTip="{Binding DeleteTagTip}"
+                                                        Visibility="{Binding HasDeleteTag, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{Binding DeleteTag}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding DeleteTagFg}" />
+                                                </Border>
                                                 <ItemsControl ItemsSource="{Binding TagChips}">
                                                     <ItemsControl.ItemsPanel>
                                                         <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -589,7 +599,10 @@
                                         <DockPanel>
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                    Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Take the message back (Ctrl+Z)" />
+                                                    Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Undo (Ctrl+Z)" />
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Edit" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
+                                                    Command="{Binding DataContext.EditToastCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding HasEdit, Converter={StaticResource BoolToVis}}" />
                                             <!-- Send now (design SN1): skip the rest of the wait -->
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.SendNow}" Content="Send now" Margin="6,0"
                                                     Command="{Binding DataContext.SendNowCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
@@ -646,13 +659,19 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
-                                        <Button Style="{StaticResource Button.ToolbarIcon}" Tag="{Binding}" Click="OnToolbarButton" ToolTip="{Binding ToolTip}"
-                                                AutomationProperties.Name="{Binding Name}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
-                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0,2,0" Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
-                                            </StackPanel>
-                                        </Button>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Style="{StaticResource Button.ToolbarIcon}" Tag="{Binding}" Click="OnToolbarButton" ToolTip="{Binding ToolTip}"
+                                                    AutomationProperties.Name="{Binding Name}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <svc:IconChip Icon="{Binding IconKey}" Size="22" Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
+                                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0,2,0" Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <!-- Delete ▾ (design AD1): auto-delete this sender's future emails -->
+                                            <Button Style="{StaticResource Button.ToolbarIcon}" Content="▾" Padding="4,0" MinWidth="18" Margin="-4,0,6,4" Click="OnDeleteDropdown"
+                                                    ToolTip="Delete now, or auto-delete future emails from this sender" AutomationProperties.Name="Delete options"
+                                                    Visibility="{Binding HasDropdown, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -719,7 +738,23 @@
                 </Border>
 
                 <!-- Remote images blocked -->
-                <Border Grid.Row="3" Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
+                <StackPanel Grid.Row="3">
+                <!-- Auto-delete timer (design AD3) -->
+                <Border Background="{DynamicResource Brush.Danger.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
+                        Visibility="{Binding HasDeleteTimer, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource Button.Link}" Content="Keep this one" FontSize="12" FontWeight="SemiBold" MinHeight="22" Padding="6,0" Command="{Binding KeepFromAutoDeleteCommand}"
+                                    ToolTip="Take the timer off this email (pinning it keeps it too)" />
+                            <Button Style="{StaticResource Button.Link}" Content="Change rule" FontSize="12" MinHeight="22" Padding="6,0" Click="OnChangeDeleteRule" />
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DeleteBarText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding DeleteRuleText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+                <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
                         Visibility="{Binding BlockedImages, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -731,6 +766,7 @@
                         </TextBlock>
                     </DockPanel>
                 </Border>
+                </StackPanel>
 
                 <!-- Conversation (WebView2) -->
                 <Grid Grid.Row="4">

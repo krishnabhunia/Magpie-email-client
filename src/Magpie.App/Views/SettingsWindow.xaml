@@ -591,7 +591,67 @@
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Rules}">
                         <TextBlock Text="Rules" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Rules sort new mail as it arrives: they run top to bottom, on this PC, before you are notified. A message a rule moves or deletes isn't seen by the rules below it."
-                                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+                                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                            <RadioButton Style="{StaticResource Button.Chip}" GroupName="RulesTab" Content="{Binding FiltersTabLabel}" Margin="0,0,6,0" Padding="14,4"
+                                         IsChecked="{Binding IsFiltersTab, Mode=OneWay}" Command="{Binding ShowRulesTabCommand}" CommandParameter="Filters" />
+                            <RadioButton x:Name="RowAutoDelete" Style="{StaticResource Button.Chip}" GroupName="RulesTab" Content="{Binding AutoDeleteTabLabel}" Padding="14,4"
+                                         IsChecked="{Binding IsAutoDeleteTab, Mode=OneWay}" Command="{Binding ShowRulesTabCommand}" CommandParameter="AutoDelete" />
+                        </StackPanel>
+
+                        <!-- Auto-delete rules (design AD4) -->
+                        <StackPanel Visibility="{Binding IsAutoDeleteTab, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"
+                                       Text="Emails from these senders go to Trash on their own, a set time after they arrive. Pinned emails are never deleted. Paused rules delete nothing until you resume them." />
+                            <Border Style="{StaticResource Card}" Padding="0">
+                                <StackPanel>
+                                    <Grid Margin="14,9,10,7" TextElement.FontSize="11.5" TextElement.FontWeight="SemiBold" TextElement.Foreground="{DynamicResource Brush.Text.Secondary}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="120" /><ColumnDefinition Width="64" /><ColumnDefinition Width="96" /><ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="FROM" />
+                                        <TextBlock Grid.Column="1" Text="DELETE AFTER" />
+                                        <TextBlock Grid.Column="2" Text="ACCOUNTS" />
+                                        <TextBlock Grid.Column="3" Text="WAITING" />
+                                        <TextBlock Grid.Column="4" Text="NEXT DELETE" />
+                                    </Grid>
+                                    <TextBlock Text="No auto-delete rules yet. Use Delete ▾ on an email, or New rule." Style="{StaticResource Text.Caption}" Margin="14,4,14,12"
+                                               Visibility="{Binding AutoDeleteList.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+                                    <ItemsControl ItemsSource="{Binding AutoDeleteList}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:AutoDeleteRow}">
+                                                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="14,6,10,6">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="120" /><ColumnDefinition Width="64" /><ColumnDefinition Width="96" /><ColumnDefinition Width="150" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding From}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding StateText}" FontSize="11" Foreground="{DynamicResource Brush.Warning}" Visibility="{Binding Paused, Converter={StaticResource BoolToVis}}" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding After}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="2" Text="{Binding Accounts}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Grid.Column="3" Text="{Binding Waiting}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="4" Text="{Binding NextDelete}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                            <Button Style="{StaticResource Button.Link}" Content="Edit" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.EditAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            <Button Style="{StaticResource Button.Link}" Content="{Binding PauseLabel}" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.PauseAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            <Button Style="{StaticResource Button.Link}" Content="Remove" Foreground="{DynamicResource Brush.Danger}" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.RemoveAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                            <Button Style="{StaticResource Button.Secondary}" Content="New rule" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Normal" Command="{Binding NewAutoDeleteCommand}" />
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding IsFiltersTab, Converter={StaticResource BoolToVis}}">
                         <Grid x:Name="RowRules">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="232" />
@@ -730,6 +790,7 @@
                         </Grid>
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,14,0,0"
                                    Text="Body looks at the start of each message — the part Magpie gets with new mail — and the whole text of messages you've opened." />
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- ═══════════ Signatures & replies (design B6) ═══════════ -->

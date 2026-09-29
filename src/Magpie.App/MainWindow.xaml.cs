@@ -409,6 +409,81 @@ public partial class MainWindow : Window
         return menu;
     }
 
+    // ───────────────────────── auto-delete (designs AD1–AD3) ─────────────────────────
+
+    /// <summary>The Delete ▾ menu (design AD1): delete now, or auto-delete this sender's / domain's future emails.</summary>
+    private ContextMenu AutoDeleteMenu(bool withDeleteNow)
+    {
+        var r = _vm.Reader;
+        var menu = new ContextMenu();
+        if (withDeleteNow) menu.Items.Add(IconItem("Delete now", "delete", () => RunAction("delete", this), "Del"));
+        var sender = r.SenderAddress?.Trim().ToLowerInvariant();
+        if (sender is { Length: > 0 } && sender.Contains('@'))
+        {
+            if (withDeleteNow) menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "AUTO-DELETE FUTURE EMAILS", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
+            menu.Items.Add(AfterMenu($"From {sender} after…", sender));
+            var domain = AutoDelete.DomainPattern(sender);
+            menu.Items.Add(AfterMenu($"From anyone at {domain} after…", domain));
+            menu.Items.Add(IconItem("OTP delete — this sender's emails 24 h after they arrive", "clock",
+                () => CreateAutoDelete(new AutoDeleteRule { Pattern = sender, Otp = true })));
+            menu.Items.Add(Item("Choose sender and time…", () => EditAutoDelete(new AutoDeleteRule { Pattern = sender }, editing: false)));
+        }
+        else if (!withDeleteNow) menu.Items.Add(new MenuItem { Header = "Auto-delete works on mail from other people", IsEnabled = false });
+        if (r.HasDeleteTimer) menu.Items.Add(Item("Keep this one (no auto-delete)", () => r.KeepFromAutoDeleteCommand.Execute(null)));
+        menu.Items.Add(Item("Manage auto-delete rules", () => SettingsWindow.Open("Rules:AutoDelete")));
+        return menu;
+    }
+
+    private MenuItem AfterMenu(string header, string pattern)
+    {
+        var mi = new MenuItem { Header = header, Icon = new IconChip { Icon = "delete", Size = 18 } };
+        var now = DateTimeOffset.Now;
+        mi.Items.Add(new MenuItem { Header = "The date on the right is when an email arriving today would be deleted", IsEnabled = false, FontSize = 11 });
+        foreach (var group in AutoDelete.Choices.GroupBy(c => c.Unit))
+        {
+            mi.Items.Add(new MenuItem { Header = group.Key.ToString().ToUpperInvariant(), IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
+            foreach (var (amount, unit) in group)
+            {
+                var item = Item(AutoDelete.After(amount, unit), () => CreateAutoDelete(new AutoDeleteRule { Pattern = pattern, Amount = amount, Unit = unit }),
+                    AutoDelete.DeleteAt(new AutoDeleteRule { Amount = amount, Unit = unit }, now).ToLocalTime().ToString("d MMM yyyy"));
+                item.ToolTip = AutoDelete.NextArrivalLine(amount, unit, now);
+                mi.Items.Add(item);
+            }
+        }
+        return mi;
+    }
+
+    /// <summary>Picking a time creates the rule at once, with Undo · Edit in a toast (design AD1).</summary>
+    private void CreateAutoDelete(AutoDeleteRule rule)
+    {
+        try
+        {
+            AppServices.Engine.SaveAutoDeleteRule(rule, startOnExisting: false);
+            var what = rule.Otp ? "24 hours" : AutoDelete.After(rule.Amount, rule.Unit);
+            _vm.ShowActionToast($"Future {AutoDelete.Who(rule.Pattern)} will be deleted {what} after they arrive",
+                () => AppServices.Engine.RemoveAutoDeleteRule(rule.Id, clearTimers: true),
+                () => EditAutoDelete(rule, editing: true));
+        }
+        catch (Exception ex) { Log.Error("auto-delete rule", ex); Ui.Error("Auto-delete", ex.Message); }
+    }
+
+    private void EditAutoDelete(AutoDeleteRule rule, bool editing) => AutoDeleteDialog.Show(this, rule, editing);
+
+    private void OnDeleteDropdown(object sender, RoutedEventArgs e)
+    {
+        if (!_vm.Reader.HasThread || sender is not FrameworkElement anchor) return;
+        ShowMenu(anchor, AutoDeleteMenu(withDeleteNow: true));
+    }
+
+    /// <summary>Reader bar "Change rule" (design AD3).</summary>
+    private void OnChangeDeleteRule(object sender, RoutedEventArgs e)
+    {
+        var rule = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == _vm.Reader.DeleteRuleId);
+        if (rule != null) EditAutoDelete(rule, editing: true);
+        else Ui.Error("Auto-delete", "That rule was removed; this email keeps the date it was given. Use Keep this one to stop it.");
+    }
+
     private MenuItem ActionItem(ToolbarButtonVm b, FrameworkElement anchor)
     {
         var r = _vm.Reader;
@@ -466,6 +541,13 @@ public partial class MainWindow : Window
         var ids = a.MenuFollowsToolbar ? a.Toolbar.Where(b => b.Visible).Select(b => b.Id).ToList() : Core.Settings.Appearance.ToolbarIds.Take(Core.Settings.Appearance.DefaultVisible).ToList();
         foreach (var id in ids.Where(id => id is not ("replyall" or "forward")))
             menu.Items.Add(ActionItem(ToolbarButtonVm.For(id, a.ButtonStyle), ThreadList));
+        var auto = new MenuItem { Header = "Auto-delete", Icon = new IconChip { Icon = "clock", Size = 18 } };
+        foreach (var item in AutoDeleteMenu(withDeleteNow: false).Items.OfType<object>().ToList())
+        {
+            ((ContextMenu)((FrameworkElement)item).Parent).Items.Remove(item);
+            auto.Items.Add(item);
+        }
+        menu.Items.Add(auto);
         menu.Items.Add(new Separator());
         menu.Items.Add(IconItem("Reply", "reply", () => r.ReplyCommand.Execute(null), "R"));
         menu.Items.Add(IconItem("Reply all", "replyall", () => r.ReplyAllCommand.Execute(null), "A"));

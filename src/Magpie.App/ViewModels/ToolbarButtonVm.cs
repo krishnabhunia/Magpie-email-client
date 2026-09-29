@@ -13,6 +13,8 @@ public sealed class ToolbarButtonVm
     public string ToolTip { get; init; } = "";
     public bool ShowIcon { get; init; } = true;
     public bool ShowText { get; init; } = true;
+    /// <summary>Delete has a ▾ for auto-delete (design AD1).</summary>
+    public bool HasDropdown => Id == "delete";
 
     private static readonly Dictionary<string, (string Name, string Icon, string Key, string Tip)> Defs = new()
     {
