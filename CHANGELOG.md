@@ -2,6 +2,7 @@
 
 ## 1.2.0 (not released yet)
 - **Dark theme**: Settings → Appearance → Theme: **Match Windows** (the default — Magpie turns dark or light with your Windows setting, straight away), **Light** or **Dark**. Everything follows: the window, menus, icons, the reading pane and the message editor. Emails that bring their own colours (newsletters, receipts) keep them on a white card so they stay readable. The "Toolbar & buttons" page in Settings is now called **Appearance**.
+- **Rules**: Settings → Rules sorts new mail as it arrives. A rule says *when* (From, To or Cc, Subject, Body, Has attachment, Category, Account — contains / is / starts with / ends with / doesn't contain; all or any of them) and *then* (Move to folder, Tag, Mark as read, Pin, Set aside, Snooze, Skip notification, Delete to Trash). Rules run top to bottom on this PC before you're notified; switch each one on or off, change the order with the arrows, **Preview matches** to see what it would catch in the Inbox, and tick "Also apply to the N matching messages already in Inbox" to tidy up what's there.
 
 ## 1.1.2 (28 Sep 2026)
 - **About Me** in Settings → About: Krishna's details, the feedback address (click it, say what the email is about, and a new message opens in Magpie with the version, Windows details and — for bugs — the last log lines already filled in), LinkedIn and Facebook, version and release date.

@@ -58,10 +58,6 @@
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="general" Size="24" Margin="0,0,10,0" /><TextBlock Text="General" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsGeneral, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsGeneral}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
-                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
-                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Appearance" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
-                    </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Accounts"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="accounts" Size="24" Margin="0,0,10,0" /><TextBlock Text="Accounts" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsAccounts, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsAccounts}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
@@ -69,6 +65,14 @@
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="AI"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AI}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="summarise" Size="24" Margin="0,0,10,0" /><TextBlock Text="AI features" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsAI, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsAI}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Rules"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Rules}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="rules" Size="24" Margin="0,0,10,0" /><TextBlock Text="Rules" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsRules, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsRules}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Appearance" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Notifications"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}">
@@ -549,6 +553,151 @@
                     </StackPanel>
 
                     <!-- ═══════════ Templates ═══════════ -->
+                    <!-- ═══════════ Rules (design B5) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Rules}">
+                        <TextBlock Text="Rules" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Rules sort new mail as it arrives: they run top to bottom, on this PC, before you are notified. A message a rule moves or deletes isn't seen by the rules below it."
+                                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+                        <Grid x:Name="RowRules">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="232" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Rule list -->
+                            <StackPanel>
+                                <Border Style="{StaticResource Card}" Padding="0">
+                                    <StackPanel>
+                                        <TextBlock Text="No rules yet." Style="{StaticResource Text.Caption}" Margin="14,12" Visibility="{Binding RuleList.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+                                        <ItemsControl ItemsSource="{Binding RuleList}" Focusable="False">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:EditableRule}">
+                                                    <Border x:Name="Item" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="10,8,8,8" Background="Transparent" Cursor="Hand">
+                                                        <Border.InputBindings>
+                                                            <MouseBinding MouseAction="LeftClick" Command="{Binding DataContext.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </Border.InputBindings>
+                                                        <DockPanel>
+                                                            <CheckBox DockPanel.Dock="Left" Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=TwoWay}" VerticalAlignment="Top" Margin="0,1,8,0"
+                                                                      Command="{Binding DataContext.ToggleRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                      ToolTip="On / off" AutomationProperties.Name="{Binding DisplayName}" />
+                                                            <StackPanel DockPanel.Dock="Right" VerticalAlignment="Top">
+                                                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70E;" FontSize="9" MinHeight="18" Width="20" Padding="0" ToolTip="Move up (runs earlier)"
+                                                                        Command="{Binding DataContext.MoveRuleUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70D;" FontSize="9" MinHeight="18" Width="20" Padding="0" ToolTip="Move down (runs later)"
+                                                                        Command="{Binding DataContext.MoveRuleDownCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            </StackPanel>
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                        </DockPanel>
+                                                    </Border>
+                                                    <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter TargetName="Item" Property="Background" Value="{DynamicResource Brush.Row.Selected}" />
+                                                        </DataTrigger>
+                                                    </DataTemplate.Triggers>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Button.Secondary}" Content="New rule" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Normal" Command="{Binding NewRuleCommand}" />
+                            </StackPanel>
+
+                            <!-- Editor -->
+                            <Border Grid.Column="2" Style="{StaticResource Card}" Visibility="{Binding HasSelectedRule, Converter={StaticResource BoolToVis}}">
+                                <StackPanel DataContext="{Binding SelectedRule}">
+                                    <TextBlock Text="Rule name" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                                    <WrapPanel Margin="0,16,0,8">
+                                        <TextBlock Text="WHEN A MESSAGE ARRIVES IN" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <ComboBox MinWidth="150" ItemsSource="{Binding DataContext.RuleAccountChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding AccountId, Mode=TwoWay}" Margin="0,0,8,0" />
+                                        <TextBlock Text="AND" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <ComboBox MinWidth="64" ItemsSource="{Binding DataContext.MatchChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding MatchAll, Mode=TwoWay}" Margin="0,0,8,0" />
+                                        <TextBlock Text="OF THESE MATCH" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" />
+                                    </WrapPanel>
+                                    <ItemsControl ItemsSource="{Binding Conditions}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableCondition}">
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="128" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox ItemsSource="{x:Static vm:EditableCondition.FieldChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Field, Mode=TwoWay}" AutomationProperties.Name="Field" />
+                                                    <ComboBox Grid.Column="1" MinWidth="118" Margin="6,0,0,0" ItemsSource="{Binding OpChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Op, Mode=TwoWay}" Visibility="{Binding ShowOp, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Operator" />
+                                                    <TextBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource TextBox.Field}" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                             Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Value" />
+                                                    <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding ValueChoices}" SelectedItem="{Binding Value, Mode=TwoWay}"
+                                                              Visibility="{Binding ShowChoice, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Value" />
+                                                    <Button Grid.Column="3" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" Margin="4,0,0,0" ToolTip="Remove condition"
+                                                            Command="{Binding DataContext.RemoveConditionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Link}" Content="+ Add condition" HorizontalAlignment="Left" Padding="0,2"
+                                            Command="{Binding DataContext.AddConditionCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+
+                                    <TextBlock Text="THEN" Style="{StaticResource Text.SectionCaps}" Margin="0,16,0,8" />
+                                    <ItemsControl ItemsSource="{Binding Actions}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableAction}">
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="170" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox ItemsSource="{x:Static vm:EditableAction.KindChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Kind, Mode=TwoWay}" AutomationProperties.Name="Action" />
+                                                    <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding TargetChoices}" SelectedItem="{Binding Target, Mode=TwoWay}"
+                                                              Visibility="{Binding ShowTarget, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Target" />
+                                                    <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" Margin="4,0,0,0" ToolTip="Remove action"
+                                                            Command="{Binding DataContext.RemoveActionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Link}" Content="+ Add action" HorizontalAlignment="Left" Padding="0,2"
+                                            Command="{Binding DataContext.AddActionCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+
+                                    <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,12,0,0"
+                                            DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                        <StackPanel>
+                                            <CheckBox Content="{Binding ApplyToExistingLabel}" IsChecked="{Binding ApplyToExisting, Mode=TwoWay}" />
+                                            <DockPanel Margin="0,12,0,0">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="Save rule" Padding="18,6" Command="{Binding SaveRuleCommand}" />
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="Preview matches" FontWeight="Normal" Margin="0,0,8,0" Command="{Binding PreviewRuleCommand}" />
+                                                <Button Style="{StaticResource Button.Link}" Content="Delete rule" Foreground="{DynamicResource Brush.Danger}" HorizontalAlignment="Left" Padding="0,2"
+                                                        Command="{Binding DeleteRuleCommand}" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding RuleStatus}" TextWrapping="Wrap" Margin="0,10,0,0" FontSize="12.5"
+                                                       Foreground="{Binding RuleStatusIsError, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Danger|Brush.Success}" />
+                                            <TextBlock Text="{Binding RulePreviewTitle}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,4" />
+                                            <ItemsControl ItemsSource="{Binding RulePreview}" Focusable="False">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:RuleMatchLine}">
+                                                        <DockPanel Margin="0,2">
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding When}" Style="{StaticResource Text.Caption}" Margin="8,0,0,0" />
+                                                            <TextBlock TextTrimming="CharacterEllipsis"><Run Text="{Binding Sender, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Subject, Mode=OneWay}" /></TextBlock>
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,14,0,0"
+                                   Text="Body looks at the start of each message — the part Magpie gets with new mail — and the whole text of messages you've opened." />
+                    </StackPanel>
+
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
                         <TextBlock Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />

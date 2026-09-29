@@ -1,10 +1,11 @@
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
 using Magpie.Core.Settings;
+using Magpie.Core.Storage;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>1.2.0: dark theme (B1).</summary>
+/// <summary>1.2.0: dark theme (B1), rules (B5), set aside (B7).</summary>
 public class Release120Tests
 {
     // ───────────── B1 dark theme ─────────────
@@ -82,6 +83,181 @@ public class Release120Tests
         Assert.DoesNotContain("#181C20", HtmlRenderer.Placeholder("T", "D"));
         Assert.Contains("#E8E6E1", HtmlRenderer.LoadingBody("S", "Asha", "Mon", dark: true));
         Assert.DoesNotContain("#E8E6E1", HtmlRenderer.LoadingBody("S", "Asha", "Mon"));
+    }
+
+    // ───────────── B5 rules ─────────────
+
+    private static MailRule Rule(bool all, params (RuleField f, RuleOp o, string v)[] conds) => new()
+    {
+        Name = "r", MatchAll = all,
+        Conditions = conds.Select(c => new RuleCondition { Field = c.f, Op = c.o, Value = c.v }).ToList(),
+        Actions = { new RuleAction { Kind = RuleActionKind.MarkRead } },
+    };
+
+    [Fact]
+    public void Rule_conditions_match_from_to_subject_body_attachment_category_and_account()
+    {
+        var m = Rows.Make("A", 1, "t", from: "orders@amazon.in", subject: "Your order has shipped", preview: "Track your parcel here");
+        m.FromName = "Amazon.in";
+        m.To = "Krishna <me@test.local>";
+        m.Cc = "team@work.com";
+        m.HasAttachments = true;
+        m.Category = Category.Notifications;
+        var ctx = new RuleContext("me@test.local", "");
+
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.From, RuleOp.Contains, "AMAZON")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.From, RuleOp.Is, "orders@amazon.in")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.From, RuleOp.Is, "Amazon.in")), m, ctx));        // the name counts too
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.From, RuleOp.EndsWith, "@amazon.in")), m, ctx));
+        Assert.False(RuleEngine.Matches(Rule(true, (RuleField.From, RuleOp.DoesNotContain, "amazon")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.ToCc, RuleOp.Is, "team@work.com")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.ToCc, RuleOp.Contains, "krishna")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Subject, RuleOp.StartsWith, "your order")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx));     // preview when no body yet
+        Assert.False(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx with { BodyText = "Nothing here" }));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.HasAttachment, RuleOp.Is, "Yes")), m, ctx));
+        Assert.False(RuleEngine.Matches(Rule(true, (RuleField.HasAttachment, RuleOp.Is, "No")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Category, RuleOp.Is, "Notifications")), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Category, RuleOp.DoesNotContain, "People")), m, ctx));   // "isn't"
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Account, RuleOp.Is, "ME@test.local")), m, ctx));
+
+        // all vs any
+        var both = new[] { (RuleField.From, RuleOp.Contains, "amazon"), (RuleField.Subject, RuleOp.Contains, "invoice") };
+        Assert.False(RuleEngine.Matches(Rule(true, both), m, ctx));
+        Assert.True(RuleEngine.Matches(Rule(false, both), m, ctx));
+        // empty text never matches (a half-written rule does nothing)
+        Assert.False(RuleEngine.Matches(Rule(true, (RuleField.Subject, RuleOp.Contains, "  ")), m, ctx));
+    }
+
+    [Fact]
+    public void Only_complete_enabled_rules_run_and_old_or_broken_settings_load()
+    {
+        Assert.True(RuleEngine.IsRunnable(Rule(true, (RuleField.From, RuleOp.Contains, "x"))));
+        Assert.False(RuleEngine.IsRunnable(Rule(true)));                                             // no conditions
+        Assert.False(RuleEngine.IsRunnable(Rule(true, (RuleField.From, RuleOp.Contains, ""))));      // empty value
+        Assert.True(RuleEngine.IsRunnable(Rule(true, (RuleField.HasAttachment, RuleOp.Is, ""))));   // needs no text
+        var off = Rule(true, (RuleField.From, RuleOp.Contains, "x")); off.Enabled = false;
+        Assert.False(RuleEngine.IsRunnable(off));
+        var noAction = Rule(true, (RuleField.From, RuleOp.Contains, "x")); noAction.Actions.Clear();
+        Assert.False(RuleEngine.IsRunnable(noAction));
+
+        // 1.1.2 settings have no Rules; a hand-edited file may have nulls, repeats and unknown values.
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""
+            {"Rules":[{"Id":"a","Name":"One","Conditions":null,"Actions":[{"Kind":"Tag","Target":"Work"},{"Kind":99}]},
+                      {"Id":"a","Name":"Two","Conditions":[{"Field":"From","Op":"Contains","Value":null},{"Field":42}]}, null]}
+            """, AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        Assert.Equal(2, s.Rules.Count);
+        Assert.NotEqual(s.Rules[0].Id, s.Rules[1].Id);
+        Assert.Empty(s.Rules[0].Conditions);
+        Assert.Single(s.Rules[0].Actions);
+        Assert.Equal("", Assert.Single(s.Rules[1].Conditions).Value);
+        Assert.Empty(new AppSettings().Rules);
+    }
+
+    private static MailEngine Engine(TempDir dir, out long inbox, out long receipts, out long trash)
+    {
+        var e = new MailEngine(new AppPaths(dir.Path), new FakeProtector());
+        e.Settings.Current.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        inbox = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Name = "Inbox", Role = FolderRole.Inbox });
+        receipts = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Receipts", Name = "Receipts" });
+        trash = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Trash", Name = "Trash", Role = FolderRole.Trash });
+        return e;
+    }
+
+    [Fact]
+    public void Rules_run_top_to_bottom_and_a_moved_message_is_not_seen_by_later_rules()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out var receipts, out var trash);
+        var rows = e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "t1", from: "orders@amazon.in", subject: "Order shipped"),
+            Rows.Make("A", inbox, "t2", from: "news@paper.com", subject: "Daily digest"),
+            Rows.Make("A", inbox, "t3", from: "friend@x.com", subject: "Lunch?"),
+        });
+        e.Config.Rules = new()
+        {
+            new MailRule { Name = "Receipts", Conditions = { new() { Field = RuleField.From, Op = RuleOp.Contains, Value = "amazon" } },
+                Actions = { new() { Kind = RuleActionKind.Tag, Target = "Shopping" }, new() { Kind = RuleActionKind.MoveToFolder, Target = "Receipts" } } },
+            new MailRule { Name = "Everything read", Conditions = { new() { Field = RuleField.Subject, Op = RuleOp.Contains, Value = "d" } },   // "shipped", "digest"
+                Actions = { new() { Kind = RuleActionKind.MarkRead }, new() { Kind = RuleActionKind.SkipNotification } } },
+            new MailRule { Name = "Off", Enabled = false, Conditions = { new() { Field = RuleField.From, Op = RuleOp.Contains, Value = "friend" } },
+                Actions = { new() { Kind = RuleActionKind.Delete } } },
+        };
+
+        var quiet = e.RunRules("A", rows);
+
+        var inInbox = e.Store.GetMessagesIn(new[] { inbox });
+        Assert.DoesNotContain(inInbox, m => m.FromAddress == "orders@amazon.in");            // moved (locally at once)
+        var ops = e.Store.GetPendingOps("A");
+        Assert.Contains(ops, o => o.Kind == PendingOpKind.Move && o.Arg == receipts);          // and queued for the server
+        var digest = Assert.Single(inInbox, m => m.FromAddress == "news@paper.com");
+        Assert.True(digest.IsSeen);
+        Assert.Contains(ops, o => o.Kind == PendingOpKind.SetSeen);
+        Assert.False(inInbox.Single(m => m.FromAddress == "friend@x.com").IsSeen);           // disabled rule did nothing
+        Assert.DoesNotContain(ops, o => o.Kind == PendingOpKind.Move && o.Arg == trash);
+        // The Amazon mail was moved by rule 1, so rule 2 never marked it read; both stay quiet, the friend is announced.
+        Assert.Contains(rows[0].Id, quiet);
+        Assert.Contains(rows[1].Id, quiet);
+        Assert.DoesNotContain(rows[2].Id, quiet);
+        Assert.DoesNotContain(ops, o => o.Kind == PendingOpKind.SetSeen && o.Uid == rows[0].Uid);
+    }
+
+    [Fact]
+    public void Rule_can_be_previewed_and_applied_to_mail_already_in_the_inbox()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out var trash);
+        e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "t1", from: "promo@shop.com"),
+            Rows.Make("A", inbox, "t2", from: "promo@shop.com", flags: MessageFlags.Seen),
+            Rows.Make("A", inbox, "t3", from: "boss@work.com"),
+        });
+        var rule = new MailRule { Name = "Promos", Conditions = { new() { Field = RuleField.From, Op = RuleOp.EndsWith, Value = "@shop.com" } },
+            Actions = { new() { Kind = RuleActionKind.Delete } } };
+        Assert.Equal(2, e.RuleMatchesInInbox(rule).Count);
+        Assert.Equal(3, e.Store.GetMessagesIn(new[] { inbox }).Count);                      // preview changes nothing
+
+        Assert.Equal(2, e.ApplyRuleToInbox(rule));
+        Assert.Equal("boss@work.com", Assert.Single(e.Store.GetMessagesIn(new[] { inbox })).FromAddress);
+        Assert.Equal(2, e.Store.GetPendingOps("A").Count(o => o.Kind == PendingOpKind.Move && o.Arg == trash));
+    }
+
+    // ───────────── B7 set aside ─────────────
+
+    [Fact]
+    public void Set_aside_leaves_the_inbox_without_a_date_and_comes_back_on_top()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        var now = DateTimeOffset.Now;
+        e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "t1", date: now.AddDays(-3)),
+            Rows.Make("A", inbox, "t2", date: now.AddHours(-1)),
+            Rows.Make("A", inbox, "t3", date: now.AddHours(-2)),
+        });
+        e.Snooze("A", "t3", now.AddDays(1));
+        e.SetAside("A", "t1", true);
+
+        var ids = new[] { inbox };
+        Assert.Equal(new[] { "t2" }, e.Store.ListThreads(new ListQuery { FolderIds = ids }, now).Select(t => t.ThreadKey));
+        var aside = Assert.Single(e.Store.ListThreads(new ListQuery { FolderIds = ids, SetAside = true }, now));
+        Assert.Equal("t1", aside.ThreadKey);
+        Assert.True(aside.IsSetAside);
+        Assert.False(aside.IsSnoozed(now));
+        Assert.Equal(new[] { "t3" }, e.Store.ListThreads(new ListQuery { FolderIds = ids, Snoozed = true }, now).Select(t => t.ThreadKey));
+        Assert.Equal(1, e.Store.CountSetAsideThreads());
+        Assert.Equal(1, e.Store.CountSnoozedThreads(now));
+        Assert.Equal((1, 1), e.Store.CountThreads(ids, now));                                  // the Inbox count leaves both out
+        Assert.DoesNotContain(e.Store.WakeDueSnoozes(now.AddYears(50)), r => r.ThreadKey == "t1");   // never wakes (t3 does)
+
+        e.SetAside("A", "t1", false);
+        var order = e.Store.ListThreads(new ListQuery { FolderIds = ids }, DateTimeOffset.Now.AddSeconds(1)).Select(t => t.ThreadKey).ToList();
+        Assert.True(order.IndexOf("t1") >= 0 && order.IndexOf("t1") < order.IndexOf("t2"));   // back, above newer mail it was older than
+        Assert.Equal(0, e.Store.CountSetAsideThreads());
     }
 
     private static int Count(string s, string what)

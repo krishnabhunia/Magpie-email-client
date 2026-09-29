@@ -59,6 +59,12 @@ public sealed class MessageRow
 
     public bool IsSeen => Flags.HasFlag(MessageFlags.Seen);
     public bool IsFlagged => Flags.HasFlag(MessageFlags.Flagged);
+    /// <summary>
+    /// Set aside (design B7) is stored as a snooze that never wakes (31 Dec 9999): the conversation leaves the Inbox and
+    /// every Inbox count exactly like a snoozed one, without a date. Snoozed views leave it out; the Set aside view lists it.
+    /// </summary>
+    public static readonly DateTimeOffset SetAsideMark = new(9999, 12, 31, 0, 0, 0, TimeSpan.Zero);
+    public bool IsSetAside => SnoozeUntil == SetAsideMark;
     public string Sender => string.IsNullOrWhiteSpace(FromName) ? FromAddress : FromName;
 }
 
@@ -74,6 +80,8 @@ public sealed class ThreadRow
     public bool HasAttachments { get; set; }
     public string Participants { get; set; } = "";
     public DateTimeOffset? SnoozeUntil { get; set; }
+    public bool IsSetAside => SnoozeUntil == MessageRow.SetAsideMark;
+    public bool IsSnoozed(DateTimeOffset now) => SnoozeUntil is { } s && s > now && !IsSetAside;
 }
 
 public sealed class AttachmentInfo

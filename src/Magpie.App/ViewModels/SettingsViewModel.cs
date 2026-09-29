@@ -264,7 +264,7 @@ public partial class SettingsViewModel : ObservableObject
     public string SearchHeading => IsSearching ? $"Results for \"{SearchText.Trim()}\"" : "";
     public string SearchSub => !IsSearching ? "" : SearchHits.Count == 0 ? "Nothing matches. Try another word." : $"{SearchHits.Count} setting{(SearchHits.Count == 1 ? "" : "s")} found — click one to go to it";
     /// <summary>Matches per page, shown as a badge in the page list; "" when not searching or none.</summary>
-    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
+    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsRules = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
 
     private static readonly (string Name, string Page, string Desc, string Keys, string Anchor)[] Index =
     {
@@ -301,12 +301,13 @@ public partial class SettingsViewModel : ObservableObject
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
+        ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
         ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
     };
 
     private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
     {
-        ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"),
+        ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"), ["Rules"] = ("Rules", "rules"),
         ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
         ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
     };
@@ -330,7 +331,7 @@ public partial class SettingsViewModel : ObservableObject
         SearchHits.Clear();
         foreach (var h in Search(value)) SearchHits.Add(h);
         string Badge(string page) => IsSearching ? (SearchHits.Count(h => h.Page == page) is var n && n > 0 ? n.ToString() : "") : "";
-        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsNotifications = Badge("Notifications");
+        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsRules = Badge("Rules"); HitsNotifications = Badge("Notifications");
         HitsTemplates = Badge("Templates"); HitsKeys = Badge("Keys"); HitsUpdates = Badge("Updates"); HitsAbout = Badge("About");
         OnPropertyChanged(nameof(SearchSub));
     }
@@ -566,6 +567,7 @@ public partial class SettingsViewModel : ObservableObject
         _showStatusBar = ap.ShowStatusBar;
         _menuFollowsToolbar = ap.MenuFollowsToolbar;
         LoadToolbar(ap);
+        LoadRules();
         _hoverEnabled = ap.FolderHover.Enabled;
         _hoverDelay = ap.FolderHover.DelayMs;
         foreach (var id in FolderHoverSettings.LineIds) HoverLines.Add(new EditableHoverLine { Id = id, On = ap.FolderHover.Lines.Contains(id) });
@@ -703,6 +705,7 @@ public partial class SettingsViewModel : ObservableObject
         var err = StartupRegistration.Set(StartWithWindows);
         if (err != null) Log.Warn("start with Windows: " + err);
 
+        CommitRuleEdits();
         var changedAccounts = Accounts.Where(a => a.Changed).Select(a => a.ToAccount()).ToList();
         _e.Settings.Save();
         foreach (var a in changedAccounts) _e.UpdateAccount(a);

@@ -48,6 +48,7 @@ public static class Icons
         ["clock"] = new("Waiting", "M12 7v5l3 2 M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "#B45309", "#FEF3C7", "#FDE68A", "#78350F"),
         ["general"] = new("General", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12h2 M3 12h2 M12 3v2 M12 19v2 M5.6 5.6l1.4 1.4 M17 17l1.4 1.4 M5.6 18.4L7 17 M17 7l1.4-1.4", "#334155", "#E2E8F0", "#E2E8F0", "#334155"),
         ["accounts"] = new("Accounts", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M2 21a7 7 0 0 1 14 0 M16 3.5a4 4 0 0 1 0 7 M18 14a6 6 0 0 1 4 7", "#1D4ED8", "#DBEAFE", "#BFDBFE", "#1E3A8A"),
+        ["rules"] = new("Rules", "M4 5h16l-6 7v6l-4 2v-8z", "#0E7490", "#CFFAFE", "#A5F3FC", "#164E63"),
         ["toolbar"] = new("Toolbar & buttons", "M4 6h16 M4 12h16 M4 18h10", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
         ["notifications"] = new("Notifications", "M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 21h4", "#C2410C", "#FFEDD5", "#FED7AA", "#7C2D12"),
         ["templates"] = new("Templates", "M4 20h4L19 9l-4-4L4 16z", "#B45309", "#FEF3C7", "#FDE68A", "#78350F"),

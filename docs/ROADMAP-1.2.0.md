@@ -13,7 +13,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Approved — needs Calendar API enabled + re-sign-in | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Approved | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
 | 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
-| 10 | Rules / filters | B5 | Approved | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
+| 10 | Rules / filters | B5 | Built — not yet tried on Windows | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
 | 11 | Signatures per account + quick replies | B6 | Approved | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
 | 12 | Gatekeeper + Set aside (key L) | B7 | Approved | [#8](https://github.com/krishnabhunia/Magpie-email-client/issues/8) |
 | 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Approved | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |

@@ -14,6 +14,8 @@ public sealed class ListQuery
     public bool FlaggedOnly { get; init; }
     /// <summary>True: only snoozed conversations. False: hide snoozed ones (normal inbox).</summary>
     public bool Snoozed { get; init; }
+    /// <summary>The Set aside pile (design B7).</summary>
+    public bool SetAside { get; init; }
     public string? Tag { get; init; }
     public SearchQuery? Search { get; init; }
     public int Limit { get; init; } = 300;
@@ -391,7 +393,10 @@ public sealed class MailStore
         var fps = q.FolderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$fo" + i, id); return "$fo" + i; });
         var inFolders = $"m.folder_id IN ({string.Join(',', fps)})";
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
-        var snooze = q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now" : "(m.snooze_until IS NULL OR m.snooze_until <= $now)";
+        cmd.Parameters.AddWithValue("$aside", AsideMs);
+        var snooze = q.SetAside ? "m.snooze_until = $aside"
+            : q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now AND m.snooze_until <> $aside"
+            : "(m.snooze_until IS NULL OR m.snooze_until <= $now)";
         // Tag and search match any copy of an email (a body may be cached on one copy only); the snooze filter applies
         // to the copy that represents it, so a snoozed Inbox email stays hidden in Pinned / tag views.
         var match = new List<string> { inFolders };
@@ -508,6 +513,21 @@ public sealed class MailStore
         cmd.Parameters.AddWithValue("$t", threadKey);
         if (onlyFolder is { } f) cmd.Parameters.AddWithValue("$f", f);
         var list = new List<MessageRow>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadMsg(r));
+        return list;
+    }
+
+    /// <summary>Messages in these folders, newest first (snoozed ones left out) — rules run over them on request (design B5).</summary>
+    public List<MessageRow> GetMessagesIn(IReadOnlyCollection<long> folderIds, int limit = 5000)
+    {
+        var list = new List<MessageRow>();
+        if (folderIds.Count == 0) return list;
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.folder_id IN ({string.Join(",", folderIds.Select(f => f.ToString(System.Globalization.CultureInfo.InvariantCulture)))}) " +
+                          "AND m.snooze_until IS NULL ORDER BY m.sort_date DESC LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", limit);
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(ReadMsg(r));
         return list;
@@ -1038,7 +1058,7 @@ public sealed class MailStore
     /// Everything the folder hover card can show (design H2), in one pass over the given folders (or a tag).
     /// Conversations are counted like the sidebar; messages, size and attachments count every email.
     /// </summary>
-    public Mail.FolderDetails GetFolderDetails(IReadOnlyCollection<long> folderIds, DateTimeOffset now, string? tag = null, bool flaggedOnly = false, bool snoozedOnly = false)
+    public Mail.FolderDetails GetFolderDetails(IReadOnlyCollection<long> folderIds, DateTimeOffset now, string? tag = null, bool flaggedOnly = false, bool snoozedOnly = false, bool setAsideOnly = false)
     {
         var d = new Mail.FolderDetails();
         if (folderIds.Count == 0) return d;
@@ -1047,7 +1067,10 @@ public sealed class MailStore
         var ps = folderIds.Select((id, i) => { cmd.Parameters.AddWithValue("$f" + i, id); return "$f" + i; });
         var where = new List<string> { $"folder_id IN ({string.Join(',', ps)})" };
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
-        where.Add(snoozedOnly ? "(snooze_until IS NOT NULL AND snooze_until > $now)" : "(snooze_until IS NULL OR snooze_until <= $now)");
+        cmd.Parameters.AddWithValue("$aside", AsideMs);
+        where.Add(setAsideOnly ? "snooze_until = $aside"
+            : snoozedOnly ? "(snooze_until IS NOT NULL AND snooze_until > $now AND snooze_until <> $aside)"
+            : "(snooze_until IS NULL OR snooze_until <= $now)");
         if (tag != null) { where.Add("(',' || tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{tag},%"); }
         if (flaggedOnly) where.Add("(flags & 2)<>0");
         cmd.Parameters.AddWithValue("$day", new DateTimeOffset(now.LocalDateTime.Date, now.Offset).ToUnixTimeMilliseconds());
@@ -1153,8 +1176,18 @@ public sealed class MailStore
     public int CountSnoozedThreads(DateTimeOffset now)
     {
         using var c = Open();
-        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE snooze_until > $n", ("$n", now.ToUnixTimeMilliseconds())));
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE snooze_until > $n AND snooze_until <> $a",
+            ("$n", now.ToUnixTimeMilliseconds()), ("$a", AsideMs)));
     }
+
+    public int CountSetAsideThreads()
+    {
+        using var c = Open();
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE snooze_until = $a", ("$a", AsideMs)));
+    }
+
+    /// <summary>Set aside is a snooze that never wakes (see <see cref="MessageRow.SetAsideMark"/>).</summary>
+    private static readonly long AsideMs = MessageRow.SetAsideMark.ToUnixTimeMilliseconds();
 
     // ───────────────────────── helpers ─────────────────────────
 

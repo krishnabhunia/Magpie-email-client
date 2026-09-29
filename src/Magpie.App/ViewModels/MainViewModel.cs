@@ -93,7 +93,7 @@ public sealed partial class ThreadItem : ObservableObject
         var mine = m.FromAddress.Equals(myEmail, StringComparison.OrdinalIgnoreCase);
         Sender = row.Count > 1 && !string.IsNullOrEmpty(row.Participants) ? row.Participants : (mine ? "To: " + FirstRecipient(m.To) : m.Sender);
         DateText = HtmlRenderer.FriendlyDate(m.Date, now);
-        if (row.SnoozeUntil is { } s && s > now) SnoozeText = "Snoozed until " + TimePresets.Describe(s, now.LocalDateTime);
+        if (row.IsSnoozed(now)) SnoozeText = "Snoozed until " + TimePresets.Describe(row.SnoozeUntil!.Value, now.LocalDateTime);
         Tags = m.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
         TagChips = Tags.Select(TagChip.For).ToList();
         // Coloured initials (design C1): the other person's, stable per address.

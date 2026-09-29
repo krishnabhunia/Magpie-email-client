@@ -36,6 +36,7 @@ public partial class ThreadViewModel : ObservableObject
     [ObservableProperty] private string _meta = "";
     [ObservableProperty] private bool _isPinned;
     [ObservableProperty] private bool _isSnoozed;
+    [ObservableProperty] private bool _isSetAside;
     [ObservableProperty] private string _tagsText = "";
     [ObservableProperty] private int _blockedImages;
     [ObservableProperty] private bool _canUnsubscribe;
@@ -160,7 +161,8 @@ public partial class ThreadViewModel : ObservableObject
             var people = rows.Select(r => IsMine(r) ? "you" : r.Sender).Distinct().Take(5);
             Meta = $"{rows.Count} message{(rows.Count == 1 ? "" : "s")} · {string.Join(", ", people)}";
             IsPinned = rows.Any(r => r.IsFlagged);
-            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now);
+            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && !r.IsSetAside);
+            IsSetAside = rows.Any(r => r.IsSetAside);
             TagsText = latest.Tags.Replace(",", " · ");
             CanUnsubscribe = rows.Any(r => r.ListUnsubscribe.Length > 0);
             var folders = _e.Folders(AccountId).ToDictionary(f => f.Id);

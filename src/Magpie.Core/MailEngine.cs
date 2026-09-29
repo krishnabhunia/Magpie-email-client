@@ -90,8 +90,19 @@ public sealed class MailEngine : IDisposable
         };
         sync.Changed += cs =>
         {
+            // Rules first (design B5), so the list shows where mail ended up and "Skip notification" works.
+            IReadOnlyList<MessageRow> notify = cs.NewInboxMessages;
+            if (cs.NewInboxArrivals.Count > 0)
+            {
+                try
+                {
+                    var quiet = RunRules(cs.AccountId, cs.NewInboxArrivals);
+                    if (quiet.Count > 0) notify = cs.NewInboxMessages.Where(m => !quiet.Contains(m.Id)).ToList();
+                }
+                catch (Exception ex) { Log.Error("rules failed", ex); }
+            }
             Changed?.Invoke(cs);
-            if (cs.NewInboxMessages.Count > 0) NewMail?.Invoke(cs.NewInboxMessages);
+            if (notify.Count > 0) NewMail?.Invoke(notify);
         };
         sync.StatusChanged += (s, st) => StatusChanged?.Invoke(s.Account.Id, st);
         sync.ContactsLearned += addrs =>
@@ -329,6 +340,22 @@ public sealed class MailEngine : IDisposable
         Touched(accountId, inbox);
     }
 
+    /// <summary>Set aside (design B7, key L): out of the Inbox without a date, into one pile; false puts it back on top of the Inbox.</summary>
+    public void SetAside(string accountId, string threadKey, bool aside)
+    {
+        var touched = new HashSet<long>();
+        SetAsideRows(accountId, threadKey, aside, touched);
+        Touched(accountId, touched);
+    }
+
+    private void SetAsideRows(string accountId, string threadKey, bool aside, HashSet<long> touched)
+    {
+        var inbox = FolderIds(FolderRole.Inbox, accountId);
+        Store.SetSnooze(accountId, threadKey, inbox, aside ? MessageRow.SetAsideMark : null);
+        if (!aside) Store.BumpThread(accountId, threadKey, DateTimeOffset.Now);
+        foreach (var f in inbox) touched.Add(f);
+    }
+
     /// <param name="always">True: remind at that time regardless. False: only if nobody replied.</param>
     public void RemindMe(string accountId, string threadKey, string subject, DateTimeOffset due, bool always)
     {
@@ -355,6 +382,148 @@ public sealed class MailEngine : IDisposable
         var cs = new ChangeSet { AccountId = accountId };
         foreach (var f in FolderIds(FolderRole.Inbox)) cs.FolderIds.Add(f);
         Changed?.Invoke(cs);
+    }
+
+    // ───────────────────────── rules (design B5) ─────────────────────────
+
+    /// <summary>
+    /// Runs rules over these messages (new Inbox mail, or mail already there when asked), top to bottom. A message
+    /// that a rule moves or deletes is not seen by later rules. Returns the ids that should not be announced
+    /// (skip notification, marked read, moved, deleted, snoozed or set aside).
+    /// </summary>
+    public HashSet<long> RunRules(string accountId, IReadOnlyList<MessageRow> messages, IReadOnlyList<MailRule>? only = null)
+    {
+        var quiet = new HashSet<long>();
+        var rules = (only ?? Config.Rules).Where(r => RuleEngine.IsRunnable(r) && RuleEngine.AppliesToAccount(r, accountId)).ToList();
+        if (rules.Count == 0 || messages.Count == 0) return quiet;
+        var email = AccountById(accountId)?.Email ?? "";
+        var folders = Store.GetFolders(accountId);
+        var needsBody = rules.Any(r => r.Conditions.Any(c => c.Field == RuleField.Body));
+        var touched = new HashSet<long>();
+        var now = DateTime.Now;
+        foreach (var arrived in messages)
+        {
+            var m = Store.GetMessage(arrived.Id);
+            if (m == null) continue;
+            var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
+            foreach (var rule in rules)
+            {
+                if (!RuleEngine.Matches(rule, m, new RuleContext(email, body))) continue;
+                Log.Info($"rule \"{rule.Name}\" matched a message in {email}");
+                if (ApplyRule(rule, m, folders, touched, quiet, now)) break;
+                m = Store.GetMessage(m.Id) ?? m;
+            }
+        }
+        if (touched.Count > 0) Touched(accountId, touched);
+        return quiet;
+    }
+
+    /// <summary>True when the message left its folder (moved or deleted).</summary>
+    private bool ApplyRule(MailRule rule, MessageRow m, List<MailFolder> folders, HashSet<long> touched, HashSet<long> quiet, DateTime now)
+    {
+        var copies = Store.GetThreadCopies(m.AccountId, m.ThreadKey)
+            .Where(r => r.Id == m.Id || (m.MessageId.Length > 0 && r.MessageId == m.MessageId)).ToList();
+        foreach (var a in rule.Actions.Where(a => a.Kind is not (RuleActionKind.MoveToFolder or RuleActionKind.Delete)))
+        {
+            switch (a.Kind)
+            {
+                case RuleActionKind.MarkRead:
+                    foreach (var r in copies.Where(r => !r.IsSeen))
+                    {
+                        Store.SetLocalFlags(r.Id, r.Flags | MessageFlags.Seen);
+                        Queue(r, PendingOpKind.SetSeen);
+                        touched.Add(r.FolderId);
+                    }
+                    quiet.Add(m.Id);
+                    break;
+                case RuleActionKind.Pin:
+                    foreach (var r in copies.Where(r => !r.IsFlagged))
+                    {
+                        Store.SetLocalFlags(r.Id, r.Flags | MessageFlags.Flagged);
+                        Queue(r, PendingOpKind.SetFlagged);
+                        touched.Add(r.FolderId);
+                    }
+                    break;
+                case RuleActionKind.Tag when a.Target.Trim().Length > 0:
+                    foreach (var r in copies)
+                    {
+                        var tags = r.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                        if (tags.Contains(a.Target.Trim(), StringComparer.OrdinalIgnoreCase)) continue;
+                        tags.Add(a.Target.Trim().Replace(",", " "));
+                        Store.SetTags(r.Id, string.Join(",", tags));
+                        touched.Add(r.FolderId);
+                    }
+                    break;
+                case RuleActionKind.Snooze:
+                {
+                    var inbox = folders.Where(f => f.Role == FolderRole.Inbox).Select(f => f.Id).ToList();
+                    Store.SetSnooze(m.AccountId, m.ThreadKey, inbox, RuleEngine.SnoozeUntil(a.Target, now));
+                    foreach (var f in inbox) touched.Add(f);
+                    quiet.Add(m.Id);
+                    break;
+                }
+                case RuleActionKind.SetAside:
+                    SetAsideRows(m.AccountId, m.ThreadKey, true, touched);
+                    quiet.Add(m.Id);
+                    break;
+                case RuleActionKind.SkipNotification:
+                    quiet.Add(m.Id);
+                    break;
+            }
+        }
+        if (rule.Actions.Any(a => a.Kind == RuleActionKind.Delete))
+        {
+            var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
+            if (trash?.Id == m.FolderId) return false;
+            if (trash == null) Queue(m, PendingOpKind.Delete); else Queue(m, PendingOpKind.Move, trash.Id);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+            quiet.Add(m.Id);
+            return true;
+        }
+        var move = rule.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.MoveToFolder && a.Target.Trim().Length > 0);
+        if (move != null)
+        {
+            var t = move.Target.Trim();
+            var dest = folders.FirstOrDefault(f => f.Path.Equals(t, StringComparison.OrdinalIgnoreCase))
+                       ?? folders.FirstOrDefault(f => f.Name.Equals(t, StringComparison.OrdinalIgnoreCase));
+            if (dest == null) { Log.Warn($"rule \"{rule.Name}\": no folder \"{t}\" in this account"); return false; }
+            if (dest.Id == m.FolderId) return false;
+            Queue(m, PendingOpKind.Move, dest.Id);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+            touched.Add(dest.Id);
+            quiet.Add(m.Id);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>The Inbox messages a rule would act on now (Preview matches / "Also apply to…"), newest first.</summary>
+    public List<MessageRow> RuleMatchesInInbox(MailRule rule, int limit = 5000)
+    {
+        var found = new List<MessageRow>();
+        if (rule.Conditions.Count == 0) return found;
+        var needsBody = rule.Conditions.Any(c => c.Field == RuleField.Body);
+        foreach (var acc in Accounts.Where(a => RuleEngine.AppliesToAccount(rule, a.Id)))
+        {
+            foreach (var m in Store.GetMessagesIn(FolderIds(FolderRole.Inbox, acc.Id), limit))
+            {
+                var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
+                if (RuleEngine.Matches(rule, m, new RuleContext(acc.Email, body))) found.Add(m);
+                if (found.Count >= limit) return found;
+            }
+        }
+        return found;
+    }
+
+    /// <summary>"Also apply to the N matching messages already in Inbox": runs just this rule over them. Returns how many matched.</summary>
+    public int ApplyRuleToInbox(MailRule rule)
+    {
+        var matches = RuleMatchesInInbox(rule);
+        foreach (var g in matches.GroupBy(m => m.AccountId))
+            RunRules(g.Key, g.ToList(), new[] { rule });
+        return matches.Count;
     }
 
     // ───────────────────────── reading ─────────────────────────

@@ -286,6 +286,8 @@ public sealed class AppSettings
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
+    /// <summary>Rules / filters (design B5), run top to bottom on new Inbox mail.</summary>
+    public List<Mail.MailRule> Rules { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -346,6 +348,7 @@ public sealed class SettingsStore
         s.Appearance.Normalise();
         s.Updates ??= new();
         s.Updates.SkippedVersion ??= "";
+        s.Rules = Mail.RuleEngine.Normalise(s.Rules);
         s.SenderCategories = new Dictionary<string, Category>(s.SenderCategories ?? new(), StringComparer.OrdinalIgnoreCase);
         s.UndoSendSeconds = Math.Clamp(s.UndoSendSeconds, 0, 30);
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);
