@@ -19,6 +19,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Built — not yet tried on Windows (schema v5) | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
 | 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Built — not yet tried on Windows | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
+| 16 | Version number in the main window (title bar) | V1 (below) | Design shown 29 Sep 2026 — waiting for "approved" | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -78,6 +79,15 @@ The chat's task list showed some steps as "Not started" / "Stopped" that did shi
 | 32 | Tests, build, review, doc; wait for deploy word | — | Done (1.1.2 is on `main`); on-laptop smoke test still open → queue #5 | 1.1.2 |
 
 Only open work out of steps 1–32: auto-delete (step 9 → #13, #14) and the 1.1.1 / 1.1.2 smoke test. Everything else from here on is the queue above.
+
+---
+
+## V1 — Version in the main window (#16, proposed)
+
+- Title bar, right after "Magpie": the version in small muted text, e.g. **Magpie** `1.2.0` (same grey as the view name; pre-releases show their suffix, e.g. `1.2.0-beta`).
+- Hover: "Magpie 1.2.0 · released 29 Sep 2026 · click for About". Click opens Settings → About.
+- After an update the number changes on restart; the green update pill (U1) still says what's waiting.
+- Window title (taskbar / Alt+Tab) stays "Magpie".
 
 ---
 
