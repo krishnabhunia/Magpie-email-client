@@ -30,7 +30,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 24 | Settings: "Apply" next to "Save and close" | (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#27](https://github.com/krishnabhunia/Magpie-email-client/issues/27) |
 | 25 | Several AI connections: add, customise, test, delete | AI2 (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#28](https://github.com/krishnabhunia/Magpie-email-client/issues/28) |
 | 26 | Folder details card delay: 50 to 1000 ms in steps of 50 | (below) | Built | [#29](https://github.com/krishnabhunia/Magpie-email-client/issues/29) |
-| 27 | Better layout for the buttons on email rows | RB1 / RB2 / RB3 (below) | **Designs shown 29 Sep 2026 — waiting for Krishna's pick** | [#30](https://github.com/krishnabhunia/Magpie-email-client/issues/30) |
+| 27 | Better layout for the buttons on email rows | RB1 (below) | RB1 approved 29 Sep 2026 · Built — not yet tried on Windows | [#30](https://github.com/krishnabhunia/Magpie-email-client/issues/30) |
 | 28 | Bug: can't type a signature; get the Gmail signature | B6 fix (below) | Built — not yet tried on Windows | [#31](https://github.com/krishnabhunia/Magpie-email-client/issues/31) |
 | 29 | Send a test notification | (below) | Built | [#32](https://github.com/krishnabhunia/Magpie-email-client/issues/32) |
 
@@ -209,7 +209,7 @@ Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (rows "Your six new i
   Model mirror the one in use, so everything that used one provider still works. Keys: `SecretVault.AiKeyFor(id)`; the first
   connection (made from older settings, id "main") keeps the old key name.
 - **#26** "Appears after": 50, 100, … 1000 ms; other values round to the nearest 50.
-- **#27 RB Row buttons — pick one.** RB1 (recommended) floating bar on the right, centred on the row, 28 px buttons grouped
+- **#27 RB Row buttons — RB1 approved 29 Sep 2026.** RB1 floating bar on the right, centred on the row, 28 px buttons grouped
   Archive · Delete | Snooze · Read | ⋯; date and subject stay visible. RB2 buttons with words on the last line while hovered.
   RB3 a slim column always on the right (3 buttons + ⋯).
 - **#28 B6 fix.** Settings → Signatures shows a preview; "Edit signature…" opens `SignatureEditorWindow` (a normal WebView2, like

@@ -9,7 +9,8 @@
 - **Signatures**: fixed not being able to type a signature. **Edit signature…** now opens the signature in its own window, with the same editor as writing an email. Accounts signed in with Google can copy their signature from Gmail with **Get my Gmail signature**.
 - **Folder details on hover** can now appear after anything from 50 to 1000 ms, in steps of 50.
 - **Send a test notification** (Settings → Notifications) shows what a new-mail notification looks like.
-<!-- closes: #23 #24 #25 #27 #28 #29 #31 #32 -->
+- **Buttons on email rows** now float at the right of the row in a small bar: bigger buttons, the first two set apart from the rest, and **⋯** for every other action. The date and subject stay visible.
+<!-- closes: #23 #24 #25 #27 #28 #29 #30 #31 #32 -->
 
 ## 2.0.0 (29 Sep 2026)
 - **Magpie 2.0.0** carries everything from 1.2.0 and checks the new automatic release: this version was published by merging its pull request, with a test version (2.0.0-beta) to try first.

@@ -123,6 +123,26 @@ public partial class MainWindow : Window
         await RunOnItemsAsync(new[] { item }, b.Id, anchor);
     }
 
+    /// <summary>Design RB1: ⋯ on a row's bar lists every action that isn't a button there.</summary>
+    private void OnRowMore(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement anchor || RowOf(anchor) is not { } item) return;
+        e.Handled = true;
+        if (item.LocalDraftId != null) return;
+        _vm.HideHoverCard();
+        var menu = new ContextMenu();
+        foreach (var b in _vm.RowActionsMore)
+        {
+            var action = b;
+            var mi = Item(action.Name, () => _ = RunOnItemsAsync(new[] { item }, action.Id, anchor));
+            mi.Icon = new IconChip { Icon = action.IconKey, Size = 18 };
+            menu.Items.Add(mi);
+        }
+        item.MenuOpen = true;
+        menu.Closed += (_, _) => item.MenuOpen = false;
+        ShowMenu(anchor, menu);
+    }
+
     private void OnBulkAction(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string id } anchor) return;
