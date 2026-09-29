@@ -5,7 +5,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>1.2.0: dark theme (B1), rules (B5), set aside (B7).</summary>
+/// <summary>1.2.0: dark theme (B1), rules (B5), Gatekeeper + set aside (B7).</summary>
 public class Release120Tests
 {
     // ───────────── B1 dark theme ─────────────
@@ -258,6 +258,84 @@ public class Release120Tests
         var order = e.Store.ListThreads(new ListQuery { FolderIds = ids }, DateTimeOffset.Now.AddSeconds(1)).Select(t => t.ThreadKey).ToList();
         Assert.True(order.IndexOf("t1") >= 0 && order.IndexOf("t1") < order.IndexOf("t2"));   // back, above newer mail it was older than
         Assert.Equal(0, e.Store.CountSetAsideThreads());
+    }
+
+    [Fact]
+    public void Gatekeeper_keeps_new_senders_at_the_door_and_allow_or_block_decides()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        var junk = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Spam", Name = "Spam", Role = FolderRole.Junk });
+        var allMail = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "[Gmail]/All Mail", Name = "All Mail", Role = FolderRole.All });
+        var now = DateTimeOffset.Now;
+        e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "old", from: "friend@x.com", date: now.AddDays(-30), flags: MessageFlags.Seen) });
+        e.Config.Gatekeeper.Enabled = true;
+        e.Config.Gatekeeper.Allowed.Add("ok@new.com");
+
+        const string mid = "promo-1@shop.com";
+        e.Store.InsertMessages(new[] { Rows.Make("A", allMail, "t-shop", from: "promo@shop.com", messageId: mid) });   // Gmail's All Mail copy
+        var arrived = e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "t-shop", from: "promo@shop.com", messageId: mid),
+            Rows.Make("A", inbox, "t-shop2", from: "Promo@Shop.com"),
+            Rows.Make("A", inbox, "t-friend", from: "friend@x.com"),
+            Rows.Make("A", inbox, "t-ok", from: "ok@new.com"),
+            Rows.Make("A", inbox, "t-me", from: "me@test.local"),
+        });
+
+        var kept = e.RunGatekeeper("A", arrived);
+        Assert.Equal(new[] { arrived[0].Id, arrived[1].Id }, kept.OrderBy(x => x));    // its own All Mail copy doesn't make promo@ known
+        var inboxKeys = e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, now).Select(t => t.ThreadKey).ToHashSet();
+        Assert.DoesNotContain("t-shop", inboxKeys);
+        Assert.Contains("t-friend", inboxKeys);
+        Assert.Contains("t-ok", inboxKeys);
+        Assert.Contains("t-me", inboxKeys);
+        Assert.Empty(e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox }, Snoozed = true }, now));
+        Assert.Empty(e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox }, SetAside = true }, now));
+        Assert.Equal(0, e.Store.CountSnoozedThreads(now));
+        var waiting = Assert.Single(e.GateSenders());
+        Assert.Equal("promo@shop.com", waiting.Address);
+        Assert.Equal(2, waiting.Count);
+
+        e.AllowSender("promo@shop.com");
+        Assert.Contains("promo@shop.com", e.Config.Gatekeeper.Allowed);
+        Assert.Empty(e.GateSenders());
+        Assert.Contains("t-shop", e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, DateTimeOffset.Now).Select(t => t.ThreadKey));
+
+        // Blocking: waiting mail goes to Spam, and future mail follows even with the Gatekeeper off.
+        var spam1 = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t-spam", from: "spam@bad.com") });
+        e.RunGatekeeper("A", spam1);
+        e.BlockSender("spam@bad.com");
+        Assert.Empty(e.GateSenders());
+        Assert.Contains(e.Store.GetPendingOps("A"), o => o.Kind == PendingOpKind.Move && o.Arg == junk && o.Uid == spam1[0].Uid);
+        e.Config.Gatekeeper.Enabled = false;
+        var spam2 = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t-spam2", from: "spam@bad.com") });
+        Assert.Contains(spam2[0].Id, e.RunGatekeeper("A", spam2));
+        Assert.Contains(e.Store.GetPendingOps("A"), o => o.Kind == PendingOpKind.Move && o.Arg == junk && o.Uid == spam2[0].Uid);
+        // Off: new senders come straight in.
+        var fresh = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t-fresh", from: "someone@else.com") });
+        Assert.Empty(e.RunGatekeeper("A", fresh));
+    }
+
+    [Fact]
+    public void Switching_the_gatekeeper_off_lets_everyone_waiting_in()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        e.Config.Gatekeeper.Enabled = true;
+        var rows = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "a@new.com"), Rows.Make("A", inbox, "t2", from: "b@new.com") });
+        e.RunGatekeeper("A", rows);
+        Assert.Equal(2, e.GateSenders().Count);
+        e.OpenGate();
+        Assert.Empty(e.GateSenders());
+        Assert.Equal(2, e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, DateTimeOffset.Now).Count);
+        Assert.Empty(e.Config.Gatekeeper.Allowed);                                             // not marked allowed
+
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"Gatekeeper":{"Allowed":["X@Y.com","x@y.com",null,"nope"],"Blocked":["x@y.com"]}}""", AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        Assert.Empty(s.Gatekeeper.Allowed);                                                    // blocked wins
+        Assert.Equal(new[] { "x@y.com" }, s.Gatekeeper.Blocked);
+        Assert.False(new AppSettings().Gatekeeper.Enabled);
     }
 
     private static int Count(string s, string what)

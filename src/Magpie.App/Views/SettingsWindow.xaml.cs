@@ -130,7 +130,7 @@ public partial class SettingsWindow : Window
         var keys = new (string key, string what)[]
         {
             ("Ctrl+N", "New message"), ("Ctrl+Enter", "Send (in a new message)"), ("R", "Reply"), ("A  or  Shift+R", "Reply all"), ("F", "Forward"),
-            ("E", "Archive"), ("Delete", "Move to Trash"), ("S", "Snooze"), ("P", "Pin / unpin"), ("U", "Mark as unread"),
+            ("E", "Archive"), ("Delete", "Move to Trash"), ("S", "Snooze"), ("L", "Set aside / back to Inbox"), ("P", "Pin / unpin"), ("U", "Mark as unread"),
             ("J  /  K", "Next / previous conversation"), ("/  or  Ctrl+F", "Search"), ("Esc", "Clear search / selection / close a new message"), ("F5", "Check for mail"),
             ("Ctrl+Shift+Enter", "Send now (a message waiting to be sent)"), ("Ctrl+Z", "Undo send (the newest one)"),
             ("Ctrl+Shift+←  /  →", "Sidebar narrower / wider (narrowest = icon rail)"), ("Ctrl+Shift+B", "Show / hide the sidebar"),

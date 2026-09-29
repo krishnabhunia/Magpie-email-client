@@ -394,8 +394,9 @@ public sealed class MailStore
         var inFolders = $"m.folder_id IN ({string.Join(',', fps)})";
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$aside", AsideMs);
+        cmd.Parameters.AddWithValue("$gate", GateMs);
         var snooze = q.SetAside ? "m.snooze_until = $aside"
-            : q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now AND m.snooze_until <> $aside"
+            : q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now AND m.snooze_until < $gate"
             : "(m.snooze_until IS NULL OR m.snooze_until <= $now)";
         // Tag and search match any copy of an email (a body may be cached on one copy only); the snooze filter applies
         // to the copy that represents it, so a snoozed Inbox email stays hidden in Pinned / tag views.
@@ -1068,8 +1069,9 @@ public sealed class MailStore
         var where = new List<string> { $"folder_id IN ({string.Join(',', ps)})" };
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$aside", AsideMs);
+        cmd.Parameters.AddWithValue("$gate", GateMs);
         where.Add(setAsideOnly ? "snooze_until = $aside"
-            : snoozedOnly ? "(snooze_until IS NOT NULL AND snooze_until > $now AND snooze_until <> $aside)"
+            : snoozedOnly ? "(snooze_until IS NOT NULL AND snooze_until > $now AND snooze_until < $gate)"
             : "(snooze_until IS NULL OR snooze_until <= $now)");
         if (tag != null) { where.Add("(',' || tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{tag},%"); }
         if (flaggedOnly) where.Add("(flags & 2)<>0");
@@ -1176,8 +1178,8 @@ public sealed class MailStore
     public int CountSnoozedThreads(DateTimeOffset now)
     {
         using var c = Open();
-        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE snooze_until > $n AND snooze_until <> $a",
-            ("$n", now.ToUnixTimeMilliseconds()), ("$a", AsideMs)));
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE snooze_until > $n AND snooze_until < $g",
+            ("$n", now.ToUnixTimeMilliseconds()), ("$g", GateMs)));
     }
 
     public int CountSetAsideThreads()
@@ -1188,6 +1190,69 @@ public sealed class MailStore
 
     /// <summary>Set aside is a snooze that never wakes (see <see cref="MessageRow.SetAsideMark"/>).</summary>
     private static readonly long AsideMs = MessageRow.SetAsideMark.ToUnixTimeMilliseconds();
+    private static readonly long GateMs = MessageRow.GateMark.ToUnixTimeMilliseconds();
+
+    // ───────────────────────── Gatekeeper (design B7) ─────────────────────────
+
+    /// <summary>Keeps these rows out of the Inbox until their sender is allowed (true) or lets them in (false, on top).</summary>
+    public void SetAtGate(IEnumerable<long> rowIds, bool atGate, DateTimeOffset now)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in rowIds)
+            Exec(c, atGate ? "UPDATE messages SET snooze_until=$g WHERE id=$id" : "UPDATE messages SET snooze_until=NULL, sort_date=MAX(sort_date,$now) WHERE id=$id AND snooze_until=$g",
+                ("$g", GateMs), ("$id", id), ("$now", now.ToUnixTimeMilliseconds()));
+        tx.Commit();
+    }
+
+    /// <summary>Senders waiting at the door: address, name, first subject, how many emails, newest first.</summary>
+    public List<Mail.GateSender> GateSenders()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT lower(from_addr), MAX(from_name), COUNT(*), MAX(date),
+                   (SELECT subject FROM messages x WHERE lower(x.from_addr)=lower(m.from_addr) AND x.snooze_until=$g ORDER BY x.date LIMIT 1)
+            FROM messages m WHERE snooze_until=$g GROUP BY lower(from_addr) ORDER BY MAX(date) DESC
+            """;
+        cmd.Parameters.AddWithValue("$g", GateMs);
+        var list = new List<Mail.GateSender>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new Mail.GateSender(r.GetString(0), r.IsDBNull(1) ? "" : r.GetString(1), r.IsDBNull(4) ? "" : r.GetString(4), r.GetInt32(2),
+                DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(3))));
+        return list;
+    }
+
+    public List<MessageRow> GateMessages(string? fromAddress = null)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.snooze_until=$g" + (fromAddress == null ? "" : " AND lower(m.from_addr)=lower($a)");
+        cmd.Parameters.AddWithValue("$g", GateMs);
+        if (fromAddress != null) cmd.Parameters.AddWithValue("$a", fromAddress);
+        var list = new List<MessageRow>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadMsg(r));
+        return list;
+    }
+
+    /// <summary>
+    /// True when we already have mail from this address — not counting these rows, other copies of the same emails
+    /// (Gmail's All Mail) or mail still waiting at the door.
+    /// </summary>
+    public bool HasMailFrom(string address, IReadOnlyCollection<long> exceptIds, IReadOnlyCollection<string> exceptMessageIds)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var ex = exceptIds.Count == 0 ? "" : $" AND id NOT IN ({string.Join(",", exceptIds.Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture)))})";
+        var mids = exceptMessageIds.Where(m => m.Length > 0).Distinct().Select((m, i) => { cmd.Parameters.AddWithValue("$m" + i, m); return "$m" + i; }).ToList();
+        if (mids.Count > 0) ex += $" AND message_id NOT IN ({string.Join(",", mids)})";
+        cmd.CommandText = "SELECT EXISTS(SELECT 1 FROM messages WHERE lower(from_addr)=lower($a) AND (snooze_until IS NULL OR snooze_until<>$g)" + ex + ")";
+        cmd.Parameters.AddWithValue("$a", address);
+        cmd.Parameters.AddWithValue("$g", GateMs);
+        return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
+    }
 
     // ───────────────────────── helpers ─────────────────────────
 

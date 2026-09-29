@@ -127,6 +127,22 @@ public partial class SettingsViewModel : ObservableObject
     public int[] IntervalChoices { get; } = { 1, 2, 5, 10, 15, 30, 60 };
     public string[] ColorChoices { get; } = { "#14606E", "#4B3F86", "#B3261E", "#B45309", "#1B6B2E", "#2F5BEA", "#8A5300", "#5A6068" };
 
+    // Gatekeeper (design B7)
+    [ObservableProperty] private bool _gatekeeper;
+    public ObservableCollection<string> Blocked { get; } = new();
+    public bool HasBlocked => Blocked.Count > 0;
+
+    /// <summary>Unblock takes effect at once: future mail from them lands normally (mail already in Spam stays there).</summary>
+    [RelayCommand]
+    private void Unblock(string? address)
+    {
+        if (address == null) return;
+        _e.Config.Gatekeeper.Blocked.Remove(address);
+        _e.Settings.Save(notify: false);
+        Blocked.Remove(address);
+        OnPropertyChanged(nameof(HasBlocked));
+    }
+
     // Notifications
     [ObservableProperty] private bool _notifications;
     [ObservableProperty] private bool _notifyPeopleOnly;
@@ -276,6 +292,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
         ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
+        ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
         ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
         ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
         ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
@@ -538,6 +555,8 @@ public partial class SettingsViewModel : ObservableObject
         _closeToTray = c.CloseToTray;
         _startWithWindows = StartupRegistration.IsEnabled();
         _notifications = c.Notifications;
+        _gatekeeper = c.Gatekeeper.Enabled;
+        foreach (var b in c.Gatekeeper.Blocked) Blocked.Add(b);
         _notifyPeopleOnly = c.NotifyPeopleOnly;
         _notificationSound = c.NotificationSound;
         _googleClientId = c.GoogleClientId;
@@ -672,6 +691,8 @@ public partial class SettingsViewModel : ObservableObject
         c.Notifications = Notifications;
         c.NotifyPeopleOnly = NotifyPeopleOnly;
         c.NotificationSound = NotificationSound;
+        var openGate = c.Gatekeeper.Enabled && !Gatekeeper;
+        c.Gatekeeper.Enabled = Gatekeeper;
         c.GoogleClientId = GoogleClientId.Trim();
         c.GoogleClientSecret = GoogleClientSecret.Trim();
         c.MicrosoftClientId = MicrosoftClientId.Trim();
@@ -709,6 +730,7 @@ public partial class SettingsViewModel : ObservableObject
         var changedAccounts = Accounts.Where(a => a.Changed).Select(a => a.ToAccount()).ToList();
         _e.Settings.Save();
         foreach (var a in changedAccounts) _e.UpdateAccount(a);
+        if (openGate) _e.OpenGate();
         Saved?.Invoke();
     }
 }

@@ -320,6 +320,16 @@ public partial class ThreadViewModel : ObservableObject
         ThreadRemoved?.Invoke();
     }
 
+    /// <summary>Set aside (design B7, key L): out of the Inbox without a date; in the pile it puts the conversation back.</summary>
+    [RelayCommand]
+    private void ToggleSetAside()
+    {
+        var aside = !IsSetAside;
+        _e.SetAside(AccountId, ThreadKey, aside);
+        IsSetAside = aside;
+        ThreadRemoved?.Invoke();
+    }
+
     [RelayCommand]
     private void Unsnooze()
     {

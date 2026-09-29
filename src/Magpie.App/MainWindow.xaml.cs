@@ -380,6 +380,7 @@ public partial class MainWindow : Window
             case "remind": OnRemindMenu(anchor, new RoutedEventArgs()); break;
             case "tag": OnTagMenu(anchor, new RoutedEventArgs()); break;
             case "pin": r.TogglePinCommand.Execute(null); break;
+            case "setaside": r.ToggleSetAsideCommand.Execute(null); break;
             case "move": ShowMenu(anchor, MoveMenu()); break;
             case "unread": r.MarkUnreadCommand.Execute(null); break;
             case "replyall": r.ReplyAllCommand.Execute(null); break;
@@ -411,7 +412,7 @@ public partial class MainWindow : Window
     private MenuItem ActionItem(ToolbarButtonVm b, FrameworkElement anchor)
     {
         var r = _vm.Reader;
-        var name = b.Id == "pin" && r.IsPinned ? "Unpin" : b.Id == "unread" ? "Mark as unread" : b.Name;
+        var name = b.Id == "pin" && r.IsPinned ? "Unpin" : b.Id == "setaside" && r.IsSetAside ? "Back to Inbox" : b.Id == "unread" ? "Mark as unread" : b.Name;
         if (b.Id == "move")
         {
             var move = new MenuItem { Header = "Move to", Icon = new IconChip { Icon = "move", Size = 18 } };
@@ -540,6 +541,7 @@ public partial class MainWindow : Window
             case Key.P when r.HasThread: r.TogglePinCommand.Execute(null); break;
             case Key.U when r.HasThread: r.MarkUnreadCommand.Execute(null); break;
             case Key.S when r.HasThread: OnSnoozeMenu(ThreadList, e); break;
+            case Key.L when r.HasThread: r.ToggleSetAsideCommand.Execute(null); break;
             default: return;
         }
         e.Handled = true;

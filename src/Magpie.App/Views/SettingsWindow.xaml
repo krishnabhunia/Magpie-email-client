@@ -210,6 +210,35 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Gatekeeper (design B7) -->
+                        <TextBlock Text="GATEKEEPER" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowGatekeeper" Style="{StaticResource Card}" Padding="22,6">
+                            <StackPanel>
+                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Gatekeeper, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Gatekeeper: new senders wait at the door" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Mail from someone you've never written to or heard from waits outside the Inbox until you Allow or Block them. Switching it off lets everyone waiting in." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <StackPanel Margin="0,4,0,10" Visibility="{Binding HasBlocked, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="Blocked — their mail goes to Spam" FontWeight="SemiBold" FontSize="12.5" Margin="0,0,0,4" />
+                                    <ItemsControl ItemsSource="{Binding Blocked}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,1">
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Unblock" Padding="4,0" MinHeight="20"
+                                                            Command="{Binding DataContext.UnblockCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                    <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="TAGS" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border x:Name="RowTags" Style="{StaticResource Card}">
                             <StackPanel>

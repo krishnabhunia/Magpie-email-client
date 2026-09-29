@@ -390,7 +390,22 @@
                              Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Tag="Search  (from:  subject:  has:attachment  is:unread)"
                              PreviewKeyDown="OnSearchKey" />
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,0" Visibility="{Binding ShowCategories, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Grid.Row="2">
+                    <!-- Gatekeeper (design B7): new senders wait at the door -->
+                    <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="8" Margin="14,0,14,8" Padding="12,7"
+                            Visibility="{Binding ShowGateBanner, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Review" FontWeight="SemiBold" Padding="6,0" MinHeight="22" Command="{Binding ReviewGateCommand}" />
+                            <TextBlock Text="{Binding GateBannerText}" Foreground="{DynamicResource Brush.Warning}" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                    </Border>
+                    <!-- Set aside pile (design B7) -->
+                    <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"
+                                ToolTip="Put every conversation here back in the Inbox" />
+                        <TextBlock Text="Out of the Inbox, without a date. L or Set aside puts one back." Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal" Margin="8,0,8,0" Visibility="{Binding ShowCategories, Converter={StaticResource BoolToVis}}">
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=People}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="People" ToolTip="Mail from people">
                             <TextBlock><Run Text="People" /><Run Text=" " /><Run Text="{Binding PeopleCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent.Text}" FontSize="11.5" /></TextBlock>
@@ -405,6 +420,7 @@
                         </RadioButton>
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=''}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="All" Content="All" />
+                    </StackPanel>
                     </StackPanel>
 
                     <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0">

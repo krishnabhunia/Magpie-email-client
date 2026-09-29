@@ -19,6 +19,7 @@ public sealed class ToolbarButtonVm
         ["archive"] = ("Archive", "archive", "E", "Archive"),
         ["delete"] = ("Delete", "delete", "Del", "Move to Trash"),
         ["snooze"] = ("Snooze", "snooze", "S", "Hide until later"),
+        ["setaside"] = ("Set aside", "setaside", "L", "Out of the Inbox without a date, until you want it"),
         ["remind"] = ("Remind", "remind", "", "Bring this back if nobody replies"),
         ["tag"] = ("Tag", "tag", "", "Add or remove tags"),
         ["pin"] = ("Pin", "pin", "P", "Pin or unpin"),

@@ -64,7 +64,11 @@ public sealed class MessageRow
     /// every Inbox count exactly like a snoozed one, without a date. Snoozed views leave it out; the Set aside view lists it.
     /// </summary>
     public static readonly DateTimeOffset SetAsideMark = new(9999, 12, 31, 0, 0, 0, TimeSpan.Zero);
+    /// <summary>Gatekeeper (design B7): mail from a new sender waits at the door the same way, a day earlier.
+    /// Every real snooze is before <see cref="GateMark"/>.</summary>
+    public static readonly DateTimeOffset GateMark = new(9999, 12, 30, 0, 0, 0, TimeSpan.Zero);
     public bool IsSetAside => SnoozeUntil == SetAsideMark;
+    public bool IsAtGate => SnoozeUntil == GateMark;
     public string Sender => string.IsNullOrWhiteSpace(FromName) ? FromAddress : FromName;
 }
 
@@ -81,7 +85,7 @@ public sealed class ThreadRow
     public string Participants { get; set; } = "";
     public DateTimeOffset? SnoozeUntil { get; set; }
     public bool IsSetAside => SnoozeUntil == MessageRow.SetAsideMark;
-    public bool IsSnoozed(DateTimeOffset now) => SnoozeUntil is { } s && s > now && !IsSetAside;
+    public bool IsSnoozed(DateTimeOffset now) => SnoozeUntil is { } s && s > now && s < MessageRow.GateMark;
 }
 
 public sealed class AttachmentInfo

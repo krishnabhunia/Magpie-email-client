@@ -10,7 +10,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.App.ViewModels;
 
-public enum NavKind { Inbox, Pinned, Snoozed, FollowUp, Scheduled, Role, Folder, Tag }
+public enum NavKind { Inbox, Pinned, Snoozed, SetAside, FollowUp, Scheduled, Role, Folder, Tag }
 
 public partial class NavItem : ObservableObject
 {
@@ -288,7 +288,8 @@ public partial class MainViewModel : ObservableObject
             Reader.RefreshAiVisibility();
             BuildNav();
         });
-        ThemeManager.Changed += () => { BuildNav(); _reload.Run(ReloadList); Reader.Redraw(); };   // counts are coloured per theme; the reader is HTML
+        ThemeManager.Changed += () => { BuildNav(); _reload.Run(ReloadList); Reader.Redraw(); };
+        _e.GateChanged += () => Ui.Post(RefreshGate);   // counts are coloured per theme; the reader is HTML
         Reader.ThreadRemoved += () => SelectNeighbour();
         _e.Settings.Changed += () => Ui.Post(BuildToolbar);
         BuildToolbar();
@@ -299,6 +300,36 @@ public partial class MainViewModel : ObservableObject
         StatusBar = new StatusBarViewModel(this);
         BuildNav();
         Current = Smart.FirstOrDefault();
+        RefreshGate();
+    }
+
+    // ───────────────────────── Gatekeeper banner + Set aside pile (design B7) ─────────────────────────
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowGateBanner), nameof(GateBannerText))] private int _gateCount;
+    public bool ShowGateBanner => GateCount > 0 && Current?.Kind == NavKind.Inbox;
+    public string GateBannerText => GateCount == 1 ? "1 new sender wants to reach you" : $"{GateCount} new senders want to reach you";
+    public bool IsSetAsideView => Current?.Kind == NavKind.SetAside;
+
+    public void RefreshGate()
+    {
+        _ = Task.Run(() => _e.GateSenders().Count).ContinueWith(t =>
+        {
+            if (!t.IsFaulted) Ui.Post(() => GateCount = t.Result);
+        }, TaskScheduler.Default);
+    }
+
+    [RelayCommand] private void ReviewGate() => Views.GatekeeperWindow.Open();
+
+    /// <summary>"Clear all" in the Set aside pile: every conversation goes back to the Inbox.</summary>
+    [RelayCommand]
+    private void ClearSetAside()
+    {
+        var items = Threads.Where(t => t.LocalDraftId == null).ToList();
+        if (items.Count == 0) return;
+        if (!Ui.Confirm("Clear all", items.Count == 1 ? "Put this conversation back in the Inbox?" : $"Put all {items.Count} conversations back in the Inbox?")) return;
+        foreach (var t in items) _e.SetAside(t.Row.AccountId, t.Row.ThreadKey, false);
+        Reader.Clear();
+        ReloadList();
     }
 
     // ───────────────────────── navigation ─────────────────────────
@@ -314,6 +345,7 @@ public partial class MainViewModel : ObservableObject
         Smart.Add(new NavItem { Kind = NavKind.Inbox, Label = "Inbox", Glyph = "", IconKey = "inbox" });
         Smart.Add(new NavItem { Kind = NavKind.Pinned, Label = "Pinned", Glyph = "", IconKey = "pin" });
         Smart.Add(new NavItem { Kind = NavKind.Snoozed, Label = "Snoozed", Glyph = "", IconKey = "snooze" });
+        Smart.Add(new NavItem { Kind = NavKind.SetAside, Label = "Set aside", Glyph = "", IconKey = "setaside" });
         Smart.Add(new NavItem { Kind = NavKind.FollowUp, Label = "Follow up", Glyph = "", IconKey = "followup" });
         Smart.Add(new NavItem { Kind = NavKind.Scheduled, Label = "Scheduled", Glyph = "", IconKey = "scheduled" });
         Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Sent, Label = "Sent", Glyph = "", IconKey = "sent" });
@@ -404,6 +436,8 @@ public partial class MainViewModel : ObservableObject
             _ => newValue.Label,
         };
         OnPropertyChanged(nameof(IsInbox));
+        OnPropertyChanged(nameof(ShowGateBanner));
+        OnPropertyChanged(nameof(IsSetAsideView));
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
         Selected = null;
@@ -433,7 +467,7 @@ public partial class MainViewModel : ObservableObject
     private List<long> FolderIdsFor(NavItem nav) => nav.Kind switch
     {
         NavKind.Inbox => _e.FolderIds(FolderRole.Inbox),
-        NavKind.Snoozed => _e.FolderIds(FolderRole.Inbox),
+        NavKind.Snoozed or NavKind.SetAside => _e.FolderIds(FolderRole.Inbox),
         NavKind.Pinned or NavKind.Tag => _e.AllMailFolderIds(),
         NavKind.Role => _e.FolderIds(nav.Role),
         NavKind.Folder => new List<long> { nav.FolderId },
@@ -495,6 +529,7 @@ public partial class MainViewModel : ObservableObject
                 UnreadOnly = UnreadOnly,
                 FlaggedOnly = nav.Kind == NavKind.Pinned,
                 Snoozed = nav.Kind == NavKind.Snoozed,
+                SetAside = nav.Kind == NavKind.SetAside,
                 Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
                 Search = search,
                 Limit = 400,
@@ -555,6 +590,7 @@ public partial class MainViewModel : ObservableObject
                 NavKind.Inbox => ShowCategories && Category != null ? $"Nothing new in {Category}." : "Inbox zero. Nice.",
                 NavKind.Pinned => "Pin conversations you want to keep handy.",
                 NavKind.Snoozed => "Snoozed conversations wait here until their time.",
+                NavKind.SetAside => "Nothing set aside. Press L on a conversation to put it here, out of the Inbox, until you want it.",
                 NavKind.FollowUp => "Use \"Remind me\" on a conversation to follow it up.",
                 _ => _e.StillListing(FolderIdsFor(nav)) ? "Getting this folder's emails from the server…" : "No conversations here.",
             };
@@ -567,7 +603,7 @@ public partial class MainViewModel : ObservableObject
     {
         public Dictionary<long, (int Unread, int Total)> ByFolder = new();
         public Dictionary<FolderRole, List<long>> RoleIds = new();
-        public int Pinned, Snoozed, FollowUp, Scheduled, LocalDrafts;
+        public int Pinned, Snoozed, SetAside, FollowUp, Scheduled, LocalDrafts;
         public Dictionary<string, (int Unread, int Total)> Tags = new();
         public Dictionary<Category, (int Unread, int Total)> Categories = new();
     }
@@ -590,6 +626,7 @@ public partial class MainViewModel : ObservableObject
             var all = _e.AllMailFolderIds();
             snap.Pinned = _e.Store.CountThreads(all, now, flaggedOnly: true).Total;
             snap.Snoozed = _e.Store.CountSnoozedThreads(now);
+            snap.SetAside = _e.Store.CountSetAsideThreads();
             snap.FollowUp = _e.DueReminders().Count;
             snap.Scheduled = _e.OutboxSummary().Count(o => o.Status is OutboxStatus.Queued or OutboxStatus.Failed);
             snap.LocalDrafts = _e.Store.CountLocalDrafts();
@@ -624,6 +661,7 @@ public partial class MainViewModel : ObservableObject
                 }
                 case NavKind.Pinned: n.SetCounts(0, snap.Pinned, CountKind.CountOnly, mode); break;
                 case NavKind.Snoozed: n.SetCounts(0, snap.Snoozed, CountKind.CountOnly, mode); break;
+                case NavKind.SetAside: n.SetCounts(0, snap.SetAside, CountKind.CountOnly, mode); break;
                 case NavKind.FollowUp: n.SetCounts(0, snap.FollowUp, CountKind.CountOnly, mode); break;
                 case NavKind.Scheduled: n.SetCounts(0, snap.Scheduled, CountKind.CountOnly, mode); break;
                 case NavKind.Role when n.Role is FolderRole.Drafts:
@@ -1008,6 +1046,7 @@ public partial class MainViewModel : ObservableObject
                 NavKind.Tag => _e.Store.GetFolderDetails(ids, now, tag: item.TagName),
                 NavKind.Pinned => _e.Store.GetFolderDetails(ids, now, flaggedOnly: true),
                 NavKind.Snoozed => _e.Store.GetFolderDetails(ids, now, snoozedOnly: true),
+                NavKind.SetAside => _e.Store.GetFolderDetails(ids, now, setAsideOnly: true),
                 _ => _e.Store.GetFolderDetails(ids, now),
             };
             return (d, now);
@@ -1085,6 +1124,14 @@ public partial class MainViewModel : ObservableObject
                     var pin = items.Any(t => !t.IsPinned);
                     foreach (var t in items) _e.SetPinned(t.Row.AccountId, t.Row.ThreadKey, pin);
                     if (Selected != null && items.Contains(Selected)) Reader.IsPinned = pin;
+                    break;
+                }
+                case "setaside":
+                {
+                    // In the pile the button puts conversations back; elsewhere it sets them aside.
+                    var aside = Current?.Kind != NavKind.SetAside;
+                    foreach (var t in items) _e.SetAside(t.Row.AccountId, t.Row.ThreadKey, aside);
+                    if (Selected != null && items.Contains(Selected)) SelectNeighbour();
                     break;
                 }
                 case "snooze" when arg is DateTimeOffset until:

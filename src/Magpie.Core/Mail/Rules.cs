@@ -47,6 +47,9 @@ public sealed class MailRule
     };
 }
 
+/// <summary>A sender waiting at the door (Gatekeeper, design B7).</summary>
+public sealed record GateSender(string Address, string Name, string FirstSubject, int Count, DateTimeOffset Latest);
+
 /// <summary>What a rule needs to know about a message beyond its row.</summary>
 public sealed record RuleContext(string AccountEmail, string BodyText);
 

@@ -94,12 +94,12 @@ public sealed class MailEngine : IDisposable
             IReadOnlyList<MessageRow> notify = cs.NewInboxMessages;
             if (cs.NewInboxArrivals.Count > 0)
             {
-                try
-                {
-                    var quiet = RunRules(cs.AccountId, cs.NewInboxArrivals);
-                    if (quiet.Count > 0) notify = cs.NewInboxMessages.Where(m => !quiet.Contains(m.Id)).ToList();
-                }
+                var quiet = new HashSet<long>();
+                try { quiet.UnionWith(RunGatekeeper(cs.AccountId, cs.NewInboxArrivals)); }
+                catch (Exception ex) { Log.Error("gatekeeper failed", ex); }
+                try { quiet.UnionWith(RunRules(cs.AccountId, cs.NewInboxArrivals.Where(m => !quiet.Contains(m.Id)).ToList())); }
                 catch (Exception ex) { Log.Error("rules failed", ex); }
+                if (quiet.Count > 0) notify = cs.NewInboxMessages.Where(m => !quiet.Contains(m.Id)).ToList();
             }
             Changed?.Invoke(cs);
             if (notify.Count > 0) NewMail?.Invoke(notify);
@@ -497,6 +497,103 @@ public sealed class MailEngine : IDisposable
             return true;
         }
         return false;
+    }
+
+    // ───────────────────────── Gatekeeper (design B7) ─────────────────────────
+
+    /// <summary>Raised when senders arrive at the door or are allowed / blocked (the Inbox banner counts them).</summary>
+    public event Action? GateChanged;
+
+    /// <summary>
+    /// New Inbox mail from a blocked sender goes to Spam; with the Gatekeeper on, mail from someone never written to or
+    /// heard from (and not allowed) waits at the door instead of landing in the Inbox. Returns the ids kept out.
+    /// </summary>
+    public HashSet<long> RunGatekeeper(string accountId, IReadOnlyList<MessageRow> arrivals)
+    {
+        var kept = new HashSet<long>();
+        var g = Config.Gatekeeper;
+        if (arrivals.Count == 0 || (!g.Enabled && g.Blocked.Count == 0)) return kept;
+        var mine = MyAddresses.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ids = arrivals.Select(m => m.Id).ToList();
+        var mids = arrivals.Select(m => m.MessageId).ToList();
+        var gate = new List<long>();
+        var touched = new HashSet<long>();
+        var junk = Store.GetFolders(accountId).FirstOrDefault(f => f.Role == FolderRole.Junk);
+        foreach (var m in arrivals)
+        {
+            var addr = m.FromAddress.Trim().ToLowerInvariant();
+            if (addr.Length == 0 || mine.Contains(addr)) continue;
+            if (g.Blocked.Contains(addr))
+            {
+                if (junk == null || junk.Id == m.FolderId) continue;
+                Queue(m, PendingOpKind.Move, junk.Id);
+                Store.DeleteRow(m.Id);
+                touched.Add(m.FolderId);
+                touched.Add(junk.Id);
+                kept.Add(m.Id);
+                continue;
+            }
+            if (!g.Enabled || g.Allowed.Contains(addr) || IsKnownContact(addr) || Store.HasMailFrom(addr, ids, mids)) continue;
+            gate.Add(m.Id);
+            kept.Add(m.Id);
+            touched.Add(m.FolderId);
+        }
+        if (gate.Count > 0)
+        {
+            Store.SetAtGate(gate, true, DateTimeOffset.Now);
+            Log.Info($"gatekeeper: {gate.Count} email(s) from new senders wait at the door");
+        }
+        if (touched.Count > 0) Touched(accountId, touched);
+        if (gate.Count > 0) GateChanged?.Invoke();
+        return kept;
+    }
+
+    public List<GateSender> GateSenders() => Store.GateSenders();
+
+    /// <summary>Allow: this sender goes straight in from now on; their waiting mail moves to the Inbox.</summary>
+    public void AllowSender(string address)
+    {
+        var a = address.Trim().ToLowerInvariant();
+        var g = Config.Gatekeeper;
+        g.Blocked.Remove(a);
+        if (!g.Allowed.Contains(a)) g.Allowed.Add(a);
+        Settings.Save(notify: false);
+        var rows = Store.GateMessages(a);
+        Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
+        foreach (var acc in rows.GroupBy(r => r.AccountId)) Touched(acc.Key, acc.Select(r => r.FolderId));
+        GateChanged?.Invoke();
+    }
+
+    /// <summary>Block: this sender's mail moves to Spam on the server and keeps doing so. Nothing is deleted.</summary>
+    public void BlockSender(string address)
+    {
+        var a = address.Trim().ToLowerInvariant();
+        var g = Config.Gatekeeper;
+        g.Allowed.Remove(a);
+        if (!g.Blocked.Contains(a)) g.Blocked.Add(a);
+        Settings.Save(notify: false);
+        foreach (var acc in Store.GateMessages(a).GroupBy(r => r.AccountId))
+        {
+            var junk = Store.GetFolders(acc.Key).FirstOrDefault(f => f.Role == FolderRole.Junk);
+            if (junk == null) { Log.Warn("block: no Spam folder in " + acc.Key + " — mail stays at the door"); continue; }
+            foreach (var m in acc)
+            {
+                Queue(m, PendingOpKind.Move, junk.Id);
+                Store.DeleteRow(m.Id);
+            }
+            Touched(acc.Key, acc.Select(r => r.FolderId).Append(junk.Id));
+        }
+        GateChanged?.Invoke();
+    }
+
+    /// <summary>The Gatekeeper was switched off: everything waiting comes into the Inbox (senders aren't marked allowed).</summary>
+    public void OpenGate()
+    {
+        var rows = Store.GateMessages();
+        if (rows.Count == 0) return;
+        Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
+        foreach (var acc in rows.GroupBy(r => r.AccountId)) Touched(acc.Key, acc.Select(r => r.FolderId));
+        GateChanged?.Invoke();
     }
 
     /// <summary>The Inbox messages a rule would act on now (Preview matches / "Also apply to…"), newest first.</summary>
