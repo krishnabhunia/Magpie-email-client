@@ -20,6 +20,7 @@ jobs:
   build:
     runs-on: windows-latest
     env:
+      PYTHONUTF8: "1"
       # Optional Authenticode signing – skipped while these secrets are empty.
       SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
       SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
@@ -31,12 +32,26 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      # The release PR (branch release/next, opened by release-pr.yml) is built as a test version:
+      # <version>-beta.<run number>, published as a pre-release so it can be tried through
+      # Settings → Updates → "Include test versions" before the PR is merged (design R1).
       - name: Read version
         id: ver
         shell: pwsh
+        env:
+          IS_RELEASE_PR: ${{ github.event_name == 'pull_request' && github.head_ref == 'release/next' }}
         run: |
           $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
-          "version=$v" >> $env:GITHUB_OUTPUT
+          $beta = $env:IS_RELEASE_PR -eq "true"
+          $num = python build/release_prep.py numeric $v
+          if ($LASTEXITCODE -ne 0) { throw "Version '$v' in Directory.Build.props isn't x.y.z" }
+          if ($beta) { "version=$v-beta.${{ github.run_number }}" >> $env:GITHUB_OUTPUT } else { "version=$v" >> $env:GITHUB_OUTPUT }
+          "base=$v" >> $env:GITHUB_OUTPUT
+          "numeric=$num" >> $env:GITHUB_OUTPUT
+          "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Release script tests
+        run: python build/test_release_prep.py
 
       - name: Restore
         run: dotnet restore Magpie.sln
@@ -45,7 +60,7 @@ jobs:
         run: dotnet test tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --no-restore --filter "Category!=Integration"
 
       - name: Build app
-        run: dotnet build src/Magpie.App/Magpie.App.csproj -c Release --no-restore
+        run: dotnet build src/Magpie.App/Magpie.App.csproj -c Release --no-restore -p:Version=${{ steps.ver.outputs.version }}
 
       - name: XAML static checks (blocking)
         env:
@@ -57,7 +72,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
 
       - name: Publish single-file EXE
-        run: dotnet publish src/Magpie.App/Magpie.App.csproj -c Release -o publish
+        run: dotnet publish src/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ steps.ver.outputs.version }}
 
       - name: Sign Magpie.exe (optional)
         if: env.SIGN_PFX_BASE64 != ''
@@ -73,7 +88,7 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
-          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" "/DSourceDir=$PWD\publish" installer\Magpie.iss
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" "/DMyAppNumericVersion=${{ steps.ver.outputs.numeric }}" "/DSourceDir=$PWD\publish" installer\Magpie.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
       - name: Checksums
@@ -111,15 +126,10 @@ jobs:
             "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "$tag will be released (or its files completed)"
           }
           $global:LASTEXITCODE = 0
-          # Release notes = this version's section of CHANGELOG.md
-          $lines = Get-Content CHANGELOG.md -Encoding utf8
-          $start = ($lines | Select-String -Pattern "^## ${{ steps.ver.outputs.version }}( |$)" | Select-Object -First 1).LineNumber
-          if ($start) {
-            $rest = $lines[$start..($lines.Count - 1)]
-            $end = ($rest | Select-String -Pattern '^## ' | Select-Object -First 1).LineNumber
-            $section = if ($end) { $rest[0..($end - 2)] } else { $rest }
-          } else { $section = @("Magpie ${{ steps.ver.outputs.version }}") }
-          $section | Out-File release-notes.md -Encoding utf8
+          # Release notes = this version's section of CHANGELOG.md (written as UTF-8 by the script)
+          python build/release_prep.py notes ${{ steps.ver.outputs.version }} --out release-notes.md
+          if ($LASTEXITCODE -ne 0) { "Magpie ${{ steps.ver.outputs.version }}" | Out-File release-notes.md -Encoding utf8 }
+          $global:LASTEXITCODE = 0
 
       - name: Publish GitHub Release
         if: steps.rel.outputs.needed == 'true'
@@ -136,3 +146,47 @@ jobs:
             publish/Magpie.exe.sha256
             installer/Output/*.exe
             installer/Output/*.sha256
+
+      # The test versions of a release are no longer needed once it is out.
+      - name: Remove this version's test builds
+        if: steps.rel.outputs.needed == 'true' && !contains(steps.ver.outputs.version, '-')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' | Where-Object { $_ -like "v${{ steps.ver.outputs.version }}-beta.*" }
+          foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }
+
+      # ─── Test build for the release PR (design R1) ───
+      - name: Beta release notes
+        if: steps.ver.outputs.beta == 'true'
+        shell: pwsh
+        run: |
+          python build/release_prep.py notes ${{ steps.ver.outputs.base }} --out release-notes.md --header "**Test version** of Magpie ${{ steps.ver.outputs.base }}, built from release PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes ${{ steps.ver.outputs.base }} to everyone."
+          if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for ${{ steps.ver.outputs.base }}" }
+
+      - name: Publish test version
+        if: steps.ver.outputs.beta == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          name: Magpie ${{ steps.ver.outputs.version }} (test)
+          body_path: release-notes.md
+          prerelease: true
+          make_latest: false
+          files: |
+            publish/Magpie.exe
+            publish/Magpie.exe.sha256
+            installer/Output/*.exe
+            installer/Output/*.sha256
+
+      - name: Keep only the newest test version
+        if: steps.ver.outputs.beta == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' |
+            Where-Object { $_ -like "v${{ steps.ver.outputs.base }}-beta.*" -and $_ -ne "v${{ steps.ver.outputs.version }}" }
+          foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }

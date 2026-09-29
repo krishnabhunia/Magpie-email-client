@@ -2,7 +2,7 @@
 
 Everything here was **approved by Krishna on 28 Sep 2026** (designs B1–B7, AD1–AD4 on the design canvas). This file is the text version so Claude Code can build without the canvas. Build order (default, Krishna may reorder): dark theme → rules → signatures + quick replies → Gatekeeper + Set aside → auto-delete + OTP delete → invites → contacts → calendar.
 
-Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Krishna's **deploy** word.
+Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automatic: Krishna merges the "Release x.y.z" PR (design R1, `docs/CI-CD.md`).
 
 ## Queue
 
@@ -20,6 +20,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Built — not yet tried on Windows | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
 | 16 | Version number in the main window (title bar) | V1 (below) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
+| 17 | Automatic CI + CD: release PR, test versions, release on merge | R1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 (with test builds) · Built — needs `RELEASE_TOKEN` + branch protection | [#14](https://github.com/krishnabhunia/Magpie-email-client/issues/14) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
