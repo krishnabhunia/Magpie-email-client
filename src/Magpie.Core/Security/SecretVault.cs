@@ -110,4 +110,7 @@ public sealed class SecretVault
     public static string PasswordKey(string accountId) => $"account:{accountId}:password";
     public static string RefreshKey(string accountId) => $"account:{accountId}:refresh";
     public const string AiKey = "ai:apikey";
+    /// <summary>The key of one AI connection (design AI2). The first one keeps the old name, so nothing moves.</summary>
+    public static string AiKeyFor(string connectionId) =>
+        string.IsNullOrEmpty(connectionId) || connectionId == Settings.AiConnection.FirstId ? AiKey : $"ai:{connectionId}:apikey";
 }

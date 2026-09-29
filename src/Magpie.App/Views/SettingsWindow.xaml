@@ -105,10 +105,14 @@
         <DockPanel Grid.Column="1">
             <!-- Save bar -->
             <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="36,12" Background="{DynamicResource Brush.Window.Background}">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" />
-                    <Button Style="{StaticResource Button.Primary}" Content="Save" Padding="24,7" Click="OnSave" />
-                </StackPanel>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Apply" Margin="0,0,8,0" Click="OnApply" ToolTip="Save the changes and keep Settings open" />
+                        <Button Style="{StaticResource Button.Primary}" Content="Save and close" Padding="24,7" Click="OnSave" />
+                    </StackPanel>
+                    <TextBlock x:Name="AppliedNote" Text="✓ Saved" Foreground="{DynamicResource Brush.Success}" VerticalAlignment="Center" Visibility="Collapsed" />
+                </DockPanel>
             </Border>
 
             <ScrollViewer x:Name="PagesScroll" VerticalScrollBarVisibility="Auto">
@@ -469,9 +473,51 @@
 
                         <!-- Provider -->
                         <StackPanel x:Name="RowAiProvider" Style="{StaticResource Section.Dim}" IsEnabled="{Binding AiEnabled}" Margin="0,20,0,0">
-                            <TextBlock Text="PROVIDER" Style="{StaticResource Text.SectionCaps}" />
+                            <TextBlock Text="AI CONNECTIONS" Style="{StaticResource Text.SectionCaps}" />
+                            <!-- Design AI2: several connections; one is in use; each can be edited, tested and deleted -->
+                            <Border Style="{StaticResource Card}" Padding="0" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <ItemsControl ItemsSource="{Binding AiConnections}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:AiConnectionItem}">
+                                                <Border x:Name="Row" Padding="16,10" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1">
+                                                    <DockPanel>
+                                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Button Style="{StaticResource Button.Link}" Content="Edit" Margin="0,0,12,0"
+                                                                    Command="{Binding DataContext.EditAiConnectionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            <Button Style="{StaticResource Button.Link}" Content="Delete" Foreground="{DynamicResource Brush.Danger}"
+                                                                    Command="{Binding DataContext.DeleteAiConnectionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </StackPanel>
+                                                        <RadioButton GroupName="AiInUse" IsChecked="{Binding IsActive, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,10,0" ToolTip="Use this one"
+                                                                     Command="{Binding DataContext.UseAiConnectionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding Name}" FontWeight="Medium" />
+                                                                <Border Background="{DynamicResource Brush.Success.Subtle}" CornerRadius="8" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                        Visibility="{Binding IsActive, Converter={StaticResource BoolToVis}}">
+                                                                    <TextBlock Text="In use" Foreground="{DynamicResource Brush.Success}" FontSize="11.5" FontWeight="Medium" />
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Text.Caption}" />
+                                                            <TextBlock Text="{Binding Status}" Style="{StaticResource Text.Caption}" Visibility="{Binding Status, Converter={StaticResource BoolToVis}}" />
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </Border>
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                        <Setter TargetName="Row" Property="Background" Value="{DynamicResource Brush.Accent.Subtle}" />
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Link}" Content="+ Add an AI connection" HorizontalAlignment="Left" Margin="16,10" Command="{Binding AddAiConnectionCommand}" />
+                                </StackPanel>
+                            </Border>
                             <Border Style="{StaticResource Card}" Padding="22,20">
                                 <StackPanel>
+                                    <TextBlock Text="Name" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding SelectedAiConnection.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
                                     <TextBlock Text="Provider" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                     <ComboBox ItemsSource="{Binding Providers}" SelectedValue="{Binding Provider, Mode=TwoWay}" SelectedValuePath="Value" DisplayMemberPath="Label" Margin="0,0,0,14" />
                                     <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
@@ -630,10 +676,19 @@
                                         </StackPanel>
                                     </CheckBox>
                                 </Border>
-                                <Border x:Name="RowNotifySound" Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                <Border x:Name="RowNotifySound" Style="{StaticResource FeatureRow}">
                                     <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding NotificationSound, Mode=TwoWay}" IsEnabled="{Binding Notifications}">
                                         <TextBlock Text="Play a sound" FontWeight="Medium" FontSize="13.5" />
                                     </CheckBox>
+                                </Border>
+                                <Border x:Name="RowNotifyTest" Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="Send a test notification" Click="OnTestNotification" VerticalAlignment="Center" />
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="Try it" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Shows a sample new-mail notification now, with the sound if it's on (the settings on this page, even before you save)." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DockPanel>
                                 </Border>
                             </StackPanel>
                         </Border>
@@ -869,44 +924,25 @@
                                 <TextBlock Text="Add an account first." Style="{StaticResource Text.Caption}" Visibility="{Binding Accounts.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
 
                                 <StackPanel Visibility="{Binding SignatureAccount, Converter={StaticResource BoolToVis}}">
-                                    <!-- Toolbar: B / I / U / Link / Picture / Font / Colour -->
-                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="6,4" Background="{DynamicResource Brush.Header.Background}">
-                                        <WrapPanel>
-                                            <Button Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnSigFormat" ToolTip="Bold (Ctrl+B)" />
-                                            <Button Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnSigFormat" ToolTip="Italic (Ctrl+I)" />
-                                            <Button Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnSigFormat" ToolTip="Underline (Ctrl+U)">
-                                                <TextBlock Text="U" TextDecorations="Underline" FontFamily="Segoe UI" />
-                                            </Button>
-                                            <Button Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnSigLink" ToolTip="Add a link (Ctrl+K)" />
-                                            <Button Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnSigImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
-                                            <ComboBox x:Name="SigFont" Width="140" Margin="6,0,0,0" ItemsSource="{Binding SignatureFonts}" SelectionChanged="OnSigFont" ToolTip="Font" AutomationProperties.Name="Font" />
-                                            <ItemsControl ItemsSource="{Binding SignatureColours}" Margin="8,0,0,0" VerticalAlignment="Center" Focusable="False">
-                                                <ItemsControl.ItemsPanel>
-                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Button Width="18" Height="18" Margin="2,0" Tag="{Binding}" Click="OnSigColour" ToolTip="Text colour" Cursor="Hand" Background="{Binding Converter={StaticResource HexBrush}}" BorderThickness="0">
-                                                            <Button.Template>
-                                                                <ControlTemplate TargetType="Button">
-                                                                    <Border Background="{TemplateBinding Background}" CornerRadius="9" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" />
-                                                                </ControlTemplate>
-                                                            </Button.Template>
-                                                        </Button>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </WrapPanel>
-                                    </Border>
-                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8" Height="150" ClipToBounds="True">
+                                    <!-- Design B6, fixed 29 Sep 2026: a preview here; the signature is written in its own window
+                                         (SignatureEditorWindow, a normal WebView2 like the compose window) -->
+                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="8" Padding="12,10" MinHeight="70"
+                                            Background="{DynamicResource Brush.Card.Background}">
                                         <Grid>
-                                            <!-- The editor (a WebView2CompositionControl, which draws through WPF so it scrolls with the page) is created
-                                                 in code only when this section is opened and Windows supports it; otherwise SigPlain is used. -->
-                                            <ContentControl x:Name="SigHost" Focusable="False" />
-                                            <TextBox x:Name="SigPlain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8"
-                                                     Text="{Binding SignatureAccount.SignaturePlain, UpdateSourceTrigger=PropertyChanged}" />
+                                            <TextBlock Text="{Binding SignatureAccount.SignaturePlain}" TextWrapping="Wrap" />
+                                            <TextBlock Text="No signature yet." Style="{StaticResource Text.Caption}"
+                                                       Visibility="{Binding SignatureAccount.HasSignature, Converter={StaticResource InvBoolToVis}}" />
                                         </Grid>
                                     </Border>
+                                    <TextBlock Text="Has a picture (a logo)." Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
+                                               Visibility="{Binding SignatureAccount.HasSignaturePicture, Converter={StaticResource BoolToVis}}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Style="{StaticResource Button.Primary}" Content="Edit signature…" Click="OnEditSignature" />
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Get my Gmail signature" Margin="8,0,0,0" Command="{Binding ImportGmailSignatureCommand}"
+                                                Visibility="{Binding SignatureAccount.CanImportGmailSignature, Converter={StaticResource BoolToVis}}"
+                                                ToolTip="Copies the signature set in Gmail (Settings → Signature) for this address" />
+                                        <TextBlock Text="{Binding SignatureStatus}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="360" />
+                                    </StackPanel>
                                     <CheckBox Content="Add to new messages" IsChecked="{Binding SignatureAccount.SignatureOnNew, Mode=TwoWay}" Margin="0,12,0,4" />
                                     <CheckBox Content="Add to replies and forwards (above the quoted text)" IsChecked="{Binding SignatureAccount.SignatureOnReplies, Mode=TwoWay}" />
                                     <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"

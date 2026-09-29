@@ -4,7 +4,6 @@ using System.Windows.Input;
 using Magpie.App.Services;
 using Magpie.App.ViewModels;
 using Magpie.Core;
-using Microsoft.Web.WebView2.Wpf;
 
 namespace Magpie.App.Views;
 
@@ -38,13 +37,17 @@ public partial class SettingsWindow : Window
         ApiKeyBox.Password = _vm.ApiKey;
         _vm.ApiKeyChanged = false;
         _vm.Saved += Close;
+        _vm.Applied += ShowApplied;
+        _vm.ApiKeyReloaded += () =>
+        {
+            _reloadingKey = true;
+            ApiKeyBox.Password = _vm.ApiKey;
+            _reloadingKey = false;
+        };
         _vm.HighlightRequested += Highlight;
-        _vm.SignatureAccountChanged += a => _ = LoadSignatureAsync(a);
         Action onAutoDelete = () => Ui.Post(_vm.LoadAutoDelete);
         AppServices.Engine.AutoDeleteChanged += onAutoDelete;
         Closed += (_, _) => AppServices.Engine.AutoDeleteChanged -= onAutoDelete;
-        _vm.PropertyChanged += (_, a) => { if (a.PropertyName == nameof(SettingsViewModel.Page) && _vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
-        Loaded += (_, _) => { if (_vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
         PreviewKeyDown += (_, e) =>
         {
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
@@ -106,153 +109,47 @@ public partial class SettingsWindow : Window
         menu.IsOpen = true;
     }
 
+    private bool _reloadingKey;
+
     private void OnApiKeyChanged(object sender, RoutedEventArgs e)
     {
+        if (_reloadingKey) return;
         _vm.ApiKey = ApiKeyBox.Password;
         _vm.ApiKeyChanged = true;
     }
 
-    private async void OnSave(object sender, RoutedEventArgs e)
+    private void OnSave(object sender, RoutedEventArgs e)
     {
-        // The signature editor reports edits a moment later; take its latest text before saving.
-        if (_sigReady)
-        {
-            try
-            {
-                var json = await SigEditor.CoreWebView2.ExecuteScriptAsync("getHtml()");
-                _vm.SetSignatureHtml(System.Text.Json.JsonSerializer.Deserialize<string>(json) ?? "");
-            }
-            catch (Exception ex) { Log.Warn("signature editor: " + ex.Message); }
-        }
         _vm.SaveCommand.Execute(null);
     }
 
-    // ───────────────────────── signature editor (design B6) ─────────────────────────
+    private void OnApply(object sender, RoutedEventArgs e) => _vm.ApplyCommand.Execute(null);
 
-    private bool _sigStarted, _sigReady;
-    private WebView2CompositionControl SigEditor = null!;   // created by StartSignatureEditorAsync; used only once _sigReady
-
-    private async Task StartSignatureEditorAsync()
+    private async void ShowApplied()
     {
-        if (_sigStarted) return;
-        _sigStarted = true;
-        try
-        {
-            // The composition control needs Windows screen capture (Windows 10 1903+, a working graphics driver).
-            // Without it the control throws while being laid out, which used to break the whole Settings window.
-            if (!CompositionEditorSupported()) { Log.Info("signature editor: rich editor not supported here, using plain text"); UsePlainSignature(); return; }
-            SigEditor = new WebView2CompositionControl();
-            SigHost.Content = SigEditor;
-            if (!await WebHost.InitAsync(SigEditor, scripts: true)) { UsePlainSignature(); return; }
-            SigEditor.DefaultBackgroundColor = ThemeManager.IsDark ? System.Drawing.Color.FromArgb(255, 0x1E, 0x23, 0x28) : System.Drawing.Color.White;
-            SigEditor.AllowExternalDrop = false;
-            var core = SigEditor.CoreWebView2;
-            core.NavigationStarting += (_, e) => { if (!WebHost.IsOwnPage(e.Uri)) e.Cancel = true; };
-            core.NewWindowRequested += (_, e) => e.Handled = true;
-            core.WebMessageReceived += OnSignatureMessage;
-            core.Navigate(WebHost.Publish(SignatureEditorPage.Html, "signature"));
-        }
-        catch (Exception ex)
-        {
-            Log.Error("signature editor", ex);
-            UsePlainSignature();
-        }
+        AppliedNote.Visibility = Visibility.Visible;
+        await Task.Delay(2500);
+        AppliedNote.Visibility = Visibility.Collapsed;
     }
 
-    private void UsePlainSignature()
+    /// <summary>A sample new-mail notification, as the settings on the page say (design N1).</summary>
+    private void OnTestNotification(object sender, RoutedEventArgs e)
     {
-        SigHost.Content = null;
-        SigHost.Visibility = Visibility.Collapsed;
-        SigPlain.Visibility = Visibility.Visible;
+        if (!_vm.Notifications) { Ui.Error("Test notification", "Notifications are off. Switch on \"Show notifications\" first.", this); return; }
+        AppServices.Tray?.ShowBalloon("Anita Rao (test)", "Lunch on Friday? — this is how a new email is announced.", () => ((App)Application.Current).ShowMain());
+        if (_vm.NotificationSound) System.Media.SystemSounds.Asterisk.Play();
     }
 
-    private static bool CompositionEditorSupported()
+    // ───────────────────────── signature (design B6) ─────────────────────────
+
+    /// <summary>Opens the signature editor window for the chosen account.</summary>
+    private void OnEditSignature(object sender, RoutedEventArgs e)
     {
-        try { return CaptureSupported(); }
-        catch (Exception ex) { Log.Warn("signature editor: " + ex.Message); return false; }
+        if (_vm.SignatureAccount is not { } a) return;
+        var html = SignatureEditorWindow.Edit(this, a.Email, a.SignatureHtml);
+        if (html != null) _vm.SetSignatureHtml(html);
     }
 
-    // Separate method so a missing Windows runtime assembly fails here (inside the try above), not in the caller.
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-    private static bool CaptureSupported() => global::Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported();
-
-    private async void OnSignatureMessage(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
-    {
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(e.TryGetWebMessageAsString());
-            var root = doc.RootElement;
-            switch (root.GetProperty("t").GetString())
-            {
-                case "ready":
-                    await SigEditor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
-                    _sigReady = true;
-                    await LoadSignatureAsync(_vm.SignatureAccount);
-                    break;
-                case "change":
-                    _vm.SetSignatureHtml(root.GetProperty("html").GetString() ?? "");
-                    break;
-                case "link":
-                    OnSigLink(this, new RoutedEventArgs());
-                    break;
-            }
-        }
-        catch (Exception ex) { Log.Warn("signature editor message: " + ex.Message); }
-    }
-
-    private async Task LoadSignatureAsync(EditableAccount? a)
-    {
-        if (!_sigReady) return;
-        await SigEditor.CoreWebView2.ExecuteScriptAsync($"setHtml({System.Text.Json.JsonSerializer.Serialize(a?.SignatureHtml ?? "")})");
-    }
-
-    private Task SigExec(string command, string? value = null)
-    {
-        if (!_sigReady) return Task.CompletedTask;
-        var arg = value == null ? "" : ", " + System.Text.Json.JsonSerializer.Serialize(value);
-        return SigEditor.CoreWebView2.ExecuteScriptAsync($"fmt({System.Text.Json.JsonSerializer.Serialize(command)}{arg})");
-    }
-
-    private void OnSigFormat(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: string cmd }) _ = SigExec(cmd);
-    }
-
-    private void OnSigFont(object sender, SelectionChangedEventArgs e)
-    {
-        if (SigFont.SelectedItem is string font) _ = SigExec("fontName", font);
-    }
-
-    private void OnSigColour(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: string hex }) _ = SigExec("foreColor", hex);
-    }
-
-    private void OnSigLink(object sender, RoutedEventArgs e)
-    {
-        var url = TextPromptDialog.Ask(this, "Add a link", "Web address, or an email address", "https://");
-        if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
-        if (url.Contains('@') && !url.Contains("://") && !url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) url = "mailto:" + url;
-        else if (!url.Contains("://") && !url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) url = "https://" + url;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "mailto")) { Ui.Error("Add a link", "That doesn't look like a web or email address."); return; }
-        _ = SigExec("createLink", u.ToString());
-    }
-
-    private void OnSigImage(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Add a picture", Filter = "Pictures|*.png;*.jpg;*.jpeg;*.gif|All files|*.*" };
-        if (dlg.ShowDialog(this) != true) return;
-        try
-        {
-            var info = new FileInfo(dlg.FileName);
-            if (info.Length > 1024 * 1024) { Ui.Error("Add a picture", "That picture is over 1 MB. A logo for a signature is best kept under 100 KB — it goes out with every email."); return; }
-            var type = Path.GetExtension(dlg.FileName).ToLowerInvariant() switch { ".png" => "image/png", ".gif" => "image/gif", ".jpg" or ".jpeg" => "image/jpeg", _ => "" };
-            if (type.Length == 0) { Ui.Error("Add a picture", "Use a PNG, JPG or GIF picture."); return; }
-            var data = "data:" + type + ";base64," + Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
-            if (_sigReady) _ = SigEditor.CoreWebView2.ExecuteScriptAsync($"insertImage({System.Text.Json.JsonSerializer.Serialize(data)})");
-        }
-        catch (Exception ex) { Ui.Error("Add a picture", ex.Message); }
-    }
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
 
     // ───────────────────────── backup (design EX1) and mail folder (design DL1) ─────────────────────────

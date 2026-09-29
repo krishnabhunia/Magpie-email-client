@@ -57,12 +57,66 @@ public sealed class AiSettings
         _ => ("http://localhost:1234/v1", "local-model"),
     };
 
+    public static string ProviderName(AiProviderKind kind) => kind switch
+    {
+        AiProviderKind.OpenAI => "OpenAI", AiProviderKind.Anthropic => "Anthropic (Claude)", AiProviderKind.Ollama => "Ollama (this PC)", _ => "Other endpoint",
+    };
+
+    /// <summary>Design AI2: every AI connection set up (provider, endpoint, model); the one in use is <see cref="ActiveId"/>.
+    /// <see cref="Provider"/> / <see cref="Endpoint"/> / <see cref="Model"/> always mirror the one in use.</summary>
+    public List<AiConnection> Connections { get; set; } = new();
+    public string ActiveId { get; set; } = "";
+    public AiConnection? Active => Connections.FirstOrDefault(c => c.Id == ActiveId) ?? Connections.FirstOrDefault();
+
+    /// <summary>Makes <see cref="Provider"/>, <see cref="Endpoint"/> and <see cref="Model"/> those of the connection in use.</summary>
+    public void UseActive()
+    {
+        if (Active is not { } a) return;
+        ActiveId = a.Id;
+        Provider = a.Provider;
+        Endpoint = a.Endpoint;
+        Model = a.Model;
+    }
+
+    /// <summary>Old settings (one provider) become the first connection; every connection gets a name and an endpoint.</summary>
+    public void NormaliseConnections()
+    {
+        Connections ??= new();
+        if (Connections.Count == 0)
+            Connections.Add(new AiConnection { Id = AiConnection.FirstId, Name = ProviderName(Provider), Provider = Provider, Endpoint = Endpoint, Model = Model });
+        foreach (var c in Connections)
+        {
+            if (string.IsNullOrWhiteSpace(c.Id)) c.Id = AiConnection.NewId();
+            if (string.IsNullOrWhiteSpace(c.Endpoint)) (c.Endpoint, _) = Preset(c.Provider);
+            if (string.IsNullOrWhiteSpace(c.Name)) c.Name = ProviderName(c.Provider);
+        }
+        Connections = Connections.DistinctBy(c => c.Id).ToList();
+        UseActive();
+    }
+
     public AiSettings Clone()
     {
         var c = (AiSettings)MemberwiseClone();
         c.Consents = new List<string>(Consents);
+        c.Connections = Connections.Select(x => x.Clone()).ToList();
         return c;
     }
+}
+
+/// <summary>One AI connection (design AI2). Its key is in the SecretVault under <see cref="Security.SecretVault.AiKeyFor"/>.</summary>
+public sealed class AiConnection
+{
+    /// <summary>The connection made from settings older than design AI2; its key keeps the old vault name.</summary>
+    public const string FirstId = "main";
+    public static string NewId() => Guid.NewGuid().ToString("N")[..10];
+
+    public string Id { get; set; } = NewId();
+    public string Name { get; set; } = "";
+    public AiProviderKind Provider { get; set; } = AiProviderKind.OpenAI;
+    public string Endpoint { get; set; } = "";
+    public string Model { get; set; } = "";
+
+    public AiConnection Clone() => (AiConnection)MemberwiseClone();
 }
 
 public sealed class TagDef
@@ -199,15 +253,16 @@ public sealed class FolderHoverSettings
 
     public bool Enabled { get; set; } = true;
     public List<string> Lines { get; set; } = DefaultLines.ToList();
-    /// <summary>Delay before the card appears, ms (300 / 600 / 1000).</summary>
+    /// <summary>Delay before the card appears, ms: 50 to 1000 in steps of 50.</summary>
     public int DelayMs { get; set; } = 600;
+    public const int DelayStepMs = 50, MaxDelayMs = 1000;
 
     public void Normalise()
     {
         Lines ??= DefaultLines.ToList();
         var seen = new HashSet<string>();
         Lines = LineIds.Where(id => Lines.Contains(id) && seen.Add(id)).ToList();
-        if (DelayMs is not (300 or 600 or 1000)) DelayMs = 600;
+        DelayMs = DelayMs <= 0 ? 600 : Math.Clamp((int)Math.Round(DelayMs / (double)DelayStepMs) * DelayStepMs, DelayStepMs, MaxDelayMs);
     }
 
     public FolderHoverSettings Clone() => new() { Enabled = Enabled, Lines = Lines.ToList(), DelayMs = DelayMs };
@@ -396,6 +451,7 @@ public sealed class SettingsStore
         s.UndoSendSeconds = Math.Clamp(s.UndoSendSeconds, 0, 30);
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);
         if (string.IsNullOrWhiteSpace(s.Ai.Endpoint)) (s.Ai.Endpoint, _) = AiSettings.Preset(s.Ai.Provider);
+        s.Ai.NormaliseConnections();
     }
 
     /// <summary>Writes settings.json. <paramref name="notify"/> false = UI-state only (sidebar, window size): no Changed event.</summary>

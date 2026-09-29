@@ -62,7 +62,7 @@ public sealed class MailEngine : IDisposable
             },
         };
         Connector = new Connector(Vault, OAuth);
-        Ai = new AiService(Http, () => Settings.Current.Ai, () => Vault.Get(SecretVault.AiKey));
+        Ai = new AiService(Http, () => Settings.Current.Ai, () => Vault.Get(SecretVault.AiKeyFor(Settings.Current.Ai.ActiveId)));
     }
 
     public AppSettings Config => Settings.Current;

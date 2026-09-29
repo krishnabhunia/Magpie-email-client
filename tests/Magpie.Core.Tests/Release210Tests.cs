@@ -207,4 +207,67 @@ public class Release210Tests
         Assert.Equal(90, a.SyncDays);
         Assert.False(a.DownloadAttachments);
     }
+
+    // ───────────── AI2: several AI connections ─────────────
+
+    [Fact]
+    public void Old_single_ai_provider_becomes_the_first_connection_and_keeps_its_key_name()
+    {
+        var ai = new AiSettings { Provider = AiProviderKind.Anthropic, Endpoint = "https://api.anthropic.com", Model = "claude-x" };
+        ai.NormaliseConnections();
+        var c = Assert.Single(ai.Connections);
+        Assert.Equal(AiConnection.FirstId, c.Id);
+        Assert.Equal("claude-x", c.Model);
+        Assert.Equal(c.Id, ai.ActiveId);
+        Assert.Equal(Magpie.Core.Security.SecretVault.AiKey, Magpie.Core.Security.SecretVault.AiKeyFor(c.Id));
+        Assert.NotEqual(Magpie.Core.Security.SecretVault.AiKey, Magpie.Core.Security.SecretVault.AiKeyFor("abc"));
+    }
+
+    [Fact]
+    public void The_connection_in_use_drives_provider_endpoint_and_model()
+    {
+        var ai = new AiSettings();
+        ai.Connections.Add(new AiConnection { Id = "one", Provider = AiProviderKind.OpenAI, Model = "gpt-a" });
+        ai.Connections.Add(new AiConnection { Id = "two", Provider = AiProviderKind.Ollama, Model = "llama" });
+        ai.ActiveId = "two";
+        ai.NormaliseConnections();
+        Assert.Equal(AiProviderKind.Ollama, ai.Provider);
+        Assert.Equal("llama", ai.Model);
+        Assert.Equal(AiSettings.Preset(AiProviderKind.Ollama).endpoint, ai.Endpoint);   // empty endpoint gets the preset
+        Assert.False(string.IsNullOrEmpty(ai.Connections[1].Name));
+        ai.ActiveId = "gone";
+        ai.NormaliseConnections();
+        Assert.Equal("one", ai.ActiveId);   // a deleted connection falls back to the first
+    }
+
+    // ───────────── hover card delay: 50 … 1000 ms ─────────────
+
+    [Theory]
+    [InlineData(50, 50)]
+    [InlineData(120, 100)]
+    [InlineData(600, 600)]
+    [InlineData(5000, 1000)]
+    [InlineData(0, 600)]
+    public void Hover_card_delay_is_50_to_1000_ms_in_steps_of_50(int given, int expected)
+    {
+        var h = new FolderHoverSettings { DelayMs = given };
+        h.Normalise();
+        Assert.Equal(expected, h.DelayMs);
+    }
+
+    // ───────────── Gmail signature ─────────────
+
+    [Fact]
+    public void Gmail_signature_is_taken_for_the_matching_address_or_the_primary_one()
+    {
+        const string json = """
+            {"sendAs":[{"sendAsEmail":"me@gmail.com","isPrimary":true,"signature":"<b>Me</b>"},
+                       {"sendAsEmail":"work@firm.com","signature":"<i>Work</i>"},
+                       {"sendAsEmail":"empty@x.com","signature":""}]}
+            """;
+        Assert.Equal("<i>Work</i>", GmailSignature.Pick(json, "WORK@firm.com"));
+        Assert.Equal("<b>Me</b>", GmailSignature.Pick(json, "other@x.com"));
+        Assert.Null(GmailSignature.Pick(json, "empty@x.com"));
+        Assert.Null(GmailSignature.Pick("{}", "me@gmail.com"));
+    }
 }

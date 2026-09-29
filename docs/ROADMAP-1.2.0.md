@@ -27,6 +27,12 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 21 | Back up and restore every setting in one password-locked file (reinstall without setting anything up) | EX1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#23](https://github.com/krishnabhunia/Magpie-email-client/issues/23) |
 | 22 | Keep the mail in a folder you choose (another / encrypted drive) | DL1 (below) | Design shown 29 Sep 2026 · Encryption option A approved 29 Sep 2026 · Built — not yet tried on Windows | [#24](https://github.com/krishnabhunia/Magpie-email-client/issues/24) |
 | 23 | Download 90 days, attachments only when opened; changeable when adding an account and later | DS1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#25](https://github.com/krishnabhunia/Magpie-email-client/issues/25) |
+| 24 | Settings: "Apply" next to "Save and close" | (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#27](https://github.com/krishnabhunia/Magpie-email-client/issues/27) |
+| 25 | Several AI connections: add, customise, test, delete | AI2 (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#28](https://github.com/krishnabhunia/Magpie-email-client/issues/28) |
+| 26 | Folder details card delay: 50 to 1000 ms in steps of 50 | (below) | Built | [#29](https://github.com/krishnabhunia/Magpie-email-client/issues/29) |
+| 27 | Better layout for the buttons on email rows | RB1 / RB2 / RB3 (below) | **Designs shown 29 Sep 2026 — waiting for Krishna's pick** | [#30](https://github.com/krishnabhunia/Magpie-email-client/issues/30) |
+| 28 | Bug: can't type a signature; get the Gmail signature | B6 fix (below) | Built — not yet tried on Windows | [#31](https://github.com/krishnabhunia/Magpie-email-client/issues/31) |
+| 29 | Send a test notification | (below) | Built | [#32](https://github.com/krishnabhunia/Magpie-email-client/issues/32) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -191,4 +197,23 @@ C (Windows file encryption, Pro only, tied to the Windows account).
 Emails inside the window download in the background (150 per check, inbox first, then Sent, then the other folders; not
 Trash, Junk or Drafts). "Only when I open": just the text, HTML and any invite are fetched (the server's BODYSTRUCTURE lists
 the attachments), and opening such an email fetches the whole email. Older emails stay listed and download when opened.
+
+## Items #24–#29 (asked 29 Sep 2026)
+
+Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (rows "Your six new items" and "Signature fix, Apply …").
+
+- **#24 Apply.** Settings bottom bar: Cancel · Apply · Save and close. Apply saves and keeps Settings open ("✓ Saved" for 2.5 s).
+- **#25 AI2 Several AI connections.** Settings → AI → AI connections: rows (name, "In use" badge, provider · model, last test
+  result) with a radio to pick the one in use, Edit, Delete; "+ Add an AI connection". The form below edits the chosen row
+  (name, provider, endpoint, model, API key, Test connection). `AiSettings.Connections` + `ActiveId`; Provider / Endpoint /
+  Model mirror the one in use, so everything that used one provider still works. Keys: `SecretVault.AiKeyFor(id)`; the first
+  connection (made from older settings, id "main") keeps the old key name.
+- **#26** "Appears after": 50, 100, … 1000 ms; other values round to the nearest 50.
+- **#27 RB Row buttons — pick one.** RB1 (recommended) floating bar on the right, centred on the row, 28 px buttons grouped
+  Archive · Delete | Snooze · Read | ⋯; date and subject stay visible. RB2 buttons with words on the last line while hovered.
+  RB3 a slim column always on the right (3 buttons + ⋯).
+- **#28 B6 fix.** Settings → Signatures shows a preview; "Edit signature…" opens `SignatureEditorWindow` (a normal WebView2, like
+  compose; plain-text box if WebView2 can't start). "Get my Gmail signature" (Google sign-in accounts) reads Gmail's sendAs
+  settings (`GmailSignature`); needs the Gmail API on in the Google Cloud project, and says so if it's off.
+- **#29** Settings → Notifications → "Send a test notification": a sample balloon (+ sound if on), from the page's switches.
 
