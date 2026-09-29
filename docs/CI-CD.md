@@ -33,6 +33,7 @@ e.g. `v2.0.1-…`, confuses "Latest"; Magpie's updater skips releases without `M
 | `.github/workflows/build.yml` | CI for every PR and push; test version for a PR with a new version; release on `main` when the version has none yet |
 | `build/release_prep.py` | `apply` (set a version everywhere), `check`, `notes`, `zip` (design Z1), `numeric`, `closes` |
 | `build/test_release_prep.py` | Its tests (run in CI) |
+| `.github/workflows/remove-release.yml` | Run by hand: removes one release and its tag (e.g. one made by mistake); refuses the newest real release |
 
 ## Release zip (design Z1)
 
