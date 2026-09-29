@@ -68,6 +68,7 @@ public partial class ThreadViewModel : ObservableObject
         var repliesVisible = _e.Ai.IsVisible(AiFeature.Replies);
         if (!repliesVisible) { Replies.Clear(); ShowReplies = false; }
         else if (HasThread && !ShowReplies) UpdateRepliesBar();
+        UpdateQuickReplies();
         if (!_e.Ai.IsVisible(AiFeature.Summarise)) { SummaryVisible = false; _aiCts?.Cancel(); }
         OnPropertyChanged(nameof(ProviderLabel));
     }
@@ -81,6 +82,7 @@ public partial class ThreadViewModel : ObservableObject
         Replies.Clear();
         SummaryVisible = false;
         ShowReplies = false;
+        ShowQuickReplies = false;
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
@@ -547,8 +549,44 @@ public partial class ThreadViewModel : ObservableObject
 
     // ───────────────────────── AI: suggested replies (Option C) ─────────────────────────
 
+    // ───────────────────────── quick replies (design B6) ─────────────────────────
+
+    public ObservableCollection<string> QuickReplies { get; } = new();
+    [ObservableProperty] private bool _showQuickReplies;
+    private bool _quickSending;
+
+    private void UpdateQuickReplies()
+    {
+        var list = _e.Config.QuickReplies;
+        if (!QuickReplies.SequenceEqual(list)) { QuickReplies.Clear(); foreach (var q in list) QuickReplies.Add(q); }
+        ShowQuickReplies = HasThread && QuickReplies.Count > 0 && Messages.Count > 0 && !IsMine(Messages[^1]) && Messages[^1].Category == Category.People;
+    }
+
+    /// <summary>One click sends the reply to the newest message from the thread, through the outbox (Undo in the toast).</summary>
+    [RelayCommand]
+    private async Task SendQuickReply(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _quickSending || Messages.Count == 0) return;
+        var original = Messages[^1];
+        if (IsMine(original)) return;
+        _quickSending = true;
+        try
+        {
+            var id = await _e.QuickReplyAsync(original, text);
+            if (System.Windows.Application.Current.MainWindow?.DataContext is MainViewModel vm)
+                vm.ShowUndo(id, _e.Config.UndoSendSeconds, Threading.ReplySubject(original.Subject));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("quick reply", ex);
+            Ui.Error("Quick reply", Connector.Friendly(ex));
+        }
+        finally { _quickSending = false; }
+    }
+
     private void UpdateRepliesBar()
     {
+        UpdateQuickReplies();
         var visible = HasThread && _e.Ai.IsVisible(AiFeature.Replies) && Messages.Count > 0 && !IsMine(Messages[^1])
                       && Messages[^1].Category == Category.People;
         ShowReplies = visible;

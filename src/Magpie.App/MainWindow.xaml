@@ -745,8 +745,29 @@
                     </Border>
                 </Grid>
 
+                <StackPanel Grid.Row="5">
+                <!-- Quick replies (design B6): one click sends, with the normal Undo -->
+                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,8"
+                        Visibility="{Binding ShowQuickReplies, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="Quick reply" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <ItemsControl ItemsSource="{Binding QuickReplies}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource Button.QuickChip}" Margin="0,2,8,2" MaxWidth="300" ToolTip="Send this reply now (you can Undo for a few seconds)"
+                                            Command="{Binding DataContext.Reader.SendQuickReplyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
+                                        <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </Border>
                 <!-- Suggested replies (C5): only when that switch is on -->
-                <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource Brush.Ai.Tint}"
+                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource Brush.Ai.Tint}"
                         Visibility="{Binding ShowReplies, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
@@ -776,6 +797,7 @@
                         </WrapPanel>
                     </DockPanel>
                 </Border>
+                </StackPanel>
             </Grid>
         </Grid>
 

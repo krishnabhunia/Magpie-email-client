@@ -106,7 +106,7 @@ public static class Composer
     {
         var d = new Draft { AccountId = account.Id, Mode = mode, ThreadKey = original.ThreadKey };
         var isMine = myAddresses.Contains(original.FromAddress, StringComparer.OrdinalIgnoreCase);
-        var sig = SignatureHtml(account.Signature);
+        var sig = SignatureHtml(account, reply: true);
         if (mode is ComposeMode.Reply or ComposeMode.ReplyAll)
         {
             (d.To, d.Cc) = ReplyRecipients(original, mode == ComposeMode.ReplyAll, myAddresses, isMine);
@@ -129,9 +129,39 @@ public static class Composer
         return d;
     }
 
-    public static string SignatureHtml(string signature) =>
+    /// <summary>The account's signature block (design B6), or "" when it has none or it is switched off for this kind of message.</summary>
+    public static string SignatureHtml(Account? account, bool reply)
+    {
+        if (account == null || (reply ? !account.SignatureOnReplies : !account.SignatureOnNew)) return "";
+        var html = account.SignatureHtml;
+        if (string.IsNullOrWhiteSpace(html) && !string.IsNullOrWhiteSpace(account.Signature)) html = LegacySignatureHtml(account.Signature);
+        if (string.IsNullOrWhiteSpace(MimeText.HtmlToText(html)) && !html.Contains("<img", StringComparison.OrdinalIgnoreCase)) return "";
+        var clean = HtmlRenderer.SanitizeBody(html, new Dictionary<string, string>(), allowRemote: true).html;
+        return "<div class=\"magpie-signature\"><br>" + clean + "</div>";
+    }
+
+    /// <summary>A 1.1.x plain-text signature as the HTML it used to produce ("-- " line, then the text).</summary>
+    public static string LegacySignatureHtml(string signature) =>
         string.IsNullOrWhiteSpace(signature) ? "" :
-        "<div class=\"magpie-signature\"><br>-- <br>" + WebUtility.HtmlEncode(signature.Trim()).Replace("\r\n", "\n").Replace("\n", "<br>") + "</div>";
+        "-- <br>" + WebUtility.HtmlEncode(signature.Trim()).Replace("\r\n", "\n").Replace("\n", "<br>");
+
+    /// <summary>Plain text as HTML paragraphs (blank line = new paragraph).</summary>
+    public static string TextToParagraphs(string text)
+    {
+        var sb = new StringBuilder();
+        foreach (var para in text.Replace("\r\n", "\n").Split("\n\n"))
+            sb.Append("<p>").Append(WebUtility.HtmlEncode(para.Trim()).Replace("\n", "<br>")).Append("</p>");
+        return sb.ToString();
+    }
+
+    /// <summary>A quick reply (design B6): the reply draft with <paramref name="text"/> as its message, above the signature and quote.</summary>
+    public static Draft QuickReply(Account account, MessageRow original, MessageBody? body, IReadOnlyCollection<string> myAddresses, string text)
+    {
+        var d = Prepare(ComposeMode.Reply, account, original, body, myAddresses, null);
+        const string empty = "<p><br></p>";
+        d.Html = TextToParagraphs(text) + (d.Html.StartsWith(empty, StringComparison.Ordinal) ? d.Html[empty.Length..] : d.Html);
+        return d;
+    }
 
     private static string BodyForQuote(MessageBody? body)
     {

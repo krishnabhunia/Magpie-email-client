@@ -14,7 +14,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Approved | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
 | 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
 | 10 | Rules / filters | B5 | Built — not yet tried on Windows | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
-| 11 | Signatures per account + quick replies | B6 | Approved | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
+| 11 | Signatures per account + quick replies | B6 | Built — not yet tried on Windows | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
 | 12 | Gatekeeper + Set aside (key L) | B7 | Built — not yet tried on Windows; set aside / gate are kept on this PC (not synced to phone) | [#8](https://github.com/krishnabhunia/Magpie-email-client/issues/8) |
 | 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Approved | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
 | 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Approved | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |

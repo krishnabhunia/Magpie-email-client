@@ -1,6 +1,7 @@
 <Window x:Class="Magpie.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
@@ -69,6 +70,10 @@
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Rules"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Rules}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="rules" Size="24" Margin="0,0,10,0" /><TextBlock Text="Rules" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsRules, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsRules}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Signatures"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Signatures}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="signature" Size="24" Margin="0,0,10,0" /><TextBlock Text="Signatures &amp; replies" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsSignatures, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsSignatures}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
@@ -311,9 +316,9 @@
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
-                                                <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,8,0,0" />
-                                                <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding Signature, UpdateSourceTrigger=PropertyChanged}"
-                                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" VerticalContentAlignment="Top" Margin="0,0,0,8" />
+                                                <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,0,8" />
+                                                <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource Button.Link}" Content="Edit in Signatures &amp; replies →" HorizontalAlignment="Left" Padding="0,2" Margin="0,0,0,8"
+                                                        Command="{Binding DataContext.GoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Signatures" />
                                                 <TextBlock Grid.Row="2" Text="Colour" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <ComboBox Grid.Row="2" Grid.Column="1" Width="140" HorizontalAlignment="Left" SelectedItem="{Binding Color, Mode=TwoWay}" Margin="0,0,0,8"
                                                           ItemsSource="{Binding DataContext.ColorChoices, RelativeSource={RelativeSource AncestorType=Window}}">
@@ -725,6 +730,94 @@
                         </Grid>
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,14,0,0"
                                    Text="Body looks at the start of each message — the part Magpie gets with new mail — and the whole text of messages you've opened." />
+                    </StackPanel>
+
+                    <!-- ═══════════ Signatures & replies (design B6) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Signatures}">
+                        <TextBlock Text="Signatures &amp; replies" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="A signature for each account, and short replies you can send with one click." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
+
+                        <TextBlock Text="SIGNATURES" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
+                        <Border x:Name="RowSignatures" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ItemsControl ItemsSource="{Binding Accounts}" Focusable="False" Margin="0,0,0,10">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableAccount}">
+                                            <RadioButton Style="{StaticResource Button.Chip}" GroupName="SigAccount" Content="{Binding Email}" Margin="0,0,6,6" FontSize="12.5" Padding="12,4"
+                                                         IsChecked="{Binding IsSignatureSelected, Mode=OneWay}"
+                                                         Command="{Binding DataContext.PickSignatureAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Add an account first." Style="{StaticResource Text.Caption}" Visibility="{Binding Accounts.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+
+                                <StackPanel Visibility="{Binding SignatureAccount, Converter={StaticResource BoolToVis}}">
+                                    <!-- Toolbar: B / I / U / Link / Picture / Font / Colour -->
+                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="6,4" Background="{DynamicResource Brush.Header.Background}">
+                                        <WrapPanel>
+                                            <Button Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnSigFormat" ToolTip="Bold (Ctrl+B)" />
+                                            <Button Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnSigFormat" ToolTip="Italic (Ctrl+I)" />
+                                            <Button Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnSigFormat" ToolTip="Underline (Ctrl+U)">
+                                                <TextBlock Text="U" TextDecorations="Underline" FontFamily="Segoe UI" />
+                                            </Button>
+                                            <Button Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnSigLink" ToolTip="Add a link (Ctrl+K)" />
+                                            <Button Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnSigImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
+                                            <ComboBox x:Name="SigFont" Width="140" Margin="6,0,0,0" ItemsSource="{Binding SignatureFonts}" SelectionChanged="OnSigFont" ToolTip="Font" AutomationProperties.Name="Font" />
+                                            <ItemsControl ItemsSource="{Binding SignatureColours}" Margin="8,0,0,0" VerticalAlignment="Center" Focusable="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Width="18" Height="18" Margin="2,0" Tag="{Binding}" Click="OnSigColour" ToolTip="Text colour" Cursor="Hand" Background="{Binding Converter={StaticResource HexBrush}}" BorderThickness="0">
+                                                            <Button.Template>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <Border Background="{TemplateBinding Background}" CornerRadius="9" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" />
+                                                                </ControlTemplate>
+                                                            </Button.Template>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </WrapPanel>
+                                    </Border>
+                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8" Height="150" ClipToBounds="True">
+                                        <Grid>
+                                            <wv2:WebView2 x:Name="SigEditor" />
+                                            <TextBox x:Name="SigPlain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8"
+                                                     Text="{Binding SignatureAccount.SignaturePlain, UpdateSourceTrigger=PropertyChanged}" />
+                                        </Grid>
+                                    </Border>
+                                    <CheckBox Content="Add to new messages" IsChecked="{Binding SignatureAccount.SignatureOnNew, Mode=TwoWay}" Margin="0,12,0,4" />
+                                    <CheckBox Content="Add to replies and forwards (above the quoted text)" IsChecked="{Binding SignatureAccount.SignatureOnReplies, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                               Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Changes apply when you press Save." />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="QUICK REPLIES" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowQuickReplies" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Text="They show under a conversation. One click sends the reply straight away — with the usual Undo." />
+                                <ItemsControl ItemsSource="{Binding QuickReplyList}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableQuickReply}">
+                                            <DockPanel Margin="0,0,0,6">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove" Margin="6,0,0,0"
+                                                        Command="{Binding DataContext.RemoveQuickReplyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Quick reply" />
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Style="{StaticResource Button.Secondary}" Content="Add quick reply" HorizontalAlignment="Left" FontWeight="Normal" Margin="0,4,0,0" Command="{Binding AddQuickReplyCommand}" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">

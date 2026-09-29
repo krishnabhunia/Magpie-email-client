@@ -384,6 +384,17 @@ public sealed class MailEngine : IDisposable
         Changed?.Invoke(cs);
     }
 
+    // ───────────────────────── quick replies (design B6) ─────────────────────────
+
+    /// <summary>Sends a quick reply to <paramref name="original"/> through the outbox (so Undo works). Returns the outbox id.</summary>
+    public async Task<long> QuickReplyAsync(MessageRow original, string text, CancellationToken ct = default)
+    {
+        var account = AccountById(original.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
+        var (body, _) = await LoadAsync(original, false, ct);
+        var d = Composer.QuickReply(account, original, body, MyAddresses, text);
+        return QueueSend(d, DateTimeOffset.Now.AddSeconds(Config.UndoSendSeconds), null);
+    }
+
     // ───────────────────────── rules (design B5) ─────────────────────────
 
     /// <summary>

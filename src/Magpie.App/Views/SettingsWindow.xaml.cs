@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Magpie.App.Services;
 using Magpie.App.ViewModels;
+using Magpie.Core;
 
 namespace Magpie.App.Views;
 
@@ -37,6 +38,9 @@ public partial class SettingsWindow : Window
         _vm.ApiKeyChanged = false;
         _vm.Saved += Close;
         _vm.HighlightRequested += Highlight;
+        _vm.SignatureAccountChanged += a => _ = LoadSignatureAsync(a);
+        _vm.PropertyChanged += (_, a) => { if (a.PropertyName == nameof(SettingsViewModel.Page) && _vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
+        Loaded += (_, _) => { if (_vm.Page == "Signatures") _ = StartSignatureEditorAsync(); };
         PreviewKeyDown += (_, e) =>
         {
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
@@ -103,7 +107,130 @@ public partial class SettingsWindow : Window
         _vm.ApiKeyChanged = true;
     }
 
-    private void OnSave(object sender, RoutedEventArgs e) => _vm.SaveCommand.Execute(null);
+    private async void OnSave(object sender, RoutedEventArgs e)
+    {
+        // The signature editor reports edits a moment later; take its latest text before saving.
+        if (_sigReady)
+        {
+            try
+            {
+                var json = await SigEditor.CoreWebView2.ExecuteScriptAsync("getHtml()");
+                _vm.SetSignatureHtml(System.Text.Json.JsonSerializer.Deserialize<string>(json) ?? "");
+            }
+            catch (Exception ex) { Log.Warn("signature editor: " + ex.Message); }
+        }
+        _vm.SaveCommand.Execute(null);
+    }
+
+    // ───────────────────────── signature editor (design B6) ─────────────────────────
+
+    private bool _sigStarted, _sigReady;
+
+    private async Task StartSignatureEditorAsync()
+    {
+        if (_sigStarted) return;
+        _sigStarted = true;
+        try
+        {
+            if (!await WebHost.InitAsync(SigEditor, scripts: true)) { UsePlainSignature(); return; }
+            SigEditor.DefaultBackgroundColor = ThemeManager.IsDark ? System.Drawing.Color.FromArgb(255, 0x1E, 0x23, 0x28) : System.Drawing.Color.White;
+            SigEditor.AllowExternalDrop = false;
+            var core = SigEditor.CoreWebView2;
+            core.NavigationStarting += (_, e) => { if (!WebHost.IsOwnPage(e.Uri)) e.Cancel = true; };
+            core.NewWindowRequested += (_, e) => e.Handled = true;
+            core.WebMessageReceived += OnSignatureMessage;
+            core.Navigate(WebHost.Publish(SignatureEditorPage.Html, "signature"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("signature editor", ex);
+            UsePlainSignature();
+        }
+    }
+
+    private void UsePlainSignature()
+    {
+        SigEditor.Visibility = Visibility.Collapsed;
+        SigPlain.Visibility = Visibility.Visible;
+    }
+
+    private async void OnSignatureMessage(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(e.TryGetWebMessageAsString());
+            var root = doc.RootElement;
+            switch (root.GetProperty("t").GetString())
+            {
+                case "ready":
+                    await SigEditor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
+                    _sigReady = true;
+                    await LoadSignatureAsync(_vm.SignatureAccount);
+                    break;
+                case "change":
+                    _vm.SetSignatureHtml(root.GetProperty("html").GetString() ?? "");
+                    break;
+                case "link":
+                    OnSigLink(this, new RoutedEventArgs());
+                    break;
+            }
+        }
+        catch (Exception ex) { Log.Warn("signature editor message: " + ex.Message); }
+    }
+
+    private async Task LoadSignatureAsync(EditableAccount? a)
+    {
+        if (!_sigReady) return;
+        await SigEditor.CoreWebView2.ExecuteScriptAsync($"setHtml({System.Text.Json.JsonSerializer.Serialize(a?.SignatureHtml ?? "")})");
+    }
+
+    private Task SigExec(string command, string? value = null)
+    {
+        if (!_sigReady) return Task.CompletedTask;
+        var arg = value == null ? "" : ", " + System.Text.Json.JsonSerializer.Serialize(value);
+        return SigEditor.CoreWebView2.ExecuteScriptAsync($"fmt({System.Text.Json.JsonSerializer.Serialize(command)}{arg})");
+    }
+
+    private void OnSigFormat(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string cmd }) _ = SigExec(cmd);
+    }
+
+    private void OnSigFont(object sender, SelectionChangedEventArgs e)
+    {
+        if (SigFont.SelectedItem is string font) _ = SigExec("fontName", font);
+    }
+
+    private void OnSigColour(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string hex }) _ = SigExec("foreColor", hex);
+    }
+
+    private void OnSigLink(object sender, RoutedEventArgs e)
+    {
+        var url = TextPromptDialog.Ask(this, "Add a link", "Web address, or an email address", "https://");
+        if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
+        if (url.Contains('@') && !url.Contains("://") && !url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) url = "mailto:" + url;
+        else if (!url.Contains("://") && !url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) url = "https://" + url;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "mailto")) { Ui.Error("Add a link", "That doesn't look like a web or email address."); return; }
+        _ = SigExec("createLink", u.ToString());
+    }
+
+    private void OnSigImage(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Add a picture", Filter = "Pictures|*.png;*.jpg;*.jpeg;*.gif|All files|*.*" };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            var info = new FileInfo(dlg.FileName);
+            if (info.Length > 1024 * 1024) { Ui.Error("Add a picture", "That picture is over 1 MB. A logo for a signature is best kept under 100 KB — it goes out with every email."); return; }
+            var type = Path.GetExtension(dlg.FileName).ToLowerInvariant() switch { ".png" => "image/png", ".gif" => "image/gif", ".jpg" or ".jpeg" => "image/jpeg", _ => "" };
+            if (type.Length == 0) { Ui.Error("Add a picture", "Use a PNG, JPG or GIF picture."); return; }
+            var data = "data:" + type + ";base64," + Convert.ToBase64String(File.ReadAllBytes(dlg.FileName));
+            if (_sigReady) _ = SigEditor.CoreWebView2.ExecuteScriptAsync($"insertImage({System.Text.Json.JsonSerializer.Serialize(data)})");
+        }
+        catch (Exception ex) { Ui.Error("Add a picture", ex.Message); }
+    }
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
 
     private void OnAddAccount(object sender, RoutedEventArgs e)

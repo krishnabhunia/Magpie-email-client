@@ -5,7 +5,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>1.2.0: dark theme (B1), rules (B5), Gatekeeper + set aside (B7).</summary>
+/// <summary>1.2.0: dark theme (B1), rules (B5), signatures + quick replies (B6), Gatekeeper + set aside (B7).</summary>
 public class Release120Tests
 {
     // ───────────── B1 dark theme ─────────────
@@ -336,6 +336,82 @@ public class Release120Tests
         Assert.Empty(s.Gatekeeper.Allowed);                                                    // blocked wins
         Assert.Equal(new[] { "x@y.com" }, s.Gatekeeper.Blocked);
         Assert.False(new AppSettings().Gatekeeper.Enabled);
+    }
+
+    // ───────────── B6 signatures + quick replies ─────────────
+
+    [Fact]
+    public void Plain_signature_moves_to_the_rich_one_once_and_each_switch_is_honoured()
+    {
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"Accounts":[{"Id":"a","Email":"k@x.com","Signature":"Krishna\nMagpie & co"}]}""", AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        var a = s.Accounts[0];
+        Assert.Equal("-- <br>Krishna<br>Magpie &amp; co", a.SignatureHtml);
+        Assert.True(a.SignatureOnNew);
+        Assert.True(a.SignatureOnReplies);
+        var block = Composer.SignatureHtml(a, reply: false);
+        Assert.StartsWith("<div class=\"magpie-signature\">", block);
+        Assert.Contains("Krishna<br>Magpie &amp; co", block);
+
+        a.SignatureOnNew = false;
+        Assert.Equal("", Composer.SignatureHtml(a, reply: false));
+        Assert.NotEqual("", Composer.SignatureHtml(a, reply: true));
+        a.SignatureOnReplies = false;
+        Assert.Equal("", Composer.SignatureHtml(a, reply: true));
+
+        // Rich signature: scripts are removed, a pasted logo (data: URI) stays and is sent embedded (cid).
+        var rich = new Account { Id = "b", Email = "k@x.com", SignatureHtml = "<b>Krishna</b><script>alert(1)</script><img src=\"data:image/png;base64,iVBORw0KGgo=\">" };
+        var sig = Composer.SignatureHtml(rich, reply: false);
+        Assert.DoesNotContain("<script", sig);
+        Assert.Contains("data:image/png", sig);
+        var msg = Composer.Build(new Draft { AccountId = "b", To = "x@y.com", Subject = "Hi", Html = "<p>Hello</p>" + sig }, rich);
+        var html = msg.HtmlBody;
+        Assert.Contains("cid:", html);
+        Assert.DoesNotContain("data:image/png", html);
+        Assert.Contains(msg.BodyParts, p => !string.IsNullOrEmpty(p.ContentId));
+
+        // An empty rich signature adds nothing (and doesn't come back from the old text once cleared).
+        Assert.Equal("", Composer.SignatureHtml(new Account { SignatureHtml = "<p><br></p>" }, reply: false));
+        var cleared = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"Accounts":[{"Id":"a","Signature":"","SignatureHtml":""}]}""", AppSettings.Json)!;
+        SettingsStore.Normalise(cleared);
+        Assert.Equal("", cleared.Accounts[0].SignatureHtml);
+    }
+
+    [Fact]
+    public void Quick_replies_default_normalise_and_build_a_reply_above_signature_and_quote()
+    {
+        Assert.Equal(new[] { "Thanks!", "Got it, will do.", "Sounds good to me." }, new AppSettings().QuickReplies);
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"QuickReplies":["  Thanks! ","", null,"Thanks!","On it"]}""", AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        Assert.Equal(new[] { "Thanks!", "On it" }, s.QuickReplies);
+
+        var acc = new Account { Id = "A", Email = "me@test.local", SignatureHtml = "Krishna" };
+        var o = Rows.Make("A", 1, "t", from: "asha@x.com", subject: "Lunch?");
+        o.MessageId = "m1@x.com";
+        var d = Composer.QuickReply(acc, o, new MessageBody { Html = "<p>Free at 1?</p>" }, new[] { "me@test.local" }, "Sounds good to me.");
+        Assert.StartsWith("<p>Sounds good to me.</p><div class=\"magpie-signature\">", d.Html);
+        Assert.Contains("Free at 1?", d.Html);
+        Assert.Contains("asha@x.com", d.To);
+        Assert.Equal("Re: Lunch?", d.Subject);
+        Assert.Equal("<m1@x.com>", d.InReplyTo);
+    }
+
+    [Fact]
+    public async Task Quick_reply_goes_through_the_outbox_with_the_undo_window()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        e.Config.UndoSendSeconds = 10;
+        var row = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "asha@x.com", subject: "Lunch?") })[0];
+        e.Store.SaveBody(row.Id, new MessageBody { Html = "<p>Free at 1?</p>", Text = "Free at 1?" });
+        var before = DateTimeOffset.Now;
+        var id = await e.QuickReplyAsync(e.Store.GetMessage(row.Id)!, "Thanks!");
+        var item = Assert.Single(e.Outbox());
+        Assert.Equal(id, item.Id);
+        Assert.Equal("Re: Lunch?", item.Subject);
+        Assert.InRange(item.SendAt, before.AddSeconds(9), DateTimeOffset.Now.AddSeconds(11));   // Undo still possible
+        Assert.NotNull(e.Recall(id));                                                                 // and it works
+        Assert.DoesNotContain(e.Outbox(), o => o.Status == OutboxStatus.Queued);
     }
 
     private static int Count(string s, string what)

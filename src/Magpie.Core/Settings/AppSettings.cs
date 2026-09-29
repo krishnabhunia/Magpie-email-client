@@ -289,6 +289,9 @@ public sealed class AppSettings
         new() { Name = "Work", Color = "#14606E" },
     };
 
+    /// <summary>Quick replies (design B6): one click under a conversation sends one, with the normal Undo window.</summary>
+    public List<string> QuickReplies { get; set; } = new() { "Thanks!", "Got it, will do.", "Sounds good to me." };
+
     public List<QuickTemplate> Templates { get; set; } = new()
     {
         new() { Name = "Thanks, received", Body = "Thanks — received. I'll get back to you shortly." },
@@ -360,6 +363,14 @@ public sealed class SettingsStore
         s.Ai.Consents ??= new();
         s.Tags ??= new();
         s.Templates ??= new();
+        s.QuickReplies = (s.QuickReplies ?? new()).Where(q => !string.IsNullOrWhiteSpace(q)).Select(q => q.Trim()).Distinct().ToList();
+        foreach (var a in s.Accounts.Where(a => a != null))
+        {
+            a.Signature ??= "";
+            a.SignatureHtml ??= "";
+            // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
+            if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
+        }
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         s.Sidebar ??= new();

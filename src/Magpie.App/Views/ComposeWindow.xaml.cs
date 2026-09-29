@@ -81,7 +81,7 @@ public partial class ComposeWindow : Window
         };
         var body = query["body"];
         d.Html = (string.IsNullOrEmpty(body) ? "<p><br></p>" : ComposeViewModel.TextToParagraphs(body))
-                 + Composer.SignatureHtml(e.AccountById(d.AccountId)?.Signature ?? "");
+                 + Composer.SignatureHtml(e.AccountById(d.AccountId), reply: false);
         Show(d, null);
     }
 
