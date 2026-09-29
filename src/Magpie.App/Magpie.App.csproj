@@ -2,7 +2,10 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Windows 10 SDK target: the signature editor's WebView2CompositionControl needs the Windows runtime
+         projection (Microsoft.Windows.SDK.NET, WinRT.Runtime); without it Settings crashed on open. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <!-- Windows Forms only for NotifyIcon (tray icon + balloon notifications). -->
     <UseWindowsForms>true</UseWindowsForms>

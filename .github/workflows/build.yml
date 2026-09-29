@@ -67,9 +67,15 @@ jobs:
           PYTHONUTF8: "1"
         shell: pwsh
         run: |
-          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows/win-x64/Magpie.dll
+          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
           python build/xaml_check.py --dps build/app-types.json
           if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
+
+      - name: Every referenced assembly is in the build (blocking)
+        shell: pwsh
+        run: |
+          dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
+          if ($LASTEXITCODE -ne 0) { throw "A referenced assembly is missing from the build: the app would crash on Windows" }
 
       - name: Publish single-file EXE
         run: dotnet publish src/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ steps.ver.outputs.version }}

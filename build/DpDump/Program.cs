@@ -4,6 +4,9 @@
 // Usage:
 //   dotnet run --project build/DpDump -- <out.json> [extra.dll ...]
 //        [--wpf-ref <dir>] [--netcore-ref <dir>]
+//   dotnet run --project build/DpDump -- --check-refs <app build folder>
+//        -> fails when an assembly in the (self-contained) build folder references one that isn't there
+//           (the 1.2.0 Settings crash: Microsoft.Windows.SDK.NET missing, found only at run time on Windows)
 //
 // Defaults: WPF refs from ~/.nuget/packages/microsoft.windowsdesktop.app.ref/<newest 8.x>/ref/net8.0,
 // netcore refs from <dotnet root>/packs/Microsoft.NETCore.App.Ref/<newest 8.x>/ref/net8.0.
@@ -20,6 +23,36 @@ static string? NewestRefDir(string root)
         .OrderByDescending(d => Version.TryParse(Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(d))!), out var v) ? v : new Version(0, 0))
         .FirstOrDefault();
 }
+
+static int CheckRefs(string dir)
+{
+    var files = Directory.GetFiles(dir, "*.dll").Concat(Directory.GetFiles(dir, "*.exe"));
+    var present = new HashSet<string>(files.Select(f => Path.GetFileNameWithoutExtension(f)), StringComparer.OrdinalIgnoreCase);
+    int managed = 0, problems = 0;
+    foreach (var f in files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+    {
+        using var fs = File.OpenRead(f);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(fs);
+        if (!pe.HasMetadata) continue;                       // native DLL or apphost
+        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+        if (!md.IsAssembly) continue;
+        managed++;
+        // .NET Framework compatibility facades (System.dll, System.Data.dll, …) only forward types, some of them to
+        // optional packages the app doesn't use; nothing loads those unless code asks for such a type.
+        if (md.TypeDefinitions.Count <= 1 && md.ExportedTypes.Count > 0) continue;
+        foreach (var h in md.AssemblyReferences)
+        {
+            var name = md.GetString(md.GetAssemblyReference(h).Name);
+            if (present.Contains(name)) continue;
+            Console.Error.WriteLine($"check-refs: {Path.GetFileName(f)} needs {name}, which is not in the build output");
+            problems++;
+        }
+    }
+    Console.WriteLine($"check-refs: {managed} assemblies checked, {problems} missing reference(s)");
+    return problems == 0 ? 0 : 1;
+}
+
+if (args.Length == 2 && args[0] == "--check-refs") return CheckRefs(args[1]);
 
 string? outPath = null, wpfRef = null, coreRef = null;
 var extras = new List<string>();

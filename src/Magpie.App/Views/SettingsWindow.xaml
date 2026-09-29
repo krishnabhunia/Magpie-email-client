@@ -1,7 +1,6 @@
 <Window x:Class="Magpie.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
@@ -847,8 +846,9 @@
                                     </Border>
                                     <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8" Height="150" ClipToBounds="True">
                                         <Grid>
-                                            <!-- Composition control: draws through WPF, so it scrolls with the page (a plain WebView2 would float over it) -->
-                                            <wv2:WebView2CompositionControl x:Name="SigEditor" />
+                                            <!-- The editor (a WebView2CompositionControl, which draws through WPF so it scrolls with the page) is created
+                                                 in code only when this section is opened and Windows supports it; otherwise SigPlain is used. -->
+                                            <ContentControl x:Name="SigHost" Focusable="False" />
                                             <TextBox x:Name="SigPlain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8"
                                                      Text="{Binding SignatureAccount.SignaturePlain, UpdateSourceTrigger=PropertyChanged}" />
                                         </Grid>

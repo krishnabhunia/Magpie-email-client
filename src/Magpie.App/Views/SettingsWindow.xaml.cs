@@ -4,6 +4,7 @@ using System.Windows.Input;
 using Magpie.App.Services;
 using Magpie.App.ViewModels;
 using Magpie.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace Magpie.App.Views;
 
@@ -128,6 +129,7 @@ public partial class SettingsWindow : Window
     // ───────────────────────── signature editor (design B6) ─────────────────────────
 
     private bool _sigStarted, _sigReady;
+    private WebView2CompositionControl SigEditor = null!;   // created by StartSignatureEditorAsync; used only once _sigReady
 
     private async Task StartSignatureEditorAsync()
     {
@@ -135,6 +137,11 @@ public partial class SettingsWindow : Window
         _sigStarted = true;
         try
         {
+            // The composition control needs Windows screen capture (Windows 10 1903+, a working graphics driver).
+            // Without it the control throws while being laid out, which used to break the whole Settings window.
+            if (!CompositionEditorSupported()) { Log.Info("signature editor: rich editor not supported here, using plain text"); UsePlainSignature(); return; }
+            SigEditor = new WebView2CompositionControl();
+            SigHost.Content = SigEditor;
             if (!await WebHost.InitAsync(SigEditor, scripts: true)) { UsePlainSignature(); return; }
             SigEditor.DefaultBackgroundColor = ThemeManager.IsDark ? System.Drawing.Color.FromArgb(255, 0x1E, 0x23, 0x28) : System.Drawing.Color.White;
             SigEditor.AllowExternalDrop = false;
@@ -153,9 +160,20 @@ public partial class SettingsWindow : Window
 
     private void UsePlainSignature()
     {
-        SigEditor.Visibility = Visibility.Collapsed;
+        SigHost.Content = null;
+        SigHost.Visibility = Visibility.Collapsed;
         SigPlain.Visibility = Visibility.Visible;
     }
+
+    private static bool CompositionEditorSupported()
+    {
+        try { return CaptureSupported(); }
+        catch (Exception ex) { Log.Warn("signature editor: " + ex.Message); return false; }
+    }
+
+    // Separate method so a missing Windows runtime assembly fails here (inside the try above), not in the caller.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static bool CaptureSupported() => global::Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported();
 
     private async void OnSignatureMessage(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
     {

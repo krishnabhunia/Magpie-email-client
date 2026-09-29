@@ -54,8 +54,10 @@ Linux. Regenerate the file after you change the targeting pack version:
 export PATH=/opt/dotnet:$PATH DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 dotnet run --project build/DpDump -- build/wpf-dps.json
 # optional: include the app's own controls (build the app first), then pass it to the checker
-dotnet run --project build/DpDump -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows/Magpie.App.dll
+dotnet run --project build/DpDump -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
 python3 build/xaml_check.py --dps build/app-types.json
+# every assembly the build references must be in it (a missing one only fails on Windows, at run time)
+dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
 ```
 
 By default the dump uses the newest `microsoft.windowsdesktop.app.ref` package in the NuGet cache
