@@ -5,7 +5,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>1.2.0: dark theme (B1), rules (B5), signatures + quick replies (B6), Gatekeeper + set aside (B7), auto-delete (AD1–AD4).</summary>
+/// <summary>1.2.0: dark theme (B1), invites (B3), rules (B5), signatures + quick replies (B6), Gatekeeper + set aside (B7), auto-delete (AD1–AD4).</summary>
 public class Release120Tests
 {
     // ───────────── B1 dark theme ─────────────
@@ -561,6 +561,118 @@ public class Release120Tests
         e.SaveAutoDeleteRule(rule, startOnExisting: true);
         e.KeepAllDeletingSoon();                                                               // 7 days out → all kept
         Assert.Equal(0, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));
+    }
+
+    // ───────────── B3 meeting invites ─────────────
+
+    private const string GoogleInvite =
+        "BEGIN:VCALENDAR\r\nPRODID:-//Google Inc//Google Calendar 70.9054//EN\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\n" +
+        "BEGIN:VTIMEZONE\r\nTZID:Asia/Kolkata\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\nDTSTART:19700101T000000\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n" +
+        "BEGIN:VEVENT\r\nDTSTART;TZID=Asia/Kolkata:20261006T140000\r\nDTEND;TZID=Asia/Kolkata:20261006T150000\r\n" +
+        "DTSTAMP:20260929T101500Z\r\nORGANIZER;CN=Asha Rao:mailto:asha@x.com\r\nUID:abc123@google.com\r\n" +
+        "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=\r\n TRUE;CN=me@test.local;X-NUM-GUESTS=0:mailto:me@test.local\r\n" +
+        "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Asha Rao:mailto:asha@x.com\r\n" +
+        "X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij\r\nDESCRIPTION:Plan for Q4\\, budget\\nJoin: https://meet.google.com/abc-defg-hij\r\n" +
+        "LOCATION:Room 4\\, 2nd floor\r\nSEQUENCE:2\r\nSTATUS:CONFIRMED\r\nSUMMARY:Quarterly review\r\n" +
+        "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:This is an event reminder\r\nTRIGGER:-P0DT0H10M0S\r\nEND:VALARM\r\n" +
+        "END:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    [Fact]
+    public void Invites_are_parsed_from_google_outlook_and_all_day_calendars()
+    {
+        var inv = Invites.Parse(GoogleInvite)!;
+        Assert.True(inv.IsRequest);
+        Assert.Equal("abc123@google.com", inv.Uid);
+        Assert.Equal(2, inv.Sequence);
+        Assert.Equal("Quarterly review", inv.Summary);                                        // not the VALARM's description
+        Assert.Equal(new DateTimeOffset(2026, 10, 6, 8, 30, 0, TimeSpan.Zero), inv.Start.ToUniversalTime());
+        Assert.Equal(TimeSpan.FromHours(1), inv.End - inv.Start);
+        Assert.Equal("Room 4, 2nd floor", inv.Location);
+        Assert.Equal("https://meet.google.com/abc-defg-hij", inv.MeetLink);
+        Assert.Equal(("Asha Rao", "asha@x.com"), (inv.Organizer!.Name, inv.Organizer.Email));
+        var me = Assert.Single(inv.Attendees, a => a.Email == "me@test.local");                 // folded line joined back
+        Assert.Equal("NEEDS-ACTION", me.PartStat);
+
+        var utc = Invites.Parse("BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:u1\nDTSTART:20261006T090000Z\nDURATION:PT45M\nSUMMARY:Stand-up\nORGANIZER:mailto:boss@work.com\nEND:VEVENT\nEND:VCALENDAR")!;
+        Assert.Equal(new DateTimeOffset(2026, 10, 6, 9, 0, 0, TimeSpan.Zero), utc.Start);
+        Assert.Equal(TimeSpan.FromMinutes(45), utc.End - utc.Start);
+        var allDay = Invites.Parse("BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:u2\nDTSTART;VALUE=DATE:20261010\nSUMMARY:Offsite\nEND:VEVENT\nEND:VCALENDAR")!;
+        Assert.True(allDay.AllDay);
+        Assert.True(allDay.IsCancel);
+        Assert.Equal(TimeSpan.FromDays(1), allDay.End - allDay.Start);
+        Assert.EndsWith("all day", Invites.WhenText(allDay));
+        Assert.Null(Invites.Parse("BEGIN:VCALENDAR\nEND:VCALENDAR"));
+        Assert.Null(Invites.Parse(""));
+    }
+
+    [Fact]
+    public void Reply_is_an_itip_reply_with_the_answer_and_folded_lines()
+    {
+        var inv = Invites.Parse(GoogleInvite)!;
+        var ics = Invites.BuildReply(inv, "me@test.local", "Krishna Dipayan Bhunia", InviteAnswer.Accepted, "Will join from the car, might be 5 minutes late because of traffic on the way", DateTimeOffset.Now);
+        Assert.Contains("METHOD:REPLY\r\n", ics);
+        Assert.Contains("UID:abc123@google.com\r\n", ics);
+        Assert.Contains("SEQUENCE:2\r\n", ics);
+        Assert.Contains("DTSTART;TZID=Asia/Kolkata:20261006T140000\r\n", ics);
+        Assert.Contains("ORGANIZER;CN=Asha Rao:mailto:asha@x.com\r\n", ics);
+        var unfolded = ics.Replace("\r\n ", "");
+        Assert.Contains("ATTENDEE;PARTSTAT=ACCEPTED;CN=\"Krishna Dipayan Bhunia\":mailto:me@test.local", unfolded);
+        Assert.Contains("COMMENT:Will join from the car\\, might be 5 minutes late", unfolded);
+        Assert.All(ics.Split("\r\n"), l => Assert.True(System.Text.Encoding.UTF8.GetByteCount(l) <= 75, l));
+        Assert.Equal("Declined: Quarterly review", Invites.SubjectFor(InviteAnswer.Declined, inv.Summary));
+        Assert.Equal(inv.Uid, Invites.Parse(ics)!.Uid);                                       // our own reply reads back
+    }
+
+    [Fact]
+    public void Calendar_part_is_kept_with_the_body()
+    {
+        var msg = new MimeKit.MimeMessage();
+        var cal = new MimeKit.TextPart("calendar") { Text = GoogleInvite };
+        cal.ContentType.Parameters.Add("method", "REQUEST");
+        msg.Body = new MimeKit.Multipart("alternative") { new MimeKit.TextPart("plain") { Text = "You're invited" }, cal };
+        var body = MimeText.Extract(msg);
+        Assert.Contains("UID:abc123@google.com", body.Calendar);
+
+        using var dir = new TempDir();
+        var (s, inbox, _) = Rows.NewStore(dir);
+        var row = s.InsertMessages(new[] { Rows.Make("A", inbox, "t") })[0];
+        s.SaveBody(row.Id, body);
+        Assert.Equal(body.Calendar, s.GetBody(row.Id)!.Calendar);
+    }
+
+    [Fact]
+    public void Answering_an_invite_sends_the_reply_remembers_it_and_undo_takes_it_back()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        e.Config.UndoSendSeconds = 10;
+        var row = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "asha@x.com", subject: "Invitation: Quarterly review") })[0];
+        var inv = Invites.Parse(GoogleInvite)!;
+
+        var (id, before) = e.AnswerInvite(row, inv, InviteAnswer.Tentative, null);
+        Assert.Null(before);
+        var item = Assert.Single(e.Outbox());
+        Assert.Equal("Tentative: Quarterly review", item.Subject);
+        var mime = MimeKit.MimeMessage.Load(new MemoryStream(item.Mime));
+        Assert.Equal("asha@x.com", mime.To.Mailboxes.Single().Address);
+        var part = mime.BodyParts.OfType<MimeKit.TextPart>().Single(p => p.ContentType.IsMimeType("text", "calendar"));
+        Assert.Equal("REPLY", part.ContentType.Parameters["method"]);
+        Assert.Contains("PARTSTAT=TENTATIVE", part.Text.Replace("\r\n ", ""));
+        Assert.Equal("TENTATIVE", e.Store.GetEvent("A", inv.Uid)!.Answer);
+
+        Assert.True(e.UndoInviteAnswer(id, "A", inv.Uid, before));
+        Assert.DoesNotContain(e.Outbox(), o => o.Status == OutboxStatus.Queued);
+        Assert.Equal("", e.Store.GetEvent("A", inv.Uid)!.Answer);
+
+        // Accepted events show up as clashes; an update that moves the time asks again; a cancel marks it cancelled.
+        e.AnswerInvite(row, inv, InviteAnswer.Accepted, "See you there");
+        Assert.Single(e.Store.EventsOverlapping(inv.Start.AddMinutes(30), inv.End.AddHours(1), "other"));
+        Assert.Empty(e.Store.EventsOverlapping(inv.End, inv.End.AddHours(1), "other"));
+        var moved = Invites.Parse(GoogleInvite.Replace("SEQUENCE:2", "SEQUENCE:3").Replace("T140000", "T160000"))!;
+        Assert.Equal("UPDATED", e.TrackInvite("A", moved)!.Answer);
+        var cancel = Invites.Parse(GoogleInvite.Replace("METHOD:REQUEST", "METHOD:CANCEL").Replace("SEQUENCE:2", "SEQUENCE:4"))!;
+        Assert.True(e.TrackInvite("A", cancel)!.Cancelled);
+        Assert.Empty(e.Store.EventsOverlapping(moved.Start, moved.End, "other"));
     }
 
     private static void Near(long expectedMs, DateTimeOffset actual) =>

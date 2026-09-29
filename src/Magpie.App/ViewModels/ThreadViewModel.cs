@@ -84,6 +84,8 @@ public partial class ThreadViewModel : ObservableObject
         ShowReplies = false;
         ShowQuickReplies = false;
         HasDeleteTimer = false;
+        HasInvite = false;
+        _invite = null;
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
@@ -203,6 +205,7 @@ public partial class ThreadViewModel : ObservableObject
             }
             ct.ThrowIfCancellationRequested();
             if (fetched) await RenderAsync(rows, bodies, ct);
+            await UpdateInviteAsync(rows, bodies, ct);
 
             if (markRead && _e.Config.MarkReadOnOpen && rows.Any(r => !r.IsSeen))
                 _e.SetRead(AccountId, ThreadKey, true);

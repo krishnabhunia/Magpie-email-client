@@ -124,6 +124,9 @@ public sealed class MailStore
         // v2 → v3: local drafts remember their Message-ID (stale copies are dropped once the message is sent or saved).
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('local_drafts') WHERE name='message_id'")) == 0)
             Exec(c, "ALTER TABLE local_drafts ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
+        // v5 (1.2.0): a body keeps its invite (text/calendar part, design B3).
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('bodies') WHERE name='calendar'")) == 0)
+            Exec(c, "ALTER TABLE bodies ADD COLUMN calendar TEXT NOT NULL DEFAULT ''");
         // v4 → v5 (1.2.0): auto-delete / OTP delete (designs AD1–AD4). delete_rule is the rule's id, or "-" for "Keep this one".
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='delete_at'")) == 0)
         {
@@ -132,6 +135,11 @@ public sealed class MailStore
         }
         Exec(c, """
             CREATE INDEX IF NOT EXISTS ix_msg_delete ON messages(delete_at) WHERE delete_at IS NOT NULL;
+            CREATE TABLE IF NOT EXISTS events(
+              account_id TEXT NOT NULL, uid TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', start INTEGER NOT NULL, end INTEGER NOT NULL,
+              all_day INTEGER NOT NULL DEFAULT 0, location TEXT NOT NULL DEFAULT '', organizer TEXT NOT NULL DEFAULT '',
+              answer TEXT NOT NULL DEFAULT '', sequence INTEGER NOT NULL DEFAULT 0, cancelled INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY(account_id, uid));
             CREATE TABLE IF NOT EXISTS auto_delete_rules(
               id TEXT PRIMARY KEY, pattern TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '', otp INTEGER NOT NULL DEFAULT 0,
               amount INTEGER NOT NULL DEFAULT 7, unit INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
@@ -637,7 +645,7 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT html,text,attachments FROM bodies WHERE message_row=$id";
+        cmd.CommandText = "SELECT html,text,attachments,calendar FROM bodies WHERE message_row=$id";
         cmd.Parameters.AddWithValue("$id", rowId);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
@@ -645,6 +653,7 @@ public sealed class MailStore
         {
             Html = r.GetString(0), Text = r.GetString(1),
             Attachments = JsonSerializer.Deserialize<List<AttachmentInfo>>(r.GetString(2)) ?? new(),
+            Calendar = r.GetString(3),
         };
     }
 
@@ -652,8 +661,8 @@ public sealed class MailStore
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
-        Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments) VALUES($id,$h,$t,$a)",
-            ("$id", rowId), ("$h", body.Html), ("$t", body.Text), ("$a", JsonSerializer.Serialize(body.Attachments)));
+        Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar) VALUES($id,$h,$t,$a,$c)",
+            ("$id", rowId), ("$h", body.Html), ("$t", body.Text), ("$a", JsonSerializer.Serialize(body.Attachments)), ("$c", body.Calendar ?? ""));
         Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", rowId));
         Exec(c, """
             UPDATE messages_fts SET body=$b WHERE rowid=$id
@@ -1219,6 +1228,55 @@ public sealed class MailStore
     /// <summary>Set aside is a snooze that never wakes (see <see cref="MessageRow.SetAsideMark"/>).</summary>
     private static readonly long AsideMs = MessageRow.SetAsideMark.ToUnixTimeMilliseconds();
     private static readonly long GateMs = MessageRow.GateMark.ToUnixTimeMilliseconds();
+
+    // ───────────────────────── events from invites (design B3) ─────────────────────────
+
+    public sealed record LocalEvent(string AccountId, string Uid, string Summary, DateTimeOffset Start, DateTimeOffset End, bool AllDay,
+        string Location, string Organizer, string Answer, int Sequence, bool Cancelled);
+
+    public LocalEvent? GetEvent(string accountId, string uid)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT account_id,uid,summary,start,end,all_day,location,organizer,answer,sequence,cancelled FROM events WHERE account_id=$a AND uid=$u";
+        cmd.Parameters.AddWithValue("$a", accountId);
+        cmd.Parameters.AddWithValue("$u", uid);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? ReadEvent(r) : null;
+    }
+
+    private static LocalEvent ReadEvent(SqliteDataReader r) => new(r.GetString(0), r.GetString(1), r.GetString(2),
+        DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(3)), DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(4)), r.GetInt32(5) != 0,
+        r.GetString(6), r.GetString(7), r.GetString(8), r.GetInt32(9), r.GetInt32(10) != 0);
+
+    public void SaveEvent(LocalEvent e)
+    {
+        using var c = Open();
+        Exec(c, """
+            INSERT INTO events(account_id,uid,summary,start,end,all_day,location,organizer,answer,sequence,cancelled)
+            VALUES($a,$u,$s,$st,$en,$ad,$l,$o,$an,$sq,$cx)
+            ON CONFLICT(account_id,uid) DO UPDATE SET summary=$s, start=$st, end=$en, all_day=$ad, location=$l, organizer=$o, answer=$an, sequence=$sq, cancelled=$cx
+            """, ("$a", e.AccountId), ("$u", e.Uid), ("$s", e.Summary), ("$st", e.Start.ToUnixTimeMilliseconds()), ("$en", e.End.ToUnixTimeMilliseconds()),
+            ("$ad", e.AllDay ? 1 : 0), ("$l", e.Location), ("$o", e.Organizer), ("$an", e.Answer), ("$sq", e.Sequence), ("$cx", e.Cancelled ? 1 : 0));
+    }
+
+    /// <summary>Events you said yes or maybe to that overlap this time (the invite card's clash line).</summary>
+    public List<LocalEvent> EventsOverlapping(DateTimeOffset start, DateTimeOffset end, string exceptUid)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT account_id,uid,summary,start,end,all_day,location,organizer,answer,sequence,cancelled FROM events
+            WHERE cancelled=0 AND answer IN ('ACCEPTED','TENTATIVE') AND uid<>$x AND start < $e AND end > $s AND all_day=0 ORDER BY start
+            """;
+        cmd.Parameters.AddWithValue("$s", start.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$e", end.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$x", exceptUid);
+        var list = new List<LocalEvent>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadEvent(r));
+        return list;
+    }
 
     // ───────────────────────── auto-delete (designs AD1–AD4) ─────────────────────────
 

@@ -35,6 +35,8 @@ public sealed class Draft
     /// replace the previous server draft and a send remove it, instead of leaving copies behind.
     /// </summary>
     public string MessageId { get; set; } = "";
+    /// <summary>An iCalendar reply sent with the message as text/calendar; method=REPLY (invite answers, design B3).</summary>
+    public string CalendarReply { get; set; } = "";
 }
 
 /// <summary>Builds replies/forwards and the final MIME message.</summary>
@@ -220,6 +222,16 @@ public static class Composer
             }
             catch { return m.Value; }
         });
+        if (!string.IsNullOrEmpty(d.CalendarReply))
+        {
+            // An invite answer: plain text + the iCalendar reply, as alternatives (what calendar servers expect).
+            var cal = new TextPart("calendar") { Text = d.CalendarReply };
+            cal.ContentType.Parameters.Add("method", "REPLY");
+            cal.ContentType.Charset = "utf-8";
+            cal.ContentTransferEncoding = ContentEncoding.QuotedPrintable;
+            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
+            return msg;
+        }
         builder.HtmlBody = WrapHtml(inner);
         builder.TextBody = MimeText.HtmlToText(d.Html);
         foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);

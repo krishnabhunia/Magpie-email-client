@@ -105,6 +105,8 @@ public sealed class MessageBody
 {
     public string Html { get; set; } = "";
     public string Text { get; set; } = "";
+    /// <summary>The message's iCalendar part (text/calendar), if it carries an invite (design B3).</summary>
+    public string Calendar { get; set; } = "";
     public List<AttachmentInfo> Attachments { get; set; } = new();
 }
 

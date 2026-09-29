@@ -386,6 +386,76 @@ public sealed class MailEngine : IDisposable
         Changed?.Invoke(cs);
     }
 
+    // ───────────────────────── meeting invites (design B3) ─────────────────────────
+
+    /// <summary>
+    /// Keeps our copy of an event in step with what arrived: a cancellation marks it cancelled; an update (higher
+    /// SEQUENCE) takes the new details, and a changed time asks for a new answer. Returns the event as we now know it.
+    /// </summary>
+    public MailStore.LocalEvent? TrackInvite(string accountId, CalendarInvite inv)
+    {
+        if (inv.Uid.Length == 0) return null;
+        var ev = Store.GetEvent(accountId, inv.Uid);
+        if (inv.IsCancel)
+        {
+            if (ev == null || inv.Sequence >= ev.Sequence)
+            {
+                ev = (ev ?? ToEvent(accountId, inv, "")) with { Cancelled = true, Sequence = inv.Sequence };
+                Store.SaveEvent(ev);
+            }
+            return ev;
+        }
+        if (inv.IsRequest && ev != null && inv.Sequence > ev.Sequence)
+        {
+            // A new time needs a new answer: "UPDATED" = you had answered, the organiser has since moved it.
+            var moved = ev.Start != inv.Start || ev.End != inv.End;
+            ev = ToEvent(accountId, inv, !moved ? ev.Answer : ev.Answer.Length > 0 ? "UPDATED" : "");
+            Store.SaveEvent(ev);
+        }
+        return ev;
+    }
+
+    private static MailStore.LocalEvent ToEvent(string accountId, CalendarInvite inv, string answer) =>
+        new(accountId, inv.Uid, inv.Summary, inv.Start, inv.End, inv.AllDay, inv.Location, inv.Organizer?.Email ?? "", answer, inv.Sequence, false);
+
+    /// <summary>
+    /// Accept / Maybe / Decline: sends the iCalendar reply to the organiser through the outbox (normal undo window),
+    /// optionally with a note, and remembers the answer. Returns the outbox id and the event as it was (for Undo).
+    /// </summary>
+    public (long OutboxId, MailStore.LocalEvent? Before) AnswerInvite(MessageRow message, CalendarInvite inv, InviteAnswer answer, string? note)
+    {
+        var account = AccountById(message.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
+        var organizer = inv.Organizer?.Email;
+        if (string.IsNullOrWhiteSpace(organizer) || !organizer.Contains('@')) throw new InvalidOperationException("This invite doesn't say who organised it, so there is nobody to answer.");
+        var me = inv.Attendees.FirstOrDefault(a => MyAddresses.Contains(a.Email, StringComparer.OrdinalIgnoreCase))?.Email ?? account.Email;
+        var now = DateTimeOffset.Now;
+        var text = Composer.TextToParagraphs(string.IsNullOrWhiteSpace(note)
+            ? answer switch { InviteAnswer.Accepted => "Accepted.", InviteAnswer.Tentative => "Tentatively accepted.", _ => "Declined." }
+            : note);
+        var mid = message.MessageId;
+        var d = new Draft
+        {
+            AccountId = account.Id, Mode = ComposeMode.Reply, To = organizer, Subject = Invites.SubjectFor(answer, inv.Summary), Html = text,
+            InReplyTo = mid.Length > 0 ? "<" + mid + ">" : "", References = mid.Length > 0 ? "<" + mid + ">" : "", ThreadKey = message.ThreadKey,
+            CalendarReply = Invites.BuildReply(inv, me, account.DisplayName, answer, note, now),
+        };
+        var before = Store.GetEvent(account.Id, inv.Uid);
+        var id = QueueSend(d, now.AddSeconds(Config.UndoSendSeconds), null);
+        var partstat = answer switch { InviteAnswer.Accepted => "ACCEPTED", InviteAnswer.Tentative => "TENTATIVE", _ => "DECLINED" };
+        Store.SaveEvent(ToEvent(account.Id, inv, partstat));
+        Log.Info($"invite answered: {partstat}");
+        return (id, before);
+    }
+
+    /// <summary>Undo an answer still in its undo window: the reply isn't sent and the old answer comes back.</summary>
+    public bool UndoInviteAnswer(long outboxId, string accountId, string uid, MailStore.LocalEvent? before)
+    {
+        if (Recall(outboxId) == null) return false;
+        if (before != null) Store.SaveEvent(before);
+        else if (Store.GetEvent(accountId, uid) is { } ev) Store.SaveEvent(ev with { Answer = "" });
+        return true;
+    }
+
     // ───────────────────────── quick replies (design B6) ─────────────────────────
 
     /// <summary>Sends a quick reply to <paramref name="original"/> through the outbox (so Undo works). Returns the outbox id.</summary>

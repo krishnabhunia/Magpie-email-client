@@ -739,6 +739,46 @@
 
                 <!-- Remote images blocked -->
                 <StackPanel Grid.Row="3">
+                <!-- Meeting invite (design B3) -->
+                <Border Style="{StaticResource Card}" Margin="24,0,24,10" Padding="14,12" Visibility="{Binding HasInvite, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <!-- Date tile: month band / day / weekday -->
+                        <Border DockPanel.Dock="Left" Width="58" CornerRadius="8" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" Margin="0,0,14,0" VerticalAlignment="Top" ClipToBounds="True">
+                            <StackPanel>
+                                <Border Background="{DynamicResource Brush.Accent}" CornerRadius="7,7,0,0" Padding="0,2">
+                                    <TextBlock Text="{Binding InviteMonth}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" />
+                                </Border>
+                                <TextBlock Text="{Binding InviteDay}" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                <TextBlock Text="{Binding InviteWeekday}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" Margin="0,0,0,4" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel>
+                            <TextBlock Text="{Binding InviteTitle}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding InviteWhen}" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding InviteWhere}" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap"
+                                       Visibility="{Binding HasInviteWhere, Converter={StaticResource BoolToVis}}" />
+                            <Button Style="{StaticResource Button.Link}" Content="Join the video call" HorizontalAlignment="Left" Padding="0,1" MinHeight="20"
+                                    Command="{Binding OpenInviteMeetCommand}" ToolTip="{Binding InviteMeet}" Visibility="{Binding HasInviteMeet, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="{Binding InviteWho}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            <TextBlock Text="{Binding InviteClash}" FontSize="12" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasInviteClash, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="{Binding InviteStatus}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Visibility="{Binding HasInviteStatus, Converter={StaticResource BoolToVis}}" />
+                            <StackPanel Visibility="{Binding CanAnswerInvite, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0">
+                                <WrapPanel>
+                                    <Button Style="{StaticResource Button.Primary}" Content="Accept" Padding="16,5" MinHeight="30" Margin="0,0,8,4" Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Accepted" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Maybe" Padding="16,5" MinHeight="30" Margin="0,0,8,4" Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Tentative" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Decline" Foreground="{DynamicResource Brush.Danger}" Padding="16,5" MinHeight="30" Margin="0,0,8,4"
+                                            Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Declined" />
+                                    <CheckBox Content="Add a note to my reply" IsChecked="{Binding AddInviteNote, Mode=TwoWay}" VerticalAlignment="Center" Margin="4,0,0,4" />
+                                </WrapPanel>
+                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding InviteNote, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48"
+                                         VerticalContentAlignment="Top" Margin="0,4,0,0" AutomationProperties.Name="Note to the organiser"
+                                         Visibility="{Binding AddInviteNote, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
                 <!-- Auto-delete timer (design AD3) -->
                 <Border Background="{DynamicResource Brush.Danger.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
                         Visibility="{Binding HasDeleteTimer, Converter={StaticResource BoolToVis}}">
