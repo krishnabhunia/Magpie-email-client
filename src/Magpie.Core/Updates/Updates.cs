@@ -189,6 +189,37 @@ public sealed class UpdateClient
 /// but not overwritten, so: rename the running file to Magpie.previous.exe (kept as the backup), copy the new
 /// one into its place. <see cref="Rollback"/> puts the previous version back.
 /// </summary>
+/// <summary>
+/// "Installed in the background" (design A1): the new EXE is already in place while the old one keeps running.
+/// The first start of the new version finds this note, treats itself as just updated (the previous version is offered
+/// back if it fails to start) and then removes it.
+/// </summary>
+public sealed record InstalledUpdate(string From, string To)
+{
+    public const string FileName = "installed.json";
+
+    public static void Write(string folder, string from, string to)
+    {
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, FileName), JsonSerializer.Serialize(new InstalledUpdate(from, to)));
+    }
+
+    public static InstalledUpdate? Read(string folder)
+    {
+        try
+        {
+            var path = Path.Combine(folder, FileName);
+            return File.Exists(path) ? JsonSerializer.Deserialize<InstalledUpdate>(File.ReadAllText(path)) : null;
+        }
+        catch { return null; }
+    }
+
+    public static void Clear(string folder)
+    {
+        try { File.Delete(Path.Combine(folder, FileName)); } catch { }
+    }
+}
+
 public static class SelfUpdate
 {
     public const string BackupName = "Magpie.previous.exe";

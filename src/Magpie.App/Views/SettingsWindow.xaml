@@ -1223,13 +1223,18 @@
 
                         <Border x:Name="RowUpdateSwitches" Style="{StaticResource Card}" Margin="0,14,0,0">
                             <StackPanel>
-                                <CheckBox Content="Check for updates automatically (at start, then once a day)" IsChecked="{Binding AutoCheckUpdates, Mode=TwoWay}" Margin="0,3" />
-                                <CheckBox Content="Download in the background, ask before restarting" IsChecked="{Binding AutoDownloadUpdates, Mode=TwoWay}" Margin="0,3" />
+                                <CheckBox IsChecked="{Binding AutoUpdate, Mode=TwoWay}" Margin="0,3">
+                                    <StackPanel>
+                                        <TextBlock Text="Auto update" FontWeight="SemiBold" />
+                                        <TextBlock Text="Checks at start and then once a day. A new version is downloaded, checked and installed in the background, and runs the next time you open Magpie." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </CheckBox>
                                 <CheckBox Content="Include test versions (pre-releases)" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" Margin="0,3" />
                             </StackPanel>
                         </Border>
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
-                                   Text="Each download is checked against the SHA-256 published with the release. Restarting replaces only Magpie.exe — your mail, settings and sign-ins stay as they are — and the old version is kept as Magpie.previous.exe. If the new one fails to start, Magpie goes back to it." />
+                                   Text="Each download is checked against the SHA-256 published with the release. Updating replaces only Magpie.exe — your mail, settings and sign-ins stay as they are — and the old version is kept as Magpie.previous.exe. If the new one fails to start, Magpie offers to go back to it." />
+                        <TextBlock Text="{Binding PortableNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="{Binding IsPortable, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
 
                     <!-- ═══════════ About ═══════════ -->

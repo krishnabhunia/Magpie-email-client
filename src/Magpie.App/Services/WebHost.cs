@@ -10,8 +10,9 @@ public static class WebHost
     public const string Host = "magpie.local";
     private static Task<CoreWebView2Environment>? _env;
 
-    public static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Magpie", "WebView2");
-    public static string RenderDir { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Magpie", "render");
+    // %LOCALAPPDATA%\Magpie\…, or MagpieData\local\… next to the EXE in portable mode (design Z1).
+    public static string DataDir => AppPaths.Default().WebView2Data;
+    public static string RenderDir { get; } = AppPaths.Default().RenderCache;
 
     public static bool RuntimeAvailable(out string? version)
     {

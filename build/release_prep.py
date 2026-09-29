@@ -13,14 +13,20 @@ section as an HTML comment (hidden in the release notes):  <!-- closes: #2 #4 --
                                                      -> that version's CHANGELOG section
     python3 build/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
     python3 build/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
+    python3 build/release_prep.py zip 1.2.0 --setup installer/Output --exe publish --out release
+                                                     -> release/Magpie-1.2.0.zip (+ .sha256) holding exactly two
+                                                        folders: installer/ and portable/ (design Z1)
 
 Needs Python 3 only (stdlib).
 """
 import argparse
 import datetime
+import glob
+import hashlib
 import os
 import re
 import sys
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PENDING = re.compile(r"^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \(not released yet\)\s*$", re.M)
@@ -148,6 +154,69 @@ def apply(date, root=None):
     return version
 
 
+ZIP_FOLDERS = ("installer", "portable")
+PORTABLE_MARKER = "portable.txt"   # Magpie.Core AppPaths.PortableMarker
+PORTABLE_TEXT = """Magpie portable
+
+This file tells Magpie.exe to keep everything it stores (accounts, settings, mail, logs) in the
+folder MagpieData next to it, instead of in your Windows profile. Copy this whole folder to a
+USB stick or anywhere you like. Delete this file and Magpie uses your Windows profile again.
+
+Passwords and sign-ins are protected with your Windows account, so on another PC or another
+Windows user Magpie asks you to sign in again. Only one Magpie can run at a time for a Windows
+user, so close the installed one before starting this one.
+
+To install Magpie instead, use the installer folder.
+"""
+
+
+def sha256_file(file):
+    h = hashlib.sha256()
+    with open(file, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest().upper()
+
+
+def make_zip(version, setup_dir, exe_dir, out_dir):
+    """Design Z1: Magpie-<version>.zip with only installer/ (setup EXE + checksum) and portable/
+    (Magpie.exe + checksum + portable.txt). Returns the zip's path; also writes <zip>.sha256."""
+    setups = sorted(glob.glob(os.path.join(setup_dir, "*.exe")))
+    if len(setups) != 1:
+        raise ReleaseError(f"expected one setup EXE in {setup_dir}, found {len(setups)}")
+    exe = os.path.join(exe_dir, "Magpie.exe")
+    if not os.path.isfile(exe):
+        raise ReleaseError(f"{exe} not found")
+    entries = [("installer/" + os.path.basename(setups[0]), setups[0]), ("portable/Magpie.exe", exe)]
+    for folder, file in (("installer", setups[0]), ("portable", exe)):
+        entries.append((f"{folder}/{os.path.basename(file)}.sha256", None, sha256_file(file) + "\n"))
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, f"Magpie-{version}.zip")
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for e in entries:
+            if len(e) == 2:
+                z.write(e[1], e[0])
+            else:
+                z.writestr(e[0], e[2])
+        z.writestr("portable/" + PORTABLE_MARKER, PORTABLE_TEXT.replace("\n", "\r\n"))
+    check_zip(out)
+    with open(out + ".sha256", "w", encoding="ascii", newline="\n") as f:
+        f.write(sha256_file(out) + "\n")
+    return out
+
+
+def check_zip(file):
+    """Only installer/ and portable/ at the top of the zip, and nothing else (Krishna's standing rule)."""
+    with zipfile.ZipFile(file) as z:
+        names = z.namelist()
+    top = {n.replace("\\", "/").split("/")[0] for n in names}
+    loose = [n for n in names if "/" not in n.replace("\\", "/")]
+    if top != set(ZIP_FOLDERS) or loose:
+        raise ReleaseError(f"{file}: top level must be exactly {', '.join(ZIP_FOLDERS)}; found {sorted(top)}")
+    if "portable/" + PORTABLE_MARKER not in names:
+        raise ReleaseError(f"{file}: portable/{PORTABLE_MARKER} missing")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -160,6 +229,11 @@ def main(argv=None):
         if name == "notes":
             sp.add_argument("--out", help="write the notes to this file (UTF-8) instead of printing them")
             sp.add_argument("--header", default="", help="a paragraph put before the notes")
+    zp = sub.add_parser("zip")
+    zp.add_argument("version")
+    zp.add_argument("--setup", required=True, help="folder with the one setup EXE (installer/Output)")
+    zp.add_argument("--exe", required=True, help="folder with Magpie.exe (publish)")
+    zp.add_argument("--out", required=True, help="folder for Magpie-<version>.zip")
     args = p.parse_args(argv)
     try:
         if args.cmd == "pending":
@@ -177,6 +251,8 @@ def main(argv=None):
             print(" ".join(str(n) for n in closes(args.version)))
         elif args.cmd == "numeric":
             print(numeric(args.version))
+        elif args.cmd == "zip":
+            print(make_zip(args.version, args.setup, args.exe, args.out))
     except ReleaseError as e:
         print("release_prep: " + str(e), file=sys.stderr)
         return 1

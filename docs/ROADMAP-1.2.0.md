@@ -21,9 +21,9 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
 | 16 | Version number in the main window (title bar) | V1 (below) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
 | 17 | Automatic CI + CD: release PR, test versions, release on merge | R1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 (with test builds) · Built — needs `RELEASE_TOKEN` + branch protection | [#14](https://github.com/krishnabhunia/Magpie-email-client/issues/14) |
-| 18 | Release zip with only `installer/` and `portable/` folders | Z1 (proposed) | Design shown 29 Sep 2026 — waiting for "approved" | [#15](https://github.com/krishnabhunia/Magpie-email-client/issues/15) |
-| 19 | "Auto update": install new versions in the background, check once a day | A1 (proposed) | Design shown 29 Sep 2026 — waiting for "approved" | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
-| 20 | Installer updates a running Magpie by itself | I1 (proposed) | Design shown 29 Sep 2026 — waiting for "approved" | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
+| 18 | Release zip with only `installer/` and `portable/` folders | Z1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#15](https://github.com/krishnabhunia/Magpie-email-client/issues/15) |
+| 19 | "Auto update": install new versions in the background, check once a day | A1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
+| 20 | Installer updates a running Magpie by itself | I1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
