@@ -25,7 +25,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 19 | "Auto update": install new versions in the background, check once a day | A1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
 | 20 | Installer updates a running Magpie by itself | I1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
 | 21 | Back up and restore every setting in one password-locked file (reinstall without setting anything up) | EX1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#23](https://github.com/krishnabhunia/Magpie-email-client/issues/23) |
-| 22 | Keep the mail in a folder you choose (another / encrypted drive) | DL1 (below) | Design shown 29 Sep 2026 · Move built — **encryption: waiting for Krishna's pick A / B / C** | [#24](https://github.com/krishnabhunia/Magpie-email-client/issues/24) |
+| 22 | Keep the mail in a folder you choose (another / encrypted drive) | DL1 (below) | Design shown 29 Sep 2026 · Encryption option A approved 29 Sep 2026 · Built — not yet tried on Windows | [#24](https://github.com/krishnabhunia/Magpie-email-client/issues/24) |
 | 23 | Download 90 days, attachments only when opened; changeable when adding an account and later | DS1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#25](https://github.com/krishnabhunia/Magpie-email-client/issues/25) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
@@ -182,8 +182,9 @@ Magpie and copies `mail.db` (+ journal files) and `messages\` with a progress wi
 old copy. A folder that already has Magpie mail: *Use the mail that's there* / *Replace it*. A chosen folder that can't be
 reached at start: *Try again* / *Choose another folder…* / Cancel (close) — never an empty mailbox in its place.
 Settings, sign-ins, log and caches stay in the Windows profile (`mail-folder.txt` there names the mail folder).
-Encryption, pick one: **A** encrypted drive (BitLocker / VeraCrypt, recommended, works now), **B** Magpie's own
-password at every start, **C** Windows file encryption (Pro only, tied to the Windows account).
+Encryption: **A — approved 29 Sep 2026**: keep the mail folder on an encrypted drive (BitLocker / VeraCrypt); Magpie
+just uses it and waits for the drive to be unlocked at start. Not chosen: B (Magpie's own password at every start),
+C (Windows file encryption, Pro only, tied to the Windows account).
 
 **DS1 Downloading.** Add account and each account in Settings → Accounts: *Download emails from the last* 30 days /
 **90 days** / 6 months / 1 year / Everything, and *Attachments*: **Only when I open the email** / Download them too.

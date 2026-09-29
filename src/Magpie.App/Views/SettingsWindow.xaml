@@ -305,6 +305,9 @@
                                 </Border>
                                 <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
                                            Text="Settings and sign-ins stay in your Windows profile: Magpie needs them to find this folder. They're small, and a backup covers them." />
+                                <!-- Design DL1, encryption option A (approved 29 Sep 2026): the drive does it -->
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Text="To keep your mail encrypted, choose a folder on a BitLocker or VeraCrypt drive. Magpie waits for you to unlock it when it starts." />
                             </StackPanel>
                         </Border>
                     </StackPanel>

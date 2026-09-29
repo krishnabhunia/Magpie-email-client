@@ -2,9 +2,9 @@
 
 ## 2.1.0 (not released yet)
 - **Back up your settings** (Settings → General): one file with everything you set up in Magpie — accounts and their sign-ins, rules, signatures, quick replies, templates, tags, Gatekeeper lists, look and layout — locked with a password you choose. After reinstalling Magpie (or on another PC), **Restore from a backup** puts it all back and the accounts sign in by themselves. The Add account window offers it on first start too.
-- **Where your mail is kept** (Settings → General): move your mail to another folder or drive, for example an encrypted one. Magpie restarts and moves it, and only removes the old copy once the new one is checked. If that drive is locked or unplugged when Magpie starts, it waits for you instead of starting an empty mailbox.
+- **Where your mail is kept** (Settings → General): move your mail to another folder or drive, for example a BitLocker or VeraCrypt drive to keep it encrypted. Magpie restarts and moves it, and only removes the old copy once the new one is checked. If that drive is locked or unplugged when Magpie starts, it waits for you instead of starting an empty mailbox.
 - **Downloading, per account**: when you add an account (and later in Settings → Accounts) choose how much email to download — the last 30 days, **90 days** (the default), 6 months, a year or everything — and whether attachments come too or **only when you open the email** (the default). Emails in that time open instantly and can be read and searched offline; older ones are still listed and download when you open them.
-<!-- closes: #23 #25 -->
+<!-- closes: #23 #24 #25 -->
 
 ## 2.0.0 (29 Sep 2026)
 - **Magpie 2.0.0** carries everything from 1.2.0 and checks the new automatic release: this version was published by merging its pull request, with a test version (2.0.0-beta) to try first.
