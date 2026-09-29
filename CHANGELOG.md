@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.0.0 (29 Sep 2026)
+- **Magpie 2.0.0** carries everything from 1.2.0 and checks the new automatic release: this version was published by merging its pull request, with a test version (2.0.0-beta) to try first.
+
 ## 1.2.0 (29 Sep 2026)
 - **Version in the title bar**: the version number now sits next to "Magpie" at the top of the window. Point at it for the release date; click it for Settings → About.
 - **Dark theme**: Settings → Appearance → Theme: **Match Windows** (the default — Magpie turns dark or light with your Windows setting, straight away), **Light** or **Dark**. Everything follows: the window, menus, icons, the reading pane and the message editor. Emails that bring their own colours (newsletters, receipts) keep them on a white card so they stay readable. The "Toolbar & buttons" page in Settings is now called **Appearance**.
