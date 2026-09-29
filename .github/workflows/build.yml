@@ -187,8 +187,22 @@ jobs:
           python build/release_prep.py notes ${{ steps.ver.outputs.base }} --out release-notes.md --header "**Test version** of Magpie ${{ steps.ver.outputs.base }}, built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes ${{ steps.ver.outputs.base }} to everyone."
           if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for ${{ steps.ver.outputs.base }}" }
 
-      - name: Publish test version
+      # Guard: a PR merged while its CI still runs gets its release from main first — then no test version.
+      - name: Is the real release out already?
+        id: late
         if: steps.ver.outputs.beta == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v${{ steps.ver.outputs.base }}" --repo "${{ github.repository }}" --json tagName *> $null
+          $out = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+          "released=$($out.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if ($out) { Write-Host "::notice::Magpie ${{ steps.ver.outputs.base }} is already released, so no test version is published" }
+
+      - name: Publish test version
+        if: steps.ver.outputs.beta == 'true' && steps.late.outputs.released != 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.ver.outputs.version }}
@@ -206,11 +220,15 @@ jobs:
             release/Magpie-*.zip.sha256
 
       - name: Keep only the newest test version
-        if: steps.ver.outputs.beta == 'true'
+        if: steps.ver.outputs.beta == 'true' && steps.late.outputs.released != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The real release may have come out while this test version was uploading: then it goes too.
+          gh release view "v${{ steps.ver.outputs.base }}" --repo "${{ github.repository }}" --json tagName *> $null
+          $keep = if ($LASTEXITCODE -eq 0) { "" } else { "v${{ steps.ver.outputs.version }}" }
+          $global:LASTEXITCODE = 0
           $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' |
-            Where-Object { $_ -like "v${{ steps.ver.outputs.base }}-beta.*" -and $_ -ne "v${{ steps.ver.outputs.version }}" }
+            Where-Object { $_ -like "v${{ steps.ver.outputs.base }}-beta.*" -and $_ -ne $keep }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }

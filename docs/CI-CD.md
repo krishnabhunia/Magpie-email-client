@@ -10,7 +10,7 @@ needed a personal `RELEASE_TOKEN` secret.)
 |---|---|---|
 | 1 | The PR that should ship writes its lines under `## x.y.z (not released yet)` in `CHANGELOG.md`, then runs `python build/release_prep.py apply --date YYYY-MM-DD`: version in `Directory.Build.props` (+ release date) and `installer/Magpie.iss`, dated CHANGELOG heading, CLAUDE.md. PRs that don't change the version release nothing. | Claude |
 | 2 | CI on the PR: unit tests → release-script tests → `check` (new version set everywhere, CHANGELOG dated) → build → XAML + missing-assembly checks → EXE → installer → zip | `build.yml` |
-| 3 | Same CI run publishes a **test version** `x.y.z-beta.N` (pre-release; only the newest is kept) | `build.yml` |
+| 3 | Same CI run publishes a **test version** `x.y.z-beta.N` (pre-release; only the newest is kept). If the PR is merged before this finishes and `vx.y.z` is out, no test version is published (or it is removed right away) | `build.yml` |
 | 4 | Smoke-test it: Magpie → Settings → Updates → *Include test versions* → Check now (or download it from the release page) | **Krishna** |
 | 5 | Merge the PR — this is the deploy | **Krishna** |
 | 6 | Release `vx.y.z` is published (EXE, installer, `Magpie-x.y.z.zip`, checksums, notes from CHANGELOG), marked Latest; its test versions are removed; "Closes #n" in the PR closes the issues | `build.yml` + GitHub |
