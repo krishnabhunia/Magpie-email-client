@@ -142,10 +142,13 @@ public static class Composer
         return "<div class=\"magpie-signature\"><br>" + clean + "</div>";
     }
 
-    /// <summary>A 1.1.x plain-text signature as the HTML it used to produce ("-- " line, then the text).</summary>
+    /// <summary>
+    /// A 1.1.x plain-text signature as HTML ("-- " line, then the text). Only &amp; &lt; &gt; are escaped — what the
+    /// editor's innerHTML gives back — so opening it in the editor doesn't count as a change.
+    /// </summary>
     public static string LegacySignatureHtml(string signature) =>
         string.IsNullOrWhiteSpace(signature) ? "" :
-        "-- <br>" + WebUtility.HtmlEncode(signature.Trim()).Replace("\r\n", "\n").Replace("\n", "<br>");
+        "-- <br>" + signature.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
 
     /// <summary>Plain text as HTML paragraphs (blank line = new paragraph).</summary>
     public static string TextToParagraphs(string text)

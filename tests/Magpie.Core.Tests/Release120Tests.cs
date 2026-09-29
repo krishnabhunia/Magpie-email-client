@@ -675,6 +675,91 @@ public class Release120Tests
         Assert.Empty(e.Store.EventsOverlapping(moved.Start, moved.End, "other"));
     }
 
+    // ───────────── fixes from the branch review ─────────────
+
+    [Fact]
+    public void Gatekeeper_holds_later_mail_while_the_first_still_waits_and_spam_doesnt_count_as_known()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out var trash);
+        var allMail = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "[Gmail]/All Mail", Name = "All Mail", Role = FolderRole.All });
+        var junk = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Spam", Name = "Spam", Role = FolderRole.Junk });
+        e.Config.Gatekeeper.Enabled = true;
+
+        var first = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "new@shop.com", messageId: "m1@shop.com") });
+        e.RunGatekeeper("A", first);
+        e.Store.InsertMessages(new[] { Rows.Make("A", allMail, "t1", from: "new@shop.com", messageId: "m1@shop.com") });   // its All Mail copy syncs later
+        var second = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t2", from: "new@shop.com", messageId: "m2@shop.com") });
+        Assert.Contains(second[0].Id, e.RunGatekeeper("A", second));                          // still waits
+        Assert.Equal(2, Assert.Single(e.GateSenders()).Count);
+
+        e.Store.InsertMessages(new[] { Rows.Make("A", junk, "s1", from: "spammer@x.com"), Rows.Make("A", trash, "s2", from: "binned@x.com") });
+        var fromSpam = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "s3", from: "spammer@x.com"), Rows.Make("A", inbox, "s4", from: "binned@x.com") });
+        Assert.Equal(2, e.RunGatekeeper("A", fromSpam).Count);                                  // mail in Spam / Trash isn't "heard from"
+    }
+
+    [Fact]
+    public void Blocked_sender_waits_at_the_door_when_there_is_no_spam_folder_and_allowed_mail_meets_the_rules()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);                                // no Spam folder
+        e.Config.Gatekeeper.Blocked.Add("bad@x.com");
+        var rows = e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "bad@x.com") });
+        Assert.Contains(rows[0].Id, e.RunGatekeeper("A", rows));
+        Assert.DoesNotContain("t1", e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, DateTimeOffset.Now).Select(t => t.ThreadKey));
+
+        // Allowed later: the waiting mail comes in and the rules run on it then.
+        e.Config.Rules.Add(new MailRule { Name = "Tag", Conditions = { new() { Field = RuleField.From, Op = RuleOp.Is, Value = "bad@x.com" } },
+            Actions = { new() { Kind = RuleActionKind.Tag, Target = "Checked" } } });
+        e.AllowSender("bad@x.com");
+        var t = Assert.Single(e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, DateTimeOffset.Now));
+        Assert.Contains("Checked", t.Latest.Tags);
+    }
+
+    private static string Event(string lines) => "BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:x\n" + lines + "\nEND:VEVENT\nEND:VCALENDAR";
+
+    [Theory]
+    [InlineData("DTSTART:2026-10-06T11:00:00Z")]
+    [InlineData("DTSTART:20261006T1100Z")]
+    [InlineData("DTSTART;VALUE=DATE:2026")]
+    [InlineData("DTSTART:20261006T110000Z\nDTEND:tomorrow")]
+    public void A_broken_invite_is_ignored_not_fatal(string lines) => Assert.Null(Invites.Parse(Event(lines)));
+
+    [Fact]
+    public void An_absurd_duration_doesnt_throw() =>
+        Assert.NotNull(Invites.Parse(Event("DTSTART:20261006T110000Z\nDURATION:PT99999999999H")));
+
+    [Fact]
+    public void Applying_a_switched_off_rule_to_the_inbox_does_what_it_says()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "promo@shop.com") });
+        var rule = new MailRule { Name = "Off", Enabled = false, Conditions = { new() { Field = RuleField.From, Op = RuleOp.Contains, Value = "shop" } },
+            Actions = { new() { Kind = RuleActionKind.MarkRead } } };
+        Assert.Equal(1, e.ApplyRuleToInbox(rule));
+        Assert.True(Assert.Single(e.Store.GetMessagesIn(new[] { inbox })).IsSeen);
+        Assert.False(rule.Enabled);                                                             // the rule itself stays off
+    }
+
+    [Fact]
+    public void Deleting_soon_leaves_out_paused_rules_and_legacy_signature_matches_the_editor()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _);
+        var rule = new AutoDeleteRule { Pattern = "otp@bank.com", Otp = true };
+        e.SaveAutoDeleteRule(rule, false);
+        e.TagArrivals("A", e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "otp@bank.com") }));
+        var week = DateTimeOffset.Now.AddDays(7);
+        Assert.Equal(1, e.Store.CountDeletingSoon(week));
+        e.PauseAutoDeleteRule(rule.Id, true);
+        Assert.Equal(0, e.Store.CountDeletingSoon(week));
+        Assert.Empty(e.Store.ListThreads(new ListQuery { FolderIds = new[] { inbox }, DeletingBefore = week }, DateTimeOffset.Now));
+        Assert.Empty(e.Store.RowsDeletingBefore(week));
+
+        Assert.Equal("-- <br>Krishna's café &amp; co", Composer.LegacySignatureHtml("Krishna's café & co"));
+    }
+
     private static void Near(long expectedMs, DateTimeOffset actual) =>
         Assert.InRange(actual.ToUnixTimeMilliseconds(), expectedMs - 2000, expectedMs + 2000);
 

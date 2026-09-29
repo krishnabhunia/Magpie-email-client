@@ -430,7 +430,7 @@ public sealed class MailStore
 
         if (q.DeletingBefore is { } db)
         {
-            where.Add("m.delete_at IS NOT NULL AND m.delete_at <= $delb AND (m.flags & 2)=0");
+            where.Add("m.delete_at IS NOT NULL AND m.delete_at <= $delb AND (m.flags & 2)=0 AND m.delete_rule NOT IN (SELECT id FROM auto_delete_rules WHERE paused=1)");
             cmd.Parameters.AddWithValue("$delb", db.ToUnixTimeMilliseconds());
         }
 
@@ -1370,7 +1370,7 @@ public sealed class MailStore
     public int CountDeletingSoon(DateTimeOffset until)
     {
         using var c = Open();
-        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0",
+        return Convert.ToInt32(Scalar(c, "SELECT COUNT(DISTINCT account_id || '|' || thread_key) FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0 AND delete_rule NOT IN (SELECT id FROM auto_delete_rules WHERE paused=1)",
             ("$u", until.ToUnixTimeMilliseconds())));
     }
 
@@ -1393,7 +1393,7 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0";
+        cmd.CommandText = "SELECT id FROM messages WHERE delete_at IS NOT NULL AND delete_at <= $u AND (flags & 2)=0 AND delete_rule NOT IN (SELECT id FROM auto_delete_rules WHERE paused=1)";
         cmd.Parameters.AddWithValue("$u", until.ToUnixTimeMilliseconds());
         var list = new List<long>();
         using var r = cmd.ExecuteReader();
@@ -1470,16 +1470,21 @@ public sealed class MailStore
 
     /// <summary>
     /// True when we already have mail from this address — not counting these rows, other copies of the same emails
-    /// (Gmail's All Mail) or mail still waiting at the door.
+    /// (Gmail's All Mail), mail still waiting at the door (or its copies), or mail in Spam / Trash.
     /// </summary>
     public bool HasMailFrom(string address, IReadOnlyCollection<long> exceptIds, IReadOnlyCollection<string> exceptMessageIds)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        var ex = exceptIds.Count == 0 ? "" : $" AND id NOT IN ({string.Join(",", exceptIds.Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture)))})";
+        var ex = exceptIds.Count == 0 ? "" : $" AND m.id NOT IN ({string.Join(",", exceptIds.Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture)))})";
         var mids = exceptMessageIds.Where(m => m.Length > 0).Distinct().Select((m, i) => { cmd.Parameters.AddWithValue("$m" + i, m); return "$m" + i; }).ToList();
-        if (mids.Count > 0) ex += $" AND message_id NOT IN ({string.Join(",", mids)})";
-        cmd.CommandText = "SELECT EXISTS(SELECT 1 FROM messages WHERE lower(from_addr)=lower($a) AND (snooze_until IS NULL OR snooze_until<>$g)" + ex + ")";
+        if (mids.Count > 0) ex += $" AND m.message_id NOT IN ({string.Join(",", mids)})";
+        cmd.CommandText = "SELECT EXISTS(SELECT 1 FROM messages m JOIN folders f ON f.id=m.folder_id WHERE lower(m.from_addr)=lower($a)"
+            + " AND (m.snooze_until IS NULL OR m.snooze_until<>$g) AND f.role NOT IN ($junk,$trash)"
+            + " AND (m.message_id='' OR m.message_id NOT IN (SELECT message_id FROM messages WHERE snooze_until=$g AND message_id<>''))"
+            + ex + ")";
+        cmd.Parameters.AddWithValue("$junk", (int)FolderRole.Junk);
+        cmd.Parameters.AddWithValue("$trash", (int)FolderRole.Trash);
         cmd.Parameters.AddWithValue("$a", address);
         cmd.Parameters.AddWithValue("$g", GateMs);
         return Convert.ToInt64(cmd.ExecuteScalar()) != 0;

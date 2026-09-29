@@ -45,7 +45,7 @@ public partial class EditableAccount : ObservableObject
     public string SignaturePlain
     {
         get => MimeText.HtmlToText(SignatureHtml).Trim();
-        set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : System.Net.WebUtility.HtmlEncode(value.Trim()).Replace("\r\n", "\n").Replace("\n", "<br>");
+        set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : value.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
     }
     [ObservableProperty] private bool _enabled;
     [ObservableProperty] private int _syncDays;

@@ -20,7 +20,7 @@ Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 189 unit tests (1.2.0 branch)
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 198 unit tests (1.2.0 branch)
 build/publish.ps1        # tests → build → DpDump → xaml_check.py (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```

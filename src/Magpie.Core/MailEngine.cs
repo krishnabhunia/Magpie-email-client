@@ -729,7 +729,15 @@ public sealed class MailEngine : IDisposable
             if (addr.Length == 0 || mine.Contains(addr)) continue;
             if (g.Blocked.Contains(addr))
             {
-                if (junk == null || junk.Id == m.FolderId) continue;
+                if (junk?.Id == m.FolderId) continue;
+                if (junk == null)
+                {
+                    // No Spam folder to move it to: it waits at the door rather than landing in the Inbox.
+                    gate.Add(m.Id);
+                    kept.Add(m.Id);
+                    touched.Add(m.FolderId);
+                    continue;
+                }
                 Queue(m, PendingOpKind.Move, junk.Id);
                 Store.DeleteRow(m.Id);
                 touched.Add(m.FolderId);
@@ -764,8 +772,20 @@ public sealed class MailEngine : IDisposable
         Settings.Save(notify: false);
         var rows = Store.GateMessages(a);
         Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
-        foreach (var acc in rows.GroupBy(r => r.AccountId)) Touched(acc.Key, acc.Select(r => r.FolderId));
+        LetIn(rows);
         GateChanged?.Invoke();
+    }
+
+    /// <summary>Mail let in from the door is new to the Inbox: rules and auto-delete see it now.</summary>
+    private void LetIn(List<MessageRow> rows)
+    {
+        foreach (var acc in rows.GroupBy(r => r.AccountId))
+        {
+            var list = acc.ToList();
+            try { RunRules(acc.Key, list); } catch (Exception ex) { Log.Error("rules failed", ex); }
+            try { TagArrivals(acc.Key, list); } catch (Exception ex) { Log.Error("auto-delete tagging failed", ex); }
+            Touched(acc.Key, list.Select(r => r.FolderId));
+        }
     }
 
     /// <summary>Block: this sender's mail moves to Spam on the server and keeps doing so. Nothing is deleted.</summary>
@@ -796,7 +816,7 @@ public sealed class MailEngine : IDisposable
         var rows = Store.GateMessages();
         if (rows.Count == 0) return;
         Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
-        foreach (var acc in rows.GroupBy(r => r.AccountId)) Touched(acc.Key, acc.Select(r => r.FolderId));
+        LetIn(rows);
         GateChanged?.Invoke();
     }
 
@@ -822,8 +842,10 @@ public sealed class MailEngine : IDisposable
     public int ApplyRuleToInbox(MailRule rule)
     {
         var matches = RuleMatchesInInbox(rule);
+        var once = rule.Clone();
+        once.Enabled = true;   // asked for explicitly, so it runs now even if the rule is switched off for new mail
         foreach (var g in matches.GroupBy(m => m.AccountId))
-            RunRules(g.Key, g.ToList(), new[] { rule });
+            RunRules(g.Key, g.ToList(), new[] { once });
         return matches.Count;
     }
 

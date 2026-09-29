@@ -166,7 +166,7 @@ public partial class ThreadViewModel : ObservableObject
             var people = rows.Select(r => IsMine(r) ? "you" : r.Sender).Distinct().Take(5);
             Meta = $"{rows.Count} message{(rows.Count == 1 ? "" : "s")} · {string.Join(", ", people)}";
             IsPinned = rows.Any(r => r.IsFlagged);
-            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && !r.IsSetAside);
+            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && r.SnoozeUntil < MessageRow.GateMark);   // not set aside, not at the door
             IsSetAside = rows.Any(r => r.IsSetAside);
             RefreshDeleteBar();
             TagsText = latest.Tags.Replace(",", " · ");

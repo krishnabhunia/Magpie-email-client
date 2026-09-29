@@ -38,10 +38,17 @@ public sealed class CalendarInvite
 
 public static class Invites
 {
-    /// <summary>Parses the first VEVENT of an iCalendar text; null when there is none (or it has no start).</summary>
+    /// <summary>Parses the first VEVENT of an iCalendar text; null when there is none, it has no start, or it can't be read.</summary>
     public static CalendarInvite? Parse(string? ics)
     {
         if (string.IsNullOrWhiteSpace(ics)) return null;
+        // Anyone can send a broken .ics: it must never stop the conversation from opening.
+        try { return ParseCore(ics); }
+        catch (Exception ex) { Log.Warn("unreadable invite: " + ex.Message); return null; }
+    }
+
+    private static CalendarInvite? ParseCore(string ics)
+    {
         var lines = Unfold(ics);
         string method = "";
         var inEvent = false;
@@ -190,11 +197,14 @@ public static class Invites
         value = value.Trim();
         if ((ps.TryGetValue("VALUE", out var vt) && vt.Equals("DATE", StringComparison.OrdinalIgnoreCase)) || value.Length == 8)
         {
-            var d = DateTime.ParseExact(value[..8], "yyyyMMdd", CultureInfo.InvariantCulture);
+            if (value.Length < 8 || !DateTime.TryParseExact(value[..8], "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                throw new FormatException("date " + value);
             return (new DateTimeOffset(d, TimeZoneInfo.Local.GetUtcOffset(d)), true);
         }
         var utc = value.EndsWith('Z');
-        var dt = DateTime.ParseExact(value.TrimEnd('Z')[..15], "yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture);
+        var core = value.TrimEnd('Z');
+        if (core.Length < 15 || !DateTime.TryParseExact(core[..15], "yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            throw new FormatException("date " + value);
         if (utc) return (new DateTimeOffset(dt, TimeSpan.Zero), false);
         if (ps.TryGetValue("TZID", out var tzid) && FindZone(tzid) is { } zone)
             return (new DateTimeOffset(dt, zone.GetUtcOffset(dt)), false);
@@ -216,7 +226,7 @@ public static class Invites
         span = TimeSpan.Zero;
         var m = System.Text.RegularExpressions.Regex.Match(s.Trim(), @"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$");
         if (!m.Success) return false;
-        int G(int i) => m.Groups[i].Success ? int.Parse(m.Groups[i].Value, CultureInfo.InvariantCulture) : 0;
+        int G(int i) => m.Groups[i].Success && int.TryParse(m.Groups[i].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var v) ? Math.Min(v, 100000) : 0;
         span = new TimeSpan(G(2) * 7 + G(3), G(4), G(5), G(6));
         if (m.Groups[1].Value == "-") span = -span;
         return true;
