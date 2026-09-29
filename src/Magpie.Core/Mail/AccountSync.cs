@@ -385,9 +385,9 @@ public sealed class AccountSync : IDisposable
                 }
             }
 
-            // Prefetch bodies of the newest inbox messages so they open instantly (and become searchable).
-            var inboxFolder = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Inbox);
-            if (full && inboxFolder != null) await PrefetchBodiesAsync(client, inboxFolder, 40, ct);
+            // Design DS1: download the emails of the account's window (newest first, inbox first) a batch per full check,
+            // so they open instantly, work offline and are searchable. Older emails download when opened.
+            if (full) await PrefetchWindowAsync(client, PrefetchPerCheck, ct);
         }, ct);
     }
 
@@ -429,7 +429,7 @@ public sealed class AccountSync : IDisposable
                 if (f.Count == 0) newUids = Array.Empty<UniqueId>();
                 else
                 {
-                    var since = DateTime.Now.AddDays(-Math.Max(7, Account.SyncDays));
+                    var since = Account.SyncDays > 0 ? DateTime.Now.AddDays(-Math.Max(7, Account.SyncDays)) : new DateTime(1970, 1, 2);
                     var found = await f.SearchAsync(KitSearch.DeliveredAfter(since), ct);
                     var limit = local.Role == FolderRole.Inbox ? InitialInboxLimit : InitialFolderLimit;
                     newUids = found.OrderByDescending(u => u.Id).Take(limit).ToList();
@@ -694,10 +694,31 @@ public sealed class AccountSync : IDisposable
 
     // ───────────────────────── bodies ─────────────────────────
 
-    private async Task PrefetchBodiesAsync(ImapClient client, MailFolder folder, int count, CancellationToken ct)
+    /// <summary>Emails downloaded per full check (design DS1); the rest of the window follows at the next checks.</summary>
+    public static int PrefetchPerCheck { get; set; } = 150;
+
+    /// <summary>Start of the account's download window (design DS1), or null for everything.</summary>
+    public DateTimeOffset? WindowStart => Account.SyncDays > 0 ? DateTimeOffset.Now.AddDays(-Account.SyncDays) : null;
+
+    private async Task PrefetchWindowAsync(ImapClient client, int budget, CancellationToken ct)
     {
-        var rows = _store.RowsWithoutBody(folder.Id, count);
-        if (rows.Count == 0) return;
+        var folders = _store.GetFolders(Account.Id)
+            .Where(f => f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Drafts))
+            .OrderBy(f => f.Role == FolderRole.Inbox ? 0 : f.Role == FolderRole.Sent ? 1 : 2)
+            .ToList();
+        foreach (var folder in folders)
+        {
+            if (budget <= 0) return;
+            ct.ThrowIfCancellationRequested();
+            try { budget -= await PrefetchBodiesAsync(client, folder, budget, ct); }
+            catch (FolderNotFoundException) { }
+        }
+    }
+
+    private async Task<int> PrefetchBodiesAsync(ImapClient client, MailFolder folder, int count, CancellationToken ct)
+    {
+        var rows = _store.RowsWithoutBody(folder.Id, count, WindowStart);
+        if (rows.Count == 0) return 0;
         var f = await client.GetFolderAsync(folder.Path, ct);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
         try
@@ -707,15 +728,41 @@ public sealed class AccountSync : IDisposable
                 ct.ThrowIfCancellationRequested();
                 var row = _store.GetMessage(id);
                 if (row == null) continue;
+                var uid = new UniqueId(f.UidValidity, (uint)row.Uid);
                 try
                 {
-                    var msg = await f.GetMessageAsync(new UniqueId(f.UidValidity, (uint)row.Uid), ct);
-                    SaveBody(row, msg);
+                    if (Account.DownloadAttachments) SaveBody(row, await f.GetMessageAsync(uid, ct));
+                    else await SaveTextOnlyAsync(f, uid, row, ct);
                 }
                 catch (MessageNotFoundException) { }
             }
         }
         finally { try { await f.CloseAsync(false, ct); } catch { } }
+        return rows.Count;
+    }
+
+    /// <summary>
+    /// Design DS1, "attachments only when I open the email": downloads just the text and HTML of an email (and its
+    /// invite, if any), using the server's description of its parts. Its attachments are listed with negative
+    /// indices (<see cref="MimeText.PendingIndex"/>), which makes the reader fetch the whole email when it is opened.
+    /// No copy goes into the message cache, as it is not the whole email.
+    /// </summary>
+    private async Task SaveTextOnlyAsync(IMailFolder f, UniqueId uid, MessageRow row, CancellationToken ct)
+    {
+        var s = (await f.FetchAsync(new[] { uid }, MessageSummaryItems.UniqueId | MessageSummaryItems.BodyStructure, ct)).FirstOrDefault();
+        if (s?.Body == null) return;
+        async Task<string> TextOf(BodyPartText? part)
+        {
+            if (part == null) return "";
+            return await f.GetBodyPartAsync(uid, part, ct) is TextPart tp ? tp.Text ?? "" : "";
+        }
+        var body = new MessageBody { Text = await TextOf(s.TextBody), Html = await TextOf(s.HtmlBody) };
+        if (body.Html.Length == 0 && body.Text.Length > 0) body.Html = MimeText.TextToHtml(body.Text);
+        if (body.Text.Length == 0 && body.Html.Length > 0) body.Text = MimeText.HtmlToText(body.Html);
+        var cal = s.BodyParts.OfType<BodyPartText>().FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
+        if (cal != null) body.Calendar = await TextOf(cal);
+        body.Attachments = MimeText.PendingAttachments(s.BodyParts, s.TextBody, s.HtmlBody);
+        _store.SaveBody(row.Id, body);
     }
 
     public Func<string, long, string>? MimePathFor { get; set; }

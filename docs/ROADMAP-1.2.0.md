@@ -24,6 +24,9 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 18 | Release zip with only `installer/` and `portable/` folders | Z1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#15](https://github.com/krishnabhunia/Magpie-email-client/issues/15) |
 | 19 | "Auto update": install new versions in the background, check once a day | A1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
 | 20 | Installer updates a running Magpie by itself | I1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
+| 21 | Back up and restore every setting in one password-locked file (reinstall without setting anything up) | EX1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#23](https://github.com/krishnabhunia/Magpie-email-client/issues/23) |
+| 22 | Keep the mail in a folder you choose (another / encrypted drive) | DL1 (below) | Design shown 29 Sep 2026 · Move built — **encryption: waiting for Krishna's pick A / B / C** | [#24](https://github.com/krishnabhunia/Magpie-email-client/issues/24) |
+| 23 | Download 90 days, attachments only when opened; changeable when adding an account and later | DS1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#25](https://github.com/krishnabhunia/Magpie-email-client/issues/25) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -161,3 +164,30 @@ Decisions already taken: delete = move to Trash · pinned mail is never auto-del
 |---|---|
 | Auto-delete as a row hover button | Left out of H3 until #13 exists |
 | Signed installer | Krishna chose to stay unsigned for now |
+
+## EX1 · DL1 · DS1 — Backup, mail folder, downloads (#21–#23, shown 29 Sep 2026)
+
+Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (six artboards).
+
+**EX1 Back up and restore every setting.** Settings → General → *Back up your settings*: **Save a backup…** asks for a
+password (8+ characters, typed twice), then where to save `Magpie settings <date>.magpie-backup`. The file is
+PBKDF2-SHA256 (600 000 rounds) → AES-256-GCM. In it: settings.json (every setting, all accounts, rules, signatures,
+quick replies, templates, tags, Gatekeeper lists, look, layout, updates …), every secret (passwords, Google / Microsoft
+sign-ins, AI key) and the mail folder. Not in it: emails. **Restore from a backup…** (also a link in Add account):
+file → password → what it holds → *Replace my settings and restart*. The restore is staged (protected with DPAPI) and put
+in place at the next start before anything loads; the old settings.json is kept as `settings.json.before-restore`.
+
+**DL1 Where your mail is kept.** Settings → General: folder, size, free space, *Open folder*, *Move…*. Moving restarts
+Magpie and copies `mail.db` (+ journal files) and `messages\` with a progress window, checks every file, then removes the
+old copy. A folder that already has Magpie mail: *Use the mail that's there* / *Replace it*. A chosen folder that can't be
+reached at start: *Try again* / *Choose another folder…* / Cancel (close) — never an empty mailbox in its place.
+Settings, sign-ins, log and caches stay in the Windows profile (`mail-folder.txt` there names the mail folder).
+Encryption, pick one: **A** encrypted drive (BitLocker / VeraCrypt, recommended, works now), **B** Magpie's own
+password at every start, **C** Windows file encryption (Pro only, tied to the Windows account).
+
+**DS1 Downloading.** Add account and each account in Settings → Accounts: *Download emails from the last* 30 days /
+**90 days** / 6 months / 1 year / Everything, and *Attachments*: **Only when I open the email** / Download them too.
+Emails inside the window download in the background (150 per check, inbox first, then Sent, then the other folders; not
+Trash, Junk or Drafts). "Only when I open": just the text, HTML and any invite are fetched (the server's BODYSTRUCTURE lists
+the attachments), and opening such an email fetches the whole email. Older emails stay listed and download when opened.
+

@@ -74,6 +74,32 @@ public sealed class SecretVault
         }
     }
 
+    /// <summary>Every secret, unlocked (design EX1: for a password-locked settings backup only).</summary>
+    public Dictionary<string, string> ExportAll()
+    {
+        lock (_gate)
+        {
+            var all = new Dictionary<string, string>();
+            foreach (var k in _items.Keys.ToList())
+            {
+                try { all[k] = Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(_items[k]))); }
+                catch (Exception ex) { Log.Warn($"secret '{k}' left out of the backup: {ex.Message}"); }
+            }
+            return all;
+        }
+    }
+
+    /// <summary>Replaces every secret (design EX1: restoring a backup), protecting each for this Windows user.</summary>
+    public void ReplaceAll(Dictionary<string, string> secrets)
+    {
+        lock (_gate)
+        {
+            _items = secrets.Where(kv => !string.IsNullOrEmpty(kv.Value))
+                            .ToDictionary(kv => kv.Key, kv => Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(kv.Value))));
+            Persist();
+        }
+    }
+
     private void Persist()
     {
         var tmp = _path + ".tmp";

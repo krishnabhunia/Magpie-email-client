@@ -51,6 +51,7 @@ public partial class SettingsWindow : Window
             if (ctrl && e.Key == Key.F) { SettingsSearchBox.Focus(); SettingsSearchBox.SelectAll(); e.Handled = true; }
         };
         FillKeys();
+        _vm.RefreshBackupAndFolder();
     }
 
     // ───────────────────────── search (design SS1) ─────────────────────────
@@ -253,6 +254,40 @@ public partial class SettingsWindow : Window
         catch (Exception ex) { Ui.Error("Add a picture", ex.Message); }
     }
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
+
+    // ───────────────────────── backup (design EX1) and mail folder (design DL1) ─────────────────────────
+
+    private async void OnBackupSave(object sender, RoutedEventArgs e)
+    {
+        await BackupUi.SaveAsync(this);
+        _vm.RefreshBackupAndFolder();
+    }
+
+    private async void OnBackupRestore(object sender, RoutedEventArgs e) => await BackupUi.RestoreAsync(this);
+
+    private void OnMailOpen(object sender, RoutedEventArgs e) => Ui.OpenExternal(AppServices.Engine.Paths.MailRoot);
+
+    private void OnMailMove(object sender, RoutedEventArgs e)
+    {
+        var paths = AppServices.Engine.Paths;
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Where should Magpie keep your mail?" };
+        if (dlg.ShowDialog(this) != true) return;
+        var target = dlg.FolderName;
+        if (string.Equals(Path.GetFullPath(target), paths.MailRoot, StringComparison.OrdinalIgnoreCase)) return;
+        if (Path.GetFullPath(target).StartsWith(paths.MimeCache, StringComparison.OrdinalIgnoreCase))
+        {
+            Ui.Error("Move your mail", "Choose a folder outside Magpie's own message folder.", this);
+            return;
+        }
+        var size = Services.MailFolderStartup.Size(Magpie.Core.Storage.MailLocation.Size(paths.MailRoot));
+        var choice = Views.ChoiceDialog.Ask(this, "Move your mail to " + target + "?",
+            $"Magpie restarts and moves {size}. Nothing is removed from {paths.MailRoot} until the copy is checked.\n\n"
+            + "Settings and sign-ins stay in your Windows profile: Magpie needs them to find the folder.",
+            "Move and restart");
+        if (choice != 0) return;
+        Magpie.Core.Storage.MailLocation.RequestMove(paths, target);
+        ((App)Application.Current).RestartApp();
+    }
 
     private void OnAddAccount(object sender, RoutedEventArgs e)
     {

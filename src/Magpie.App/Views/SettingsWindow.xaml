@@ -271,6 +271,42 @@
                                 <Button Style="{StaticResource Button.Secondary}" Content="Add tag" HorizontalAlignment="Left" FontWeight="Normal" Command="{Binding AddTagCommand}" />
                             </StackPanel>
                         </Border>
+
+                        <!-- Design EX1 -->
+                        <TextBlock Text="BACKUP" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,10" />
+                        <Border x:Name="RowBackup" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Back up your settings" FontWeight="Medium" FontSize="13.5" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,12"
+                                           Text="One file with everything you set up in Magpie: accounts and their sign-ins, rules, signatures, quick replies, templates, tags, Gatekeeper lists, look and layout. Restore it after reinstalling Magpie or on another PC, and you're back where you were. The file is locked with a password you choose." />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource Button.Primary}" Content="Save a backup…" Click="OnBackupSave" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Restore from a backup…" Click="OnBackupRestore" Margin="8,0,0,0" />
+                                    <TextBlock Text="{Binding LastBackupText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Design DL1 -->
+                        <TextBlock Text="WHERE YOUR MAIL IS KEPT" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,10" />
+                        <Border x:Name="RowMailFolder" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                           Text="Your downloaded emails, attachments you opened, drafts waiting on this PC, snoozes and reminders. Keep them on another drive (an encrypted one, if you like) and they stay there when Magpie is uninstalled." />
+                                <Border Background="{DynamicResource Brush.Window.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="Move…" Click="OnMailMove" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="Open folder" Click="OnMailOpen" VerticalAlignment="Center" />
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="{Binding MailFolderPath}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding MailFolderInfo}" Style="{StaticResource Text.Caption}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           Text="Settings and sign-ins stay in your Windows profile: Magpie needs them to find this folder. They're small, and a backup covers them." />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <!-- ═══════════ Accounts ═══════════ -->
@@ -312,6 +348,8 @@
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
@@ -333,6 +371,19 @@
                                                 <CheckBox Grid.Row="3" Grid.Column="1" Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=TwoWay}" HorizontalAlignment="Left">
                                                     <TextBlock Text="Sync this account" />
                                                 </CheckBox>
+                                                <!-- Design DS1 -->
+                                                <TextBlock Grid.Row="4" Text="Download emails" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,10,0,0" />
+                                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
+                                                    <TextBlock Text="from the last" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                    <ComboBox Width="140" ItemsSource="{Binding DownloadChoices}" DisplayMemberPath="Label" SelectedValuePath="Days" SelectedValue="{Binding SyncDays, Mode=TwoWay}" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Row="5" Text="Attachments" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,10,0,0" />
+                                                <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,10,0,0">
+                                                    <RadioButton GroupName="{Binding Email}" Content="Only when I open the email" IsChecked="{Binding DownloadAttachments, Mode=TwoWay, Converter={StaticResource InvBool}}" />
+                                                    <RadioButton GroupName="{Binding Email}" Content="Download them too" IsChecked="{Binding DownloadAttachments, Mode=TwoWay}" Margin="0,4,0,0" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                                               Text="Older emails are still listed and download when you open them. A longer time fetches the older emails in the background; a shorter one keeps what is already downloaded." />
+                                                </StackPanel>
                                             </Grid>
                                         </StackPanel>
                                     </Border>

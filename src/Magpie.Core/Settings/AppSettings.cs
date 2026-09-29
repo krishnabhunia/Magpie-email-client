@@ -277,6 +277,8 @@ public sealed class AppSettings
     public bool SmartInbox { get; set; } = true;
     public bool MarkReadOnOpen { get; set; } = true;
     public int SyncIntervalMinutes { get; set; } = 5;
+    /// <summary>When the last settings backup was saved (design EX1), shown in Settings → General.</summary>
+    public DateTimeOffset? LastBackup { get; set; }
 
     // Notifications
     public bool Notifications { get; set; } = true;

@@ -27,6 +27,8 @@ public partial class EditableAccount : ObservableObject
         _color = a.Color;
         _enabled = a.Enabled;
         _syncDays = a.SyncDays;
+        _downloadAttachments = a.DownloadAttachments;
+        DownloadChoices = DownloadChoice.For(a.SyncDays);
     }
     public string Email => Original.Email;
     public string Kind => Original.Kind switch { AccountKind.Gmail => "Gmail", AccountKind.Microsoft => "Outlook / Microsoft 365", _ => "IMAP" }
@@ -48,7 +50,10 @@ public partial class EditableAccount : ObservableObject
         set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : value.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
     }
     [ObservableProperty] private bool _enabled;
+    /// <summary>Design DS1: "Download emails from the last …" (0 = everything) and whether attachments come too.</summary>
     [ObservableProperty] private int _syncDays;
+    [ObservableProperty] private bool _downloadAttachments;
+    public DownloadChoice[] DownloadChoices { get; }
 
     public Account ToAccount()
     {
@@ -61,13 +66,15 @@ public partial class EditableAccount : ObservableObject
         a.SignatureOnReplies = SignatureOnReplies;
         a.Color = Color;
         a.Enabled = Enabled;
-        a.SyncDays = Math.Clamp(SyncDays, 7, 3650);
+        a.SyncDays = DownloadChoice.Normalise(SyncDays);
+        a.DownloadAttachments = DownloadAttachments;
         return a;
     }
 
     public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
-                           || Enabled != Original.Enabled || SyncDays != Original.SyncDays;
+                           || Enabled != Original.Enabled || SyncDays != Original.SyncDays
+                           || DownloadAttachments != Original.DownloadAttachments;
 }
 
 public partial class EditableTag : ObservableObject
@@ -327,7 +334,10 @@ public partial class SettingsViewModel : ObservableObject
         ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
         ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
         ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
+        ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
+        ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
@@ -574,6 +584,32 @@ public partial class SettingsViewModel : ObservableObject
     public string DataFolder => _e.Paths.Root;
 
     public event Action? Saved;
+
+    // ───────────── Backup (design EX1) and mail folder (design DL1) ─────────────
+
+    public string LastBackupText => _e.Config.LastBackup is { } t ? "Last backup: " + t.ToLocalTime().ToString("d MMM yyyy, HH:mm") : "No backup saved yet";
+    public string MailFolderPath => _e.Paths.MailRoot;
+    [ObservableProperty] private string _mailFolderInfo = "";
+
+    public void RefreshBackupAndFolder()
+    {
+        OnPropertyChanged(nameof(LastBackupText));
+        OnPropertyChanged(nameof(MailFolderPath));
+        var root = _e.Paths.MailRoot;
+        _ = Task.Run(() =>
+        {
+            var size = Core.Storage.MailLocation.Size(root);
+            string free = "";
+            try
+            {
+                var drive = new DriveInfo(Path.GetPathRoot(root)!);
+                free = $" · {Services.MailFolderStartup.Size(drive.AvailableFreeSpace)} free on {drive.Name.TrimEnd('\\')}";
+            }
+            catch { }
+            var text = $"{Services.MailFolderStartup.Size(size)} of mail{free}" + (_e.Paths.CustomMailRoot ? "" : " · the usual folder");
+            Ui.Post(() => MailFolderInfo = text);
+        });
+    }
 
     public SettingsViewModel(string? page)
     {

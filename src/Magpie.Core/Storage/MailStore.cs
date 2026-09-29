@@ -670,12 +670,15 @@ public sealed class MailStore
         tx.Commit();
     }
 
-    public List<long> RowsWithoutBody(long folderId, int limit)
+    /// <summary>Newest emails in a folder with no downloaded text yet; only those since <paramref name="since"/> when given
+    /// (design DS1: the account's download window).</summary>
+    public List<long> RowsWithoutBody(long folderId, int limit, DateTimeOffset? since = null)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id FROM messages WHERE folder_id=$f AND body_cached=0 AND size < 5000000 ORDER BY sort_date DESC LIMIT $l";
+        cmd.CommandText = "SELECT id FROM messages WHERE folder_id=$f AND body_cached=0 AND size < 5000000 AND sort_date >= $s ORDER BY sort_date DESC LIMIT $l";
         cmd.Parameters.AddWithValue("$f", folderId);
+        cmd.Parameters.AddWithValue("$s", since?.ToUnixTimeMilliseconds() ?? long.MinValue);
         cmd.Parameters.AddWithValue("$l", limit);
         var list = new List<long>();
         using var r = cmd.ExecuteReader();

@@ -36,8 +36,12 @@ public sealed class Account
     public bool SignatureOnNew { get; set; } = true;
     /// <summary>Add the signature to replies and forwards (above the quoted text).</summary>
     public bool SignatureOnReplies { get; set; } = true;
-    /// <summary>Initial sync window in days (older mail stays on the server and is reachable by server search later).</summary>
+    /// <summary>Design DS1: emails from the last N days are downloaded in the background (readable and searchable
+    /// offline); older ones are listed and download when opened. 0 = everything.</summary>
     public int SyncDays { get; set; } = 90;
+    /// <summary>Design DS1: background downloads include attachments. Off (default): text only; an email's
+    /// attachments come down when it is opened.</summary>
+    public bool DownloadAttachments { get; set; }
     public bool Enabled { get; set; } = true;
     /// <summary>Server stores sent mail itself (Gmail, Outlook) — do not IMAP-APPEND a copy.</summary>
     public bool ServerSavesSent { get; set; }

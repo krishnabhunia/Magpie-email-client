@@ -17,6 +17,8 @@ public static class Program
     public static string UpdatedFrom { get; private set; } = "";
     /// <summary>Set once the main window is up: from then on a crash is not a reason to offer the previous version.</summary>
     public static bool StartupComplete { get; set; }
+    /// <summary>Started by Magpie itself to restart (a settings restore, a mail folder move): the old copy is closing.</summary>
+    public static bool AfterRestart { get; private set; }
 
     [STAThread]
     public static int Main(string[] args)
@@ -24,6 +26,7 @@ public static class Program
         StartupArgs = args;
         var i = Array.IndexOf(args, "--after-update");
         AfterUpdate = i >= 0;
+        AfterRestart = Array.IndexOf(args, "--restart") >= 0;
         if (AfterUpdate)
         {
             UpdatedFrom = i + 1 < args.Length ? args[i + 1] : "";
@@ -35,7 +38,7 @@ public static class Program
         try { _mutex = new Mutex(true, @"Local\Magpie.Mail.SingleInstance", out createdNew); }
         catch { createdNew = true; }
 
-        if (!createdNew && AfterUpdate)
+        if (!createdNew && (AfterUpdate || AfterRestart))
         {
             try { createdNew = _mutex!.WaitOne(TimeSpan.FromSeconds(60)); }
             catch (AbandonedMutexException) { createdNew = true; }   // the old copy exited without releasing it: ours now
