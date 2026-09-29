@@ -2,14 +2,14 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **1.2.0** (see CHANGELOG.md). Next: **1.2.0** — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
 | Rule | What it means for you |
 |---|---|
 | Designs first | Nothing new is built until Krishna has seen a design and said "approved". For 1.2.0 the designs are already approved (text specs in `docs/ROADMAP-1.2.0.md`). For anything new: show a design first (HTML mock-up or a clear written spec), wait for "approved". |
-| Releases (R1) | Krishna only reviews and merges PRs; releasing is automatic (`docs/CI-CD.md`). Merging the bot's "Release x.y.z" PR is the deploy. Never bump the version, date the CHANGELOG, push tags or push to `main` yourself. |
+| Releases (E1) | Krishna only reviews and merges PRs; releasing is automatic (`docs/CI-CD.md`), the same way as in evict-uninstaller. Merging a PR that sets a new version is the deploy. Never push tags, create releases or push to `main` yourself. |
 | Queue | Any feature he mentions goes into the queue automatically (add it to `docs/ROADMAP-1.2.0.md` and open a `[Q<n>]` GitHub issue); it leaves only when he explicitly rejects it. |
 | Blockers only | He wants to hear blockers, doubts and lacunas — not narration. One question at a time when something is unclear. |
 | Honesty | If something is not verified (e.g. you could not run the app), say so. |
@@ -42,13 +42,14 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 - On this laptop you **can run the app**: `dotnet run --project src/Magpie.App` (or `publish/Magpie.exe`). Do that for UI work and say what you saw. Data lives in `%APPDATA%\Magpie` (settings.json, mail.db, magpie.log).
 - Warnings are errors in spirit: keep the build at 0 warnings.
 
-## Releasing (automatic — design R1, `docs/CI-CD.md`)
+## Releasing (automatic — design E1, `docs/CI-CD.md`)
 
-1. In every feature PR, write the user-facing lines under `## x.y.z (not released yet)` at the top of `CHANGELOG.md` (pick the next version: minor for features, patch for fixes; `x.y.z-rc.1` etc. for a pre-release). Add `<!-- closes: #n #m -->` for the `[Q..]` issues the release finishes (hidden from the notes).
-2. Don't touch `Directory.Build.props` versions, `ReleaseDate`, `installer/Magpie.iss` or the CHANGELOG date: `release-pr.yml` does that in the "Release x.y.z" PR after each merge to `main`.
-3. The release PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges the PR.
-4. On that merge `build.yml` publishes `vx.y.z` (EXE, installer, checksums, notes), removes its test versions, and the `closes` issues close. Tags are created by CI — never push tags.
-5. Installed copies get the update through Settings → Updates / the title-bar pill (`UpdateService`, SHA-256 checked, rollback on failure).
+1. In the PR that should ship, write the user-facing lines under `## x.y.z (not released yet)` at the top of `CHANGELOG.md` (minor for features, patch for fixes; `x.y.z-rc.1` etc. for a pre-release) and put "Closes #n" in the PR body for the `[Q..]` issues it finishes.
+2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI's `check` step fails if any of that is missing.
+3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges.
+4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes) and removes its test versions. Tags are created by CI — never push tags.
+5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar pill; SHA-256 checked, rollback on failure).
+6. PRs that don't change the version release nothing; several PRs can collect lines under a `(not released yet)` section until one runs `apply`.
 
 ## Where things are
 
@@ -81,4 +82,4 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 - Google Calendar API + People API must be enabled in his Google Cloud project (the one used for Gmail sign-in) before the 1.2.0 calendar/contacts items; re-sign-in needed for the new scopes.
 - `magpie.log` review (queue #5) — ask him to look at `%APPDATA%\Magpie\magpie.log` after real use.
 - Code signing: parked (unsigned by choice).
-- CI/CD (R1) needs Krishna's one-time setup: `RELEASE_TOKEN` secret and branch protection on `main` (`docs/CI-CD.md`). Until then the release PR gets no CI run / test version.
+- CI/CD (E1) needs no setup. Branch protection on `main` (require the **build** check) is recommended so a red PR can't be merged and released (`docs/CI-CD.md`).

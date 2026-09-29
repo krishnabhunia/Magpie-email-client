@@ -93,6 +93,14 @@ class ReleasePrepTests(unittest.TestCase):
         with self.assertRaises(rp.ReleaseError):
             rp.apply(datetime.date(2026, 10, 3), self.root)
 
+    def test_check_passes_only_after_apply(self):
+        with self.assertRaises(rp.ReleaseError):
+            rp.check("1.2.0", self.root)                       # still 1.1.2 and "(not released yet)"
+        rp.apply(datetime.date(2026, 9, 29), self.root)
+        rp.check("1.2.0", self.root)
+        with self.assertRaises(rp.ReleaseError):
+            rp.check("1.2.1", self.root)
+
     def test_real_repository_files_are_readable(self):
         # The repo's own files must keep the shapes apply() edits.
         self.assertTrue(rp.SEMVER.match(rp.current()))

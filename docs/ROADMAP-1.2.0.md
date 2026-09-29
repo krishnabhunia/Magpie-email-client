@@ -2,7 +2,7 @@
 
 Everything here was **approved by Krishna on 28 Sep 2026** (designs B1–B7, AD1–AD4 on the design canvas). This file is the text version so Claude Code can build without the canvas. Build order (default, Krishna may reorder): dark theme → rules → signatures + quick replies → Gatekeeper + Set aside → auto-delete + OTP delete → invites → contacts → calendar.
 
-Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automatic: Krishna merges the "Release x.y.z" PR (design R1, `docs/CI-CD.md`).
+Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automatic: merging a PR that sets a new version publishes it (design E1, `docs/CI-CD.md`).
 
 ## Queue
 
@@ -20,7 +20,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Built — not yet tried on Windows | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
 | 16 | Version number in the main window (title bar) | V1 (below) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
-| 17 | Automatic CI + CD: release PR, test versions, release on merge | R1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 (with test builds) · Built — needs `RELEASE_TOKEN` + branch protection | [#14](https://github.com/krishnabhunia/Magpie-email-client/issues/14) |
+| 17 | Automatic CI + CD: release PR, test versions, release on merge | R1 → E1 (`docs/CI-CD.md`) | R1 built 29 Sep 2026, replaced the same day by E1 (approved 29 Sep 2026: the evict-uninstaller way, no token) · Built | [#14](https://github.com/krishnabhunia/Magpie-email-client/issues/14) |
 | 18 | Release zip with only `installer/` and `portable/` folders | Z1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#15](https://github.com/krishnabhunia/Magpie-email-client/issues/15) |
 | 19 | "Auto update": install new versions in the background, check once a day | A1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
 | 20 | Installer updates a running Magpie by itself | I1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
