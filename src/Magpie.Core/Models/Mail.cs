@@ -59,6 +59,16 @@ public sealed class MessageRow
 
     public bool IsSeen => Flags.HasFlag(MessageFlags.Seen);
     public bool IsFlagged => Flags.HasFlag(MessageFlags.Flagged);
+    /// <summary>
+    /// Set aside (design B7) is stored as a snooze that never wakes (31 Dec 9999): the conversation leaves the Inbox and
+    /// every Inbox count exactly like a snoozed one, without a date. Snoozed views leave it out; the Set aside view lists it.
+    /// </summary>
+    public static readonly DateTimeOffset SetAsideMark = new(9999, 12, 31, 0, 0, 0, TimeSpan.Zero);
+    /// <summary>Gatekeeper (design B7): mail from a new sender waits at the door the same way, a day earlier.
+    /// Every real snooze is before <see cref="GateMark"/>.</summary>
+    public static readonly DateTimeOffset GateMark = new(9999, 12, 30, 0, 0, 0, TimeSpan.Zero);
+    public bool IsSetAside => SnoozeUntil == SetAsideMark;
+    public bool IsAtGate => SnoozeUntil == GateMark;
     public string Sender => string.IsNullOrWhiteSpace(FromName) ? FromAddress : FromName;
 }
 
@@ -74,6 +84,11 @@ public sealed class ThreadRow
     public bool HasAttachments { get; set; }
     public string Participants { get; set; } = "";
     public DateTimeOffset? SnoozeUntil { get; set; }
+    /// <summary>Earliest auto-delete timer on the conversation (design AD3) and the rule that set it.</summary>
+    public DateTimeOffset? DeleteAt { get; set; }
+    public string DeleteRule { get; set; } = "";
+    public bool IsSetAside => SnoozeUntil == MessageRow.SetAsideMark;
+    public bool IsSnoozed(DateTimeOffset now) => SnoozeUntil is { } s && s > now && s < MessageRow.GateMark;
 }
 
 public sealed class AttachmentInfo
@@ -90,6 +105,8 @@ public sealed class MessageBody
 {
     public string Html { get; set; } = "";
     public string Text { get; set; } = "";
+    /// <summary>The message's iCalendar part (text/calendar), if it carries an invite (design B3).</summary>
+    public string Calendar { get; set; } = "";
     public List<AttachmentInfo> Attachments { get; set; } = new();
 }
 

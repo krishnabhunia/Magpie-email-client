@@ -36,6 +36,7 @@ public partial class ThreadViewModel : ObservableObject
     [ObservableProperty] private string _meta = "";
     [ObservableProperty] private bool _isPinned;
     [ObservableProperty] private bool _isSnoozed;
+    [ObservableProperty] private bool _isSetAside;
     [ObservableProperty] private string _tagsText = "";
     [ObservableProperty] private int _blockedImages;
     [ObservableProperty] private bool _canUnsubscribe;
@@ -67,6 +68,7 @@ public partial class ThreadViewModel : ObservableObject
         var repliesVisible = _e.Ai.IsVisible(AiFeature.Replies);
         if (!repliesVisible) { Replies.Clear(); ShowReplies = false; }
         else if (HasThread && !ShowReplies) UpdateRepliesBar();
+        UpdateQuickReplies();
         if (!_e.Ai.IsVisible(AiFeature.Summarise)) { SummaryVisible = false; _aiCts?.Cancel(); }
         OnPropertyChanged(nameof(ProviderLabel));
     }
@@ -80,10 +82,30 @@ public partial class ThreadViewModel : ObservableObject
         Replies.Clear();
         SummaryVisible = false;
         ShowReplies = false;
+        ShowQuickReplies = false;
+        HasDeleteTimer = false;
+        HasInvite = false;
+        _invite = null;
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
-        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text), "view"));
+        _placeholder = (title, text);
+        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text, ThemeManager.IsDark), "view"));
+    }
+
+    private (string Title, string Text) _placeholder = ("Welcome to Magpie", "Pick a conversation to read it here.");
+
+    /// <summary>The theme changed (design B1): draw the open conversation, or the empty page, again in the new colours.</summary>
+    public void Redraw()
+    {
+        if (!HasThread)
+        {
+            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(_placeholder.Title, _placeholder.Text, ThemeManager.IsDark), "view"));
+            return;
+        }
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        _ = LoadAsync(_cts.Token, markRead: false);
     }
 
     public void Show(ThreadRow row, MainViewModel main)
@@ -109,7 +131,7 @@ public partial class ThreadViewModel : ObservableObject
         {
             var m = row.Latest;
             var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
-            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm")));
+            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark));
         }
         _ = LoadAsync(_cts.Token, markRead: true);
     }
@@ -144,7 +166,9 @@ public partial class ThreadViewModel : ObservableObject
             var people = rows.Select(r => IsMine(r) ? "you" : r.Sender).Distinct().Take(5);
             Meta = $"{rows.Count} message{(rows.Count == 1 ? "" : "s")} · {string.Join(", ", people)}";
             IsPinned = rows.Any(r => r.IsFlagged);
-            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now);
+            IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && r.SnoozeUntil < MessageRow.GateMark);   // not set aside, not at the door
+            IsSetAside = rows.Any(r => r.IsSetAside);
+            RefreshDeleteBar();
             TagsText = latest.Tags.Replace(",", " · ");
             CanUnsubscribe = rows.Any(r => r.ListUnsubscribe.Length > 0);
             var folders = _e.Folders(AccountId).ToDictionary(f => f.Id);
@@ -181,6 +205,7 @@ public partial class ThreadViewModel : ObservableObject
             }
             ct.ThrowIfCancellationRequested();
             if (fetched) await RenderAsync(rows, bodies, ct);
+            await UpdateInviteAsync(rows, bodies, ct);
 
             if (markRead && _e.Config.MarkReadOnOpen && rows.Any(r => !r.IsSeen))
                 _e.SetRead(AccountId, ThreadKey, true);
@@ -192,7 +217,7 @@ public partial class ThreadViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error("open conversation", ex);
-            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message), "view"));
+            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message, ThemeManager.IsDark), "view"));
         }
     }
 
@@ -206,9 +231,10 @@ public partial class ThreadViewModel : ObservableObject
         var subject = Subject;
         var allow = ImagesAllowed(rows);
         var list = BuildRenderList(rows, bodies);
+        var dark = ThemeManager.IsDark;
         var (url, blocked) = await Task.Run(() =>
         {
-            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now);
+            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark);
             ct.ThrowIfCancellationRequested();
             return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
         }, ct);
@@ -258,7 +284,7 @@ public partial class ThreadViewModel : ObservableObject
     {
         _lastBodies = bodies;
         var allow = ImagesAllowed(rows);
-        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now);
+        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now, ThemeManager.IsDark);
         BlockedImages = allow ? 0 : result.BlockedImages;
         PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
     }
@@ -298,6 +324,45 @@ public partial class ThreadViewModel : ObservableObject
     public void Snooze(DateTimeOffset until)
     {
         _e.Snooze(AccountId, ThreadKey, until);
+        ThreadRemoved?.Invoke();
+    }
+
+    // ───────────────────────── auto-delete bar (design AD3) ─────────────────────────
+
+    [ObservableProperty] private bool _hasDeleteTimer;
+    [ObservableProperty] private string _deleteBarText = "";
+    [ObservableProperty] private string _deleteRuleText = "";
+    public string DeleteRuleId { get; private set; } = "";
+
+    public void RefreshDeleteBar()
+    {
+        var timers = HasThread ? _e.Store.DeleteTimers(AccountId, ThreadKey) : new();
+        HasDeleteTimer = timers.Count > 0;
+        if (!HasDeleteTimer) { DeleteBarText = DeleteRuleText = DeleteRuleId = ""; return; }
+        var (_, at, ruleId) = timers[0];
+        DeleteRuleId = ruleId;
+        DeleteBarText = AutoDelete.BarText(at, DateTimeOffset.Now);
+        var rule = _e.AutoDeleteRules().FirstOrDefault(r => r.Id == ruleId);
+        DeleteRuleText = rule == null ? "Rule: removed (this email keeps its date)"
+            : $"Rule: {AutoDelete.Who(rule.Pattern)} · {AutoDelete.Describe(rule)}" + (rule.Paused ? " · paused" : "");
+    }
+
+    /// <summary>"Keep this one": the timer comes off this conversation only (pinning keeps it too).</summary>
+    [RelayCommand]
+    private void KeepFromAutoDelete()
+    {
+        if (!HasThread) return;
+        _e.KeepFromAutoDelete(AccountId, ThreadKey);
+        RefreshDeleteBar();
+    }
+
+    /// <summary>Set aside (design B7, key L): out of the Inbox without a date; in the pile it puts the conversation back.</summary>
+    [RelayCommand]
+    private void ToggleSetAside()
+    {
+        var aside = !IsSetAside;
+        _e.SetAside(AccountId, ThreadKey, aside);
+        IsSetAside = aside;
         ThreadRemoved?.Invoke();
     }
 
@@ -518,8 +583,44 @@ public partial class ThreadViewModel : ObservableObject
 
     // ───────────────────────── AI: suggested replies (Option C) ─────────────────────────
 
+    // ───────────────────────── quick replies (design B6) ─────────────────────────
+
+    public ObservableCollection<string> QuickReplies { get; } = new();
+    [ObservableProperty] private bool _showQuickReplies;
+    private bool _quickSending;
+
+    private void UpdateQuickReplies()
+    {
+        var list = _e.Config.QuickReplies;
+        if (!QuickReplies.SequenceEqual(list)) { QuickReplies.Clear(); foreach (var q in list) QuickReplies.Add(q); }
+        ShowQuickReplies = HasThread && QuickReplies.Count > 0 && Messages.Count > 0 && !IsMine(Messages[^1]) && Messages[^1].Category == Category.People;
+    }
+
+    /// <summary>One click sends the reply to the newest message from the thread, through the outbox (Undo in the toast).</summary>
+    [RelayCommand]
+    private async Task SendQuickReply(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _quickSending || Messages.Count == 0) return;
+        var original = Messages[^1];
+        if (IsMine(original)) return;
+        _quickSending = true;
+        try
+        {
+            var id = await _e.QuickReplyAsync(original, text);
+            if (System.Windows.Application.Current.MainWindow?.DataContext is MainViewModel vm)
+                vm.ShowUndo(id, _e.Config.UndoSendSeconds, Threading.ReplySubject(original.Subject));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("quick reply", ex);
+            Ui.Error("Quick reply", Connector.Friendly(ex));
+        }
+        finally { _quickSending = false; }
+    }
+
     private void UpdateRepliesBar()
     {
+        UpdateQuickReplies();
         var visible = HasThread && _e.Ai.IsVisible(AiFeature.Replies) && Messages.Count > 0 && !IsMine(Messages[^1])
                       && Messages[^1].Category == Category.People;
         ShowReplies = visible;

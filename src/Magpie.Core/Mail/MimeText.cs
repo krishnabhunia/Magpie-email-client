@@ -22,7 +22,28 @@ public static class MimeText
         body.Html = html ?? "";
         body.Text = text ?? "";
         body.Attachments = ListAttachments(msg);
+        body.Calendar = CalendarText(msg);
         return body;
+    }
+
+    /// <summary>The first text/calendar (or .ics) part: a meeting invite, update or cancellation (design B3).</summary>
+    public static string CalendarText(MimeMessage msg)
+    {
+        foreach (var part in msg.BodyParts.OfType<MimePart>())
+        {
+            var isCal = part.ContentType.IsMimeType("text", "calendar") || part.ContentType.IsMimeType("application", "ics")
+                        || (part.FileName ?? "").EndsWith(".ics", StringComparison.OrdinalIgnoreCase);
+            if (!isCal) continue;
+            try
+            {
+                if (part is TextPart tp) return tp.Text ?? "";
+                using var ms = new MemoryStream();
+                part.Content?.DecodeTo(ms);
+                return Encoding.UTF8.GetString(ms.ToArray());
+            }
+            catch { }
+        }
+        return "";
     }
 
     /// <summary>

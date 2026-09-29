@@ -1,6 +1,7 @@
 <Window x:Class="Magpie.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
@@ -46,7 +47,7 @@
                 <!-- Search in Settings (design SS1): every setting by its name or plain words; Ctrl+F jumps here, Esc clears -->
                 <Border DockPanel.Dock="Top" Margin="10,0,10,10" Height="34" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" CornerRadius="8" Background="{DynamicResource Brush.Card.Background}">
                     <DockPanel Margin="9,0,6,0">
-                        <svc:IconChip DockPanel.Dock="Left" Icon="search" Size="15" Plain="True" Stroke="{DynamicResource Brush.Accent}" Margin="0,0,7,0" />
+                        <svc:IconChip DockPanel.Dock="Left" Icon="search" Size="15" Plain="True" Stroke="{DynamicResource Brush.Accent.Text}" Margin="0,0,7,0" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" MinHeight="22" Width="22" Padding="0" ToolTip="Clear (Esc)"
                                 Click="OnSearchClear" Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}" />
                         <TextBox x:Name="SettingsSearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" BorderThickness="0" Background="Transparent" VerticalContentAlignment="Center"
@@ -58,10 +59,6 @@
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="general" Size="24" Margin="0,0,10,0" /><TextBlock Text="General" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsGeneral, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsGeneral}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
-                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
-                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
-                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Toolbar &amp; buttons" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
-                    </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Accounts"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="accounts" Size="24" Margin="0,0,10,0" /><TextBlock Text="Accounts" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsAccounts, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsAccounts}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
@@ -69,6 +66,18 @@
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="AI"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AI}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="summarise" Size="24" Margin="0,0,10,0" /><TextBlock Text="AI features" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsAI, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsAI}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Rules"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Rules}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="rules" Size="24" Margin="0,0,10,0" /><TextBlock Text="Rules" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsRules, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsRules}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Signatures"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Signatures}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="signature" Size="24" Margin="0,0,10,0" /><TextBlock Text="Signatures &amp; replies" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsSignatures, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsSignatures}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Appearance" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Notifications"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}">
@@ -117,7 +126,7 @@
                                             Command="{Binding DataContext.GoToHitCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                         <DockPanel>
                                             <svc:IconChip DockPanel.Dock="Left" Icon="{Binding IconKey}" Size="28" Margin="0,0,12,0" />
-                                            <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Brush.Accent}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0">
+                                            <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Brush.Accent.Text}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0">
                                                 <Run Text="{Binding PageLabel, Mode=OneWay}" /><Run Text=" →" />
                                             </TextBlock>
                                             <StackPanel VerticalAlignment="Center">
@@ -206,6 +215,35 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Gatekeeper (design B7) -->
+                        <TextBlock Text="GATEKEEPER" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowGatekeeper" Style="{StaticResource Card}" Padding="22,6">
+                            <StackPanel>
+                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Gatekeeper, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Gatekeeper: new senders wait at the door" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Mail from someone you've never written to or heard from waits outside the Inbox until you Allow or Block them. Switching it off lets everyone waiting in." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <StackPanel Margin="0,4,0,10" Visibility="{Binding HasBlocked, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="Blocked — their mail goes to Spam" FontWeight="SemiBold" FontSize="12.5" Margin="0,0,0,4" />
+                                    <ItemsControl ItemsSource="{Binding Blocked}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,1">
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Unblock" Padding="4,0" MinHeight="20"
+                                                            Command="{Binding DataContext.UnblockCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                    <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="TAGS" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border x:Name="RowTags" Style="{StaticResource Card}">
                             <StackPanel>
@@ -278,9 +316,9 @@
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
-                                                <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,8,0,0" />
-                                                <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding Signature, UpdateSourceTrigger=PropertyChanged}"
-                                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" VerticalContentAlignment="Top" Margin="0,0,0,8" />
+                                                <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,0,8" />
+                                                <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource Button.Link}" Content="Edit in Signatures &amp; replies →" HorizontalAlignment="Left" Padding="0,2" Margin="0,0,0,8"
+                                                        Command="{Binding DataContext.GoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Signatures" />
                                                 <TextBlock Grid.Row="2" Text="Colour" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <ComboBox Grid.Row="2" Grid.Column="1" Width="140" HorizontalAlignment="Left" SelectedItem="{Binding Color, Mode=TwoWay}" Margin="0,0,0,8"
                                                           ItemsSource="{Binding DataContext.ColorChoices, RelativeSource={RelativeSource AncestorType=Window}}">
@@ -429,7 +467,7 @@
                                         <DockPanel>
                                             <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle}" IsChecked="{Binding Summarise, Mode=TwoWay}" />
                                             <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Teal}" Margin="0,0,14,0">
-                                                <TextBlock Text="Option B" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
+                                                <TextBlock Text="Option B" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" />
                                             </Border>
                                             <StackPanel Margin="0,0,14,0">
                                                 <TextBlock Text="Summarise thread" FontWeight="Medium" FontSize="13.5" />
@@ -549,6 +587,301 @@
                     </StackPanel>
 
                     <!-- ═══════════ Templates ═══════════ -->
+                    <!-- ═══════════ Rules (design B5) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Rules}">
+                        <TextBlock Text="Rules" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Rules sort new mail as it arrives: they run top to bottom, on this PC, before you are notified. A message a rule moves or deletes isn't seen by the rules below it."
+                                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                            <RadioButton Style="{StaticResource Button.Chip}" GroupName="RulesTab" Content="{Binding FiltersTabLabel}" Margin="0,0,6,0" Padding="14,4"
+                                         IsChecked="{Binding IsFiltersTab, Mode=OneWay}" Command="{Binding ShowRulesTabCommand}" CommandParameter="Filters" />
+                            <RadioButton x:Name="RowAutoDelete" Style="{StaticResource Button.Chip}" GroupName="RulesTab" Content="{Binding AutoDeleteTabLabel}" Padding="14,4"
+                                         IsChecked="{Binding IsAutoDeleteTab, Mode=OneWay}" Command="{Binding ShowRulesTabCommand}" CommandParameter="AutoDelete" />
+                        </StackPanel>
+
+                        <!-- Auto-delete rules (design AD4) -->
+                        <StackPanel Visibility="{Binding IsAutoDeleteTab, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"
+                                       Text="Emails from these senders go to Trash on their own, a set time after they arrive. Pinned emails are never deleted. Paused rules delete nothing until you resume them." />
+                            <Border Style="{StaticResource Card}" Padding="0">
+                                <StackPanel>
+                                    <Grid Margin="14,9,10,7" TextElement.FontSize="11.5" TextElement.FontWeight="SemiBold" TextElement.Foreground="{DynamicResource Brush.Text.Secondary}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="120" /><ColumnDefinition Width="64" /><ColumnDefinition Width="96" /><ColumnDefinition Width="150" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="FROM" />
+                                        <TextBlock Grid.Column="1" Text="DELETE AFTER" />
+                                        <TextBlock Grid.Column="2" Text="ACCOUNTS" />
+                                        <TextBlock Grid.Column="3" Text="WAITING" />
+                                        <TextBlock Grid.Column="4" Text="NEXT DELETE" />
+                                    </Grid>
+                                    <TextBlock Text="No auto-delete rules yet. Use Delete ▾ on an email, or New rule." Style="{StaticResource Text.Caption}" Margin="14,4,14,12"
+                                               Visibility="{Binding AutoDeleteList.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+                                    <ItemsControl ItemsSource="{Binding AutoDeleteList}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:AutoDeleteRow}">
+                                                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="14,6,10,6">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="120" /><ColumnDefinition Width="64" /><ColumnDefinition Width="96" /><ColumnDefinition Width="150" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding From}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding StateText}" FontSize="11" Foreground="{DynamicResource Brush.Warning}" Visibility="{Binding Paused, Converter={StaticResource BoolToVis}}" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding After}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="2" Text="{Binding Accounts}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Grid.Column="3" Text="{Binding Waiting}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="4" Text="{Binding NextDelete}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                            <Button Style="{StaticResource Button.Link}" Content="Edit" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.EditAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            <Button Style="{StaticResource Button.Link}" Content="{Binding PauseLabel}" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.PauseAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            <Button Style="{StaticResource Button.Link}" Content="Remove" Foreground="{DynamicResource Brush.Danger}" Padding="4,0" MinHeight="22"
+                                                                    Command="{Binding DataContext.RemoveAutoDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                            <Button Style="{StaticResource Button.Secondary}" Content="New rule" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Normal" Command="{Binding NewAutoDeleteCommand}" />
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding IsFiltersTab, Converter={StaticResource BoolToVis}}">
+                        <Grid x:Name="RowRules">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="232" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Rule list -->
+                            <StackPanel>
+                                <Border Style="{StaticResource Card}" Padding="0">
+                                    <StackPanel>
+                                        <TextBlock Text="No rules yet." Style="{StaticResource Text.Caption}" Margin="14,12" Visibility="{Binding RuleList.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+                                        <ItemsControl ItemsSource="{Binding RuleList}" Focusable="False">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:EditableRule}">
+                                                    <Border x:Name="Item" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="10,8,8,8" Background="Transparent" Cursor="Hand">
+                                                        <Border.InputBindings>
+                                                            <MouseBinding MouseAction="LeftClick" Command="{Binding DataContext.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </Border.InputBindings>
+                                                        <DockPanel>
+                                                            <CheckBox DockPanel.Dock="Left" Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=TwoWay}" VerticalAlignment="Top" Margin="0,1,8,0"
+                                                                      Command="{Binding DataContext.ToggleRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                                      ToolTip="On / off" AutomationProperties.Name="{Binding DisplayName}" />
+                                                            <StackPanel DockPanel.Dock="Right" VerticalAlignment="Top">
+                                                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70E;" FontSize="9" MinHeight="18" Width="20" Padding="0" ToolTip="Move up (runs earlier)"
+                                                                        Command="{Binding DataContext.MoveRuleUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70D;" FontSize="9" MinHeight="18" Width="20" Padding="0" ToolTip="Move down (runs later)"
+                                                                        Command="{Binding DataContext.MoveRuleDownCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                            </StackPanel>
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                        </DockPanel>
+                                                    </Border>
+                                                    <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter TargetName="Item" Property="Background" Value="{DynamicResource Brush.Row.Selected}" />
+                                                        </DataTrigger>
+                                                    </DataTemplate.Triggers>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Button.Secondary}" Content="New rule" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Normal" Command="{Binding NewRuleCommand}" />
+                            </StackPanel>
+
+                            <!-- Editor -->
+                            <Border Grid.Column="2" Style="{StaticResource Card}" Visibility="{Binding HasSelectedRule, Converter={StaticResource BoolToVis}}">
+                                <StackPanel DataContext="{Binding SelectedRule}">
+                                    <TextBlock Text="Rule name" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                                    <WrapPanel Margin="0,16,0,8">
+                                        <TextBlock Text="WHEN A MESSAGE ARRIVES IN" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <ComboBox MinWidth="150" ItemsSource="{Binding DataContext.RuleAccountChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding AccountId, Mode=TwoWay}" Margin="0,0,8,0" />
+                                        <TextBlock Text="AND" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <ComboBox MinWidth="64" ItemsSource="{Binding DataContext.MatchChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding MatchAll, Mode=TwoWay}" Margin="0,0,8,0" />
+                                        <TextBlock Text="OF THESE MATCH" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" />
+                                    </WrapPanel>
+                                    <ItemsControl ItemsSource="{Binding Conditions}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableCondition}">
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="128" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox ItemsSource="{x:Static vm:EditableCondition.FieldChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Field, Mode=TwoWay}" AutomationProperties.Name="Field" />
+                                                    <ComboBox Grid.Column="1" MinWidth="118" Margin="6,0,0,0" ItemsSource="{Binding OpChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Op, Mode=TwoWay}" Visibility="{Binding ShowOp, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Operator" />
+                                                    <TextBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource TextBox.Field}" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                             Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Value" />
+                                                    <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding ValueChoices}" SelectedItem="{Binding Value, Mode=TwoWay}"
+                                                              Visibility="{Binding ShowChoice, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Value" />
+                                                    <Button Grid.Column="3" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" Margin="4,0,0,0" ToolTip="Remove condition"
+                                                            Command="{Binding DataContext.RemoveConditionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Link}" Content="+ Add condition" HorizontalAlignment="Left" Padding="0,2"
+                                            Command="{Binding DataContext.AddConditionCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+
+                                    <TextBlock Text="THEN" Style="{StaticResource Text.SectionCaps}" Margin="0,16,0,8" />
+                                    <ItemsControl ItemsSource="{Binding Actions}" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableAction}">
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="170" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox ItemsSource="{x:Static vm:EditableAction.KindChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                              SelectedValue="{Binding Kind, Mode=TwoWay}" AutomationProperties.Name="Action" />
+                                                    <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding TargetChoices}" SelectedItem="{Binding Target, Mode=TwoWay}"
+                                                              Visibility="{Binding ShowTarget, Converter={StaticResource BoolToVis}}" AutomationProperties.Name="Target" />
+                                                    <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" Margin="4,0,0,0" ToolTip="Remove action"
+                                                            Command="{Binding DataContext.RemoveActionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Link}" Content="+ Add action" HorizontalAlignment="Left" Padding="0,2"
+                                            Command="{Binding DataContext.AddActionCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+
+                                    <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,12,0,0"
+                                            DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                        <StackPanel>
+                                            <CheckBox Content="{Binding ApplyToExistingLabel}" IsChecked="{Binding ApplyToExisting, Mode=TwoWay}" />
+                                            <DockPanel Margin="0,12,0,0">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="Save rule" Padding="18,6" Command="{Binding SaveRuleCommand}" />
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="Preview matches" FontWeight="Normal" Margin="0,0,8,0" Command="{Binding PreviewRuleCommand}" />
+                                                <Button Style="{StaticResource Button.Link}" Content="Delete rule" Foreground="{DynamicResource Brush.Danger}" HorizontalAlignment="Left" Padding="0,2"
+                                                        Command="{Binding DeleteRuleCommand}" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding RuleStatus}" TextWrapping="Wrap" Margin="0,10,0,0" FontSize="12.5"
+                                                       Foreground="{Binding RuleStatusIsError, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Danger|Brush.Success}" />
+                                            <TextBlock Text="{Binding RulePreviewTitle}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,4" />
+                                            <ItemsControl ItemsSource="{Binding RulePreview}" Focusable="False">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:RuleMatchLine}">
+                                                        <DockPanel Margin="0,2">
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding When}" Style="{StaticResource Text.Caption}" Margin="8,0,0,0" />
+                                                            <TextBlock TextTrimming="CharacterEllipsis"><Run Text="{Binding Sender, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Subject, Mode=OneWay}" /></TextBlock>
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,14,0,0"
+                                   Text="Body looks at the start of each message — the part Magpie gets with new mail — and the whole text of messages you've opened." />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- ═══════════ Signatures & replies (design B6) ═══════════ -->
+                    <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Signatures}">
+                        <TextBlock Text="Signatures &amp; replies" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="A signature for each account, and short replies you can send with one click." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
+
+                        <TextBlock Text="SIGNATURES" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
+                        <Border x:Name="RowSignatures" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ItemsControl ItemsSource="{Binding Accounts}" Focusable="False" Margin="0,0,0,10">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableAccount}">
+                                            <RadioButton Style="{StaticResource Button.Chip}" GroupName="SigAccount" Content="{Binding Email}" Margin="0,0,6,6" FontSize="12.5" Padding="12,4"
+                                                         IsChecked="{Binding IsSignatureSelected, Mode=OneWay}"
+                                                         Command="{Binding DataContext.PickSignatureAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Add an account first." Style="{StaticResource Text.Caption}" Visibility="{Binding Accounts.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
+
+                                <StackPanel Visibility="{Binding SignatureAccount, Converter={StaticResource BoolToVis}}">
+                                    <!-- Toolbar: B / I / U / Link / Picture / Font / Colour -->
+                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="6,4" Background="{DynamicResource Brush.Header.Background}">
+                                        <WrapPanel>
+                                            <Button Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnSigFormat" ToolTip="Bold (Ctrl+B)" />
+                                            <Button Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnSigFormat" ToolTip="Italic (Ctrl+I)" />
+                                            <Button Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnSigFormat" ToolTip="Underline (Ctrl+U)">
+                                                <TextBlock Text="U" TextDecorations="Underline" FontFamily="Segoe UI" />
+                                            </Button>
+                                            <Button Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnSigLink" ToolTip="Add a link (Ctrl+K)" />
+                                            <Button Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnSigImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
+                                            <ComboBox x:Name="SigFont" Width="140" Margin="6,0,0,0" ItemsSource="{Binding SignatureFonts}" SelectionChanged="OnSigFont" ToolTip="Font" AutomationProperties.Name="Font" />
+                                            <ItemsControl ItemsSource="{Binding SignatureColours}" Margin="8,0,0,0" VerticalAlignment="Center" Focusable="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Width="18" Height="18" Margin="2,0" Tag="{Binding}" Click="OnSigColour" ToolTip="Text colour" Cursor="Hand" Background="{Binding Converter={StaticResource HexBrush}}" BorderThickness="0">
+                                                            <Button.Template>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <Border Background="{TemplateBinding Background}" CornerRadius="9" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" />
+                                                                </ControlTemplate>
+                                                            </Button.Template>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </WrapPanel>
+                                    </Border>
+                                    <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8" Height="150" ClipToBounds="True">
+                                        <Grid>
+                                            <!-- Composition control: draws through WPF, so it scrolls with the page (a plain WebView2 would float over it) -->
+                                            <wv2:WebView2CompositionControl x:Name="SigEditor" />
+                                            <TextBox x:Name="SigPlain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8"
+                                                     Text="{Binding SignatureAccount.SignaturePlain, UpdateSourceTrigger=PropertyChanged}" />
+                                        </Grid>
+                                    </Border>
+                                    <CheckBox Content="Add to new messages" IsChecked="{Binding SignatureAccount.SignatureOnNew, Mode=TwoWay}" Margin="0,12,0,4" />
+                                    <CheckBox Content="Add to replies and forwards (above the quoted text)" IsChecked="{Binding SignatureAccount.SignatureOnReplies, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                               Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Changes apply when you press Save." />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="QUICK REPLIES" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowQuickReplies" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Text="They show under a conversation. One click sends the reply straight away — with the usual Undo." />
+                                <ItemsControl ItemsSource="{Binding QuickReplyList}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableQuickReply}">
+                                            <DockPanel Margin="0,0,0,6">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove" Margin="6,0,0,0"
+                                                        Command="{Binding DataContext.RemoveQuickReplyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Quick reply" />
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Style="{StaticResource Button.Secondary}" Content="Add quick reply" HorizontalAlignment="Left" FontWeight="Normal" Margin="0,4,0,0" Command="{Binding AddQuickReplyCommand}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
                         <TextBlock Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
@@ -587,8 +920,45 @@
 
                     <!-- ═══════════ Toolbar & buttons (design C3) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Toolbar}">
-                        <TextBlock Text="Toolbar &amp; buttons" Style="{StaticResource Text.Serif}" FontSize="21" />
-                        <TextBlock Text="Choose which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
+                        <TextBlock Text="Appearance" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Light or dark, and which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+
+                        <!-- Theme (design B1) -->
+                        <TextBlock Text="THEME" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
+                        <Border x:Name="RowTheme" Style="{StaticResource Card}" Margin="0,0,0,22">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton GroupName="Theme" Margin="0,0,26,0" Command="{Binding SetThemeCommand}" CommandParameter="MatchWindows"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=MatchWindows}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" ClipToBounds="True">
+                                                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Border Background="#F7F6F2" CornerRadius="3,0,0,3" /><Border Grid.Column="1" Background="#111417" CornerRadius="0,3,3,0" /></Grid>
+                                            </Border>
+                                            <TextBlock Text="Match Windows" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="Theme" Margin="0,0,26,0" Command="{Binding SetThemeCommand}" CommandParameter="Light"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Light}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" Background="#F7F6F2" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" />
+                                            <TextBlock Text="Light" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="Theme" Command="{Binding SetThemeCommand}" CommandParameter="Dark"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Dark}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" Background="#111417" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" />
+                                            <TextBlock Text="Dark" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                </StackPanel>
+                                <TextBlock Text="{Binding MatchWindowsNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <TextBlock Text="Emails that bring their own colours keep them, on a white card, so they stay readable in the dark." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="TOOLBAR &amp; BUTTONS" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
 
                         <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,0,6" />
                         <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="10" Padding="10,8,4,4" Background="{DynamicResource Brush.Window.Background}">
@@ -885,7 +1255,7 @@
                                 <Button x:Name="FeedbackLink" Style="{StaticResource Button.Link}" HorizontalAlignment="Left" Padding="0,2" MinHeight="22" Click="OnFeedbackEmail"
                                         ToolTip="Opens a new message in Magpie with the details filled in">
                                     <StackPanel Orientation="Horizontal">
-                                        <svc:IconChip Icon="sent" Size="16" Plain="True" Stroke="{DynamicResource Brush.Accent}" Margin="0,0,6,0" />
+                                        <svc:IconChip Icon="sent" Size="16" Plain="True" Stroke="{DynamicResource Brush.Accent.Text}" Margin="0,0,6,0" />
                                         <TextBlock Text="{Binding FeedbackEmail}" FontSize="13.5" />
                                     </StackPanel>
                                 </Button>

@@ -159,6 +159,25 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Quick reply chip (design B6): teal outline; AI chips stay indigo -->
+    <Style x:Key="Button.QuickChip" TargetType="ButtonBase" BasedOn="{StaticResource Button.Base}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent.Border}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Padding" Value="12,4" />
+        <Setter Property="MinHeight" Value="28" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Accent.Subtle}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Disabled}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Toolbar button (Archive, Snooze…) -->
     <Style x:Key="Button.Toolbar" TargetType="ButtonBase" BasedOn="{StaticResource Button.Secondary}">
         <Setter Property="FontWeight" Value="Normal" />

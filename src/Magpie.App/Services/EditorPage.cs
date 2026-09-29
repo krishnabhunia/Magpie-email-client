@@ -18,6 +18,15 @@ blockquote{margin:0 0 0 .8ex;border-left:2px solid #DCD8CF;padding-left:1ex;colo
 .magpie-signature{color:#5A6068}
 img{max-width:100%}
 a{color:#14606E}
+html.dark,html.dark body{background:#181C20}
+html.dark body{color:#D9D6D0}
+html.dark #ed:empty:before{color:#6F7780}
+html.dark blockquote{border-left-color:#2C3238;color:#9AA1A8}
+html.dark .magpie-signature{color:#9AA1A8}
+html.dark a{color:#6CC3CF}
+html.dark .magpie-quote{background:#fff;color:#23282E;border-radius:8px;padding:8px 12px}
+html.dark .magpie-quote blockquote{border-left-color:#DCD8CF;color:#5A6068}
+html.dark .magpie-quote a{color:#14606E}
 </style></head>
 <body><div id="ed" contenteditable="true" spellcheck="true" data-ph="Write your message…"></div>
 <script>
@@ -34,6 +43,7 @@ function setHtml(h){
   ed.focus();
 }
 function getHtml(){ return ed.innerHTML; }
+function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
 function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
 function fmt(c, v){ ed.focus(); restore(); document.execCommand(c, false, v === undefined ? null : v); post({t:'dirty'}); }
 document.addEventListener('selectionchange', function(){

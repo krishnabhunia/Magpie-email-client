@@ -13,12 +13,15 @@ public sealed class ToolbarButtonVm
     public string ToolTip { get; init; } = "";
     public bool ShowIcon { get; init; } = true;
     public bool ShowText { get; init; } = true;
+    /// <summary>Delete has a ▾ for auto-delete (design AD1).</summary>
+    public bool HasDropdown => Id == "delete";
 
     private static readonly Dictionary<string, (string Name, string Icon, string Key, string Tip)> Defs = new()
     {
         ["archive"] = ("Archive", "archive", "E", "Archive"),
         ["delete"] = ("Delete", "delete", "Del", "Move to Trash"),
         ["snooze"] = ("Snooze", "snooze", "S", "Hide until later"),
+        ["setaside"] = ("Set aside", "setaside", "L", "Out of the Inbox without a date, until you want it"),
         ["remind"] = ("Remind", "remind", "", "Bring this back if nobody replies"),
         ["tag"] = ("Tag", "tag", "", "Add or remove tags"),
         ["pin"] = ("Pin", "pin", "P", "Pin or unpin"),

@@ -10,7 +10,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.App.ViewModels;
 
-public enum NavKind { Inbox, Pinned, Snoozed, FollowUp, Scheduled, Role, Folder, Tag }
+public enum NavKind { Inbox, Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, Role, Folder, Tag }
 
 public partial class NavItem : ObservableObject
 {
@@ -49,7 +49,7 @@ public partial class NavItem : ObservableObject
         CountMain = t.Main;
         CountRest = t.Rest;
         CountBold = kind == CountKind.UnreadAndTotal && !t.Dim;
-        CountBrush = kind != CountKind.UnreadAndTotal ? Icons.Brush("#3B4453") : t.Dim ? Icons.Brush("#9AA2B1") : Icons.Accent(IconKey);
+        CountBrush = kind != CountKind.UnreadAndTotal ? Icons.Neutral : t.Dim ? Icons.Dim : Icons.Accent(IconKey);
     }
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isVisible = true;
@@ -93,9 +93,19 @@ public sealed partial class ThreadItem : ObservableObject
         var mine = m.FromAddress.Equals(myEmail, StringComparison.OrdinalIgnoreCase);
         Sender = row.Count > 1 && !string.IsNullOrEmpty(row.Participants) ? row.Participants : (mine ? "To: " + FirstRecipient(m.To) : m.Sender);
         DateText = HtmlRenderer.FriendlyDate(m.Date, now);
-        if (row.SnoozeUntil is { } s && s > now) SnoozeText = "Snoozed until " + TimePresets.Describe(s, now.LocalDateTime);
+        if (row.IsSnoozed(now)) SnoozeText = "Snoozed until " + TimePresets.Describe(row.SnoozeUntil!.Value, now.LocalDateTime);
         Tags = m.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
         TagChips = Tags.Select(TagChip.For).ToList();
+        // Auto-delete tag (design AD3): red under 48 h (and every OTP), amber under 30 days, grey later; pinned = kept.
+        if (row.DeleteAt is { } at && !row.Flagged)
+        {
+            var rule = DeleteRules.GetValueOrDefault(row.DeleteRule);
+            var otp = rule?.Otp == true;
+            DeleteTag = AutoDelete.TagText(at, now, otp);
+            (DeleteTagBg, DeleteTagFg) = Views.AutoDeleteDialog.TagColours(AutoDelete.Urgency(at, now, otp));
+            DeleteTagTip = (rule == null ? "Its rule was removed" : $"Rule: {AutoDelete.Who(rule.Pattern)} · {AutoDelete.Describe(rule)}")
+                           + $"\nMoves to Trash {at.ToLocalTime():d MMM yyyy, HH:mm}";
+        }
         // Coloured initials (design C1): the other person's, stable per address.
         var who = mine ? FirstRecipient(m.To) : m.Sender;
         var addr = mine ? (Composer.ParseAddresses(m.To).Mailboxes.FirstOrDefault()?.Address ?? who) : m.FromAddress;
@@ -125,6 +135,15 @@ public sealed partial class ThreadItem : ObservableObject
     public string Initials { get; }
     public System.Windows.Media.Brush AvatarBrush { get; }
     public List<TagChip> TagChips { get; }
+
+    /// <summary>Auto-delete rules by id, for the row tags' colours and hover text (refreshed when the list reloads).</summary>
+    public static Dictionary<string, AutoDeleteRule> DeleteRules { get; set; } = new();
+    public string DeleteTag { get; } = "";
+    public System.Windows.Media.Brush? DeleteTagBg { get; }
+    public System.Windows.Media.Brush? DeleteTagFg { get; }
+    public string DeleteTagTip { get; } = "";
+    public bool HasDeleteTag => DeleteTag.Length > 0;
+    public bool HasTagLine => TagChips.Count > 0 || HasDeleteTag;
 
     private static string FirstRecipient(string to)
     {
@@ -161,9 +180,9 @@ public sealed class TagChip
 
     public static TagChip For(string name)
     {
-        var hex = Colors.TryGetValue(name, out var c) ? c : "#14606E";
+        var hex = Icons.ForTheme(Colors.TryGetValue(name, out var c) ? c : "#14606E");
         var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
-        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x24, color.R, color.G, color.B));
+        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(Icons.Dark ? (byte)0x2E : (byte)0x24, color.R, color.G, color.B));
         bg.Freeze();
         return new TagChip { Name = name, Foreground = Icons.Brush(hex), Background = bg };
     }
@@ -190,7 +209,11 @@ public partial class UndoToast : ObservableObject
     [ObservableProperty] private string _countdown = "";
 
     /// <summary>After "Send now": the row says "Sent ✓" for a moment, without buttons (design SN1).</summary>
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasButtons), nameof(CanSendNow))] private bool _done;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasButtons), nameof(CanSendNow), nameof(HasEdit))] private bool _done;
+    /// <summary>A toast for something other than a send (e.g. a new auto-delete rule): its own Undo, and optionally Edit.</summary>
+    public Action? UndoAction { get; init; }
+    public Action? EditAction { get; init; }
+    public bool HasEdit => EditAction != null && !Done;
     public bool HasButtons => !Done;
     /// <summary>"Send now" only for a message in its undo window — not for one scheduled for later (that has its own button in Scheduled).</summary>
     public bool CanSendNow => !Done && _showCountdown;
@@ -288,6 +311,14 @@ public partial class MainViewModel : ObservableObject
             Reader.RefreshAiVisibility();
             BuildNav();
         });
+        ThemeManager.Changed += () => { BuildNav(); _reload.Run(ReloadList); Reader.Redraw(); };
+        _e.GateChanged += () => Ui.Post(RefreshGate);
+        _e.AutoDeleteChanged += () => Ui.Post(() =>
+        {
+            var want = _e.AutoDeleteRules().Count > 0 || _e.Store.CountDeletingSoon(DateTimeOffset.Now.AddDays(7)) > 0;
+            if (want != Smart.Any(n => n.Kind == NavKind.DeletingSoon)) BuildNav(); else _navRefresh.Run(RefreshCounts);
+            Reader.RefreshDeleteBar();
+        });   // counts are coloured per theme; the reader is HTML
         Reader.ThreadRemoved += () => SelectNeighbour();
         _e.Settings.Changed += () => Ui.Post(BuildToolbar);
         BuildToolbar();
@@ -298,6 +329,53 @@ public partial class MainViewModel : ObservableObject
         StatusBar = new StatusBarViewModel(this);
         BuildNav();
         Current = Smart.FirstOrDefault();
+        RefreshGate();
+    }
+
+    // ───────────────────────── version in the title bar (design V1) ─────────────────────────
+
+    public string VersionText => UpdateService.Current.ToString();
+    public string VersionTip => $"Magpie {UpdateService.Current} · released {SettingsViewModel.ReleaseDate} · click for About";
+
+    // ───────────────────────── Gatekeeper banner + Set aside pile (design B7) ─────────────────────────
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowGateBanner), nameof(GateBannerText))] private int _gateCount;
+    public bool ShowGateBanner => GateCount > 0 && Current?.Kind == NavKind.Inbox;
+    public string GateBannerText => GateCount == 1 ? "1 new sender wants to reach you" : $"{GateCount} new senders want to reach you";
+    public bool IsSetAsideView => Current?.Kind == NavKind.SetAside;
+    public bool IsDeletingSoonView => Current?.Kind == NavKind.DeletingSoon;
+
+    /// <summary>"Keep all" in Deleting soon (design AD4): every timer due in the next 7 days comes off.</summary>
+    [RelayCommand]
+    private void KeepAllDeleting()
+    {
+        var n = Threads.Count(t => t.LocalDraftId == null);
+        if (n == 0) return;
+        if (!Ui.Confirm("Keep all", n == 1 ? "Keep this conversation (take its auto-delete timer off)?" : $"Keep all {n} conversations (take their auto-delete timers off)?")) return;
+        _e.KeepAllDeletingSoon();
+        ReloadList();
+    }
+
+    public void RefreshGate()
+    {
+        _ = Task.Run(() => _e.GateSenders().Count).ContinueWith(t =>
+        {
+            if (!t.IsFaulted) Ui.Post(() => GateCount = t.Result);
+        }, TaskScheduler.Default);
+    }
+
+    [RelayCommand] private void ReviewGate() => Views.GatekeeperWindow.Open();
+
+    /// <summary>"Clear all" in the Set aside pile: every conversation goes back to the Inbox.</summary>
+    [RelayCommand]
+    private void ClearSetAside()
+    {
+        var items = Threads.Where(t => t.LocalDraftId == null).ToList();
+        if (items.Count == 0) return;
+        if (!Ui.Confirm("Clear all", items.Count == 1 ? "Put this conversation back in the Inbox?" : $"Put all {items.Count} conversations back in the Inbox?")) return;
+        foreach (var t in items) _e.SetAside(t.Row.AccountId, t.Row.ThreadKey, false);
+        Reader.Clear();
+        ReloadList();
     }
 
     // ───────────────────────── navigation ─────────────────────────
@@ -313,6 +391,9 @@ public partial class MainViewModel : ObservableObject
         Smart.Add(new NavItem { Kind = NavKind.Inbox, Label = "Inbox", Glyph = "", IconKey = "inbox" });
         Smart.Add(new NavItem { Kind = NavKind.Pinned, Label = "Pinned", Glyph = "", IconKey = "pin" });
         Smart.Add(new NavItem { Kind = NavKind.Snoozed, Label = "Snoozed", Glyph = "", IconKey = "snooze" });
+        Smart.Add(new NavItem { Kind = NavKind.SetAside, Label = "Set aside", Glyph = "", IconKey = "setaside" });
+        if (_e.AutoDeleteRules().Count > 0 || _e.Store.CountDeletingSoon(DateTimeOffset.Now.AddDays(7)) > 0)
+            Smart.Add(new NavItem { Kind = NavKind.DeletingSoon, Label = "Deleting soon", Glyph = "", IconKey = "clock" });
         Smart.Add(new NavItem { Kind = NavKind.FollowUp, Label = "Follow up", Glyph = "", IconKey = "followup" });
         Smart.Add(new NavItem { Kind = NavKind.Scheduled, Label = "Scheduled", Glyph = "", IconKey = "scheduled" });
         Smart.Add(new NavItem { Kind = NavKind.Role, Role = FolderRole.Sent, Label = "Sent", Glyph = "", IconKey = "sent" });
@@ -403,6 +484,9 @@ public partial class MainViewModel : ObservableObject
             _ => newValue.Label,
         };
         OnPropertyChanged(nameof(IsInbox));
+        OnPropertyChanged(nameof(ShowGateBanner));
+        OnPropertyChanged(nameof(IsSetAsideView));
+        OnPropertyChanged(nameof(IsDeletingSoonView));
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
         Selected = null;
@@ -432,7 +516,7 @@ public partial class MainViewModel : ObservableObject
     private List<long> FolderIdsFor(NavItem nav) => nav.Kind switch
     {
         NavKind.Inbox => _e.FolderIds(FolderRole.Inbox),
-        NavKind.Snoozed => _e.FolderIds(FolderRole.Inbox),
+        NavKind.Snoozed or NavKind.SetAside or NavKind.DeletingSoon => _e.FolderIds(FolderRole.Inbox),
         NavKind.Pinned or NavKind.Tag => _e.AllMailFolderIds(),
         NavKind.Role => _e.FolderIds(nav.Role),
         NavKind.Folder => new List<long> { nav.FolderId },
@@ -494,6 +578,8 @@ public partial class MainViewModel : ObservableObject
                 UnreadOnly = UnreadOnly,
                 FlaggedOnly = nav.Kind == NavKind.Pinned,
                 Snoozed = nav.Kind == NavKind.Snoozed,
+                SetAside = nav.Kind == NavKind.SetAside,
+                DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
                 Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
                 Search = search,
                 Limit = 400,
@@ -504,6 +590,7 @@ public partial class MainViewModel : ObservableObject
         // Conversations a bulk action is about to remove (design H3: Undo still possible) are not shown.
         if (_pendingBulk != null) rows = rows.Where(r => !_pendingBulk.Keys.Contains(r.AccountId + "|" + r.ThreadKey)).ToList();
         var multi = _e.Accounts.Count > 1;
+        ThreadItem.DeleteRules = _e.AutoDeleteRules().ToDictionary(r => r.Id);
         var checkedKeys = Threads.Where(t => t.IsChecked).Select(t => t.Key).ToHashSet();
         var items = rows.Select(r =>
         {
@@ -554,6 +641,8 @@ public partial class MainViewModel : ObservableObject
                 NavKind.Inbox => ShowCategories && Category != null ? $"Nothing new in {Category}." : "Inbox zero. Nice.",
                 NavKind.Pinned => "Pin conversations you want to keep handy.",
                 NavKind.Snoozed => "Snoozed conversations wait here until their time.",
+                NavKind.DeletingSoon => "Nothing is due to go to Trash in the next 7 days.",
+                NavKind.SetAside => "Nothing set aside. Press L on a conversation to put it here, out of the Inbox, until you want it.",
                 NavKind.FollowUp => "Use \"Remind me\" on a conversation to follow it up.",
                 _ => _e.StillListing(FolderIdsFor(nav)) ? "Getting this folder's emails from the server…" : "No conversations here.",
             };
@@ -566,7 +655,7 @@ public partial class MainViewModel : ObservableObject
     {
         public Dictionary<long, (int Unread, int Total)> ByFolder = new();
         public Dictionary<FolderRole, List<long>> RoleIds = new();
-        public int Pinned, Snoozed, FollowUp, Scheduled, LocalDrafts;
+        public int Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, LocalDrafts;
         public Dictionary<string, (int Unread, int Total)> Tags = new();
         public Dictionary<Category, (int Unread, int Total)> Categories = new();
     }
@@ -589,6 +678,8 @@ public partial class MainViewModel : ObservableObject
             var all = _e.AllMailFolderIds();
             snap.Pinned = _e.Store.CountThreads(all, now, flaggedOnly: true).Total;
             snap.Snoozed = _e.Store.CountSnoozedThreads(now);
+            snap.SetAside = _e.Store.CountSetAsideThreads();
+            snap.DeletingSoon = _e.Store.CountDeletingSoon(now.AddDays(7));
             snap.FollowUp = _e.DueReminders().Count;
             snap.Scheduled = _e.OutboxSummary().Count(o => o.Status is OutboxStatus.Queued or OutboxStatus.Failed);
             snap.LocalDrafts = _e.Store.CountLocalDrafts();
@@ -623,6 +714,8 @@ public partial class MainViewModel : ObservableObject
                 }
                 case NavKind.Pinned: n.SetCounts(0, snap.Pinned, CountKind.CountOnly, mode); break;
                 case NavKind.Snoozed: n.SetCounts(0, snap.Snoozed, CountKind.CountOnly, mode); break;
+                case NavKind.SetAside: n.SetCounts(0, snap.SetAside, CountKind.CountOnly, mode); break;
+                case NavKind.DeletingSoon: n.SetCounts(0, snap.DeletingSoon, CountKind.CountOnly, mode); break;
                 case NavKind.FollowUp: n.SetCounts(0, snap.FollowUp, CountKind.CountOnly, mode); break;
                 case NavKind.Scheduled: n.SetCounts(0, snap.Scheduled, CountKind.CountOnly, mode); break;
                 case NavKind.Role when n.Role is FolderRole.Drafts:
@@ -892,6 +985,22 @@ public partial class MainViewModel : ObservableObject
         ToastOverflow = hidden > 0 ? $"+{hidden} more — see Scheduled" : "";
     }
 
+    /// <summary>
+    /// A toast with its own Undo (and Edit). With <paramref name="outboxId"/> it is a send (e.g. an invite answer):
+    /// countdown and Send now as for any message.
+    /// </summary>
+    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0) =>
+        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0) { UndoAction = undo, EditAction = edit });
+
+    [RelayCommand]
+    private void EditToast(UndoToast? toast)
+    {
+        if (toast?.EditAction == null) return;
+        Toasts.Remove(toast);
+        RefreshToasts();
+        toast.EditAction();
+    }
+
     [RelayCommand]
     private void UndoSend(UndoToast? toast)
     {
@@ -899,6 +1008,12 @@ public partial class MainViewModel : ObservableObject
         if (toast == null) return;
         Toasts.Remove(toast);
         RefreshToasts();
+        if (toast.UndoAction != null)
+        {
+            try { toast.UndoAction(); }
+            catch (Exception ex) { Log.Error("undo", ex); Ui.Error("Undo", ex.Message); }
+            return;
+        }
         var d = _e.Recall(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
@@ -928,6 +1043,7 @@ public partial class MainViewModel : ObservableObject
     public void UndoOutbox(long outboxId)
     {
         var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
+        if (toast?.UndoAction != null) { UndoSend(toast); return; }   // e.g. an invite answer: its own undo
         if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
         var d = _e.Recall(outboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
@@ -1003,10 +1119,11 @@ public partial class MainViewModel : ObservableObject
             var ids = item.Kind == NavKind.Pinned ? _e.AllMailFolderIds() : FolderIdsFor(item);
             var d = item.Kind switch
             {
-                NavKind.Scheduled or NavKind.FollowUp => null,
+                NavKind.Scheduled or NavKind.FollowUp or NavKind.DeletingSoon => null,
                 NavKind.Tag => _e.Store.GetFolderDetails(ids, now, tag: item.TagName),
                 NavKind.Pinned => _e.Store.GetFolderDetails(ids, now, flaggedOnly: true),
                 NavKind.Snoozed => _e.Store.GetFolderDetails(ids, now, snoozedOnly: true),
+                NavKind.SetAside => _e.Store.GetFolderDetails(ids, now, setAsideOnly: true),
                 _ => _e.Store.GetFolderDetails(ids, now),
             };
             return (d, now);
@@ -1018,7 +1135,7 @@ public partial class MainViewModel : ObservableObject
             {
                 if (gen != _hoverGen) return;
                 HoverCard.Set(item, where, lines.Select(id => new HoverLine(FolderHoverSettings.NameOf(id),
-                    d!.Line(id, now, x => HtmlRenderer.FriendlyDate(x, now)), id == "unread" && d.Unread > 0 ? Icons.Accent(item.IconKey) : Icons.Brush("#23293A"))));
+                    d!.Line(id, now, x => HtmlRenderer.FriendlyDate(x, now)), id == "unread" && d.Unread > 0 ? Icons.Accent(item.IconKey) : Icons.Ink)));
                 open(HoverCard);
             });
         }, TaskScheduler.Default);
@@ -1084,6 +1201,14 @@ public partial class MainViewModel : ObservableObject
                     var pin = items.Any(t => !t.IsPinned);
                     foreach (var t in items) _e.SetPinned(t.Row.AccountId, t.Row.ThreadKey, pin);
                     if (Selected != null && items.Contains(Selected)) Reader.IsPinned = pin;
+                    break;
+                }
+                case "setaside":
+                {
+                    // In the pile the button puts conversations back; elsewhere it sets them aside.
+                    var aside = Current?.Kind != NavKind.SetAside;
+                    foreach (var t in items) _e.SetAside(t.Row.AccountId, t.Row.ThreadKey, aside);
+                    if (Selected != null && items.Contains(Selected)) SelectNeighbour();
                     break;
                 }
                 case "snooze" when arg is DateTimeOffset until:

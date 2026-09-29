@@ -81,7 +81,7 @@ public partial class ComposeWindow : Window
         };
         var body = query["body"];
         d.Html = (string.IsNullOrEmpty(body) ? "<p><br></p>" : ComposeViewModel.TextToParagraphs(body))
-                 + Composer.SignatureHtml(e.AccountById(d.AccountId)?.Signature ?? "");
+                 + Composer.SignatureHtml(e.AccountById(d.AccountId), reply: false);
         Show(d, null);
     }
 
@@ -105,7 +105,9 @@ public partial class ComposeWindow : Window
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
         Loaded += async (_, _) => await InitEditorAsync();
         Closing += OnClosing;
-        Closed += (_, _) => _vm.Detach();
+        Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; };
+        Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
+        ThemeManager.Changed += OnThemeChanged;
         _vm.PropertyChanged += (_, a) =>
         {
             if (!_editorReady && a.PropertyName is nameof(ComposeViewModel.To) or nameof(ComposeViewModel.Cc)
@@ -145,6 +147,14 @@ public partial class ComposeWindow : Window
         }
     }
 
+    /// <summary>Dark theme (design B1): the editor page follows; what is sent carries no theme colours.</summary>
+    private void OnThemeChanged()
+    {
+        Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        _ = Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
+    }
+
     private void UsePlainEditor()
     {
         _plain = true;
@@ -164,6 +174,7 @@ public partial class ComposeWindow : Window
             switch (root.GetProperty("t").GetString())
             {
                 case "ready":
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
                     _editorReady = true;
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.

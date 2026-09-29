@@ -127,6 +127,23 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
                     <Image Source="pack://application:,,,/Assets/app-256.png" Width="20" Height="20" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,10,0" />
                     <TextBlock Text="Magpie" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="17" Foreground="{DynamicResource Brush.TitleBar.Text}" VerticalAlignment="Center" />
+                    <!-- Version (design V1): click for Settings → About -->
+                    <Button Content="{Binding VersionText}" ToolTip="{Binding VersionTip}" Click="OnVersionClick" Margin="8,2,0,0" VerticalAlignment="Center" Cursor="Hand"
+                            WindowChrome.IsHitTestVisibleInChrome="True" Focusable="True" AutomationProperties.Name="{Binding VersionTip}"
+                            Foreground="{DynamicResource Brush.TitleBar.Muted}" FontSize="12">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="4,1">
+                                    <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.TitleBar.Hover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
                     <TextBlock Text="{Binding ListTitle}" FontSize="12.5" Margin="18,1,0,0" Foreground="{DynamicResource Brush.TitleBar.Muted}" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding StatusText}" FontSize="12" Margin="18,1,0,0" Foreground="{DynamicResource Brush.TitleBar.Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420" />
                 </StackPanel>
@@ -390,10 +407,31 @@
                              Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Tag="Search  (from:  subject:  has:attachment  is:unread)"
                              PreviewKeyDown="OnSearchKey" />
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,0" Visibility="{Binding ShowCategories, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Grid.Row="2">
+                    <!-- Gatekeeper (design B7): new senders wait at the door -->
+                    <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="8" Margin="14,0,14,8" Padding="12,7"
+                            Visibility="{Binding ShowGateBanner, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Review" FontWeight="SemiBold" Padding="6,0" MinHeight="22" Command="{Binding ReviewGateCommand}" />
+                            <TextBlock Text="{Binding GateBannerText}" Foreground="{DynamicResource Brush.Warning}" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                    </Border>
+                    <!-- Deleting soon (design AD4) -->
+                    <DockPanel Margin="16,0,14,8" Visibility="{Binding IsDeletingSoonView, Converter={StaticResource BoolToVis}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Keep all" Padding="6,0" MinHeight="22" Command="{Binding KeepAllDeletingCommand}"
+                                ToolTip="Take the auto-delete timer off all of these" />
+                        <TextBlock Text="These go to Trash within 7 days (auto-delete rules). Pinned mail is always kept." Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                    <!-- Set aside pile (design B7) -->
+                    <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"
+                                ToolTip="Put every conversation here back in the Inbox" />
+                        <TextBlock Text="Out of the Inbox, without a date. L or Set aside puts one back." Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal" Margin="8,0,8,0" Visibility="{Binding ShowCategories, Converter={StaticResource BoolToVis}}">
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=People}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="People" ToolTip="Mail from people">
-                            <TextBlock><Run Text="People" /><Run Text=" " /><Run Text="{Binding PeopleCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent}" FontSize="11.5" /></TextBlock>
+                            <TextBlock><Run Text="People" /><Run Text=" " /><Run Text="{Binding PeopleCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent.Text}" FontSize="11.5" /></TextBlock>
                         </RadioButton>
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="Notifications" ToolTip="Receipts, alerts, codes, updates">
@@ -405,6 +443,7 @@
                         </RadioButton>
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=''}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="All" Content="All" />
+                    </StackPanel>
                     </StackPanel>
 
                     <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0">
@@ -476,7 +515,7 @@
                                                     </ItemsControl>
                                                 </Grid>
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
+                                                    <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent.Text}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
                                                     <Ellipse Width="7" Height="7" Fill="{Binding AccountColor, Converter={StaticResource HexBrush}}" Margin="0,0,7,0" VerticalAlignment="Center" Opacity="0.55"
                                                              Visibility="{Binding ShowAccountDot, Converter={StaticResource BoolToVis}}" />
                                                     <TextBlock Text="{Binding Sender}" FontSize="13.5" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" MaxWidth="260" VerticalAlignment="Center" />
@@ -491,13 +530,17 @@
                                                     </Border>
                                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0"
                                                                Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" ToolTip="Has attachments" />
-                                                    <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent}" Margin="6,0,0,0"
+                                                    <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent.Text}" Margin="6,0,0,0"
                                                                Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" ToolTip="Pinned" />
                                                 </StackPanel>
                                                 <TextBlock Text="{Binding Subject}" FontSize="13" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" />
                                             </DockPanel>
                                             <TextBlock Grid.Row="2" Text="{Binding Preview}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
-                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding TagChips, Converter={StaticResource BoolToVis}}">
+                                            <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding HasTagLine, Converter={StaticResource BoolToVis}}">
+                                                <Border CornerRadius="4" Background="{Binding DeleteTagBg}" Margin="0,0,6,0" Padding="6,1" ToolTip="{Binding DeleteTagTip}"
+                                                        Visibility="{Binding HasDeleteTag, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{Binding DeleteTag}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding DeleteTagFg}" />
+                                                </Border>
                                                 <ItemsControl ItemsSource="{Binding TagChips}">
                                                     <ItemsControl.ItemsPanel>
                                                         <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -511,7 +554,7 @@
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
                                             </WrapPanel>
-                                            <TextBlock Grid.Row="4" Text="{Binding SnoozeText}" FontSize="11.5" Foreground="{DynamicResource Brush.Accent}" Margin="0,3,0,0"
+                                            <TextBlock Grid.Row="4" Text="{Binding SnoozeText}" FontSize="11.5" Foreground="{DynamicResource Brush.Accent.Text}" Margin="0,3,0,0"
                                                        Visibility="{Binding SnoozeText, Converter={StaticResource BoolToVis}}" />
                                         </Grid>
                                         </DockPanel>
@@ -535,7 +578,7 @@
                                                     <TextBlock Text="{Binding When}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap">
                                                         <TextBlock.Style>
                                                             <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding Failed}" Value="True">
                                                                         <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
@@ -573,7 +616,10 @@
                                         <DockPanel>
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                    Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Take the message back (Ctrl+Z)" />
+                                                    Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Undo (Ctrl+Z)" />
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Edit" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
+                                                    Command="{Binding DataContext.EditToastCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding HasEdit, Converter={StaticResource BoolToVis}}" />
                                             <!-- Send now (design SN1): skip the rest of the wait -->
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.SendNow}" Content="Send now" Margin="6,0"
                                                     Command="{Binding DataContext.SendNowCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
@@ -630,13 +676,19 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
-                                        <Button Style="{StaticResource Button.ToolbarIcon}" Tag="{Binding}" Click="OnToolbarButton" ToolTip="{Binding ToolTip}"
-                                                AutomationProperties.Name="{Binding Name}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
-                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0,2,0" Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
-                                            </StackPanel>
-                                        </Button>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Style="{StaticResource Button.ToolbarIcon}" Tag="{Binding}" Click="OnToolbarButton" ToolTip="{Binding ToolTip}"
+                                                    AutomationProperties.Name="{Binding Name}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <svc:IconChip Icon="{Binding IconKey}" Size="22" Visibility="{Binding ShowIcon, Converter={StaticResource BoolToVis}}" />
+                                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0,2,0" Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <!-- Delete ▾ (design AD1): auto-delete this sender's future emails -->
+                                            <Button Style="{StaticResource Button.ToolbarIcon}" Content="▾" Padding="4,0" MinWidth="18" Margin="-4,0,6,4" Click="OnDeleteDropdown"
+                                                    ToolTip="Delete now, or auto-delete future emails from this sender" AutomationProperties.Name="Delete options"
+                                                    Visibility="{Binding HasDropdown, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -651,14 +703,14 @@
                 <StackPanel Grid.Row="1" Margin="24,16,24,8" Visibility="{Binding HasThread, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
-                                Foreground="{DynamicResource Brush.Accent}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
+                                Foreground="{DynamicResource Brush.Accent.Text}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
                                 Visibility="{Binding IsPinned, Converter={StaticResource InvBoolToVis}}" />
                         <TextBlock Text="{Binding Subject}" Style="{StaticResource Text.Serif}" FontSize="19" TextWrapping="Wrap" TextTrimming="None" />
                     </DockPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                         <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                        <TextBlock Text="{Binding TagsText}" FontSize="12" Foreground="{DynamicResource Brush.Accent}" Margin="10,0,0,0" />
+                        <TextBlock Text="{Binding TagsText}" FontSize="12" Foreground="{DynamicResource Brush.Accent.Text}" Margin="10,0,0,0" />
                         <Button Style="{StaticResource Button.Link}" Content="Unsnooze" FontSize="12" MinHeight="18" Padding="10,0,0,0" Command="{Binding UnsnoozeCommand}"
                                 Visibility="{Binding IsSnoozed, Converter={StaticResource BoolToVis}}" />
                         <Button Style="{StaticResource Button.Link}" Content="Edit draft" FontSize="12" MinHeight="18" Padding="10,0,0,0" Command="{Binding EditDraftCommand}"
@@ -703,7 +755,63 @@
                 </Border>
 
                 <!-- Remote images blocked -->
-                <Border Grid.Row="3" Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
+                <StackPanel Grid.Row="3">
+                <!-- Meeting invite (design B3) -->
+                <Border Style="{StaticResource Card}" Margin="24,0,24,10" Padding="14,12" Visibility="{Binding HasInvite, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <!-- Date tile: month band / day / weekday -->
+                        <Border DockPanel.Dock="Left" Width="58" CornerRadius="8" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" Margin="0,0,14,0" VerticalAlignment="Top" ClipToBounds="True">
+                            <StackPanel>
+                                <Border Background="{DynamicResource Brush.Accent}" CornerRadius="7,7,0,0" Padding="0,2">
+                                    <TextBlock Text="{Binding InviteMonth}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" />
+                                </Border>
+                                <TextBlock Text="{Binding InviteDay}" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                <TextBlock Text="{Binding InviteWeekday}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" Margin="0,0,0,4" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel>
+                            <TextBlock Text="{Binding InviteTitle}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding InviteWhen}" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding InviteWhere}" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap"
+                                       Visibility="{Binding HasInviteWhere, Converter={StaticResource BoolToVis}}" />
+                            <Button Style="{StaticResource Button.Link}" Content="Join the video call" HorizontalAlignment="Left" Padding="0,1" MinHeight="20"
+                                    Command="{Binding OpenInviteMeetCommand}" ToolTip="{Binding InviteMeet}" Visibility="{Binding HasInviteMeet, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="{Binding InviteWho}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            <TextBlock Text="{Binding InviteClash}" FontSize="12" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding HasInviteClash, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="{Binding InviteStatus}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Visibility="{Binding HasInviteStatus, Converter={StaticResource BoolToVis}}" />
+                            <StackPanel Visibility="{Binding CanAnswerInvite, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0">
+                                <WrapPanel>
+                                    <Button Style="{StaticResource Button.Primary}" Content="Accept" Padding="16,5" MinHeight="30" Margin="0,0,8,4" Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Accepted" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Maybe" Padding="16,5" MinHeight="30" Margin="0,0,8,4" Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Tentative" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Decline" Foreground="{DynamicResource Brush.Danger}" Padding="16,5" MinHeight="30" Margin="0,0,8,4"
+                                            Command="{Binding AnswerInviteChoiceCommand}" CommandParameter="Declined" />
+                                    <CheckBox Content="Add a note to my reply" IsChecked="{Binding AddInviteNote, Mode=TwoWay}" VerticalAlignment="Center" Margin="4,0,0,4" />
+                                </WrapPanel>
+                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding InviteNote, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48"
+                                         VerticalContentAlignment="Top" Margin="0,4,0,0" AutomationProperties.Name="Note to the organiser"
+                                         Visibility="{Binding AddInviteNote, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+                <!-- Auto-delete timer (design AD3) -->
+                <Border Background="{DynamicResource Brush.Danger.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
+                        Visibility="{Binding HasDeleteTimer, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource Button.Link}" Content="Keep this one" FontSize="12" FontWeight="SemiBold" MinHeight="22" Padding="6,0" Command="{Binding KeepFromAutoDeleteCommand}"
+                                    ToolTip="Take the timer off this email (pinning it keeps it too)" />
+                            <Button Style="{StaticResource Button.Link}" Content="Change rule" FontSize="12" MinHeight="22" Padding="6,0" Click="OnChangeDeleteRule" />
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DeleteBarText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding DeleteRuleText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+                <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
                         Visibility="{Binding BlockedImages, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -715,6 +823,7 @@
                         </TextBlock>
                     </DockPanel>
                 </Border>
+                </StackPanel>
 
                 <!-- Conversation (WebView2) -->
                 <Grid Grid.Row="4">
@@ -729,8 +838,29 @@
                     </Border>
                 </Grid>
 
+                <StackPanel Grid.Row="5">
+                <!-- Quick replies (design B6): one click sends, with the normal Undo -->
+                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,8"
+                        Visibility="{Binding ShowQuickReplies, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="Quick reply" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <ItemsControl ItemsSource="{Binding QuickReplies}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource Button.QuickChip}" Margin="0,2,8,2" MaxWidth="300" ToolTip="Send this reply now (you can Undo for a few seconds)"
+                                            Command="{Binding DataContext.Reader.SendQuickReplyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
+                                        <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </Border>
                 <!-- Suggested replies (C5): only when that switch is on -->
-                <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource Brush.Ai.Tint}"
+                <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource Brush.Ai.Tint}"
                         Visibility="{Binding ShowReplies, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
@@ -760,6 +890,7 @@
                         </WrapPanel>
                     </DockPanel>
                 </Border>
+                </StackPanel>
             </Grid>
         </Grid>
 

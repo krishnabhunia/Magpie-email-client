@@ -34,6 +34,8 @@ public sealed class ChangeSet
     public string AccountId { get; init; } = "";
     public HashSet<long> FolderIds { get; } = new();
     public List<MessageRow> NewInboxMessages { get; } = new();
+    /// <summary>Every message that arrived in the Inbox since the last check, read or not (rules run on these, design B5).</summary>
+    public List<MessageRow> NewInboxArrivals { get; } = new();
     public bool FoldersChanged { get; set; }
 }
 
@@ -346,7 +348,10 @@ public sealed class AccountSync : IDisposable
                     // Also when the folder's "still loading" state changes, so an empty list can stop saying so.
                     if (touched || stored.LastSync == 0 || (leftBefore != leftAfter && (leftBefore <= 0 || leftAfter == 0))) changes.FolderIds.Add(stored.Id);
                     if (stored.Role == FolderRole.Inbox && stored.LastSync != 0 && !initial)
+                    {
                         changes.NewInboxMessages.AddRange(added.Where(m => !m.IsSeen));
+                        changes.NewInboxArrivals.AddRange(added);
+                    }
                 }
                 catch (FolderNotFoundException) { _store.DeleteFolder(stored.Id); changes.FoldersChanged = true; }
                 catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
@@ -373,6 +378,7 @@ public sealed class AccountSync : IDisposable
                     var cs = new ChangeSet { AccountId = Account.Id, FoldersChanged = changes.FoldersChanged };
                     foreach (var id in _deferred) cs.FolderIds.Add(id);
                     cs.NewInboxMessages.AddRange(changes.NewInboxMessages);
+                    cs.NewInboxArrivals.AddRange(changes.NewInboxArrivals);
                     _deferred.Clear();
                     Changed?.Invoke(cs);
                     _lastChanged = DateTimeOffset.Now;

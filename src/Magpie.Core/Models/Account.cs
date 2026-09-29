@@ -27,8 +27,15 @@ public sealed class Account
 
     /// <summary>Colour dot used in the unified inbox (hex, e.g. #14606E).</summary>
     public string Color { get; set; } = "#14606E";
-    /// <summary>Plain-text signature appended to new messages (converted to HTML paragraphs).</summary>
+    /// <summary>Plain-text signature (up to 1.1.2). Kept in step with <see cref="SignatureHtml"/> as plain text, so an older
+    /// Magpie still shows something sensible; 1.2.0 moves it into <see cref="SignatureHtml"/> once.</summary>
     public string Signature { get; set; } = "";
+    /// <summary>Rich signature (design B6): HTML from the signature editor; pictures are data: URIs, sent embedded (cid).</summary>
+    public string SignatureHtml { get; set; } = "";
+    /// <summary>Add the signature to new messages.</summary>
+    public bool SignatureOnNew { get; set; } = true;
+    /// <summary>Add the signature to replies and forwards (above the quoted text).</summary>
+    public bool SignatureOnReplies { get; set; } = true;
     /// <summary>Initial sync window in days (older mail stays on the server and is reachable by server search later).</summary>
     public int SyncDays { get; set; } = 90;
     public bool Enabled { get; set; } = true;

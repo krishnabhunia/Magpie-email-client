@@ -48,6 +48,8 @@ public static class Icons
         ["clock"] = new("Waiting", "M12 7v5l3 2 M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "#B45309", "#FEF3C7", "#FDE68A", "#78350F"),
         ["general"] = new("General", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12h2 M3 12h2 M12 3v2 M12 19v2 M5.6 5.6l1.4 1.4 M17 17l1.4 1.4 M5.6 18.4L7 17 M17 7l1.4-1.4", "#334155", "#E2E8F0", "#E2E8F0", "#334155"),
         ["accounts"] = new("Accounts", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M2 21a7 7 0 0 1 14 0 M16 3.5a4 4 0 0 1 0 7 M18 14a6 6 0 0 1 4 7", "#1D4ED8", "#DBEAFE", "#BFDBFE", "#1E3A8A"),
+        ["signature"] = new("Signatures & replies", "M3 17c3-4 5-9 7-9s-1 9 2 9 3-5 5-5 2 3 4 3 M3 21h18", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
+        ["rules"] = new("Rules", "M4 5h16l-6 7v6l-4 2v-8z", "#0E7490", "#CFFAFE", "#A5F3FC", "#164E63"),
         ["toolbar"] = new("Toolbar & buttons", "M4 6h16 M4 12h16 M4 18h10", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
         ["notifications"] = new("Notifications", "M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 21h4", "#C2410C", "#FFEDD5", "#FED7AA", "#7C2D12"),
         ["templates"] = new("Templates", "M4 20h4L19 9l-4-4L4 16z", "#B45309", "#FEF3C7", "#FDE68A", "#78350F"),
@@ -101,6 +103,38 @@ public static class Icons
     public static SolidColorBrush Bg(string key, bool? colourful = null) => Brush((colourful ?? Colourful) ? (Dark ? Get(key).DarkBg : Get(key).Bg) : (Dark ? "#2A333F" : "#EEF0F4"));
     /// <summary>The colour of a folder's unread number: the icon's colour (design C2).</summary>
     public static SolidColorBrush Accent(string key) => Brush(Colourful ? (Dark ? Get(key).DarkFg : Get(key).Fg) : (Dark ? "#E6EBF2" : "#1A1A1A"));
+
+    /// <summary>Plain text colours used next to icons (counts, hover card), in the current theme.</summary>
+    public static SolidColorBrush Neutral => Brush(Dark ? "#C9CFD6" : "#3B4453");
+    public static SolidColorBrush Dim => Brush(Dark ? "#6F7780" : "#9AA2B1");
+    public static SolidColorBrush Ink => Brush(Dark ? "#E8E6E1" : "#23293A");
+
+    /// <summary>
+    /// A user colour (tag, account) made readable on the dark theme: the known palette gets its dark-theme pair
+    /// (design B1: reds / ambers slightly desaturated), anything else is lightened towards white.
+    /// </summary>
+    public static string ForTheme(string hex)
+    {
+        if (!Dark) return hex;
+        var key = hex.Trim().ToUpperInvariant();
+        switch (key)
+        {
+            case "#B3261E": return "#E0645A";
+            case "#B45309": case "#8A5300": return "#E0A04A";
+            case "#14606E": return "#6CC3CF";
+            case "#4B3F86": return "#A99DEB";
+            case "#1B6B2E": return "#5CC27A";
+            case "#2F5BEA": return "#7FA0F5";
+            case "#5A6068": return "#AEB5BC";
+        }
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(hex);
+            byte Up(byte v) => (byte)(v + (255 - v) * 0.45);
+            return $"#{Up(c.R):X2}{Up(c.G):X2}{Up(c.B):X2}";
+        }
+        catch { return hex; }
+    }
 
     /// <summary>For folders on the server: which icon a folder role uses.</summary>
     public static string ForRole(Magpie.Core.Models.FolderRole role) => role switch

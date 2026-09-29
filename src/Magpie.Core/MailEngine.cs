@@ -90,8 +90,21 @@ public sealed class MailEngine : IDisposable
         };
         sync.Changed += cs =>
         {
+            // Rules first (design B5), so the list shows where mail ended up and "Skip notification" works.
+            IReadOnlyList<MessageRow> notify = cs.NewInboxMessages;
+            if (cs.NewInboxArrivals.Count > 0)
+            {
+                var quiet = new HashSet<long>();
+                try { quiet.UnionWith(RunGatekeeper(cs.AccountId, cs.NewInboxArrivals)); }
+                catch (Exception ex) { Log.Error("gatekeeper failed", ex); }
+                try { quiet.UnionWith(RunRules(cs.AccountId, cs.NewInboxArrivals.Where(m => !quiet.Contains(m.Id)).ToList())); }
+                catch (Exception ex) { Log.Error("rules failed", ex); }
+                try { TagArrivals(cs.AccountId, cs.NewInboxArrivals); }
+                catch (Exception ex) { Log.Error("auto-delete tagging failed", ex); }
+                if (quiet.Count > 0) notify = cs.NewInboxMessages.Where(m => !quiet.Contains(m.Id)).ToList();
+            }
             Changed?.Invoke(cs);
-            if (cs.NewInboxMessages.Count > 0) NewMail?.Invoke(cs.NewInboxMessages);
+            if (notify.Count > 0) NewMail?.Invoke(notify);
         };
         sync.StatusChanged += (s, st) => StatusChanged?.Invoke(s.Account.Id, st);
         sync.ContactsLearned += addrs =>
@@ -329,6 +342,22 @@ public sealed class MailEngine : IDisposable
         Touched(accountId, inbox);
     }
 
+    /// <summary>Set aside (design B7, key L): out of the Inbox without a date, into one pile; false puts it back on top of the Inbox.</summary>
+    public void SetAside(string accountId, string threadKey, bool aside)
+    {
+        var touched = new HashSet<long>();
+        SetAsideRows(accountId, threadKey, aside, touched);
+        Touched(accountId, touched);
+    }
+
+    private void SetAsideRows(string accountId, string threadKey, bool aside, HashSet<long> touched)
+    {
+        var inbox = FolderIds(FolderRole.Inbox, accountId);
+        Store.SetSnooze(accountId, threadKey, inbox, aside ? MessageRow.SetAsideMark : null);
+        if (!aside) Store.BumpThread(accountId, threadKey, DateTimeOffset.Now);
+        foreach (var f in inbox) touched.Add(f);
+    }
+
     /// <param name="always">True: remind at that time regardless. False: only if nobody replied.</param>
     public void RemindMe(string accountId, string threadKey, string subject, DateTimeOffset due, bool always)
     {
@@ -355,6 +384,469 @@ public sealed class MailEngine : IDisposable
         var cs = new ChangeSet { AccountId = accountId };
         foreach (var f in FolderIds(FolderRole.Inbox)) cs.FolderIds.Add(f);
         Changed?.Invoke(cs);
+    }
+
+    // ───────────────────────── meeting invites (design B3) ─────────────────────────
+
+    /// <summary>
+    /// Keeps our copy of an event in step with what arrived: a cancellation marks it cancelled; an update (higher
+    /// SEQUENCE) takes the new details, and a changed time asks for a new answer. Returns the event as we now know it.
+    /// </summary>
+    public MailStore.LocalEvent? TrackInvite(string accountId, CalendarInvite inv)
+    {
+        if (inv.Uid.Length == 0) return null;
+        var ev = Store.GetEvent(accountId, inv.Uid);
+        if (inv.IsCancel)
+        {
+            if (ev == null || inv.Sequence >= ev.Sequence)
+            {
+                ev = (ev ?? ToEvent(accountId, inv, "")) with { Cancelled = true, Sequence = inv.Sequence };
+                Store.SaveEvent(ev);
+            }
+            return ev;
+        }
+        if (inv.IsRequest && ev != null && inv.Sequence > ev.Sequence)
+        {
+            // A new time needs a new answer: "UPDATED" = you had answered, the organiser has since moved it.
+            var moved = ev.Start != inv.Start || ev.End != inv.End;
+            ev = ToEvent(accountId, inv, !moved ? ev.Answer : ev.Answer.Length > 0 ? "UPDATED" : "");
+            Store.SaveEvent(ev);
+        }
+        return ev;
+    }
+
+    private static MailStore.LocalEvent ToEvent(string accountId, CalendarInvite inv, string answer) =>
+        new(accountId, inv.Uid, inv.Summary, inv.Start, inv.End, inv.AllDay, inv.Location, inv.Organizer?.Email ?? "", answer, inv.Sequence, false);
+
+    /// <summary>
+    /// Accept / Maybe / Decline: sends the iCalendar reply to the organiser through the outbox (normal undo window),
+    /// optionally with a note, and remembers the answer. Returns the outbox id and the event as it was (for Undo).
+    /// </summary>
+    public (long OutboxId, MailStore.LocalEvent? Before) AnswerInvite(MessageRow message, CalendarInvite inv, InviteAnswer answer, string? note)
+    {
+        var account = AccountById(message.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
+        var organizer = inv.Organizer?.Email;
+        if (string.IsNullOrWhiteSpace(organizer) || !organizer.Contains('@')) throw new InvalidOperationException("This invite doesn't say who organised it, so there is nobody to answer.");
+        var me = inv.Attendees.FirstOrDefault(a => MyAddresses.Contains(a.Email, StringComparer.OrdinalIgnoreCase))?.Email ?? account.Email;
+        var now = DateTimeOffset.Now;
+        var text = Composer.TextToParagraphs(string.IsNullOrWhiteSpace(note)
+            ? answer switch { InviteAnswer.Accepted => "Accepted.", InviteAnswer.Tentative => "Tentatively accepted.", _ => "Declined." }
+            : note);
+        var mid = message.MessageId;
+        var d = new Draft
+        {
+            AccountId = account.Id, Mode = ComposeMode.Reply, To = organizer, Subject = Invites.SubjectFor(answer, inv.Summary), Html = text,
+            InReplyTo = mid.Length > 0 ? "<" + mid + ">" : "", References = mid.Length > 0 ? "<" + mid + ">" : "", ThreadKey = message.ThreadKey,
+            CalendarReply = Invites.BuildReply(inv, me, account.DisplayName, answer, note, now),
+        };
+        var before = Store.GetEvent(account.Id, inv.Uid);
+        var id = QueueSend(d, now.AddSeconds(Config.UndoSendSeconds), null);
+        var partstat = answer switch { InviteAnswer.Accepted => "ACCEPTED", InviteAnswer.Tentative => "TENTATIVE", _ => "DECLINED" };
+        Store.SaveEvent(ToEvent(account.Id, inv, partstat));
+        Log.Info($"invite answered: {partstat}");
+        return (id, before);
+    }
+
+    /// <summary>Undo an answer still in its undo window: the reply isn't sent and the old answer comes back.</summary>
+    public bool UndoInviteAnswer(long outboxId, string accountId, string uid, MailStore.LocalEvent? before)
+    {
+        if (Recall(outboxId) == null) return false;
+        if (before != null) Store.SaveEvent(before);
+        else if (Store.GetEvent(accountId, uid) is { } ev) Store.SaveEvent(ev with { Answer = "" });
+        return true;
+    }
+
+    // ───────────────────────── quick replies (design B6) ─────────────────────────
+
+    /// <summary>Sends a quick reply to <paramref name="original"/> through the outbox (so Undo works). Returns the outbox id.</summary>
+    public async Task<long> QuickReplyAsync(MessageRow original, string text, CancellationToken ct = default)
+    {
+        var account = AccountById(original.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
+        var (body, _) = await LoadAsync(original, false, ct);
+        var d = Composer.QuickReply(account, original, body, MyAddresses, text);
+        return QueueSend(d, DateTimeOffset.Now.AddSeconds(Config.UndoSendSeconds), null);
+    }
+
+    // ───────────────────────── rules (design B5) ─────────────────────────
+
+    /// <summary>
+    /// Runs rules over these messages (new Inbox mail, or mail already there when asked), top to bottom. A message
+    /// that a rule moves or deletes is not seen by later rules. Returns the ids that should not be announced
+    /// (skip notification, marked read, moved, deleted, snoozed or set aside).
+    /// </summary>
+    public HashSet<long> RunRules(string accountId, IReadOnlyList<MessageRow> messages, IReadOnlyList<MailRule>? only = null)
+    {
+        var quiet = new HashSet<long>();
+        var rules = (only ?? Config.Rules).Where(r => RuleEngine.IsRunnable(r) && RuleEngine.AppliesToAccount(r, accountId)).ToList();
+        if (rules.Count == 0 || messages.Count == 0) return quiet;
+        var email = AccountById(accountId)?.Email ?? "";
+        var folders = Store.GetFolders(accountId);
+        var needsBody = rules.Any(r => r.Conditions.Any(c => c.Field == RuleField.Body));
+        var touched = new HashSet<long>();
+        var now = DateTime.Now;
+        foreach (var arrived in messages)
+        {
+            var m = Store.GetMessage(arrived.Id);
+            if (m == null) continue;
+            var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
+            foreach (var rule in rules)
+            {
+                if (!RuleEngine.Matches(rule, m, new RuleContext(email, body))) continue;
+                Log.Info($"rule \"{rule.Name}\" matched a message in {email}");
+                if (ApplyRule(rule, m, folders, touched, quiet, now)) break;
+                m = Store.GetMessage(m.Id) ?? m;
+            }
+        }
+        if (touched.Count > 0) Touched(accountId, touched);
+        return quiet;
+    }
+
+    /// <summary>True when the message left its folder (moved or deleted).</summary>
+    private bool ApplyRule(MailRule rule, MessageRow m, List<MailFolder> folders, HashSet<long> touched, HashSet<long> quiet, DateTime now)
+    {
+        var copies = Store.GetThreadCopies(m.AccountId, m.ThreadKey)
+            .Where(r => r.Id == m.Id || (m.MessageId.Length > 0 && r.MessageId == m.MessageId)).ToList();
+        foreach (var a in rule.Actions.Where(a => a.Kind is not (RuleActionKind.MoveToFolder or RuleActionKind.Delete)))
+        {
+            switch (a.Kind)
+            {
+                case RuleActionKind.MarkRead:
+                    foreach (var r in copies.Where(r => !r.IsSeen))
+                    {
+                        Store.SetLocalFlags(r.Id, r.Flags | MessageFlags.Seen);
+                        Queue(r, PendingOpKind.SetSeen);
+                        touched.Add(r.FolderId);
+                    }
+                    quiet.Add(m.Id);
+                    break;
+                case RuleActionKind.Pin:
+                    foreach (var r in copies.Where(r => !r.IsFlagged))
+                    {
+                        Store.SetLocalFlags(r.Id, r.Flags | MessageFlags.Flagged);
+                        Queue(r, PendingOpKind.SetFlagged);
+                        touched.Add(r.FolderId);
+                    }
+                    break;
+                case RuleActionKind.Tag when a.Target.Trim().Length > 0:
+                    foreach (var r in copies)
+                    {
+                        var tags = r.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                        if (tags.Contains(a.Target.Trim(), StringComparer.OrdinalIgnoreCase)) continue;
+                        tags.Add(a.Target.Trim().Replace(",", " "));
+                        Store.SetTags(r.Id, string.Join(",", tags));
+                        touched.Add(r.FolderId);
+                    }
+                    break;
+                case RuleActionKind.Snooze:
+                {
+                    var inbox = folders.Where(f => f.Role == FolderRole.Inbox).Select(f => f.Id).ToList();
+                    Store.SetSnooze(m.AccountId, m.ThreadKey, inbox, RuleEngine.SnoozeUntil(a.Target, now));
+                    foreach (var f in inbox) touched.Add(f);
+                    quiet.Add(m.Id);
+                    break;
+                }
+                case RuleActionKind.SetAside:
+                    SetAsideRows(m.AccountId, m.ThreadKey, true, touched);
+                    quiet.Add(m.Id);
+                    break;
+                case RuleActionKind.SkipNotification:
+                    quiet.Add(m.Id);
+                    break;
+            }
+        }
+        if (rule.Actions.Any(a => a.Kind == RuleActionKind.Delete))
+        {
+            var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
+            if (trash?.Id == m.FolderId) return false;
+            if (trash == null) Queue(m, PendingOpKind.Delete); else Queue(m, PendingOpKind.Move, trash.Id);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+            quiet.Add(m.Id);
+            return true;
+        }
+        var move = rule.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.MoveToFolder && a.Target.Trim().Length > 0);
+        if (move != null)
+        {
+            var t = move.Target.Trim();
+            var dest = folders.FirstOrDefault(f => f.Path.Equals(t, StringComparison.OrdinalIgnoreCase))
+                       ?? folders.FirstOrDefault(f => f.Name.Equals(t, StringComparison.OrdinalIgnoreCase));
+            if (dest == null) { Log.Warn($"rule \"{rule.Name}\": no folder \"{t}\" in this account"); return false; }
+            if (dest.Id == m.FolderId) return false;
+            Queue(m, PendingOpKind.Move, dest.Id);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+            touched.Add(dest.Id);
+            quiet.Add(m.Id);
+            return true;
+        }
+        return false;
+    }
+
+    // ───────────────────────── auto-delete / OTP delete (designs AD1–AD4) ─────────────────────────
+
+    /// <summary>Raised when auto-delete rules or timers change (Settings table, sidebar "Deleting soon").</summary>
+    public event Action? AutoDeleteChanged;
+
+    public List<AutoDeleteRule> AutoDeleteRules() => Store.GetAutoDeleteRules();
+
+    /// <summary>
+    /// Creates or updates a rule. With <paramref name="startOnExisting"/> the emails already in the Inbox from that
+    /// sender get a timer too, counted from now. Returns how many emails got a timer.
+    /// </summary>
+    public int SaveAutoDeleteRule(AutoDeleteRule rule, bool startOnExisting)
+    {
+        rule.Pattern = AutoDelete.NormalisePattern(rule.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
+        rule.Amount = Math.Clamp(rule.Amount, 1, 100);
+        rule.AccountId ??= "";
+        Store.SaveAutoDeleteRule(rule);
+        var n = 0;
+        if (startOnExisting && !rule.Paused)
+        {
+            var now = DateTimeOffset.Now;
+            n = Store.SetDeleteTimers(ExistingFor(rule).Select(m => (m.Id, AutoDelete.DeleteAt(rule, now))), rule.Id);
+        }
+        Log.Info($"auto-delete rule saved: {rule.Pattern}, {AutoDelete.Describe(rule)}" + (n > 0 ? $", {n} existing email(s)" : ""));
+        AutoDeleteTouched();
+        return n;
+    }
+
+    /// <summary>Emails already in the Inbox (not pinned) that a rule would put a timer on.</summary>
+    public List<MessageRow> ExistingFor(AutoDeleteRule rule)
+    {
+        var pattern = AutoDelete.NormalisePattern(rule.Pattern);
+        if (pattern == null) return new();
+        return Accounts.Where(a => AutoDelete.AppliesToAccount(rule, a.Id))
+            .SelectMany(a => Store.MessagesFrom(FolderIds(FolderRole.Inbox, a.Id), pattern))
+            .Where(m => !m.IsFlagged).ToList();
+    }
+
+    public void PauseAutoDeleteRule(string id, bool paused)
+    {
+        var rule = Store.GetAutoDeleteRules().FirstOrDefault(r => r.Id == id);
+        if (rule == null) return;
+        rule.Paused = paused;
+        Store.SaveAutoDeleteRule(rule);
+        AutoDeleteTouched();
+    }
+
+    /// <summary>Remove asks (design AD4): keep the timers already on emails, or clear them all.</summary>
+    public void RemoveAutoDeleteRule(string id, bool clearTimers)
+    {
+        Store.DeleteAutoDeleteRule(id, clearTimers);
+        AutoDeleteTouched();
+    }
+
+    /// <summary>New Inbox mail from a sender with a rule gets its timer (the earliest, if several rules match).</summary>
+    public void TagArrivals(string accountId, IReadOnlyList<MessageRow> arrivals)
+    {
+        if (arrivals.Count == 0) return;
+        var rules = Store.GetAutoDeleteRules().Where(r => !r.Paused && AutoDelete.AppliesToAccount(r, accountId)).ToList();
+        if (rules.Count == 0) return;
+        var now = DateTimeOffset.Now;
+        var tagged = 0;
+        foreach (var rule in rules)
+        {
+            var rows = arrivals.Where(m => !m.IsFlagged && AutoDelete.Matches(rule.Pattern, m.FromAddress))
+                .Select(m => (m.Id, AutoDelete.DeleteAt(rule, m.Date < now ? m.Date : now))).ToList();
+            if (rows.Count > 0) tagged += Store.SetDeleteTimers(rows, rule.Id);
+        }
+        if (tagged > 0) AutoDeleteTouched(accountId);
+    }
+
+    /// <summary>"Keep this one" (design AD3): the conversation's timers come off, for good.</summary>
+    public void KeepFromAutoDelete(string accountId, string threadKey)
+    {
+        Store.KeepRows(Store.DeleteTimers(accountId, threadKey).Select(t => t.Id));
+        AutoDeleteTouched(accountId);
+    }
+
+    /// <summary>"Keep all" in Deleting soon: every timer due in the next 7 days comes off.</summary>
+    public void KeepAllDeletingSoon()
+    {
+        Store.KeepRows(Store.RowsDeletingBefore(DateTimeOffset.Now.AddDays(7)));
+        AutoDeleteTouched();
+    }
+
+    /// <summary>The timer pass: due emails move to Trash (queued for the server). Pinned ones and paused rules are skipped.</summary>
+    public int RunDueDeletes(DateTimeOffset now)
+    {
+        var due = Store.DueDeletes(now);
+        if (due.Count == 0) return 0;
+        foreach (var acc in due.GroupBy(m => m.AccountId))
+        {
+            var folders = Store.GetFolders(acc.Key);
+            var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
+            var touched = new HashSet<long>();
+            foreach (var m in acc)
+            {
+                if (trash == null) Queue(m, PendingOpKind.Delete);
+                else if (m.FolderId != trash.Id) Queue(m, PendingOpKind.Move, trash.Id);
+                Store.DeleteRow(m.Id);
+                touched.Add(m.FolderId);
+                if (trash != null) touched.Add(trash.Id);
+            }
+            Touched(acc.Key, touched);
+        }
+        Log.Info($"auto-delete: {due.Count} email(s) moved to Trash");
+        AutoDeleteChanged?.Invoke();
+        return due.Count;
+    }
+
+    private void AutoDeleteTouched(string? accountId = null)
+    {
+        foreach (var a in Accounts.Where(a => accountId == null || a.Id == accountId))
+        {
+            var cs = new ChangeSet { AccountId = a.Id };
+            foreach (var f in FolderIds(FolderRole.Inbox, a.Id)) cs.FolderIds.Add(f);
+            Changed?.Invoke(cs);
+        }
+        AutoDeleteChanged?.Invoke();
+    }
+
+    // ───────────────────────── Gatekeeper (design B7) ─────────────────────────
+
+    /// <summary>Raised when senders arrive at the door or are allowed / blocked (the Inbox banner counts them).</summary>
+    public event Action? GateChanged;
+
+    /// <summary>
+    /// New Inbox mail from a blocked sender goes to Spam; with the Gatekeeper on, mail from someone never written to or
+    /// heard from (and not allowed) waits at the door instead of landing in the Inbox. Returns the ids kept out.
+    /// </summary>
+    public HashSet<long> RunGatekeeper(string accountId, IReadOnlyList<MessageRow> arrivals)
+    {
+        var kept = new HashSet<long>();
+        var g = Config.Gatekeeper;
+        if (arrivals.Count == 0 || (!g.Enabled && g.Blocked.Count == 0)) return kept;
+        var mine = MyAddresses.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ids = arrivals.Select(m => m.Id).ToList();
+        var mids = arrivals.Select(m => m.MessageId).ToList();
+        var gate = new List<long>();
+        var touched = new HashSet<long>();
+        var junk = Store.GetFolders(accountId).FirstOrDefault(f => f.Role == FolderRole.Junk);
+        foreach (var m in arrivals)
+        {
+            var addr = m.FromAddress.Trim().ToLowerInvariant();
+            if (addr.Length == 0 || mine.Contains(addr)) continue;
+            if (g.Blocked.Contains(addr))
+            {
+                if (junk?.Id == m.FolderId) continue;
+                if (junk == null)
+                {
+                    // No Spam folder to move it to: it waits at the door rather than landing in the Inbox.
+                    gate.Add(m.Id);
+                    kept.Add(m.Id);
+                    touched.Add(m.FolderId);
+                    continue;
+                }
+                Queue(m, PendingOpKind.Move, junk.Id);
+                Store.DeleteRow(m.Id);
+                touched.Add(m.FolderId);
+                touched.Add(junk.Id);
+                kept.Add(m.Id);
+                continue;
+            }
+            if (!g.Enabled || g.Allowed.Contains(addr) || IsKnownContact(addr) || Store.HasMailFrom(addr, ids, mids)) continue;
+            gate.Add(m.Id);
+            kept.Add(m.Id);
+            touched.Add(m.FolderId);
+        }
+        if (gate.Count > 0)
+        {
+            Store.SetAtGate(gate, true, DateTimeOffset.Now);
+            Log.Info($"gatekeeper: {gate.Count} email(s) from new senders wait at the door");
+        }
+        if (touched.Count > 0) Touched(accountId, touched);
+        if (gate.Count > 0) GateChanged?.Invoke();
+        return kept;
+    }
+
+    public List<GateSender> GateSenders() => Store.GateSenders();
+
+    /// <summary>Allow: this sender goes straight in from now on; their waiting mail moves to the Inbox.</summary>
+    public void AllowSender(string address)
+    {
+        var a = address.Trim().ToLowerInvariant();
+        var g = Config.Gatekeeper;
+        g.Blocked.Remove(a);
+        if (!g.Allowed.Contains(a)) g.Allowed.Add(a);
+        Settings.Save(notify: false);
+        var rows = Store.GateMessages(a);
+        Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
+        LetIn(rows);
+        GateChanged?.Invoke();
+    }
+
+    /// <summary>Mail let in from the door is new to the Inbox: rules and auto-delete see it now.</summary>
+    private void LetIn(List<MessageRow> rows)
+    {
+        foreach (var acc in rows.GroupBy(r => r.AccountId))
+        {
+            var list = acc.ToList();
+            try { RunRules(acc.Key, list); } catch (Exception ex) { Log.Error("rules failed", ex); }
+            try { TagArrivals(acc.Key, list); } catch (Exception ex) { Log.Error("auto-delete tagging failed", ex); }
+            Touched(acc.Key, list.Select(r => r.FolderId));
+        }
+    }
+
+    /// <summary>Block: this sender's mail moves to Spam on the server and keeps doing so. Nothing is deleted.</summary>
+    public void BlockSender(string address)
+    {
+        var a = address.Trim().ToLowerInvariant();
+        var g = Config.Gatekeeper;
+        g.Allowed.Remove(a);
+        if (!g.Blocked.Contains(a)) g.Blocked.Add(a);
+        Settings.Save(notify: false);
+        foreach (var acc in Store.GateMessages(a).GroupBy(r => r.AccountId))
+        {
+            var junk = Store.GetFolders(acc.Key).FirstOrDefault(f => f.Role == FolderRole.Junk);
+            if (junk == null) { Log.Warn("block: no Spam folder in " + acc.Key + " — mail stays at the door"); continue; }
+            foreach (var m in acc)
+            {
+                Queue(m, PendingOpKind.Move, junk.Id);
+                Store.DeleteRow(m.Id);
+            }
+            Touched(acc.Key, acc.Select(r => r.FolderId).Append(junk.Id));
+        }
+        GateChanged?.Invoke();
+    }
+
+    /// <summary>The Gatekeeper was switched off: everything waiting comes into the Inbox (senders aren't marked allowed).</summary>
+    public void OpenGate()
+    {
+        var rows = Store.GateMessages();
+        if (rows.Count == 0) return;
+        Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
+        LetIn(rows);
+        GateChanged?.Invoke();
+    }
+
+    /// <summary>The Inbox messages a rule would act on now (Preview matches / "Also apply to…"), newest first.</summary>
+    public List<MessageRow> RuleMatchesInInbox(MailRule rule, int limit = 5000)
+    {
+        var found = new List<MessageRow>();
+        if (rule.Conditions.Count == 0) return found;
+        var needsBody = rule.Conditions.Any(c => c.Field == RuleField.Body);
+        foreach (var acc in Accounts.Where(a => RuleEngine.AppliesToAccount(rule, a.Id)))
+        {
+            foreach (var m in Store.GetMessagesIn(FolderIds(FolderRole.Inbox, acc.Id), limit))
+            {
+                var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
+                if (RuleEngine.Matches(rule, m, new RuleContext(acc.Email, body))) found.Add(m);
+                if (found.Count >= limit) return found;
+            }
+        }
+        return found;
+    }
+
+    /// <summary>"Also apply to the N matching messages already in Inbox": runs just this rule over them. Returns how many matched.</summary>
+    public int ApplyRuleToInbox(MailRule rule)
+    {
+        var matches = RuleMatchesInInbox(rule);
+        var once = rule.Clone();
+        once.Enabled = true;   // asked for explicitly, so it runs now even if the rule is switched off for new mail
+        foreach (var g in matches.GroupBy(m => m.AccountId))
+            RunRules(g.Key, g.ToList(), new[] { once });
+        return matches.Count;
     }
 
     // ───────────────────────── reading ─────────────────────────
@@ -654,6 +1146,7 @@ public sealed class MailEngine : IDisposable
                 {
                     lastMinute = DateTimeOffset.Now;
                     CheckReminders();
+                    RunDueDeletes(DateTimeOffset.Now);   // also the overdue ones at start (this runs straight away)
                     if (Interlocked.Exchange(ref _promotePending, 0) == 1) PromoteKnownSenders();
                     _ = Task.Run(async () =>
                     {

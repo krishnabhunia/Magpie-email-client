@@ -234,7 +234,7 @@
                                 <TextBlock Text="REWRITE SELECTION" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,6" />
                                 <TextBlock FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" Text="Select text in your message, then pick a change."
                                            Visibility="{Binding SelectedText, Converter={StaticResource InvBoolToVis}}" />
-                                <Border Background="White" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="6" Padding="8,6"
+                                <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="6" Padding="8,6"
                                         Visibility="{Binding SelectedText, Converter={StaticResource BoolToVis}}">
                                     <TextBlock Text="{Binding SelectedText}" FontSize="12" TextWrapping="Wrap" MaxHeight="72" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                 </Border>
@@ -260,7 +260,7 @@
                                        Visibility="{Binding AiError, Converter={StaticResource BoolToVis}}" />
 
                             <!-- Preview card (C3): nothing goes into the message until you choose -->
-                            <Border Background="White" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,14,0,0"
+                            <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Ai.Border}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,14,0,0"
                                     Visibility="{Binding AiPreview, Converter={StaticResource BoolToVis}}">
                                 <StackPanel>
                                     <TextBlock Text="PREVIEW" Style="{StaticResource Text.SectionCaps}" Foreground="{DynamicResource Brush.Ai}" Margin="0,0,0,6" />

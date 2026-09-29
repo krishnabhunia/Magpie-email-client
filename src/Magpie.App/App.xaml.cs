@@ -38,6 +38,7 @@ public partial class App : Application
         AppServices.Engine = engine;
         Log.Info($"Magpie {UpdateService.Current} starting, {engine.Accounts.Count} account(s)" + (Program.AfterUpdate ? $" (updated from {Program.UpdatedFrom})" : ""));
         Icons.Colourful = engine.Config.Appearance.Colourful;
+        ThemeManager.Start(engine.Config.Appearance.Theme);
         try { StartUi(engine); }
         catch (Exception ex)
         {
@@ -98,7 +99,7 @@ public partial class App : Application
         updates.Start();
         (main.DataContext as ViewModels.MainViewModel)?.StatusBar.AttachUpdates(updates);
         main.AttachUpdates(updates);
-        engine.Settings.Changed += () => Ui.Post(() => Icons.Colourful = engine.Config.Appearance.Colourful);
+        engine.Settings.Changed += () => Ui.Post(() => { Icons.Colourful = engine.Config.Appearance.Colourful; ThemeManager.SetMode(engine.Config.Appearance.Theme); });
         if (Program.AfterUpdate)
             main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
                 DispatcherPriority.ApplicationIdle);
@@ -171,6 +172,7 @@ public partial class App : Application
         try { (MainWindow as MainWindow)?.SavePlacement(); } catch { }
         _cts.Cancel();
         AppServices.Tray?.Dispose();
+        ThemeManager.Stop();
         try { AppServices.Engine?.Dispose(); } catch { }
         Log.Info("Magpie exiting");
         Shutdown();

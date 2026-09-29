@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Magpie.App.Services;
 using Magpie.Core;
 using Magpie.Core.Ai;
+using Magpie.Core.Mail;
 using Magpie.Core.Models;
 using Magpie.Core.Security;
 using Magpie.Core.Settings;
@@ -20,6 +21,9 @@ public partial class EditableAccount : ObservableObject
         Original = a;
         _displayName = a.DisplayName;
         _signature = a.Signature;
+        _signatureHtml = a.SignatureHtml;
+        _signatureOnNew = a.SignatureOnNew;
+        _signatureOnReplies = a.SignatureOnReplies;
         _color = a.Color;
         _enabled = a.Enabled;
         _syncDays = a.SyncDays;
@@ -30,7 +34,19 @@ public partial class EditableAccount : ObservableObject
     public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
     [ObservableProperty] private string _displayName;
     [ObservableProperty] private string _signature;
+    /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain))] private string _signatureHtml;
+    [ObservableProperty] private bool _signatureOnNew;
+    [ObservableProperty] private bool _signatureOnReplies;
+    [ObservableProperty] private bool _isSignatureSelected;
     [ObservableProperty] private string _color;
+
+    /// <summary>Plain-text stand-in for the rich editor when WebView2 isn't available.</summary>
+    public string SignaturePlain
+    {
+        get => MimeText.HtmlToText(SignatureHtml).Trim();
+        set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : value.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
+    }
     [ObservableProperty] private bool _enabled;
     [ObservableProperty] private int _syncDays;
 
@@ -38,14 +54,19 @@ public partial class EditableAccount : ObservableObject
     {
         var a = Original.Clone();
         a.DisplayName = DisplayName.Trim();
-        a.Signature = Signature;
+        a.SignatureHtml = SignatureHtml.Trim();
+        // The old plain-text field mirrors the rich one, so it never brings back a signature that was cleared.
+        if (a.SignatureHtml != Original.SignatureHtml) a.Signature = MimeText.HtmlToText(a.SignatureHtml).Trim();
+        a.SignatureOnNew = SignatureOnNew;
+        a.SignatureOnReplies = SignatureOnReplies;
         a.Color = Color;
         a.Enabled = Enabled;
         a.SyncDays = Math.Clamp(SyncDays, 7, 3650);
         return a;
     }
 
-    public bool Changed => DisplayName.Trim() != Original.DisplayName || Signature != Original.Signature || Color != Original.Color
+    public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+                           || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
                            || Enabled != Original.Enabled || SyncDays != Original.SyncDays;
 }
 
@@ -53,6 +74,11 @@ public partial class EditableTag : ObservableObject
 {
     [ObservableProperty] private string _name = "";
     [ObservableProperty] private string _color = "#14606E";
+}
+
+public partial class EditableQuickReply : ObservableObject
+{
+    [ObservableProperty] private string _text = "";
 }
 
 public partial class EditableTemplate : ObservableObject
@@ -126,6 +152,22 @@ public partial class SettingsViewModel : ObservableObject
     public int[] UndoChoices { get; } = { 0, 5, 10, 20, 30 };
     public int[] IntervalChoices { get; } = { 1, 2, 5, 10, 15, 30, 60 };
     public string[] ColorChoices { get; } = { "#14606E", "#4B3F86", "#B3261E", "#B45309", "#1B6B2E", "#2F5BEA", "#8A5300", "#5A6068" };
+
+    // Gatekeeper (design B7)
+    [ObservableProperty] private bool _gatekeeper;
+    public ObservableCollection<string> Blocked { get; } = new();
+    public bool HasBlocked => Blocked.Count > 0;
+
+    /// <summary>Unblock takes effect at once: future mail from them lands normally (mail already in Spam stays there).</summary>
+    [RelayCommand]
+    private void Unblock(string? address)
+    {
+        if (address == null) return;
+        _e.Config.Gatekeeper.Blocked.Remove(address);
+        _e.Settings.Save(notify: false);
+        Blocked.Remove(address);
+        OnPropertyChanged(nameof(HasBlocked));
+    }
 
     // Notifications
     [ObservableProperty] private bool _notifications;
@@ -264,7 +306,7 @@ public partial class SettingsViewModel : ObservableObject
     public string SearchHeading => IsSearching ? $"Results for \"{SearchText.Trim()}\"" : "";
     public string SearchSub => !IsSearching ? "" : SearchHits.Count == 0 ? "Nothing matches. Try another word." : $"{SearchHits.Count} setting{(SearchHits.Count == 1 ? "" : "s")} found — click one to go to it";
     /// <summary>Matches per page, shown as a badge in the page list; "" when not searching or none.</summary>
-    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
+    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsRules = "", _hitsSignatures = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
 
     private static readonly (string Name, string Page, string Desc, string Keys, string Anchor)[] Index =
     {
@@ -276,6 +318,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
         ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
+        ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
         ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
         ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
         ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
@@ -284,7 +327,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
         ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
         ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
-        ("Accounts", "Accounts", "Name, signature, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
@@ -301,12 +344,16 @@ public partial class SettingsViewModel : ObservableObject
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
-        ("Dark theme", "Toolbar", "Coming in 1.2.0 — Match Windows / Light / Dark", "dark theme night light appearance", "RowLook"),
+        ("Auto-delete rules", "Rules", "Emails from a sender or domain go to Trash a set time after they arrive; OTP delete after 24 hours", "auto delete autodelete otp codes expire trash timer clean up old", "RowAutoDelete"),
+        ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
+        ("Signature", "Signatures", "A signature for each account, with pictures; new messages and replies", "signature sign off logo picture name footer html rich", "RowSignatures"),
+        ("Quick replies", "Signatures", "Short answers you send with one click under a conversation", "quick replies canned answers thanks one click send chips", "RowQuickReplies"),
+        ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
     };
 
     private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
     {
-        ["General"] = ("General", "general"), ["Toolbar"] = ("Toolbar & buttons", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"),
+        ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"), ["Rules"] = ("Rules", "rules"), ["Signatures"] = ("Signatures & replies", "signature"),
         ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
         ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
     };
@@ -330,7 +377,7 @@ public partial class SettingsViewModel : ObservableObject
         SearchHits.Clear();
         foreach (var h in Search(value)) SearchHits.Add(h);
         string Badge(string page) => IsSearching ? (SearchHits.Count(h => h.Page == page) is var n && n > 0 ? n.ToString() : "") : "";
-        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsNotifications = Badge("Notifications");
+        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsRules = Badge("Rules"); HitsSignatures = Badge("Signatures"); HitsNotifications = Badge("Notifications");
         HitsTemplates = Badge("Templates"); HitsKeys = Badge("Keys"); HitsUpdates = Badge("Updates"); HitsAbout = Badge("About");
         OnPropertyChanged(nameof(SearchSub));
     }
@@ -344,6 +391,8 @@ public partial class SettingsViewModel : ObservableObject
         if (hit == null) return;
         SearchText = "";
         Page = hit.Page;
+        if (hit.Anchor == "RowAutoDelete") RulesTab = "AutoDelete";
+        else if (hit.Anchor == "RowRules") RulesTab = "Filters";
         HighlightRequested?.Invoke(hit.Anchor);
     }
 
@@ -417,6 +466,17 @@ public partial class SettingsViewModel : ObservableObject
     private void SetRowMode(string? mode)
     {
         if (Enum.TryParse<RowActionsMode>(mode, out var v)) RowMode = v;
+    }
+
+    // ── Appearance: theme (design B1) ──
+    [ObservableProperty] private ThemeMode _theme;
+    public bool WindowsIsDark { get; } = ThemeManager.WindowsUsesDark();
+    public string MatchWindowsNote => "Windows is set to " + (WindowsIsDark ? "dark" : "light") + " right now. Magpie changes with it.";
+
+    [RelayCommand]
+    private void SetTheme(string? mode)
+    {
+        if (Enum.TryParse<ThemeMode>(mode, out var v)) Theme = v;
     }
 
     // ── Toolbar & buttons (design C3) ──
@@ -517,7 +577,9 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(string? page)
     {
         var c = _e.Config;
-        _page = page ?? "General";
+        var parts = (page ?? "General").Split(':', 2);
+        _page = parts[0];
+        if (parts.Length > 1) _rulesTab = parts[1];
         _smartInbox = c.SmartInbox;
         _markReadOnOpen = c.MarkReadOnOpen;
         _remoteImages = c.RemoteImages;
@@ -526,6 +588,8 @@ public partial class SettingsViewModel : ObservableObject
         _closeToTray = c.CloseToTray;
         _startWithWindows = StartupRegistration.IsEnabled();
         _notifications = c.Notifications;
+        _gatekeeper = c.Gatekeeper.Enabled;
+        foreach (var b in c.Gatekeeper.Blocked) Blocked.Add(b);
         _notifyPeopleOnly = c.NotifyPeopleOnly;
         _notificationSound = c.NotificationSound;
         _googleClientId = c.GoogleClientId;
@@ -548,12 +612,15 @@ public partial class SettingsViewModel : ObservableObject
         RefreshPreset();
 
         var ap = c.Appearance;
+        _theme = ap.Theme;
         _buttonStyle = ap.ButtonStyle;
         _colourful = ap.Colourful;
         _counts = ap.Counts;
         _showStatusBar = ap.ShowStatusBar;
         _menuFollowsToolbar = ap.MenuFollowsToolbar;
         LoadToolbar(ap);
+        LoadRules();
+        LoadSignatures();
         _hoverEnabled = ap.FolderHover.Enabled;
         _hoverDelay = ap.FolderHover.DelayMs;
         foreach (var id in FolderHoverSettings.LineIds) HoverLines.Add(new EditableHoverLine { Id = id, On = ap.FolderHover.Lines.Contains(id) });
@@ -658,10 +725,13 @@ public partial class SettingsViewModel : ObservableObject
         c.Notifications = Notifications;
         c.NotifyPeopleOnly = NotifyPeopleOnly;
         c.NotificationSound = NotificationSound;
+        var openGate = c.Gatekeeper.Enabled && !Gatekeeper;
+        c.Gatekeeper.Enabled = Gatekeeper;
         c.GoogleClientId = GoogleClientId.Trim();
         c.GoogleClientSecret = GoogleClientSecret.Trim();
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
+        c.QuickReplies = QuickRepliesToSave();
         c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
 
         var ai = c.Ai;
@@ -677,7 +747,7 @@ public partial class SettingsViewModel : ObservableObject
 
         c.Appearance = new Appearance
         {
-            ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+            Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
@@ -691,9 +761,11 @@ public partial class SettingsViewModel : ObservableObject
         var err = StartupRegistration.Set(StartWithWindows);
         if (err != null) Log.Warn("start with Windows: " + err);
 
+        CommitRuleEdits();
         var changedAccounts = Accounts.Where(a => a.Changed).Select(a => a.ToAccount()).ToList();
         _e.Settings.Save();
         foreach (var a in changedAccounts) _e.UpdateAccount(a);
+        if (openGate) _e.OpenGate();
         Saved?.Invoke();
     }
 }

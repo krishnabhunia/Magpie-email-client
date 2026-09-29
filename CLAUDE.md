@@ -10,7 +10,7 @@ Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 |---|---|
 | Designs first | Nothing new is built until Krishna has seen a design and said "approved". For 1.2.0 the designs are already approved (text specs in `docs/ROADMAP-1.2.0.md`). For anything new: show a design first (HTML mock-up or a clear written spec), wait for "approved". |
 | Deploy word | Never `git push` a release until Krishna writes **deploy**. Commit locally, tell him what is ready, wait. |
-| Queue | Any feature he mentions goes into the queue automatically (add it to `docs/ROADMAP-1.2.0.md`); it leaves only when he explicitly rejects it. |
+| Queue | Any feature he mentions goes into the queue automatically (add it to `docs/ROADMAP-1.2.0.md` and open a `[Q<n>]` GitHub issue); it leaves only when he explicitly rejects it. |
 | Blockers only | He wants to hear blockers, doubts and lacunas — not narration. One question at a time when something is unclear. |
 | Honesty | If something is not verified (e.g. you could not run the app), say so. |
 | Replies | Tables and lists, short. |
@@ -20,11 +20,12 @@ Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 151 unit tests
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 198 unit tests (1.2.0 branch)
 build/publish.ps1        # tests → build → DpDump → xaml_check.py (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
 
+- **Cloud (Linux) sessions:** `global.json` needs SDK ≥ 8.0.400 *with* the WindowsDesktop SDK. Ubuntu's `dotnet-sdk-8.0` lacks it and builds.dotnet.microsoft.com is blocked; the Microsoft SDK layer of the `mcr.microsoft.com/dotnet/sdk:8.0-noble` image works (extract `usr/share/dotnet` to e.g. `/opt/msdotnet`, put it first on `PATH`, then `build/publish.sh` steps run). You can build, test and XAML-check there, but not run the app.
 - **XAML check is mandatory.** WPF crashes at run time on XAML mistakes; `build/xaml_check.py` catches Setter/Trigger/StaticResource/typo errors statically (`build/README-checks.md`). 0 problems or don't ship.
 - The 5 integration tests (`Category=Integration`) need Dovecot + a test SMTP on Linux (`build/test-servers/start.sh`); they self-skip on Windows. Don't try to make them run here.
 - On this laptop you **can run the app**: `dotnet run --project src/Magpie.App` (or `publish/Magpie.exe`). Do that for UI work and say what you saw. Data lives in `%APPDATA%\Magpie` (settings.json, mail.db, magpie.log).

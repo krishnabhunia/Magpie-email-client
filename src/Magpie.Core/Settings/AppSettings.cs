@@ -94,6 +94,9 @@ public enum ButtonStyle { IconAndName = 0, IconOnly = 1, NameOnly = 2 }
 /// <summary>Folder numbers (design C2): unread / total, unread only, or none.</summary>
 public enum CountsMode { UnreadAndTotal = 0, UnreadOnly = 1, Off = 2 }
 
+/// <summary>Light or dark look (design B1). MatchWindows follows the Windows "app mode" setting.</summary>
+public enum ThemeMode { MatchWindows = 0, Light = 1, Dark = 2 }
+
 /// <summary>One reading-pane toolbar button (design C3). <see cref="Id"/> is one of <see cref="Appearance.ToolbarIds"/>.</summary>
 public sealed class ToolbarButton
 {
@@ -105,9 +108,10 @@ public sealed class ToolbarButton
 public sealed class Appearance
 {
     /// <summary>Every button the toolbar can show, in default order; the first <see cref="DefaultVisible"/> are on.</summary>
-    public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
-    public const int DefaultVisible = 7;
+    public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "setaside", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
+    public const int DefaultVisible = 8;
 
+    public ThemeMode Theme { get; set; } = ThemeMode.MatchWindows;
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.IconAndName;
     public bool Colourful { get; set; } = true;
     public CountsMode Counts { get; set; } = CountsMode.UnreadAndTotal;
@@ -131,11 +135,12 @@ public sealed class Appearance
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
         (FolderHover ??= new()).Normalise();
         (RowActions ??= new()).Normalise();
+        if (!Enum.IsDefined(Theme)) Theme = ThemeMode.MatchWindows;
     }
 
     public Appearance Clone() => new()
     {
-        ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+        Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(),
     };
@@ -209,7 +214,7 @@ public enum RowActionsMode { OnHover = 0, Always = 1, Never = 2 }
 public sealed class RowActionsSettings
 {
     /// <summary>Every action a row can offer, in the order they are listed in Settings.</summary>
-    public static readonly string[] ActionIds = { "archive", "delete", "snooze", "read", "pin", "remind", "tag", "move", "spam" };
+    public static readonly string[] ActionIds = { "archive", "delete", "snooze", "setaside", "read", "pin", "remind", "tag", "move", "spam" };
     public static readonly string[] DefaultIds = { "archive", "delete", "snooze", "read", "pin" };
     public const int MaxButtons = 5;
 
@@ -231,6 +236,25 @@ public sealed class RowActionsSettings
     }
 
     public RowActionsSettings Clone() => new() { Mode = Mode, Ids = Ids.ToList(), ConfirmDeleteOver = ConfirmDeleteOver, BulkUndoSeconds = BulkUndoSeconds };
+}
+
+/// <summary>Gatekeeper (design B7, off by default).</summary>
+public sealed class GatekeeperSettings
+{
+    public bool Enabled { get; set; }
+    /// <summary>Senders let in: their mail goes straight to the Inbox.</summary>
+    public List<string> Allowed { get; set; } = new();
+    /// <summary>Senders blocked: their mail goes to Spam (nothing is deleted), even with the Gatekeeper off.</summary>
+    public List<string> Blocked { get; set; } = new();
+
+    public void Normalise()
+    {
+        static List<string> Clean(List<string>? l) => (l ?? new()).Where(a => !string.IsNullOrWhiteSpace(a) && a.Contains('@'))
+            .Select(a => a.Trim().ToLowerInvariant()).Distinct().ToList();
+        Allowed = Clean(Allowed);
+        Blocked = Clean(Blocked);
+        Allowed.RemoveAll(Blocked.Contains);
+    }
 }
 
 public sealed class AppSettings
@@ -265,6 +289,9 @@ public sealed class AppSettings
         new() { Name = "Work", Color = "#14606E" },
     };
 
+    /// <summary>Quick replies (design B6): one click under a conversation sends one, with the normal Undo window.</summary>
+    public List<string> QuickReplies { get; set; } = new() { "Thanks!", "Got it, will do.", "Sounds good to me." };
+
     public List<QuickTemplate> Templates { get; set; } = new()
     {
         new() { Name = "Thanks, received", Body = "Thanks — received. I'll get back to you shortly." },
@@ -281,6 +308,10 @@ public sealed class AppSettings
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
+    /// <summary>Gatekeeper (design B7): new senders wait at the door; allowed / blocked addresses.</summary>
+    public GatekeeperSettings Gatekeeper { get; set; } = new();
+    /// <summary>Rules / filters (design B5), run top to bottom on new Inbox mail.</summary>
+    public List<Mail.MailRule> Rules { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -332,6 +363,14 @@ public sealed class SettingsStore
         s.Ai.Consents ??= new();
         s.Tags ??= new();
         s.Templates ??= new();
+        s.QuickReplies = (s.QuickReplies ?? new()).Where(q => !string.IsNullOrWhiteSpace(q)).Select(q => q.Trim()).Distinct().ToList();
+        foreach (var a in s.Accounts.Where(a => a != null))
+        {
+            a.Signature ??= "";
+            a.SignatureHtml ??= "";
+            // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
+            if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
+        }
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         s.Sidebar ??= new();
@@ -341,6 +380,8 @@ public sealed class SettingsStore
         s.Appearance.Normalise();
         s.Updates ??= new();
         s.Updates.SkippedVersion ??= "";
+        s.Rules = Mail.RuleEngine.Normalise(s.Rules);
+        (s.Gatekeeper ??= new()).Normalise();
         s.SenderCategories = new Dictionary<string, Category>(s.SenderCategories ?? new(), StringComparer.OrdinalIgnoreCase);
         s.UndoSendSeconds = Math.Clamp(s.UndoSendSeconds, 0, 30);
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);

@@ -35,6 +35,8 @@ public sealed class Draft
     /// replace the previous server draft and a send remove it, instead of leaving copies behind.
     /// </summary>
     public string MessageId { get; set; } = "";
+    /// <summary>An iCalendar reply sent with the message as text/calendar; method=REPLY (invite answers, design B3).</summary>
+    public string CalendarReply { get; set; } = "";
 }
 
 /// <summary>Builds replies/forwards and the final MIME message.</summary>
@@ -106,7 +108,7 @@ public static class Composer
     {
         var d = new Draft { AccountId = account.Id, Mode = mode, ThreadKey = original.ThreadKey };
         var isMine = myAddresses.Contains(original.FromAddress, StringComparer.OrdinalIgnoreCase);
-        var sig = SignatureHtml(account.Signature);
+        var sig = SignatureHtml(account, reply: true);
         if (mode is ComposeMode.Reply or ComposeMode.ReplyAll)
         {
             (d.To, d.Cc) = ReplyRecipients(original, mode == ComposeMode.ReplyAll, myAddresses, isMine);
@@ -129,9 +131,42 @@ public static class Composer
         return d;
     }
 
-    public static string SignatureHtml(string signature) =>
+    /// <summary>The account's signature block (design B6), or "" when it has none or it is switched off for this kind of message.</summary>
+    public static string SignatureHtml(Account? account, bool reply)
+    {
+        if (account == null || (reply ? !account.SignatureOnReplies : !account.SignatureOnNew)) return "";
+        var html = account.SignatureHtml;
+        if (string.IsNullOrWhiteSpace(html) && !string.IsNullOrWhiteSpace(account.Signature)) html = LegacySignatureHtml(account.Signature);
+        if (string.IsNullOrWhiteSpace(MimeText.HtmlToText(html)) && !html.Contains("<img", StringComparison.OrdinalIgnoreCase)) return "";
+        var clean = HtmlRenderer.SanitizeBody(html, new Dictionary<string, string>(), allowRemote: true).html;
+        return "<div class=\"magpie-signature\"><br>" + clean + "</div>";
+    }
+
+    /// <summary>
+    /// A 1.1.x plain-text signature as HTML ("-- " line, then the text). Only &amp; &lt; &gt; are escaped — what the
+    /// editor's innerHTML gives back — so opening it in the editor doesn't count as a change.
+    /// </summary>
+    public static string LegacySignatureHtml(string signature) =>
         string.IsNullOrWhiteSpace(signature) ? "" :
-        "<div class=\"magpie-signature\"><br>-- <br>" + WebUtility.HtmlEncode(signature.Trim()).Replace("\r\n", "\n").Replace("\n", "<br>") + "</div>";
+        "-- <br>" + signature.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
+
+    /// <summary>Plain text as HTML paragraphs (blank line = new paragraph).</summary>
+    public static string TextToParagraphs(string text)
+    {
+        var sb = new StringBuilder();
+        foreach (var para in text.Replace("\r\n", "\n").Split("\n\n"))
+            sb.Append("<p>").Append(WebUtility.HtmlEncode(para.Trim()).Replace("\n", "<br>")).Append("</p>");
+        return sb.ToString();
+    }
+
+    /// <summary>A quick reply (design B6): the reply draft with <paramref name="text"/> as its message, above the signature and quote.</summary>
+    public static Draft QuickReply(Account account, MessageRow original, MessageBody? body, IReadOnlyCollection<string> myAddresses, string text)
+    {
+        var d = Prepare(ComposeMode.Reply, account, original, body, myAddresses, null);
+        const string empty = "<p><br></p>";
+        d.Html = TextToParagraphs(text) + (d.Html.StartsWith(empty, StringComparison.Ordinal) ? d.Html[empty.Length..] : d.Html);
+        return d;
+    }
 
     private static string BodyForQuote(MessageBody? body)
     {
@@ -190,6 +225,16 @@ public static class Composer
             }
             catch { return m.Value; }
         });
+        if (!string.IsNullOrEmpty(d.CalendarReply))
+        {
+            // An invite answer: plain text + the iCalendar reply, as alternatives (what calendar servers expect).
+            var cal = new TextPart("calendar") { Text = d.CalendarReply };
+            cal.ContentType.Parameters.Add("method", "REPLY");
+            cal.ContentType.Charset = "utf-8";
+            cal.ContentTransferEncoding = ContentEncoding.QuotedPrintable;
+            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
+            return msg;
+        }
         builder.HtmlBody = WrapHtml(inner);
         builder.TextBody = MimeText.HtmlToText(d.Html);
         foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);

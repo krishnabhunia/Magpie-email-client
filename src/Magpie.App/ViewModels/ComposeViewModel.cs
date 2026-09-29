@@ -87,7 +87,7 @@ public partial class ComposeViewModel : ObservableObject
 
         var html = draft.Html;
         if (draft.Mode == ComposeMode.New && string.IsNullOrEmpty(html) && From != null)
-            html = "<p><br></p>" + Composer.SignatureHtml(From.Signature);
+            html = "<p><br></p>" + Composer.SignatureHtml(From, reply: false);
         if (!string.IsNullOrWhiteSpace(prefillText))
             html = TextToParagraphs(prefillText) + html;
         InitialHtml = html;
@@ -297,13 +297,7 @@ public partial class ComposeViewModel : ObservableObject
         _aiCts?.Cancel();
     }
 
-    public static string TextToParagraphs(string text)
-    {
-        var sb = new StringBuilder();
-        foreach (var para in text.Replace("\r\n", "\n").Split("\n\n"))
-            sb.Append("<p>").Append(System.Net.WebUtility.HtmlEncode(para.Trim()).Replace("\n", "<br>")).Append("</p>");
-        return sb.ToString();
-    }
+    public static string TextToParagraphs(string text) => Composer.TextToParagraphs(text);
 
     partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); }
     partial void OnToChanged(string value) => MarkEdited();
