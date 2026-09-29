@@ -32,26 +32,38 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # The release PR (branch release/next, opened by release-pr.yml) is built as a test version:
-      # <version>-beta.<run number>, published as a pre-release so it can be tried through
-      # Settings → Updates → "Include test versions" before the PR is merged (design R1).
+      # Design E1 (same as evict-uninstaller): a PR that sets a new <Version> in Directory.Build.props is the release.
+      # While it is open, its CI publishes a test version <version>-beta.<run number> (pre-release, tried through
+      # Settings → Updates → "Include test versions"); merging it publishes <version> to everyone.
       - name: Read version
         id: ver
         shell: pwsh
         env:
-          IS_RELEASE_PR: ${{ github.event_name == 'pull_request' && github.head_ref == 'release/next' }}
+          GH_TOKEN: ${{ github.token }}
+          IS_OWN_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
-          $beta = $env:IS_RELEASE_PR -eq "true"
           $num = python build/release_prep.py numeric $v
           if ($LASTEXITCODE -ne 0) { throw "Version '$v' in Directory.Build.props isn't x.y.z" }
+          # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
+          $assets = gh release view "v$v" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
+          $released = ($LASTEXITCODE -eq 0) -and ($assets -contains 'Magpie.exe') -and ($assets -contains 'Magpie.exe.sha256')
+          $global:LASTEXITCODE = 0
+          $beta = ($env:IS_OWN_PR -eq "true") -and -not $released
           if ($beta) { "version=$v-beta.${{ github.run_number }}" >> $env:GITHUB_OUTPUT } else { "version=$v" >> $env:GITHUB_OUTPUT }
           "base=$v" >> $env:GITHUB_OUTPUT
           "numeric=$num" >> $env:GITHUB_OUTPUT
+          "released=$($released.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $v · released: $released · test version: $beta"
 
       - name: Release script tests
         run: python build/test_release_prep.py
+
+      # A new version must be ready to go out: CHANGELOG section dated, installer version matching.
+      - name: New version is ready to release
+        if: steps.ver.outputs.released != 'true'
+        run: python build/release_prep.py check ${{ steps.ver.outputs.base }}
 
       - name: Restore
         run: dotnet restore Magpie.sln
@@ -127,22 +139,15 @@ jobs:
         id: rel
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v${{ steps.ver.outputs.version }}"
-          # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
-          $assets = gh release view $tag --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
-          if ($LASTEXITCODE -eq 0 -and ($assets -contains 'Magpie.exe') -and ($assets -contains 'Magpie.exe.sha256')) {
-            "needed=false" >> $env:GITHUB_OUTPUT; Write-Host "$tag already released"
+          if ("${{ steps.ver.outputs.released }}" -eq "true") {
+            "needed=false" >> $env:GITHUB_OUTPUT; Write-Host "v${{ steps.ver.outputs.version }} already released"
           } else {
-            "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "$tag will be released (or its files completed)"
+            "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "v${{ steps.ver.outputs.version }} will be released (or its files completed)"
           }
-          $global:LASTEXITCODE = 0
           # Release notes = this version's section of CHANGELOG.md (written as UTF-8 by the script)
           python build/release_prep.py notes ${{ steps.ver.outputs.version }} --out release-notes.md
-          if ($LASTEXITCODE -ne 0) { "Magpie ${{ steps.ver.outputs.version }}" | Out-File release-notes.md -Encoding utf8 }
-          $global:LASTEXITCODE = 0
+          if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no section for ${{ steps.ver.outputs.version }}" }
 
       - name: Publish GitHub Release
         if: steps.rel.outputs.needed == 'true'
@@ -172,12 +177,12 @@ jobs:
           $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' | Where-Object { $_ -like "v${{ steps.ver.outputs.version }}-beta.*" }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }
 
-      # ─── Test build for the release PR (design R1) ───
+      # ─── Test version for a PR that sets a new version (design E1) ───
       - name: Beta release notes
         if: steps.ver.outputs.beta == 'true'
         shell: pwsh
         run: |
-          python build/release_prep.py notes ${{ steps.ver.outputs.base }} --out release-notes.md --header "**Test version** of Magpie ${{ steps.ver.outputs.base }}, built from release PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes ${{ steps.ver.outputs.base }} to everyone."
+          python build/release_prep.py notes ${{ steps.ver.outputs.base }} --out release-notes.md --header "**Test version** of Magpie ${{ steps.ver.outputs.base }}, built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes ${{ steps.ver.outputs.base }} to everyone."
           if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for ${{ steps.ver.outputs.base }}" }
 
       - name: Publish test version

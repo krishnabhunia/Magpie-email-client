@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Release preparation for the automatic release PR (design R1).
+"""Release preparation (design E1, same as evict-uninstaller).
 
-The version to release comes from CHANGELOG.md: the first heading of the form
-"## 1.2.0 (not released yet)". Issues that the release closes are listed in that
-section as an HTML comment (hidden in the release notes):  <!-- closes: #2 #4 -->
+A PR that sets a new version is the release: write its CHANGELOG section as
+"## 1.2.0 (not released yet)", then run `apply --date` in the PR to set the version everywhere
+and date the heading. The PR's CI publishes a test version; merging it publishes the release
+(.github/workflows/build.yml). Issues it closes can be listed in the section as an HTML comment
+(hidden in the release notes):  <!-- closes: #2 #4 -->
 
     python3 build/release_prep.py pending            -> prints "1.2.0" (or nothing)
     python3 build/release_prep.py apply --date 2026-09-29
@@ -13,6 +15,8 @@ section as an HTML comment (hidden in the release notes):  <!-- closes: #2 #4 --
                                                      -> that version's CHANGELOG section
     python3 build/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
     python3 build/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
+    python3 build/release_prep.py check 1.2.0         -> fails unless 1.2.0 is set everywhere and its
+                                                        CHANGELOG section is dated (run by CI)
     python3 build/release_prep.py zip 1.2.0 --setup installer/Output --exe publish --out release
                                                      -> release/Magpie-1.2.0.zip (+ .sha256) holding exactly two
                                                         folders: installer/ and portable/ (design Z1)
@@ -114,6 +118,27 @@ def closes(version, root=None):
     for c in re.findall(r"<!--\s*closes:([^>]*)-->", section(version, root), re.I):
         found += [int(n) for n in re.findall(r"#?(\d+)", c)]
     return sorted(set(found))
+
+
+def check(version, root=None):
+    """A version about to be released: set in every file, CHANGELOG section present and dated."""
+    problems = []
+    num = numeric(version) + ".0"
+    props = read("Directory.Build.props", root)
+    for tag, want in (("Version", version), ("AssemblyVersion", num), ("FileVersion", num)):
+        m = re.search(rf"<{tag}>([^<]*)</{tag}>", props)
+        if not m or m.group(1).strip() != want:
+            problems.append(f"Directory.Build.props <{tag}> should be {want}")
+    m = re.search(r'#define MyAppVersion "([^"]*)"', read("installer/Magpie.iss", root))
+    if not m or m.group(1) != version:
+        problems.append(f'installer/Magpie.iss MyAppVersion should be "{version}"')
+    m = re.search(r"^## " + re.escape(version) + r" \((.*)\)\s*$", read("CHANGELOG.md", root), re.M)
+    if not m:
+        problems.append(f'CHANGELOG.md needs a "## {version} (<date>)" section')
+    elif m.group(1) == "not released yet":
+        problems.append(f'CHANGELOG.md: {version} is still "(not released yet)" — run: python build/release_prep.py apply --date YYYY-MM-DD')
+    if problems:
+        raise ReleaseError("; ".join(problems))
 
 
 def human_date(d):
@@ -223,7 +248,7 @@ def main(argv=None):
     sub.add_parser("pending")
     a = sub.add_parser("apply")
     a.add_argument("--date", required=True, help="release date, YYYY-MM-DD")
-    for name in ("notes", "closes", "numeric"):
+    for name in ("notes", "closes", "numeric", "check"):
         sp = sub.add_parser(name)
         sp.add_argument("version")
         if name == "notes":
@@ -251,6 +276,9 @@ def main(argv=None):
             print(" ".join(str(n) for n in closes(args.version)))
         elif args.cmd == "numeric":
             print(numeric(args.version))
+        elif args.cmd == "check":
+            check(args.version)
+            print(f"{args.version} is ready to release")
         elif args.cmd == "zip":
             print(make_zip(args.version, args.setup, args.exe, args.out))
     except ReleaseError as e:
