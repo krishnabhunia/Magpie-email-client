@@ -9,7 +9,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | # | Item | Design | Status | GitHub |
 |---|---|---|---|---|
 | 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
-| 6 | Dark theme (Match Windows / Light / Dark) | B1 | Approved | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
+| 6 | Dark theme (Match Windows / Light / Dark) | B1 | Built — not yet tried on Windows | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
 | 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Approved — needs Calendar API enabled + re-sign-in | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Approved | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
 | 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |

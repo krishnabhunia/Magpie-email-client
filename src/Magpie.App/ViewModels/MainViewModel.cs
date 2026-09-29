@@ -49,7 +49,7 @@ public partial class NavItem : ObservableObject
         CountMain = t.Main;
         CountRest = t.Rest;
         CountBold = kind == CountKind.UnreadAndTotal && !t.Dim;
-        CountBrush = kind != CountKind.UnreadAndTotal ? Icons.Brush("#3B4453") : t.Dim ? Icons.Brush("#9AA2B1") : Icons.Accent(IconKey);
+        CountBrush = kind != CountKind.UnreadAndTotal ? Icons.Neutral : t.Dim ? Icons.Dim : Icons.Accent(IconKey);
     }
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isVisible = true;
@@ -161,9 +161,9 @@ public sealed class TagChip
 
     public static TagChip For(string name)
     {
-        var hex = Colors.TryGetValue(name, out var c) ? c : "#14606E";
+        var hex = Icons.ForTheme(Colors.TryGetValue(name, out var c) ? c : "#14606E");
         var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
-        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x24, color.R, color.G, color.B));
+        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(Icons.Dark ? (byte)0x2E : (byte)0x24, color.R, color.G, color.B));
         bg.Freeze();
         return new TagChip { Name = name, Foreground = Icons.Brush(hex), Background = bg };
     }
@@ -288,6 +288,7 @@ public partial class MainViewModel : ObservableObject
             Reader.RefreshAiVisibility();
             BuildNav();
         });
+        ThemeManager.Changed += () => { BuildNav(); _reload.Run(ReloadList); Reader.Redraw(); };   // counts are coloured per theme; the reader is HTML
         Reader.ThreadRemoved += () => SelectNeighbour();
         _e.Settings.Changed += () => Ui.Post(BuildToolbar);
         BuildToolbar();
@@ -1018,7 +1019,7 @@ public partial class MainViewModel : ObservableObject
             {
                 if (gen != _hoverGen) return;
                 HoverCard.Set(item, where, lines.Select(id => new HoverLine(FolderHoverSettings.NameOf(id),
-                    d!.Line(id, now, x => HtmlRenderer.FriendlyDate(x, now)), id == "unread" && d.Unread > 0 ? Icons.Accent(item.IconKey) : Icons.Brush("#23293A"))));
+                    d!.Line(id, now, x => HtmlRenderer.FriendlyDate(x, now)), id == "unread" && d.Unread > 0 ? Icons.Accent(item.IconKey) : Icons.Ink)));
                 open(HoverCard);
             });
         }, TaskScheduler.Default);

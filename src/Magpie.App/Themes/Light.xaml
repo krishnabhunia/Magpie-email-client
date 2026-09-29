@@ -27,6 +27,8 @@
     <SolidColorBrush x:Key="Brush.Accent.Subtle" Color="#DFE9E9" />
     <SolidColorBrush x:Key="Brush.Accent.Border" Color="#9FC3C8" />
     <SolidColorBrush x:Key="Brush.Accent.Tint" Color="#F9FDF9" />
+    <!-- 1.2.0: accent used as text/icon colour (links, counts); the dark theme needs a lighter one than the button fill -->
+    <SolidColorBrush x:Key="Brush.Accent.Text" Color="#14606E" />
 
     <SolidColorBrush x:Key="Brush.Ai" Color="#4B3F86" />
     <SolidColorBrush x:Key="Brush.Ai.Hover" Color="#3F3573" />

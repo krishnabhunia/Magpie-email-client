@@ -102,6 +102,38 @@ public static class Icons
     /// <summary>The colour of a folder's unread number: the icon's colour (design C2).</summary>
     public static SolidColorBrush Accent(string key) => Brush(Colourful ? (Dark ? Get(key).DarkFg : Get(key).Fg) : (Dark ? "#E6EBF2" : "#1A1A1A"));
 
+    /// <summary>Plain text colours used next to icons (counts, hover card), in the current theme.</summary>
+    public static SolidColorBrush Neutral => Brush(Dark ? "#C9CFD6" : "#3B4453");
+    public static SolidColorBrush Dim => Brush(Dark ? "#6F7780" : "#9AA2B1");
+    public static SolidColorBrush Ink => Brush(Dark ? "#E8E6E1" : "#23293A");
+
+    /// <summary>
+    /// A user colour (tag, account) made readable on the dark theme: the known palette gets its dark-theme pair
+    /// (design B1: reds / ambers slightly desaturated), anything else is lightened towards white.
+    /// </summary>
+    public static string ForTheme(string hex)
+    {
+        if (!Dark) return hex;
+        var key = hex.Trim().ToUpperInvariant();
+        switch (key)
+        {
+            case "#B3261E": return "#E0645A";
+            case "#B45309": case "#8A5300": return "#E0A04A";
+            case "#14606E": return "#6CC3CF";
+            case "#4B3F86": return "#A99DEB";
+            case "#1B6B2E": return "#5CC27A";
+            case "#2F5BEA": return "#7FA0F5";
+            case "#5A6068": return "#AEB5BC";
+        }
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(hex);
+            byte Up(byte v) => (byte)(v + (255 - v) * 0.45);
+            return $"#{Up(c.R):X2}{Up(c.G):X2}{Up(c.B):X2}";
+        }
+        catch { return hex; }
+    }
+
     /// <summary>For folders on the server: which icon a folder role uses.</summary>
     public static string ForRole(Magpie.Core.Models.FolderRole role) => role switch
     {

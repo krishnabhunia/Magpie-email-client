@@ -94,6 +94,9 @@ public enum ButtonStyle { IconAndName = 0, IconOnly = 1, NameOnly = 2 }
 /// <summary>Folder numbers (design C2): unread / total, unread only, or none.</summary>
 public enum CountsMode { UnreadAndTotal = 0, UnreadOnly = 1, Off = 2 }
 
+/// <summary>Light or dark look (design B1). MatchWindows follows the Windows "app mode" setting.</summary>
+public enum ThemeMode { MatchWindows = 0, Light = 1, Dark = 2 }
+
 /// <summary>One reading-pane toolbar button (design C3). <see cref="Id"/> is one of <see cref="Appearance.ToolbarIds"/>.</summary>
 public sealed class ToolbarButton
 {
@@ -108,6 +111,7 @@ public sealed class Appearance
     public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
     public const int DefaultVisible = 7;
 
+    public ThemeMode Theme { get; set; } = ThemeMode.MatchWindows;
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.IconAndName;
     public bool Colourful { get; set; } = true;
     public CountsMode Counts { get; set; } = CountsMode.UnreadAndTotal;
@@ -131,11 +135,12 @@ public sealed class Appearance
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
         (FolderHover ??= new()).Normalise();
         (RowActions ??= new()).Normalise();
+        if (!Enum.IsDefined(Theme)) Theme = ThemeMode.MatchWindows;
     }
 
     public Appearance Clone() => new()
     {
-        ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+        Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(),
     };

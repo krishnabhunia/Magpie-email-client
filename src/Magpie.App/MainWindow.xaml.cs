@@ -36,6 +36,8 @@ public partial class MainWindow : Window
         // Status bar: no once-a-second refresh while Magpie sits in the tray or minimised.
         IsVisibleChanged += (_, _) => _vm.StatusBar.SetWindowVisible(IsVisible && WindowState != WindowState.Minimized);
         StateChanged += (_, _) => _vm.StatusBar.SetWindowVisible(IsVisible && WindowState != WindowState.Minimized);
+        Web.DefaultBackgroundColor = ThemeManager.WebBackground;
+        ThemeManager.Changed += () => Web.DefaultBackgroundColor = ThemeManager.WebBackground;
         Loaded += async (_, _) => await InitWebAsync();
         Closing += OnClosing;
         Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); };
@@ -234,7 +236,7 @@ public partial class MainWindow : Window
                         e.MenuItems.Remove(item);
             };
             _webReady = true;
-            ShowPage(_pendingUrl ?? WebHost.Publish(HtmlRenderer.Placeholder("Welcome to Magpie", "Pick a conversation to read it here."), "view"));
+            ShowPage(_pendingUrl ?? WebHost.Publish(HtmlRenderer.Placeholder("Welcome to Magpie", "Pick a conversation to read it here.", ThemeManager.IsDark), "view"));
         }
         catch (Exception ex)
         {

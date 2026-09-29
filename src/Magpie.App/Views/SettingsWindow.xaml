@@ -46,7 +46,7 @@
                 <!-- Search in Settings (design SS1): every setting by its name or plain words; Ctrl+F jumps here, Esc clears -->
                 <Border DockPanel.Dock="Top" Margin="10,0,10,10" Height="34" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" CornerRadius="8" Background="{DynamicResource Brush.Card.Background}">
                     <DockPanel Margin="9,0,6,0">
-                        <svc:IconChip DockPanel.Dock="Left" Icon="search" Size="15" Plain="True" Stroke="{DynamicResource Brush.Accent}" Margin="0,0,7,0" />
+                        <svc:IconChip DockPanel.Dock="Left" Icon="search" Size="15" Plain="True" Stroke="{DynamicResource Brush.Accent.Text}" Margin="0,0,7,0" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" MinHeight="22" Width="22" Padding="0" ToolTip="Clear (Esc)"
                                 Click="OnSearchClear" Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}" />
                         <TextBox x:Name="SettingsSearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" BorderThickness="0" Background="Transparent" VerticalContentAlignment="Center"
@@ -60,7 +60,7 @@
                     </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Toolbar"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
-                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Toolbar &amp; buttons" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Appearance" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Accounts"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Accounts}">
@@ -117,7 +117,7 @@
                                             Command="{Binding DataContext.GoToHitCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                         <DockPanel>
                                             <svc:IconChip DockPanel.Dock="Left" Icon="{Binding IconKey}" Size="28" Margin="0,0,12,0" />
-                                            <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Brush.Accent}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0">
+                                            <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Brush.Accent.Text}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0">
                                                 <Run Text="{Binding PageLabel, Mode=OneWay}" /><Run Text=" →" />
                                             </TextBlock>
                                             <StackPanel VerticalAlignment="Center">
@@ -429,7 +429,7 @@
                                         <DockPanel>
                                             <CheckBox DockPanel.Dock="Right" Style="{StaticResource Toggle}" IsChecked="{Binding Summarise, Mode=TwoWay}" />
                                             <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Teal}" Margin="0,0,14,0">
-                                                <TextBlock Text="Option B" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
+                                                <TextBlock Text="Option B" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" />
                                             </Border>
                                             <StackPanel Margin="0,0,14,0">
                                                 <TextBlock Text="Summarise thread" FontWeight="Medium" FontSize="13.5" />
@@ -587,8 +587,45 @@
 
                     <!-- ═══════════ Toolbar & buttons (design C3) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Toolbar}">
-                        <TextBlock Text="Toolbar &amp; buttons" Style="{StaticResource Text.Serif}" FontSize="21" />
-                        <TextBlock Text="Choose which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
+                        <TextBlock Text="Appearance" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock Text="Light or dark, and which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+
+                        <!-- Theme (design B1) -->
+                        <TextBlock Text="THEME" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
+                        <Border x:Name="RowTheme" Style="{StaticResource Card}" Margin="0,0,0,22">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton GroupName="Theme" Margin="0,0,26,0" Command="{Binding SetThemeCommand}" CommandParameter="MatchWindows"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=MatchWindows}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" ClipToBounds="True">
+                                                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Border Background="#F7F6F2" CornerRadius="3,0,0,3" /><Border Grid.Column="1" Background="#111417" CornerRadius="0,3,3,0" /></Grid>
+                                            </Border>
+                                            <TextBlock Text="Match Windows" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="Theme" Margin="0,0,26,0" Command="{Binding SetThemeCommand}" CommandParameter="Light"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Light}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" Background="#F7F6F2" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" />
+                                            <TextBlock Text="Light" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="Theme" Command="{Binding SetThemeCommand}" CommandParameter="Dark"
+                                                 IsChecked="{Binding Theme, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Dark}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="30" Height="20" CornerRadius="4" Background="#111417" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" Margin="0,0,8,0" />
+                                            <TextBlock Text="Dark" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                </StackPanel>
+                                <TextBlock Text="{Binding MatchWindowsNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <TextBlock Text="Emails that bring their own colours keep them, on a white card, so they stay readable in the dark." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="TOOLBAR &amp; BUTTONS" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
 
                         <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,0,6" />
                         <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="10" Padding="10,8,4,4" Background="{DynamicResource Brush.Window.Background}">
@@ -885,7 +922,7 @@
                                 <Button x:Name="FeedbackLink" Style="{StaticResource Button.Link}" HorizontalAlignment="Left" Padding="0,2" MinHeight="22" Click="OnFeedbackEmail"
                                         ToolTip="Opens a new message in Magpie with the details filled in">
                                     <StackPanel Orientation="Horizontal">
-                                        <svc:IconChip Icon="sent" Size="16" Plain="True" Stroke="{DynamicResource Brush.Accent}" Margin="0,0,6,0" />
+                                        <svc:IconChip Icon="sent" Size="16" Plain="True" Stroke="{DynamicResource Brush.Accent.Text}" Margin="0,0,6,0" />
                                         <TextBlock Text="{Binding FeedbackEmail}" FontSize="13.5" />
                                     </StackPanel>
                                 </Button>

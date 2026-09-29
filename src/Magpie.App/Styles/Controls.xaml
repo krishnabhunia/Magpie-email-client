@@ -206,7 +206,7 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
         <Setter Property="Padding" Value="2,0" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="FontWeight" Value="Normal" />
@@ -290,7 +290,7 @@
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Nav.Selected}" />
                             <Setter TargetName="Indicator" Property="Visibility" Value="Visible" />
-                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
                             <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
                             <Setter Property="FontWeight" Value="SemiBold" />
                         </Trigger>
@@ -348,7 +348,7 @@
             <Trigger Property="IsChecked" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Brush.Accent.Subtle}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent.Border}" />
-                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
                 <Setter Property="FontWeight" Value="SemiBold" />
             </Trigger>
         </Style.Triggers>
@@ -503,7 +503,7 @@
     <!-- ═══════════════ ProgressBar (default template, themed) ═══════════════ -->
     <Style TargetType="ProgressBar">
         <Setter Property="Height" Value="6" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
         <Setter Property="Background" Value="{DynamicResource Brush.Progress.Track}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Template">

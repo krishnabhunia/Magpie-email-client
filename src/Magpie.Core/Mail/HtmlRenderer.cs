@@ -140,22 +140,48 @@ public static class HtmlRenderer
         return local.ToString("d MMM yyyy");
     }
 
-    /// <summary>The whole conversation page.</summary>
-    public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now)
+    private static readonly Regex OwnColours = new(@"\b(?:bg)?color\s*=|(?<![-\w])(?:background(?:-color)?|color)\s*:|\bbackground\s*=", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when an email sets its own colours (a background, or text colours). In the dark theme such a message
+    /// is shown on a white "paper" card so it stays readable; plain messages are drawn light-on-dark (design B1).
+    /// </summary>
+    public static bool HasOwnColours(string html) => !string.IsNullOrEmpty(html) && OwnColours.IsMatch(html);
+
+    /// <summary>Page colours for the light and dark theme (design B1).</summary>
+    private sealed record Palette(string Page, string Ink, string Body, string Muted, string Line, string Soft, string Border, string Button,
+        string Accent, string Link, string AvBg, string AvFg, string MeBg, string MeFg, string Danger, string Scroll);
+
+    private static readonly Palette LightPalette = new("#FFFFFF", "#14181C", "#23282E", "#5A6068", "#ECE9E2", "#F7F6F2", "#DCD8CF", "#FFFFFF",
+        "#14606E", "#14606E", "#DFE9E9", "#14606E", "#EDE8F7", "#4B3F86", "#B3261E", "#C9C4B9");
+    private static readonly Palette DarkPalette = new("#181C20", "#E8E6E1", "#D9D6D0", "#9AA1A8", "#22272C", "#1E2328", "#2C3238", "#1E2328",
+        "#1F7F8C", "#6CC3CF", "#1B2A2E", "#6CC3CF", "#2A2640", "#C4BCF2", "#E0645A", "#3A4148");
+
+    private static string FrameStyle(Palette p) =>
+        "html,body{margin:0;padding:0;overflow:hidden}body{font:13.5px/1.6 'IBM Plex Sans','Segoe UI',sans-serif;color:" + p.Body + ";word-wrap:break-word;overflow-wrap:anywhere}" +
+        (p == DarkPalette ? "a{color:" + p.Link + "}" : "") + "img{max-width:100%;height:auto}blockquote{margin:0 0 0 .6em;padding-left:.8em;border-left:3px solid " + p.Border + ";color:" + p.Muted + "}" +
+        "pre{white-space:pre-wrap}table{max-width:100%}";
+
+    /// <summary>The whole conversation page. <paramref name="dark"/> = the dark theme (design B1).</summary>
+    public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false)
     {
+        var p = dark ? DarkPalette : LightPalette;
         var sb = new StringBuilder();
         int blockedTotal = 0;
         sb.Append("""
             <!doctype html><html><head><meta charset="utf-8">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self' about: data:; font-src data:">
             <style>
-            :root{--teal:#14606E;--ink:#14181C;--muted:#5A6068;--line:#ECE9E2;--bg:#F7F6F2}
-            html,body{margin:0;padding:0;background:#fff;color:var(--ink);font:13.5px/1.55 'IBM Plex Sans','Segoe UI',system-ui,sans-serif}
+            """);
+        sb.Append($":root{{--teal:{p.Accent};--ink:{p.Ink};--muted:{p.Muted};--line:{p.Line};--bg:{p.Soft};--page:{p.Page};--border:{p.Border};--btn:{p.Button};--link:{p.Link};--avbg:{p.AvBg};--avfg:{p.AvFg};--mebg:{p.MeBg};--mefg:{p.MeFg}}}\n");
+        sb.Append($"html{{scrollbar-color:{p.Scroll} {p.Page}}}\n");
+        sb.Append("""
+            html,body{margin:0;padding:0;background:var(--page);color:var(--ink);font:13.5px/1.55 'IBM Plex Sans','Segoe UI',system-ui,sans-serif}
             .wrap{padding:6px 22px 28px}
             .msg{border-bottom:1px solid var(--line)}
             .hdr{display:flex;gap:12px;align-items:flex-start;padding:14px 0 10px;cursor:pointer;user-select:none}
-            .av{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:#DFE9E9;color:var(--teal);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
-            .av.me{background:#EDE8F7;color:#4B3F86}
+            .av{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:var(--avbg);color:var(--avfg);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
+            .av.me{background:var(--mebg);color:var(--mefg)}
             .who{flex:1;min-width:0}
             .name{font-weight:600}
             .addr{color:var(--muted);font-weight:400;font-size:12px;margin-left:6px}
@@ -164,7 +190,7 @@ public static class HtmlRenderer
             .date{color:var(--muted);font-size:12px;white-space:nowrap}
             .acts{display:none;gap:4px;margin-left:8px}
             .msg.open .acts{display:flex}
-            .acts button{border:1px solid #DCD8CF;background:#fff;border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
+            .acts button{border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
             .acts button:hover{background:var(--bg)}
             .body{display:none;padding:0 0 16px 44px}
             .msg.open .body{display:block}
@@ -172,10 +198,11 @@ public static class HtmlRenderer
             .msg:not(.open) .to{display:none}
             iframe{width:100%;border:0;display:block;min-height:40px}
             .atts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-            .retry{margin:6px 0 4px}.retry button{border:1px solid #14606E;background:#14606E;color:#fff;border-radius:6px;font:inherit;font-size:12.5px;padding:5px 12px;cursor:pointer}
-            .att{border:1px solid #DCD8CF;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;background:#fff;display:flex;gap:8px;align-items:center}
+            .retry{margin:6px 0 4px}.retry button{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:6px;font:inherit;font-size:12.5px;padding:5px 12px;cursor:pointer}
+            .att{border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;background:var(--btn);color:var(--ink);display:flex;gap:8px;align-items:center}
             .att:hover{background:var(--bg)}
             .att .sz{color:var(--muted)}
+            .paper{background:#fff;border-radius:10px;padding:12px 14px;margin-top:2px}
             .unread .name::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:6px;vertical-align:1px}
             </style>
             <script>
@@ -199,17 +226,15 @@ public static class HtmlRenderer
         {
             var row = m.Row;
             var (bodyHtml, blocked) = m.LoadError != null
-                ? ($"<p style=\"color:#B3261E\">Couldn't download this message: {Esc(m.LoadError)}</p>", 0)
+                ? ($"<p style=\"color:{p.Danger}\">Couldn't download this message: {Esc(m.LoadError)}</p>", 0)
                 : m.Body == null
-                    ? ($"<p style=\"color:#5A6068\">{Esc(m.LoadingText)}</p>", 0)
+                    ? ($"<p style=\"color:{p.Muted}\">{Esc(m.LoadingText)}</p>", 0)
                     : SanitizeBody(m.Body.Html, m.InlineImages, allowRemote);
             blockedTotal += blocked;
-
-            var frameDoc = """
-                <!doctype html><html><head><meta charset="utf-8"><base target="_blank">
-                <style>html,body{margin:0;padding:0;overflow:hidden}body{font:13.5px/1.6 'IBM Plex Sans','Segoe UI',sans-serif;color:#23282E;word-wrap:break-word;overflow-wrap:anywhere}img{max-width:100%;height:auto}blockquote{margin:0 0 0 .6em;padding-left:.8em;border-left:3px solid #DCD8CF;color:#5A6068}pre{white-space:pre-wrap}table{max-width:100%}</style>
-                </head><body>
-                """ + bodyHtml + "</body></html>";
+            // Dark theme: a message with its own colours keeps them, on a white card; plain ones follow the theme.
+            var paper = dark && m.Body != null && m.LoadError == null && HasOwnColours(bodyHtml);
+            var frameDoc = "<!doctype html><html><head><meta charset=\"utf-8\"><base target=\"_blank\"><style>"
+                + FrameStyle(paper ? LightPalette : p) + "</style></head><body>" + bodyHtml + "</body></html>";
 
             var cls = "msg" + (m.Expanded ? " open" : "") + (row.IsSeen ? "" : " unread");
             sb.Append($"<div class=\"{cls}\" id=\"m{row.Id}\">");
@@ -230,7 +255,9 @@ public static class HtmlRenderer
             sb.Append("<div class=\"body\">");
             if (m.LoadError != null)
                 sb.Append("<div class=\"retry\"><button onclick=\"post({t:'retry'})\">Try again</button></div>");
+            if (paper) sb.Append("<div class=\"paper\">");
             sb.Append($"<iframe id=\"f{row.Id}\" sandbox=\"allow-same-origin allow-popups allow-popups-to-escape-sandbox\" onload=\"hook(this)\" srcdoc=\"{WebUtility.HtmlEncode(frameDoc)}\"></iframe>");
+            if (paper) sb.Append("</div>");
             if (m.Body?.Attachments.Count(a => !a.Inline) > 0)
             {
                 sb.Append("<div class=\"atts\">");
@@ -250,26 +277,27 @@ public static class HtmlRenderer
     /// the subject and sender we already know from the list, and "Loading…". Injected into the current page
     /// (no navigation), so it appears at once instead of the previous message staying on screen.
     /// </summary>
-    public static string LoadingBody(string subject, string sender, string when) =>
+    public static string LoadingBody(string subject, string sender, string when, bool dark = false) =>
         "<style>" +
+        (dark ? "html,body{background:#181C20}" : "") +
         "@keyframes mg-pulse{0%,100%{opacity:.45}50%{opacity:1}}" +
         "@keyframes mg-spin{to{transform:rotate(360deg)}}" +
-        ".mg-l{font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:#14181C;padding:22px 30px;max-width:760px}" +
+        ".mg-l{font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:" + (dark ? "#E8E6E1" : "#14181C") + ";padding:22px 30px;max-width:760px}" +
         ".mg-l h1{font:600 22px 'IBM Plex Serif',Georgia,serif;margin:0 0 14px}" +
-        ".mg-l .who{display:flex;align-items:center;gap:10px;color:#5A6068;margin-bottom:22px}" +
-        ".mg-l .spin{width:16px;height:16px;border:2px solid #CFE3E7;border-top-color:#14606E;border-radius:50%;animation:mg-spin .8s linear infinite}" +
-        ".mg-l .bar{height:11px;border-radius:6px;background:#ECEEF2;margin:10px 0;animation:mg-pulse 1.2s ease-in-out infinite}" +
+        ".mg-l .who{display:flex;align-items:center;gap:10px;color:" + (dark ? "#9AA1A8" : "#5A6068") + ";margin-bottom:22px}" +
+        ".mg-l .spin{width:16px;height:16px;border:2px solid " + (dark ? "#2F5A61" : "#CFE3E7") + ";border-top-color:" + (dark ? "#6CC3CF" : "#14606E") + ";border-radius:50%;animation:mg-spin .8s linear infinite}" +
+        ".mg-l .bar{height:11px;border-radius:6px;background:" + (dark ? "#252B31" : "#ECEEF2") + ";margin:10px 0;animation:mg-pulse 1.2s ease-in-out infinite}" +
         "</style>" +
         "<div class=\"mg-l\" role=\"status\" aria-live=\"polite\">" +
         "<h1>" + Esc(subject) + "</h1>" +
-        "<div class=\"who\"><span class=\"spin\"></span><span><b style=\"color:#14181C\">" + Esc(sender) + "</b> · " + Esc(when) + " · Loading…</span></div>" +
+        "<div class=\"who\"><span class=\"spin\"></span><span><b style=\"color:" + (dark ? "#E8E6E1" : "#14181C") + "\">" + Esc(sender) + "</b> · " + Esc(when) + " · Loading…</span></div>" +
         "<div class=\"bar\" style=\"width:92%\"></div><div class=\"bar\" style=\"width:84%\"></div><div class=\"bar\" style=\"width:88%\"></div><div class=\"bar\" style=\"width:52%\"></div>" +
         "</div>";
 
-    public static string Placeholder(string title, string detail) => $$"""
+    public static string Placeholder(string title, string detail, bool dark = false) => $$"""
         <!doctype html><html><head><meta charset="utf-8"><style>
-        body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#fff;font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:#5A6068;text-align:center}
-        h2{font:600 17px 'IBM Plex Serif',Georgia,serif;color:#14181C;margin:0 0 6px}
+        body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:{{(dark ? "#181C20" : "#fff")}};font:13px 'IBM Plex Sans','Segoe UI',sans-serif;color:{{(dark ? "#9AA1A8" : "#5A6068")}};text-align:center}
+        h2{font:600 17px 'IBM Plex Serif',Georgia,serif;color:{{(dark ? "#E8E6E1" : "#14181C")}};margin:0 0 6px}
         </style></head><body><div><h2>{{Esc(title)}}</h2><div>{{Esc(detail)}}</div></div></body></html>
         """;
 }

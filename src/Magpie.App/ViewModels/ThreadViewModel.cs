@@ -83,7 +83,23 @@ public partial class ThreadViewModel : ObservableObject
         BlockedImages = 0;
         AccountId = ThreadKey = "";
         ShowSummarise = false;
-        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text), "view"));
+        _placeholder = (title, text);
+        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text, ThemeManager.IsDark), "view"));
+    }
+
+    private (string Title, string Text) _placeholder = ("Welcome to Magpie", "Pick a conversation to read it here.");
+
+    /// <summary>The theme changed (design B1): draw the open conversation, or the empty page, again in the new colours.</summary>
+    public void Redraw()
+    {
+        if (!HasThread)
+        {
+            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(_placeholder.Title, _placeholder.Text, ThemeManager.IsDark), "view"));
+            return;
+        }
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        _ = LoadAsync(_cts.Token, markRead: false);
     }
 
     public void Show(ThreadRow row, MainViewModel main)
@@ -109,7 +125,7 @@ public partial class ThreadViewModel : ObservableObject
         {
             var m = row.Latest;
             var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
-            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm")));
+            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark));
         }
         _ = LoadAsync(_cts.Token, markRead: true);
     }
@@ -192,7 +208,7 @@ public partial class ThreadViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error("open conversation", ex);
-            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message), "view"));
+            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message, ThemeManager.IsDark), "view"));
         }
     }
 
@@ -206,9 +222,10 @@ public partial class ThreadViewModel : ObservableObject
         var subject = Subject;
         var allow = ImagesAllowed(rows);
         var list = BuildRenderList(rows, bodies);
+        var dark = ThemeManager.IsDark;
         var (url, blocked) = await Task.Run(() =>
         {
-            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now);
+            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark);
             ct.ThrowIfCancellationRequested();
             return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
         }, ct);
@@ -258,7 +275,7 @@ public partial class ThreadViewModel : ObservableObject
     {
         _lastBodies = bodies;
         var allow = ImagesAllowed(rows);
-        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now);
+        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now, ThemeManager.IsDark);
         BlockedImages = allow ? 0 : result.BlockedImages;
         PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
     }

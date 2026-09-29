@@ -301,12 +301,12 @@ public partial class SettingsViewModel : ObservableObject
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
-        ("Dark theme", "Toolbar", "Coming in 1.2.0 — Match Windows / Light / Dark", "dark theme night light appearance", "RowLook"),
+        ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
     };
 
     private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
     {
-        ["General"] = ("General", "general"), ["Toolbar"] = ("Toolbar & buttons", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"),
+        ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"),
         ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
         ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
     };
@@ -417,6 +417,17 @@ public partial class SettingsViewModel : ObservableObject
     private void SetRowMode(string? mode)
     {
         if (Enum.TryParse<RowActionsMode>(mode, out var v)) RowMode = v;
+    }
+
+    // ── Appearance: theme (design B1) ──
+    [ObservableProperty] private ThemeMode _theme;
+    public bool WindowsIsDark { get; } = ThemeManager.WindowsUsesDark();
+    public string MatchWindowsNote => "Windows is set to " + (WindowsIsDark ? "dark" : "light") + " right now. Magpie changes with it.";
+
+    [RelayCommand]
+    private void SetTheme(string? mode)
+    {
+        if (Enum.TryParse<ThemeMode>(mode, out var v)) Theme = v;
     }
 
     // ── Toolbar & buttons (design C3) ──
@@ -548,6 +559,7 @@ public partial class SettingsViewModel : ObservableObject
         RefreshPreset();
 
         var ap = c.Appearance;
+        _theme = ap.Theme;
         _buttonStyle = ap.ButtonStyle;
         _colourful = ap.Colourful;
         _counts = ap.Counts;
@@ -677,7 +689,7 @@ public partial class SettingsViewModel : ObservableObject
 
         c.Appearance = new Appearance
         {
-            ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+            Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),

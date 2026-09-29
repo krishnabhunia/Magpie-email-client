@@ -393,7 +393,7 @@
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,0" Visibility="{Binding ShowCategories, Converter={StaticResource BoolToVis}}">
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=People}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="People" ToolTip="Mail from people">
-                            <TextBlock><Run Text="People" /><Run Text=" " /><Run Text="{Binding PeopleCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent}" FontSize="11.5" /></TextBlock>
+                            <TextBlock><Run Text="People" /><Run Text=" " /><Run Text="{Binding PeopleCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent.Text}" FontSize="11.5" /></TextBlock>
                         </RadioButton>
                         <RadioButton Style="{StaticResource Button.Tab}" GroupName="Cat" IsChecked="{Binding Category, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}"
                                      Command="{Binding SetCategoryCommand}" CommandParameter="Notifications" ToolTip="Receipts, alerts, codes, updates">
@@ -476,7 +476,7 @@
                                                     </ItemsControl>
                                                 </Grid>
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
+                                                    <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent.Text}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
                                                     <Ellipse Width="7" Height="7" Fill="{Binding AccountColor, Converter={StaticResource HexBrush}}" Margin="0,0,7,0" VerticalAlignment="Center" Opacity="0.55"
                                                              Visibility="{Binding ShowAccountDot, Converter={StaticResource BoolToVis}}" />
                                                     <TextBlock Text="{Binding Sender}" FontSize="13.5" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" MaxWidth="260" VerticalAlignment="Center" />
@@ -491,7 +491,7 @@
                                                     </Border>
                                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0"
                                                                Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" ToolTip="Has attachments" />
-                                                    <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent}" Margin="6,0,0,0"
+                                                    <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent.Text}" Margin="6,0,0,0"
                                                                Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" ToolTip="Pinned" />
                                                 </StackPanel>
                                                 <TextBlock Text="{Binding Subject}" FontSize="13" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" />
@@ -511,7 +511,7 @@
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
                                             </WrapPanel>
-                                            <TextBlock Grid.Row="4" Text="{Binding SnoozeText}" FontSize="11.5" Foreground="{DynamicResource Brush.Accent}" Margin="0,3,0,0"
+                                            <TextBlock Grid.Row="4" Text="{Binding SnoozeText}" FontSize="11.5" Foreground="{DynamicResource Brush.Accent.Text}" Margin="0,3,0,0"
                                                        Visibility="{Binding SnoozeText, Converter={StaticResource BoolToVis}}" />
                                         </Grid>
                                         </DockPanel>
@@ -535,7 +535,7 @@
                                                     <TextBlock Text="{Binding When}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap">
                                                         <TextBlock.Style>
                                                             <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Text}" />
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding Failed}" Value="True">
                                                                         <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
@@ -651,14 +651,14 @@
                 <StackPanel Grid.Row="1" Margin="24,16,24,8" Visibility="{Binding HasThread, Converter={StaticResource BoolToVis}}">
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
-                                Foreground="{DynamicResource Brush.Accent}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
+                                Foreground="{DynamicResource Brush.Accent.Text}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
                                 Visibility="{Binding IsPinned, Converter={StaticResource InvBoolToVis}}" />
                         <TextBlock Text="{Binding Subject}" Style="{StaticResource Text.Serif}" FontSize="19" TextWrapping="Wrap" TextTrimming="None" />
                     </DockPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                         <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                        <TextBlock Text="{Binding TagsText}" FontSize="12" Foreground="{DynamicResource Brush.Accent}" Margin="10,0,0,0" />
+                        <TextBlock Text="{Binding TagsText}" FontSize="12" Foreground="{DynamicResource Brush.Accent.Text}" Margin="10,0,0,0" />
                         <Button Style="{StaticResource Button.Link}" Content="Unsnooze" FontSize="12" MinHeight="18" Padding="10,0,0,0" Command="{Binding UnsnoozeCommand}"
                                 Visibility="{Binding IsSnoozed, Converter={StaticResource BoolToVis}}" />
                         <Button Style="{StaticResource Button.Link}" Content="Edit draft" FontSize="12" MinHeight="18" Padding="10,0,0,0" Command="{Binding EditDraftCommand}"
