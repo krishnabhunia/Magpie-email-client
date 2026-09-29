@@ -33,7 +33,7 @@ public static class WebHost
     }
 
     /// <summary>Initialises a WebView2 with locked-down settings. Returns false when the runtime is missing.</summary>
-    public static async Task<bool> InitAsync(WebView2 view, bool scripts)
+    public static async Task<bool> InitAsync(IWebView2 view, bool scripts)
     {
         if (!RuntimeAvailable(out _)) return false;
         await view.EnsureCoreWebView2Async(await Env());

@@ -847,7 +847,8 @@
                                     </Border>
                                     <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8" Height="150" ClipToBounds="True">
                                         <Grid>
-                                            <wv2:WebView2 x:Name="SigEditor" />
+                                            <!-- Composition control: draws through WPF, so it scrolls with the page (a plain WebView2 would float over it) -->
+                                            <wv2:WebView2CompositionControl x:Name="SigEditor" />
                                             <TextBox x:Name="SigPlain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8"
                                                      Text="{Binding SignatureAccount.SignaturePlain, UpdateSourceTrigger=PropertyChanged}" />
                                         </Grid>
