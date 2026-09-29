@@ -980,9 +980,12 @@ public partial class MainViewModel : ObservableObject
         ToastOverflow = hidden > 0 ? $"+{hidden} more — see Scheduled" : "";
     }
 
-    /// <summary>A toast with Undo (and Edit) for an action that isn't a send.</summary>
-    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8) =>
-        AddToast(new UndoToast(0, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: false) { UndoAction = undo, EditAction = edit });
+    /// <summary>
+    /// A toast with its own Undo (and Edit). With <paramref name="outboxId"/> it is a send (e.g. an invite answer):
+    /// countdown and Send now as for any message.
+    /// </summary>
+    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0) =>
+        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0) { UndoAction = undo, EditAction = edit });
 
     [RelayCommand]
     private void EditToast(UndoToast? toast)
@@ -1035,6 +1038,7 @@ public partial class MainViewModel : ObservableObject
     public void UndoOutbox(long outboxId)
     {
         var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
+        if (toast?.UndoAction != null) { UndoSend(toast); return; }   // e.g. an invite answer: its own undo
         if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
         var d = _e.Recall(outboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }

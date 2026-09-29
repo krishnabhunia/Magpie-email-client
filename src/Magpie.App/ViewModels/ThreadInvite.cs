@@ -123,7 +123,7 @@ public partial class ThreadViewModel
                 {
                     if (!_e.UndoInviteAnswer(id, msg.AccountId, inv.Uid, before)) Ui.Error("Undo", "Too late — the answer has already been sent.");
                     if (_invite?.Uid == inv.Uid) FillInvite();
-                }, seconds: seconds);
+                }, seconds: seconds, outboxId: id);
         }
         catch (Exception ex)
         {
