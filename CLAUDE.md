@@ -10,7 +10,7 @@ Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 |---|---|
 | Designs first | Nothing new is built until Krishna has seen a design and said "approved". For 1.2.0 the designs are already approved (text specs in `docs/ROADMAP-1.2.0.md`). For anything new: show a design first (HTML mock-up or a clear written spec), wait for "approved". |
 | Deploy word | Never `git push` a release until Krishna writes **deploy**. Commit locally, tell him what is ready, wait. |
-| Queue | Any feature he mentions goes into the queue automatically (add it to `docs/ROADMAP-1.2.0.md`); it leaves only when he explicitly rejects it. |
+| Queue | Any feature he mentions goes into the queue automatically (add it to `docs/ROADMAP-1.2.0.md` and open a `[Q<n>]` GitHub issue); it leaves only when he explicitly rejects it. |
 | Blockers only | He wants to hear blockers, doubts and lacunas — not narration. One question at a time when something is unclear. |
 | Honesty | If something is not verified (e.g. you could not run the app), say so. |
 | Replies | Tables and lists, short. |

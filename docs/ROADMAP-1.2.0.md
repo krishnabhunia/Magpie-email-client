@@ -6,21 +6,21 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 
 ## Queue
 
-| # | Item | Design | Status |
-|---|---|---|---|
-| 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` |
-| 6 | Dark theme (Match Windows / Light / Dark) | B1 | Approved |
-| 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Approved — needs Calendar API enabled + re-sign-in |
-| 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Approved |
-| 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API |
-| 10 | Rules / filters | B5 | Approved |
-| 11 | Signatures per account + quick replies | B6 | Approved |
-| 12 | Gatekeeper + Set aside (key L) | B7 | Approved |
-| 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Approved |
-| 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Approved |
-| 15 | Code signing | — | Parked (stay unsigned) |
+| # | Item | Design | Status | GitHub |
+|---|---|---|---|---|
+| 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
+| 6 | Dark theme (Match Windows / Light / Dark) | B1 | Approved | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
+| 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Approved — needs Calendar API enabled + re-sign-in | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
+| 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Approved | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
+| 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
+| 10 | Rules / filters | B5 | Approved | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
+| 11 | Signatures per account + quick replies | B6 | Approved | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
+| 12 | Gatekeeper + Set aside (key L) | B7 | Approved | [#8](https://github.com/krishnabhunia/Magpie-email-client/issues/8) |
+| 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Approved | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
+| 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Approved | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
+| 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
 
-Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it.
+Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
 ## Smoke test first (1.1.1 + 1.1.2 have not been tried on the laptop)
 
@@ -36,6 +36,48 @@ Anything Krishna mentions in conversation is added here automatically (his stand
 | Row actions | Hover a row → buttons; click a sender's initials → tick → bulk bar → Delete → Undo within 8 s |
 
 Fix anything broken here before 1.2.0 work (queue it as 1.1.3 if it needs a release).
+
+
+## Build history — steps 1–32 (from the claude.ai design chat, checked against CHANGELOG.md on 29 Sep 2026)
+
+The chat's task list showed some steps as "Not started" / "Stopped" that did ship; the status below is what the CHANGELOG says.
+
+| Step | Task (as named in the chat) | Chat said | Actual | Where |
+|---|---|---|---|---|
+| 1 | Write S1-Settings-AllOff.dc.html | Not started | Not needed — AI toggles S1–S5 shipped | 1.0.0 |
+| 2 | Writing toggle-settings artboards | Stopped | Not needed — same as step 1 | 1.0.0 |
+| 3 | Set up toolchain and scaffold Magpie solution | Done | Done | 1.0.0 |
+| 4 | Core: accounts, OAuth, IMAP/SMTP sync, SQLite + FTS5 store | Done | Done | 1.0.0 |
+| 5 | AI layer with unified toggle settings (S1–S5) | Done | Done | 1.0.0 |
+| 6 | WPF UI matching approved designs | Done | Done | 1.0.0 |
+| 7 | Test, publish single-file EXE, deliver + project status doc | Done | Done | 1.0.0 |
+| 8 | Magpie 1.0.1 — presets, collapsible sidebar, local drafts, undo per send | Stopped | Done | 1.0.1 |
+| 9 | Magpie 1.1.0 — Build 2 features + auto-delete | Not started | Build 2 done; **auto-delete not built** → queue #13 / #14 | 1.1.0 |
+| 10 | 1.0.1 · AI quick-setup presets (Off/A/B/C/Custom) | Not started | Done | 1.0.1 |
+| 11 | 1.0.1 · Collapsible sidebar sections, remembered state | Not started | Done | 1.0.1 |
+| 12 | 1.0.1 · Local draft autosave + offline-safe drafts | Not started | Done | 1.0.1 |
+| 13 | 1.0.1 · Undo toast per send (stacked) | Not started | Done | 1.0.1 |
+| 14 | 1.0.1 · Test, review, push to GitHub, verify CI | Not started | Done (1.0.1 is on `main`) | 1.0.1 |
+| 15 | Automatic GitHub releases (CI) | Done | Done | 1.1.0 |
+| 16 | Update inside Magpie (U1) | Done | Done | 1.1.0 |
+| 17 | Colourful look + icon set (C1, C4) | Done | Done | 1.1.0 |
+| 18 | Icon + name buttons and toolbar settings (C3) | Done | Done | 1.1.0 |
+| 19 | Folder counts unread / total (C2) | Done | Done | 1.1.0 |
+| 20 | Status bar (S1) | Done | Done | 1.1.0 |
+| 21 | Loading state when switching emails (R1) | Done | Done | 1.1.0 |
+| 22 | Test, review, build, deliver | Done | Done | 1.1.0 |
+| 23 | Find why folders miss older mail | Done | Done | 1.1.1 |
+| 24 | Sync full headers list, bodies on demand | Done | Done | 1.1.1 |
+| 25 | Test, review, queue as 1.1.1 and update project doc | Done | Done | 1.1.1 |
+| 26 | A1 About Me block in Settings → About | Done | Done | 1.1.2 |
+| 27 | SN1 Send now next to Undo | Done | Done | 1.1.2 |
+| 28 | SS1 Search in Settings | Done | Done | 1.1.2 |
+| 29 | H1 Sidebar resize + icon rail | Done | Done | 1.1.2 |
+| 30 | H2 Folder hover details + settings | Done | Done | 1.1.2 |
+| 31 | H3 Row hover actions + multi-select bulk bar + settings | Done | Done | 1.1.2 |
+| 32 | Tests, build, review, doc; wait for deploy word | — | Done (1.1.2 is on `main`); on-laptop smoke test still open → queue #5 | 1.1.2 |
+
+Only open work out of steps 1–32: auto-delete (step 9 → #13, #14) and the 1.1.1 / 1.1.2 smoke test. Everything else from here on is the queue above.
 
 ---
 
