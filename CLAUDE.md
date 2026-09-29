@@ -16,6 +16,16 @@ Current release: **1.1.2** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 | Replies | Tables and lists, short. |
 | Pharma-stack | Not relevant here (that is his other work); this project is plain Windows/.NET. |
 
+## Krishna's standing rules for every project (29 Sep 2026)
+
+| Rule | Meaning |
+|---|---|
+| Release zip | The deployment build is a zip with exactly two folders: `installer/` (the setup EXE that installs the program on Windows) and `portable/` (the program run in portable mode). No other folders. |
+| CI/CD | Krishna only reviews, approves and merges PRs on GitHub. Everything after that runs by itself: all tests and checks, the version bump, the release. |
+| Updates | The software checks GitHub for new versions and updates itself in the background; an **Auto update** checkbox in the app (checks again once a day). |
+| Installer | If the previous version is running, the installer updates it in the background (closes it cleanly, installs, starts it again). |
+| Version | Every program shows its version number in its main (home) window. |
+
 ## Build, test, check (run before every commit)
 
 ```powershell
