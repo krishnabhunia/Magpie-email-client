@@ -19,7 +19,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — each push needs Kris
 | 13 | Auto-delete future mail from a sender / domain | AD1–AD4 | Built — not yet tried on Windows (schema v5) | [#9](https://github.com/krishnabhunia/Magpie-email-client/issues/9) |
 | 14 | OTP delete — per sender, 24 h after arrival | AD1–AD3 | Built — not yet tried on Windows | [#10](https://github.com/krishnabhunia/Magpie-email-client/issues/10) |
 | 15 | Code signing | — | Parked (stay unsigned) | [#11](https://github.com/krishnabhunia/Magpie-email-client/issues/11) |
-| 16 | Version number in the main window (title bar) | V1 (below) | Design shown 29 Sep 2026 — waiting for "approved" | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
+| 16 | Version number in the main window (title bar) | V1 (below) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#13](https://github.com/krishnabhunia/Magpie-email-client/issues/13) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -82,7 +82,7 @@ Only open work out of steps 1–32: auto-delete (step 9 → #13, #14) and the 1.
 
 ---
 
-## V1 — Version in the main window (#16, proposed)
+## V1 — Version in the main window (#16, approved 29 Sep 2026)
 
 - Title bar, right after "Magpie": the version in small muted text, e.g. **Magpie** `1.2.0` (same grey as the view name; pre-releases show their suffix, e.g. `1.2.0-beta`).
 - Hover: "Magpie 1.2.0 · released 29 Sep 2026 · click for About". Click opens Settings → About.

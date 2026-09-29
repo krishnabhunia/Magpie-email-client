@@ -332,6 +332,11 @@ public partial class MainViewModel : ObservableObject
         RefreshGate();
     }
 
+    // ───────────────────────── version in the title bar (design V1) ─────────────────────────
+
+    public string VersionText => UpdateService.Current.ToString();
+    public string VersionTip => $"Magpie {UpdateService.Current} · released {SettingsViewModel.ReleaseDate} · click for About";
+
     // ───────────────────────── Gatekeeper banner + Set aside pile (design B7) ─────────────────────────
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowGateBanner), nameof(GateBannerText))] private int _gateCount;
