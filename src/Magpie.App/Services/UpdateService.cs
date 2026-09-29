@@ -33,8 +33,10 @@ public sealed partial class UpdateService : ObservableObject
     private string? _downloaded;
 
     public static AppVersion Current { get; } = ReadCurrent();
-    /// <summary>%LOCALAPPDATA%\Magpie\updates — not the roaming profile (the EXE is ~80 MB).</summary>
-    public static string DownloadFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Magpie", "updates");
+    /// <summary>%LOCALAPPDATA%\Magpie\updates — not the roaming profile (the EXE is ~80 MB); next to the EXE when portable.</summary>
+    public static string DownloadFolder => AppPaths.Default().Updates;
+    /// <summary>Auto update (design A1) put the new EXE in place already; it runs from the next start.</summary>
+    private bool _installed;
 
     private static AppVersion ReadCurrent()
     {
@@ -61,7 +63,7 @@ public sealed partial class UpdateService : ObservableObject
     {
         UpdateState.Available => $"Update {NewVersion} available",
         UpdateState.Downloading => $"Downloading {NewVersion} · {Progress:P0}",
-        UpdateState.Ready => $"Update {NewVersion} ready — restart",
+        UpdateState.Ready => _installed ? $"Magpie {NewVersion} installed — restart" : $"Update {NewVersion} ready — restart",
         _ => "",
     };
     public string Badge => State switch
@@ -103,7 +105,7 @@ public sealed partial class UpdateService : ObservableObject
     private async Task AutoCheckAsync()
     {
         var cfg = AppServices.Engine.Config.Updates;
-        if (!cfg.AutoCheck || IsBusy || State is UpdateState.Ready or UpdateState.Available) return;
+        if (cfg.AutoUpdate != true || IsBusy || State is UpdateState.Ready or UpdateState.Available) return;
         if (DateTimeOffset.Now < _laterUntil) return;
         // Once at start, then at most once a day.
         if (_startCheckDone && cfg.LastCheck is { } last && DateTimeOffset.Now - last < TimeSpan.FromHours(23)) return;
@@ -179,7 +181,7 @@ public sealed partial class UpdateService : ObservableObject
             Detail = (rel.Published is { } p ? "Released " + p.LocalDateTime.ToString("d MMM yyyy") : "New release") + (rel.ExeSize > 0 ? $" · {rel.ExeSize / 1048576.0:0} MB" : "");
             State = UpdateState.Available;
             Log.Info($"update available: {rel.Version}");
-            if (automatic && cfg.AutoDownload) await DownloadAsync();
+            if (cfg.AutoUpdate == true) await DownloadAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -214,6 +216,7 @@ public sealed partial class UpdateService : ObservableObject
             Title = $"Magpie {_release.Version} is ready";
             Detail = "Download checked (SHA-256 matches). Restarting takes a few seconds.";
             State = UpdateState.Ready;
+            if (AppServices.Engine.Config.Updates.AutoUpdate == true) InstallInBackground();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -223,6 +226,37 @@ public sealed partial class UpdateService : ObservableObject
             State = UpdateState.Error;
         }
         catch (OperationCanceledException) { State = UpdateState.Available; }
+    }
+
+    /// <summary>
+    /// Auto update (design A1): puts the checked download in place of Magpie.exe while this copy keeps running (Windows
+    /// lets a running EXE be renamed). The new version runs from the next start; "Restart now" still works at once.
+    /// Not possible for an all-users install in Program Files: then it stays "ready" and the installer does it.
+    /// </summary>
+    private void InstallInBackground()
+    {
+        if (_installed || _downloaded == null || _release == null) return;
+        var exe = Environment.ProcessPath;
+        if (exe == null || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !SelfUpdate.CanReplace(exe))
+        {
+            Detail = $"Download checked. Restart to use it (or run Magpie-Setup-{NewVersion}.exe if Magpie is installed for all users).";
+            return;
+        }
+        try
+        {
+            SelfUpdate.Swap(exe, _downloaded);
+            InstalledUpdate.Write(DownloadFolder, Current.ToString(), _release.Version.ToString());
+            _installed = true;
+            Log.Info($"update {Current} → {NewVersion} installed in the background; runs from the next start");
+            Title = $"Magpie {NewVersion} is installed";
+            Detail = "It starts the next time you open Magpie. Restart now to use it straight away.";
+            OnPropertyChanged(nameof(PillText));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("background install failed: " + ex.Message);
+            Detail = "Download checked. Restart now to install it.";
+        }
     }
 
     /// <summary>
@@ -256,7 +290,7 @@ public sealed partial class UpdateService : ObservableObject
         }
         if (!await AppServices.Current.CloseComposeWindowsAsync()) return;   // user chose Cancel on an unsent message
 
-        try { SelfUpdate.Swap(exe, _downloaded); }
+        try { if (!_installed) SelfUpdate.Swap(exe, _downloaded); }
         catch (Exception ex)
         {
             Log.Error("update swap failed", ex);
@@ -278,6 +312,8 @@ public sealed partial class UpdateService : ObservableObject
             Log.Error("updated Magpie failed to start — rolling back", ex);
             try { if (p is { HasExited: false }) p.Kill(); } catch { }
             try { SelfUpdate.Rollback(exe); } catch (Exception rex) { Log.Error("rollback failed", rex); }
+            InstalledUpdate.Clear(DownloadFolder);
+            _installed = false;
             Title = "The new version didn't start";
             Detail = "Magpie went back to " + Current + ". Details are in the log.";
             State = UpdateState.Error;
@@ -301,6 +337,7 @@ public sealed partial class UpdateService : ObservableObject
         try
         {
             SelfUpdate.Rollback(exe);
+            InstalledUpdate.Clear(DownloadFolder);
             // Close the database before the other copy can open it.
             try { if (AppServices.Engine != null) AppServices.Engine.Dispose(); } catch { }
             Program.ReleaseSingleInstance();   // otherwise the relaunched copy would see "already running" and quit

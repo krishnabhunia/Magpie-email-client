@@ -67,9 +67,15 @@ jobs:
           PYTHONUTF8: "1"
         shell: pwsh
         run: |
-          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows/win-x64/Magpie.dll
+          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
           python build/xaml_check.py --dps build/app-types.json
           if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
+
+      - name: Every referenced assembly is in the build (blocking)
+        shell: pwsh
+        run: |
+          dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
+          if ($LASTEXITCODE -ne 0) { throw "A referenced assembly is missing from the build: the app would crash on Windows" }
 
       - name: Publish single-file EXE
         run: dotnet publish src/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ steps.ver.outputs.version }}
@@ -97,6 +103,11 @@ jobs:
           (Get-FileHash publish/Magpie.exe -Algorithm SHA256).Hash | Out-File publish/Magpie.exe.sha256 -Encoding ascii
           Get-ChildItem installer\Output\*.exe | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash | Out-File "$($_.FullName).sha256" -Encoding ascii }
 
+      # Design Z1: Magpie-<version>.zip holds exactly two folders — installer\ (setup EXE) and portable\
+      # (Magpie.exe + portable.txt, so its data stays in MagpieData next to it). The script refuses anything else.
+      - name: Release zip (installer + portable)
+        run: python build/release_prep.py zip ${{ steps.ver.outputs.version }} --setup installer/Output --exe publish --out release
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -106,9 +117,11 @@ jobs:
             publish/Magpie.exe.sha256
             installer/Output/*.exe
             installer/Output/*.sha256
+            release/Magpie-*.zip
+            release/Magpie-*.zip.sha256
 
       # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet
-      # publishes one — tag v<version>, EXE, installer and checksums, notes from CHANGELOG.md.
+      # publishes one — tag v<version>, EXE, installer, the installer + portable zip and checksums, notes from CHANGELOG.md.
       # Magpie's built-in updater reads the newest release, so "push a new version" = "ship it".
       - name: Is this version released yet?
         id: rel
@@ -146,6 +159,8 @@ jobs:
             publish/Magpie.exe.sha256
             installer/Output/*.exe
             installer/Output/*.sha256
+            release/Magpie-*.zip
+            release/Magpie-*.zip.sha256
 
       # The test versions of a release are no longer needed once it is out.
       - name: Remove this version's test builds
@@ -180,6 +195,8 @@ jobs:
             publish/Magpie.exe.sha256
             installer/Output/*.exe
             installer/Output/*.sha256
+            release/Magpie-*.zip
+            release/Magpie-*.zip.sha256
 
       - name: Keep only the newest test version
         if: steps.ver.outputs.beta == 'true'

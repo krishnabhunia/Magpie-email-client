@@ -760,6 +760,60 @@ public class Release120Tests
         Assert.Equal("-- <br>Krishna's café &amp; co", Composer.LegacySignatureHtml("Krishna's café & co"));
     }
 
+    // ───────────── Z1 portable mode, A1 auto update ─────────────
+
+    [Fact]
+    public void Portable_txt_next_to_the_exe_keeps_everything_in_MagpieData()
+    {
+        using var dir = new TempDir();
+        var normal = AppPaths.For(dir.Path);
+        Assert.False(normal.IsPortable);
+        Assert.EndsWith(Path.Combine("Magpie"), normal.Root);                                  // %APPDATA%\Magpie as before
+        Assert.DoesNotContain(dir.Path, normal.Root);
+
+        File.WriteAllText(Path.Combine(dir.Path, AppPaths.PortableMarker), "portable");
+        var p = AppPaths.For(dir.Path);
+        Assert.True(p.IsPortable);
+        var data = Path.Combine(dir.Path, "MagpieData");
+        Assert.Equal(data, p.Root);
+        Assert.Equal(Path.Combine(data, "mail.db"), p.Database);
+        Assert.Equal(Path.Combine(data, "settings.json"), p.Settings);
+        Assert.Equal(Path.Combine(data, "secrets.json"), p.Secrets);
+        Assert.StartsWith(data, p.WebView2Data);
+        Assert.StartsWith(data, p.RenderCache);
+        Assert.StartsWith(data, p.Updates);
+        Assert.True(Directory.Exists(p.MimeCache));
+    }
+
+    [Theory]
+    [InlineData("""{"Updates":{}}""", true)]                                               // 1.1.x defaults
+    [InlineData("""{"Updates":{"AutoCheck":false,"AutoDownload":true}}""", false)]
+    [InlineData("""{"Updates":{"AutoCheck":true,"AutoDownload":false}}""", false)]         // wanted to be asked → not automatic
+    [InlineData("""{"Updates":{"AutoUpdate":true,"AutoCheck":false}}""", true)]            // 1.2.0 setting wins
+    public void Auto_update_setting_comes_from_the_old_switches_once_and_mirrors_them(string json, bool expected)
+    {
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json, AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        Assert.Equal(expected, s.Updates.AutoUpdate);
+        Assert.Equal(expected, s.Updates.AutoCheck);                                          // an older Magpie reads the same choice
+        Assert.Equal(expected, s.Updates.AutoDownload);
+        Assert.True(new AppSettings { Updates = new UpdateSettings() }.Updates.AutoCheck);
+    }
+
+    [Fact]
+    public void Background_install_note_is_written_read_and_cleared()
+    {
+        using var dir = new TempDir();
+        var folder = Path.Combine(dir.Path, "updates");
+        Assert.Null(Magpie.Core.Updates.InstalledUpdate.Read(folder));
+        Magpie.Core.Updates.InstalledUpdate.Write(folder, "1.2.0", "1.2.1");
+        Assert.Equal(new Magpie.Core.Updates.InstalledUpdate("1.2.0", "1.2.1"), Magpie.Core.Updates.InstalledUpdate.Read(folder));
+        Magpie.Core.Updates.InstalledUpdate.Clear(folder);
+        Assert.Null(Magpie.Core.Updates.InstalledUpdate.Read(folder));
+        File.WriteAllText(Path.Combine(folder, Magpie.Core.Updates.InstalledUpdate.FileName), "{not json");
+        Assert.Null(Magpie.Core.Updates.InstalledUpdate.Read(folder));                        // a broken note never stops start-up
+    }
+
     private static void Near(long expectedMs, DateTimeOffset actual) =>
         Assert.InRange(actual.ToUnixTimeMilliseconds(), expectedMs - 2000, expectedMs + 2000);
 

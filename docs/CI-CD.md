@@ -13,7 +13,7 @@ Krishna only **reviews and merges pull requests**. Everything else is automatic.
 | 5 | CI on the release PR publishes a **test version** `x.y.z-beta.N` (pre-release; older test builds of the same version are removed) | `build.yml` |
 | 6 | Smoke-test it: Magpie → Settings → Updates → *Include test versions* → Check now | **Krishna** |
 | 7 | Merge the release PR — this is the deploy | **Krishna** |
-| 8 | Release `vx.y.z` is published (EXE, installer, checksums, notes from CHANGELOG); its test builds are removed; the issues in step 1 close | `build.yml` + GitHub |
+| 8 | Release `vx.y.z` is published (EXE, installer, `Magpie-x.y.z.zip` with only `installer/` + `portable/`, checksums, notes from CHANGELOG); its test builds are removed; the issues in step 1 close | `build.yml` + GitHub |
 | 9 | Installed copies update themselves (Settings → Updates / the green pill) | Magpie |
 
 More feature PRs merged while a release PR is open just update it (and publish a new test version).
@@ -38,3 +38,23 @@ When the token expires the release PR stops getting CI: create a new one and rep
 | `.github/workflows/release-pr.yml` | Keeps the "Release x.y.z" PR (branch `release/next`) up to date after each merge to `main` |
 | `build/release_prep.py` | Reads the pending version / notes / closed issues from CHANGELOG, bumps `Directory.Build.props`, `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md |
 | `build/test_release_prep.py` | Its tests (run in CI) |
+
+## Release zip (design Z1)
+
+Every release and test version also carries `Magpie-<version>.zip` (+ `.sha256`), built by
+`python build/release_prep.py zip` — it refuses to build a zip with anything but these two folders:
+
+| Folder | Holds | Use |
+|---|---|---|
+| `installer/` | `Magpie-Setup-<version>.exe` + `.sha256` | Install Magpie (Start menu, starts with Windows, updates itself) |
+| `portable/` | `Magpie.exe` + `.sha256` + `portable.txt` | Run from anywhere; `portable.txt` keeps all data in `MagpieData\` next to the EXE |
+
+The loose `Magpie.exe` / `.sha256` stay on each release too: installed copies update from them.
+
+## Build checks that fail the build
+
+| Check | Catches |
+|---|---|
+| Unit tests, release-script tests | Logic and release-script mistakes |
+| `xaml_check.py` | XAML errors WPF only reports at run time |
+| `DpDump --check-refs` | An assembly the app references but the build doesn't carry (crashes only on Windows, e.g. the 1.2.0 Settings crash) |

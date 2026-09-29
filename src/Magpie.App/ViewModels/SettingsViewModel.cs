@@ -339,8 +339,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
         ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
         ("Check for updates", "Updates", "Check now, download, restart into the new version", "update check download restart version github", "RowUpdateCard"),
-        ("Check for updates automatically", "Updates", "At start, then once a day", "update automatic check daily", "RowUpdateSwitches"),
-        ("Download updates in the background", "Updates", "Ask before restarting", "update download background", "RowUpdateSwitches"),
+        ("Auto update", "Updates", "Check at start and once a day; install new versions in the background", "auto update automatic check daily download install background new version", "RowUpdateSwitches"),
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
@@ -566,8 +565,10 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Updates (design U1): the live state comes from the update service; the switches save with the rest ──
     public UpdateService? Updates => AppServices.Updates;
-    [ObservableProperty] private bool _autoCheckUpdates;
-    [ObservableProperty] private bool _autoDownloadUpdates;
+    /// <summary>Auto update (design A1): one switch for checking, downloading and installing in the background.</summary>
+    [ObservableProperty] private bool _autoUpdate;
+    public string PortableNote => _e.Paths.IsPortable ? "Portable copy: mail, settings and sign-ins are kept in the MagpieData folder next to Magpie.exe." : "";
+    public bool IsPortable => _e.Paths.IsPortable;
     [ObservableProperty] private bool _includePrerelease;
     public string UpdateSource => "Updates come from github.com/" + Core.Updates.UpdateClient.Repo;
     public string DataFolder => _e.Paths.Root;
@@ -627,8 +628,7 @@ public partial class SettingsViewModel : ObservableObject
         _rowMode = ap.RowActions.Mode;
         _confirmDeleteOver = ap.RowActions.ConfirmDeleteOver;
         LoadRowActions(ap.RowActions);
-        _autoCheckUpdates = c.Updates.AutoCheck;
-        _autoDownloadUpdates = c.Updates.AutoDownload;
+        _autoUpdate = c.Updates.AutoUpdate ?? true;
         _includePrerelease = c.Updates.IncludePrerelease;
     }
 
@@ -754,8 +754,8 @@ public partial class SettingsViewModel : ObservableObject
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
         };
         c.Appearance.Normalise();
-        c.Updates.AutoCheck = AutoCheckUpdates;
-        c.Updates.AutoDownload = AutoDownloadUpdates;
+        c.Updates.AutoUpdate = AutoUpdate;
+        c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
         c.Updates.IncludePrerelease = IncludePrerelease;
 
         var err = StartupRegistration.Set(StartWithWindows);

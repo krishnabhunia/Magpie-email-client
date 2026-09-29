@@ -85,6 +85,9 @@ public partial class App : Application
         MainWindow = main;
         var startHidden = Program.StartupArgs.Contains("--tray") && engine.Accounts.Count > 0;
         if (!startHidden) main.Show();
+        // Design I1: the installer can close Magpie, update it and start it again (back in the tray if it was there).
+        RestartRegistration.Update(inTray: !main.IsVisible);
+        main.IsVisibleChanged += (_, _) => RestartRegistration.Update(inTray: !main.IsVisible);
 
         Program.StartActivationServer(args =>
         {
@@ -104,6 +107,7 @@ public partial class App : Application
             main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
                 DispatcherPriority.ApplicationIdle);
         Program.StartupComplete = true;
+        if (Program.AfterUpdate) Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
         if (engine.Accounts.Count == 0)
             main.Dispatcher.BeginInvoke(() => AddAccountWindow.ShowWelcome(main), DispatcherPriority.ApplicationIdle);
         var startMailto = Program.StartupArgs.FirstOrDefault(a => a.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));

@@ -42,8 +42,12 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
+; Design I1: a running Magpie is closed through Windows' Restart Manager (it closes as for a Windows shutdown,
+; keeping unsent messages), updated, and started again (Magpie registers for restart; back in the tray if it was
+; there). Silent installs (/SILENT, /VERYSILENT) do the same without asking.
 CloseApplications=yes
-RestartApplications=no
+CloseApplicationsFilter=*.exe
+RestartApplications=yes
 ShowLanguageDialog=no
 
 [Languages]

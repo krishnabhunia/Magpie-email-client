@@ -149,6 +149,12 @@ public sealed class Appearance
 /// <summary>Updates from GitHub Releases (design U1).</summary>
 public sealed class UpdateSettings
 {
+    /// <summary>
+    /// "Auto update" (design A1): check at start and once a day, download, check and install new versions in the
+    /// background (they run from the next start). Null in settings saved before 1.2.0 — taken from the two old switches.
+    /// </summary>
+    public bool? AutoUpdate { get; set; }
+    /// <summary>Kept in step with <see cref="AutoUpdate"/> so an older Magpie reads the same choice.</summary>
     public bool AutoCheck { get; set; } = true;
     public bool AutoDownload { get; set; } = true;
     public bool IncludePrerelease { get; set; }
@@ -380,6 +386,8 @@ public sealed class SettingsStore
         s.Appearance.Normalise();
         s.Updates ??= new();
         s.Updates.SkippedVersion ??= "";
+        s.Updates.AutoUpdate ??= s.Updates.AutoCheck && s.Updates.AutoDownload;
+        s.Updates.AutoCheck = s.Updates.AutoDownload = s.Updates.AutoUpdate.Value;
         s.Rules = Mail.RuleEngine.Normalise(s.Rules);
         (s.Gatekeeper ??= new()).Normalise();
         s.SenderCategories = new Dictionary<string, Category>(s.SenderCategories ?? new(), StringComparer.OrdinalIgnoreCase);

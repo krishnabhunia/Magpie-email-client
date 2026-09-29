@@ -42,6 +42,14 @@ public static class Program
             catch { createdNew = false; }
         }
 
+        if (createdNew && !AfterUpdate)
+        {
+            // Auto update installed this version in the background (design A1): this is its first start.
+            var note = Magpie.Core.Updates.InstalledUpdate.Read(AppPaths.Default().Updates);
+            if (note != null && note.To == Services.UpdateService.Current.ToString()) { AfterUpdate = true; UpdatedFrom = note.From; }
+            else if (note != null) Magpie.Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
+        }
+
         if (!createdNew)
         {
             try

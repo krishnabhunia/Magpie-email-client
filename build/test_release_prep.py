@@ -102,5 +102,56 @@ class ReleasePrepTests(unittest.TestCase):
             self.assertGreater(rp.compare(p, rp.current()), 0, "pending CHANGELOG version must be newer than Directory.Build.props")
 
 
+class ReleaseZipTests(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.setup = os.path.join(self.root, "installer", "Output")
+        self.exe = os.path.join(self.root, "publish")
+        os.makedirs(self.setup)
+        os.makedirs(self.exe)
+        for f, data in ((os.path.join(self.setup, "Magpie-Setup-1.2.0.exe"), b"setup"), (os.path.join(self.exe, "Magpie.exe"), b"app")):
+            with open(f, "wb") as h:
+                h.write(data)
+        # loose files next to them must not leak into the zip
+        open(os.path.join(self.setup, "Magpie-Setup-1.2.0.exe.sha256"), "w").close()
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def test_zip_has_only_installer_and_portable(self):
+        import zipfile
+        out = rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"))
+        self.assertTrue(out.endswith("Magpie-1.2.0.zip"))
+        with zipfile.ZipFile(out) as z:
+            names = sorted(z.namelist())
+            self.assertEqual(names, sorted([
+                "installer/Magpie-Setup-1.2.0.exe", "installer/Magpie-Setup-1.2.0.exe.sha256",
+                "portable/Magpie.exe", "portable/Magpie.exe.sha256", "portable/portable.txt"]))
+            self.assertEqual(z.read("portable/Magpie.exe"), b"app")
+            self.assertEqual(z.read("portable/Magpie.exe.sha256").decode().strip(), rp.sha256_file(os.path.join(self.exe, "Magpie.exe")))
+            self.assertIn("MagpieData", z.read("portable/portable.txt").decode())
+        with open(out + ".sha256") as f:
+            self.assertEqual(f.read().strip(), rp.sha256_file(out))
+
+    def test_zip_with_anything_else_at_the_top_is_refused(self):
+        import zipfile
+        bad = os.path.join(self.root, "bad.zip")
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("installer/a.exe", "x")
+            z.writestr("portable/portable.txt", "x")
+            z.writestr("README.txt", "x")
+        with self.assertRaises(rp.ReleaseError):
+            rp.check_zip(bad)
+
+    def test_zip_needs_exactly_one_setup(self):
+        os.remove(os.path.join(self.setup, "Magpie-Setup-1.2.0.exe"))
+        with self.assertRaises(rp.ReleaseError):
+            rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"))
+
+    def test_portable_marker_name_matches_the_app(self):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "Magpie.Core", "AppPaths.cs"), encoding="utf-8") as f:
+            self.assertIn(f'PortableMarker = "{rp.PORTABLE_MARKER}"', f.read())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
