@@ -10,11 +10,7 @@ public partial class SettingsViewModel
     /// <summary>The account whose signature is in the editor (one chip per account).</summary>
     [ObservableProperty] private EditableAccount? _signatureAccount;
     public ObservableCollection<EditableQuickReply> QuickReplyList { get; } = new();
-    public string[] SignatureFonts { get; } = { "Segoe UI", "Arial", "Calibri", "Georgia", "Times New Roman", "Verdana", "Courier New" };
-    public string[] SignatureColours { get; } = { "#23282E", "#14606E", "#1D4ED8", "#4B3F86", "#B3261E", "#B45309", "#1B6B2E", "#5A6068" };
-
-    /// <summary>Raised when another account is picked, so the window loads its signature into the editor.</summary>
-    public event Action<EditableAccount?>? SignatureAccountChanged;
+    [ObservableProperty] private string _signatureStatus = "";
 
     private void LoadSignatures()
     {
@@ -26,12 +22,29 @@ public partial class SettingsViewModel
     {
         if (oldValue != null) oldValue.IsSignatureSelected = false;
         if (newValue != null) newValue.IsSignatureSelected = true;
-        SignatureAccountChanged?.Invoke(newValue);
+        SignatureStatus = "";
+    }
+
+    /// <summary>Copies the signature set in Gmail for the chosen account (signed in with Google).</summary>
+    [RelayCommand]
+    private async Task ImportGmailSignature()
+    {
+        if (SignatureAccount is not { } a) return;
+        SignatureStatus = "Getting it from Gmail…";
+        try
+        {
+            var token = await _e.OAuth.GetAccessTokenAsync(a.Original, CancellationToken.None);
+            var html = await Magpie.Core.Mail.GmailSignature.FetchAsync(_e.Http, token, a.Email, CancellationToken.None);
+            a.SignatureHtml = html;
+            SignatureStatus = "✓ Copied from Gmail. Press Save or Apply to keep it.";
+        }
+        catch (Magpie.Core.Mail.GmailSignature.Problem ex) { SignatureStatus = ex.Message; }
+        catch (Exception ex) { SignatureStatus = "Couldn't reach Gmail: " + ex.Message; }
     }
 
     [RelayCommand] private void PickSignatureAccount(EditableAccount? a) { if (a != null) SignatureAccount = a; }
 
-    /// <summary>The editor's content changed (it reports every edit).</summary>
+    /// <summary>The signature editor window closed with Done.</summary>
     public void SetSignatureHtml(string html)
     {
         if (SignatureAccount != null) SignatureAccount.SignatureHtml = html;

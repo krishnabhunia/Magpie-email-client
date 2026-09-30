@@ -35,4 +35,6 @@ public partial class AddAccountWindow : Window
     private void OnPasswordChanged(object sender, RoutedEventArgs e) => _vm.Password = PwdBox.Password;
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();
+
+    private async void OnRestoreBackup(object sender, RoutedEventArgs e) => await Services.BackupUi.RestoreAsync(this);
 }

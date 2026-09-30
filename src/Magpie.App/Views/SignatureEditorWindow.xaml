@@ -1,0 +1,53 @@
+<Window x:Class="Magpie.App.Views.SignatureEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Style="{StaticResource Window.Dialog}" Width="640" Height="460" MinWidth="480" MinHeight="340"
+        WindowStartupLocation="CenterOwner" Title="Signature — Magpie">
+    <!-- Design B6 (fixed 29 Sep 2026): the signature is written in its own window with a normal WebView2 — the same kind
+         of editor as the compose window — instead of inside the scrolling Settings page, where typing didn't work. -->
+    <DockPanel Margin="20,16,20,16">
+        <TextBlock DockPanel.Dock="Top" x:Name="Heading" Style="{StaticResource Text.Serif}" FontSize="17" Margin="0,0,0,10" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" />
+            <Button Style="{StaticResource Button.Primary}" Content="Done" Click="OnDone" />
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Ctrl+K adds a link." />
+        <!-- Toolbar: B / I / U / Link / Picture / Font / Colour -->
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="6,4" Background="{DynamicResource Brush.Header.Background}">
+            <WrapPanel>
+                <Button Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
+                <Button Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
+                <Button Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)">
+                    <TextBlock Text="U" TextDecorations="Underline" FontFamily="Segoe UI" />
+                </Button>
+                <Button Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnLink" ToolTip="Add a link (Ctrl+K)" />
+                <Button Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
+                <ComboBox x:Name="FontBox" Width="140" Margin="6,0,0,0" SelectionChanged="OnFont" ToolTip="Font" AutomationProperties.Name="Font" />
+                <ItemsControl x:Name="ColourList" Margin="8,0,0,0" VerticalAlignment="Center" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Width="18" Height="18" Margin="2,0" Tag="{Binding}" Click="OnColour" ToolTip="Text colour" Cursor="Hand" Background="{Binding Converter={StaticResource HexBrush}}" BorderThickness="0">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="9" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" />
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </WrapPanel>
+        </Border>
+        <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8">
+            <Grid>
+                <wv2:WebView2 x:Name="Editor" />
+                <TextBox x:Name="Plain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8" />
+            </Grid>
+        </Border>
+    </DockPanel>
+</Window>

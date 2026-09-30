@@ -186,7 +186,7 @@ public partial class ThreadViewModel : ObservableObject
             {
                 ct.ThrowIfCancellationRequested();
                 var (b, _) = bodies[r.Id];
-                var needsImages = b?.Attachments.Any(a => a.Inline) == true;
+                var needsImages = b?.Attachments.Any(a => a.Inline) == true || MimeText.NeedsDownload(b);   // design DS1
                 if (b != null && !needsImages) continue;
                 fetched = true;
                 try
@@ -455,7 +455,7 @@ public partial class ThreadViewModel : ObservableObject
         try
         {
             var (_, mime) = await _e.LoadAsync(row, true, CancellationToken.None);
-            if (mime == null || MimeText.PartAt(mime, index) is not { } entity) return;
+            if (mime == null || MimeText.PartAt(mime, MimeText.ResolveIndex(mime, index)) is not { } entity) return;
             var name = entity switch
             {
                 MimePart p => p.FileName ?? "attachment",

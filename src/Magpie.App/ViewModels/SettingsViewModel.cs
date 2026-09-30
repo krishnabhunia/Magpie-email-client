@@ -15,7 +15,9 @@ namespace Magpie.App.ViewModels;
 
 public partial class EditableAccount : ObservableObject
 {
-    public Account Original { get; }
+    public Account Original { get; private set; }
+    /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
+    public void Accept(Account saved) => Original = saved;
     public EditableAccount(Account a)
     {
         Original = a;
@@ -27,6 +29,8 @@ public partial class EditableAccount : ObservableObject
         _color = a.Color;
         _enabled = a.Enabled;
         _syncDays = a.SyncDays;
+        _downloadAttachments = a.DownloadAttachments;
+        DownloadChoices = DownloadChoice.For(a.SyncDays);
     }
     public string Email => Original.Email;
     public string Kind => Original.Kind switch { AccountKind.Gmail => "Gmail", AccountKind.Microsoft => "Outlook / Microsoft 365", _ => "IMAP" }
@@ -35,7 +39,11 @@ public partial class EditableAccount : ObservableObject
     [ObservableProperty] private string _displayName;
     [ObservableProperty] private string _signature;
     /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain))] private string _signatureHtml;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain), nameof(HasSignaturePicture), nameof(HasSignature))] private string _signatureHtml;
+    public bool HasSignature => !string.IsNullOrWhiteSpace(SignatureHtml);
+    public bool HasSignaturePicture => SignatureHtml.Contains("<img", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Accounts signed in with Google can copy the signature set in Gmail.</summary>
+    public bool CanImportGmailSignature => Original.Kind == AccountKind.Gmail && Original.Auth == AuthMethod.OAuth2;
     [ObservableProperty] private bool _signatureOnNew;
     [ObservableProperty] private bool _signatureOnReplies;
     [ObservableProperty] private bool _isSignatureSelected;
@@ -48,7 +56,10 @@ public partial class EditableAccount : ObservableObject
         set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : value.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
     }
     [ObservableProperty] private bool _enabled;
+    /// <summary>Design DS1: "Download emails from the last …" (0 = everything) and whether attachments come too.</summary>
     [ObservableProperty] private int _syncDays;
+    [ObservableProperty] private bool _downloadAttachments;
+    public DownloadChoice[] DownloadChoices { get; }
 
     public Account ToAccount()
     {
@@ -61,13 +72,15 @@ public partial class EditableAccount : ObservableObject
         a.SignatureOnReplies = SignatureOnReplies;
         a.Color = Color;
         a.Enabled = Enabled;
-        a.SyncDays = Math.Clamp(SyncDays, 7, 3650);
+        a.SyncDays = DownloadChoice.Normalise(SyncDays);
+        a.DownloadAttachments = DownloadAttachments;
         return a;
     }
 
     public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
-                           || Enabled != Original.Enabled || SyncDays != Original.SyncDays;
+                           || Enabled != Original.Enabled || SyncDays != Original.SyncDays
+                           || DownloadAttachments != Original.DownloadAttachments;
 }
 
 public partial class EditableTag : ObservableObject
@@ -327,11 +340,15 @@ public partial class SettingsViewModel : ObservableObject
         ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
         ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
         ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
+        ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
+        ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
-        ("AI provider", "AI", "OpenAI · Anthropic · Ollama · other; endpoint, key, model", "ai provider key model openai anthropic ollama endpoint api", "RowAiProvider"),
+        ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key model openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
+        ("Send a test notification", "Notifications", "Shows a sample new-mail notification", "test notification sample try sound", "RowNotifyTest"),
         ("AI features", "AI", "Summarise, drafts, rewrite, suggested replies", "summarise summary draft rewrite replies suggest ai", "RowAiFeatures"),
         ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
         ("Only for mail from people", "Notifications", "Stay quiet for newsletters and automatic mail", "notifications people only newsletters quiet", "RowNotifyPeople"),
@@ -399,7 +416,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _hoverEnabled;
     [ObservableProperty] private int _hoverDelay;
     public ObservableCollection<EditableHoverLine> HoverLines { get; } = new();
-    public int[] HoverDelayChoices { get; } = { 300, 600, 1000 };
+    /// <summary>50, 100, … 1000 ms.</summary>
+    public int[] HoverDelayChoices { get; } = Enumerable.Range(1, FolderHoverSettings.MaxDelayMs / FolderHoverSettings.DelayStepMs).Select(i => i * FolderHoverSettings.DelayStepMs).ToArray();
 
     // ── Buttons on email rows (design H3) ──
     [ObservableProperty] private RowActionsMode _rowMode;
@@ -575,6 +593,32 @@ public partial class SettingsViewModel : ObservableObject
 
     public event Action? Saved;
 
+    // ───────────── Backup (design EX1) and mail folder (design DL1) ─────────────
+
+    public string LastBackupText => _e.Config.LastBackup is { } t ? "Last backup: " + t.ToLocalTime().ToString("d MMM yyyy, HH:mm") : "No backup saved yet";
+    public string MailFolderPath => _e.Paths.MailRoot;
+    [ObservableProperty] private string _mailFolderInfo = "";
+
+    public void RefreshBackupAndFolder()
+    {
+        OnPropertyChanged(nameof(LastBackupText));
+        OnPropertyChanged(nameof(MailFolderPath));
+        var root = _e.Paths.MailRoot;
+        _ = Task.Run(() =>
+        {
+            var size = Core.Storage.MailLocation.Size(root);
+            string free = "";
+            try
+            {
+                var drive = new DriveInfo(Path.GetPathRoot(root)!);
+                free = $" · {Services.MailFolderStartup.Size(drive.AvailableFreeSpace)} free on {drive.Name.TrimEnd('\\')}";
+            }
+            catch { }
+            var text = $"{Services.MailFolderStartup.Size(size)} of mail{free}" + (_e.Paths.CustomMailRoot ? "" : " · the usual folder");
+            Ui.Post(() => MailFolderInfo = text);
+        });
+    }
+
     public SettingsViewModel(string? page)
     {
         var c = _e.Config;
@@ -602,14 +646,11 @@ public partial class SettingsViewModel : ObservableObject
 
         var ai = c.Ai;
         _aiEnabled = ai.Enabled;
-        _provider = ai.Provider;
-        _endpoint = ai.Endpoint;
-        _model = ai.Model;
         _summarise = ai.Summarise;
         _draft = ai.Draft;
         _rewrite = ai.Rewrite;
         _replies = ai.Replies;
-        ApiKey = _e.Vault.Get(SecretVault.AiKey) ?? "";
+        LoadAiConnections(ai);   // design AI2: fills the editor from the connection in use
         RefreshPreset();
 
         var ap = c.Appearance;
@@ -634,6 +675,7 @@ public partial class SettingsViewModel : ObservableObject
 
     partial void OnProviderChanged(AiProviderKind value)
     {
+        if (_loadingAiEditor) return;   // showing another connection, not choosing a new provider
         var (endpoint, model) = AiSettings.Preset(value);
         Endpoint = endpoint;
         Model = model;
@@ -669,7 +711,11 @@ public partial class SettingsViewModel : ObservableObject
             TestOk = false;
             TestStatus = ex is AiException ? ex.Message : "Couldn't connect: " + ex.Message;
         }
-        finally { Testing = false; }
+        finally
+        {
+            Testing = false;
+            if (SelectedAiConnection != null) SelectedAiConnection.Status = TestStatus;   // design AI2: shown on its row
+        }
     }
 
     [RelayCommand]
@@ -715,6 +761,23 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
+        SaveCore();
+        Saved?.Invoke();
+    }
+
+    /// <summary>Apply: saves everything and keeps Settings open.</summary>
+    [RelayCommand]
+    private void Apply()
+    {
+        SaveCore();
+        Applied?.Invoke();
+    }
+
+    /// <summary>Raised after Apply (the window stays open; it shows "Saved").</summary>
+    public event Action? Applied;
+
+    private void SaveCore()
+    {
         var c = _e.Config;
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
@@ -736,14 +799,11 @@ public partial class SettingsViewModel : ObservableObject
 
         var ai = c.Ai;
         ai.Enabled = AiEnabled;
-        ai.Provider = Provider;
-        ai.Endpoint = Endpoint.Trim();
-        ai.Model = Model.Trim();
         ai.Summarise = Summarise;
         ai.Draft = Draft;
         ai.Rewrite = Rewrite;
         ai.Replies = Replies;
-        if (ApiKeyChanged) _e.Vault.Set(SecretVault.AiKey, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim());
+        SaveAiConnections(ai);   // design AI2
 
         c.Appearance = new Appearance
         {
@@ -764,8 +824,11 @@ public partial class SettingsViewModel : ObservableObject
         CommitRuleEdits();
         var changedAccounts = Accounts.Where(a => a.Changed).Select(a => a.ToAccount()).ToList();
         _e.Settings.Save();
-        foreach (var a in changedAccounts) _e.UpdateAccount(a);
+        foreach (var a in changedAccounts)
+        {
+            _e.UpdateAccount(a);
+            Accounts.FirstOrDefault(x => x.Original.Id == a.Id)?.Accept(a);
+        }
         if (openGate) _e.OpenGate();
-        Saved?.Invoke();
     }
 }

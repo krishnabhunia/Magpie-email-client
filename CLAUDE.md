@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **2.0.0** (see CHANGELOG.md). Next: **1.2.0** — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **2.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -30,7 +30,7 @@ Current release: **2.0.0** (see CHANGELOG.md). Next: **1.2.0** — the queue and
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 204 unit tests (1.2.0 branch)
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 223 unit tests
 build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -60,6 +60,11 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Engine | `src/Magpie.Core/MailEngine.cs` — local-first actions (archive/trash/move/read/pin/snooze/tags/reminders), outbox (undo send, send later, `SendNow`), drafts on this PC |
 | Settings | `src/Magpie.Core/Settings/AppSettings.cs` — `Appearance` (toolbar, counts, colourful, `FolderHover`, `RowActions`), `WindowPlacement` (sidebar width/rail), `UpdateSettings`; always `Normalise()` new blocks |
 | Updates | `src/Magpie.Core/Updates/Updates.cs`, `src/Magpie.App/Services/UpdateService.cs` |
+| Backup (EX1) | `src/Magpie.Core/Settings/SettingsBackup.cs` (lock/unlock, staged restore applied at start), `src/Magpie.App/Services/BackupUi.cs`, `Views/PasswordDialog.cs` |
+| Mail folder (DL1) | `AppPaths.MailRoot` (+ `mail-folder.txt`), `src/Magpie.Core/Storage/MailLocation.cs` (move), `src/Magpie.App/Services/MailFolderStartup.cs` (move at start, drive missing) |
+| AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
+| Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
+| Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
 | Main window | `src/Magpie.App/MainWindow.xaml(.cs)`, `ViewModels/MainViewModel.cs` (nav, list, counts, toasts, sidebar, hover card, row actions, bulk bar), `ViewModels/ThreadViewModel.cs` (reader) |
 | Settings UI | `src/Magpie.App/Views/SettingsWindow.xaml(.cs)`, `ViewModels/SettingsViewModel.cs` (incl. search index `Index[]`, About Me) |
 | Compose | `src/Magpie.App/Views/ComposeWindow.xaml(.cs)`, `ViewModels/ComposeViewModel.cs`, `src/Magpie.Core/Mail/Composer.cs` |

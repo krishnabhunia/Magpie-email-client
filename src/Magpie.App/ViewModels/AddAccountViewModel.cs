@@ -38,6 +38,10 @@ public partial class AddAccountViewModel : ObservableObject
     [ObservableProperty] private bool _busy;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private string _error = "";
+    /// <summary>Design DS1: 90 days, attachments only when an email is opened, unless changed here or later in Settings.</summary>
+    [ObservableProperty] private int _syncDays = 90;
+    [ObservableProperty] private bool _downloadAttachments;
+    public DownloadChoice[] DownloadChoices { get; } = DownloadChoice.Standard;
 
     public string Password { get; set; } = "";
     public event Action? Done;
@@ -148,6 +152,8 @@ public partial class AddAccountViewModel : ObservableObject
         a.ServerSavesSent = a.Kind is AccountKind.Gmail or AccountKind.Microsoft;
         if (_reauth == null)
         {
+            a.SyncDays = DownloadChoice.Normalise(SyncDays);
+            a.DownloadAttachments = DownloadAttachments;
             var palette = new[] { "#14606E", "#4B3F86", "#B45309", "#1B6B2E", "#2F5BEA", "#B3261E" };
             a.Color = palette[_e.Accounts.Count % palette.Length];
         }

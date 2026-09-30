@@ -1,0 +1,46 @@
+name: Remove a release
+
+# Run by hand (Actions → Remove a release → Run workflow): deletes one GitHub release AND its tag, e.g. one
+# published by mistake. Type the tag twice; the newest real release can't be removed this way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release to remove (e.g. v2.0.1-something)"
+        required: true
+      confirm:
+        description: "Type the tag again to confirm"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - name: Remove the release and its tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          if [ "$TAG" != "$CONFIRM" ]; then echo "::error::The two tags don't match."; exit 1; fi
+          latest="$(gh release view --repo "$repo" --json tagName --jq .tagName 2>/dev/null || true)"
+          assets="$(gh release view "$TAG" --repo "$repo" --json assets --jq '.assets | length' 2>/dev/null || echo 0)"
+          if [ "$TAG" = "$latest" ] && [ "$assets" != "0" ]; then
+            echo "::error::$TAG is the newest real release; publish a newer one first."; exit 1
+          fi
+          if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "$repo" --cleanup-tag --yes
+            echo "Removed release $TAG and its tag."
+          elif git ls-remote --exit-code --tags "https://github.com/$repo" "refs/tags/$TAG" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$repo/git/refs/tags/$TAG"
+            echo "No release for $TAG; removed the tag."
+          else
+            echo "Nothing named $TAG."
+          fi

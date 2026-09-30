@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0 (30 Sep 2026)
+- **Back up your settings** (Settings → General): one file with everything you set up in Magpie — accounts and their sign-ins, rules, signatures, quick replies, templates, tags, Gatekeeper lists, look and layout — locked with a password you choose. After reinstalling Magpie (or on another PC), **Restore from a backup** puts it all back and the accounts sign in by themselves. The Add account window offers it on first start too.
+- **Where your mail is kept** (Settings → General): move your mail to another folder or drive, for example a BitLocker or VeraCrypt drive to keep it encrypted. Magpie restarts and moves it, and only removes the old copy once the new one is checked. If that drive is locked or unplugged when Magpie starts, it waits for you instead of starting an empty mailbox.
+- **Downloading, per account**: when you add an account (and later in Settings → Accounts) choose how much email to download — the last 30 days, **90 days** (the default), 6 months, a year or everything — and whether attachments come too or **only when you open the email** (the default). Emails in that time open instantly and can be read and searched offline; older ones are still listed and download when you open them.
+- **Apply** in Settings: save your changes and keep Settings open (next to **Save and close**).
+- **Several AI connections** (Settings → AI): set up more than one — say OpenAI, Claude and a local model — each with its own model and key, test each one, pick the one in use with one click, and delete the ones you don't need.
+- **Signatures**: fixed not being able to type a signature. **Edit signature…** now opens the signature in its own window, with the same editor as writing an email. Accounts signed in with Google can copy their signature from Gmail with **Get my Gmail signature**.
+- **Folder details on hover** can now appear after anything from 50 to 1000 ms, in steps of 50.
+- **Send a test notification** (Settings → Notifications) shows what a new-mail notification looks like.
+- **Buttons on email rows** now float at the right of the row in a small bar: bigger buttons, the first two set apart from the rest, and **⋯** for every other action. The date and subject stay visible.
+<!-- closes: #23 #24 #25 #27 #28 #29 #30 #31 #32 -->
+
 ## 2.0.0 (29 Sep 2026)
 - **Magpie 2.0.0** carries everything from 1.2.0 and checks the new automatic release: this version was published by merging its pull request, with a test version (2.0.0-beta) to try first.
 

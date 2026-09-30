@@ -24,6 +24,15 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 18 | Release zip with only `installer/` and `portable/` folders | Z1 (`docs/CI-CD.md`) | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#15](https://github.com/krishnabhunia/Magpie-email-client/issues/15) |
 | 19 | "Auto update": install new versions in the background, check once a day | A1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#17](https://github.com/krishnabhunia/Magpie-email-client/issues/17) |
 | 20 | Installer updates a running Magpie by itself | I1 | Approved 29 Sep 2026 · Built — not yet tried on Windows | [#18](https://github.com/krishnabhunia/Magpie-email-client/issues/18) |
+| 21 | Back up and restore every setting in one password-locked file (reinstall without setting anything up) | EX1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#23](https://github.com/krishnabhunia/Magpie-email-client/issues/23) |
+| 22 | Keep the mail in a folder you choose (another / encrypted drive) | DL1 (below) | Design shown 29 Sep 2026 · Encryption option A approved 29 Sep 2026 · Built — not yet tried on Windows | [#24](https://github.com/krishnabhunia/Magpie-email-client/issues/24) |
+| 23 | Download 90 days, attachments only when opened; changeable when adding an account and later | DS1 (below) | Design shown 29 Sep 2026 · Built — not yet tried on Windows | [#25](https://github.com/krishnabhunia/Magpie-email-client/issues/25) |
+| 24 | Settings: "Apply" next to "Save and close" | (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#27](https://github.com/krishnabhunia/Magpie-email-client/issues/27) |
+| 25 | Several AI connections: add, customise, test, delete | AI2 (below) | Shown 29 Sep 2026 · Built — not yet tried on Windows | [#28](https://github.com/krishnabhunia/Magpie-email-client/issues/28) |
+| 26 | Folder details card delay: 50 to 1000 ms in steps of 50 | (below) | Built | [#29](https://github.com/krishnabhunia/Magpie-email-client/issues/29) |
+| 27 | Better layout for the buttons on email rows | RB1 (below) | RB1 approved 29 Sep 2026 · Built — not yet tried on Windows | [#30](https://github.com/krishnabhunia/Magpie-email-client/issues/30) |
+| 28 | Bug: can't type a signature; get the Gmail signature | B6 fix (below) | Built — not yet tried on Windows | [#31](https://github.com/krishnabhunia/Magpie-email-client/issues/31) |
+| 29 | Send a test notification | (below) | Built | [#32](https://github.com/krishnabhunia/Magpie-email-client/issues/32) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -161,3 +170,50 @@ Decisions already taken: delete = move to Trash · pinned mail is never auto-del
 |---|---|
 | Auto-delete as a row hover button | Left out of H3 until #13 exists |
 | Signed installer | Krishna chose to stay unsigned for now |
+
+## EX1 · DL1 · DS1 — Backup, mail folder, downloads (#21–#23, shown 29 Sep 2026)
+
+Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (six artboards).
+
+**EX1 Back up and restore every setting.** Settings → General → *Back up your settings*: **Save a backup…** asks for a
+password (8+ characters, typed twice), then where to save `Magpie settings <date>.magpie-backup`. The file is
+PBKDF2-SHA256 (600 000 rounds) → AES-256-GCM. In it: settings.json (every setting, all accounts, rules, signatures,
+quick replies, templates, tags, Gatekeeper lists, look, layout, updates …), every secret (passwords, Google / Microsoft
+sign-ins, AI key) and the mail folder. Not in it: emails. **Restore from a backup…** (also a link in Add account):
+file → password → what it holds → *Replace my settings and restart*. The restore is staged (protected with DPAPI) and put
+in place at the next start before anything loads; the old settings.json is kept as `settings.json.before-restore`.
+
+**DL1 Where your mail is kept.** Settings → General: folder, size, free space, *Open folder*, *Move…*. Moving restarts
+Magpie and copies `mail.db` (+ journal files) and `messages\` with a progress window, checks every file, then removes the
+old copy. A folder that already has Magpie mail: *Use the mail that's there* / *Replace it*. A chosen folder that can't be
+reached at start: *Try again* / *Choose another folder…* / Cancel (close) — never an empty mailbox in its place.
+Settings, sign-ins, log and caches stay in the Windows profile (`mail-folder.txt` there names the mail folder).
+Encryption: **A — approved 29 Sep 2026**: keep the mail folder on an encrypted drive (BitLocker / VeraCrypt); Magpie
+just uses it and waits for the drive to be unlocked at start. Not chosen: B (Magpie's own password at every start),
+C (Windows file encryption, Pro only, tied to the Windows account).
+
+**DS1 Downloading.** Add account and each account in Settings → Accounts: *Download emails from the last* 30 days /
+**90 days** / 6 months / 1 year / Everything, and *Attachments*: **Only when I open the email** / Download them too.
+Emails inside the window download in the background (150 per check, inbox first, then Sent, then the other folders; not
+Trash, Junk or Drafts). "Only when I open": just the text, HTML and any invite are fetched (the server's BODYSTRUCTURE lists
+the attachments), and opening such an email fetches the whole email. Older emails stay listed and download when opened.
+
+## Items #24–#29 (asked 29 Sep 2026)
+
+Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (rows "Your six new items" and "Signature fix, Apply …").
+
+- **#24 Apply.** Settings bottom bar: Cancel · Apply · Save and close. Apply saves and keeps Settings open ("✓ Saved" for 2.5 s).
+- **#25 AI2 Several AI connections.** Settings → AI → AI connections: rows (name, "In use" badge, provider · model, last test
+  result) with a radio to pick the one in use, Edit, Delete; "+ Add an AI connection". The form below edits the chosen row
+  (name, provider, endpoint, model, API key, Test connection). `AiSettings.Connections` + `ActiveId`; Provider / Endpoint /
+  Model mirror the one in use, so everything that used one provider still works. Keys: `SecretVault.AiKeyFor(id)`; the first
+  connection (made from older settings, id "main") keeps the old key name.
+- **#26** "Appears after": 50, 100, … 1000 ms; other values round to the nearest 50.
+- **#27 RB Row buttons — RB1 approved 29 Sep 2026.** RB1 floating bar on the right, centred on the row, 28 px buttons grouped
+  Archive · Delete | Snooze · Read | ⋯; date and subject stay visible. RB2 buttons with words on the last line while hovered.
+  RB3 a slim column always on the right (3 buttons + ⋯).
+- **#28 B6 fix.** Settings → Signatures shows a preview; "Edit signature…" opens `SignatureEditorWindow` (a normal WebView2, like
+  compose; plain-text box if WebView2 can't start). "Get my Gmail signature" (Google sign-in accounts) reads Gmail's sendAs
+  settings (`GmailSignature`); needs the Gmail API on in the Google Cloud project, and says so if it's off.
+- **#29** Settings → Notifications → "Send a test notification": a sample balloon (+ sound if on), from the page's switches.
+

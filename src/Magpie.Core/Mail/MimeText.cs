@@ -82,6 +82,51 @@ public static class MimeText
 
     public static MimeEntity? PartAt(MimeMessage msg, int index) => msg.BodyParts.ElementAtOrDefault(index);
 
+    /// <summary>First negative index of attachments listed before their email is downloaded (design DS1).</summary>
+    public const int PendingIndex = -1;
+
+    /// <summary>
+    /// Attachments and inline pictures read from the server's description of an email (BODYSTRUCTURE), before the
+    /// email itself is downloaded (design DS1). They get negative indices: attachment k (in order) is -(k+1), inline
+    /// pictures -1000 and below. <see cref="ResolveIndex"/> maps an attachment's index to the downloaded email.
+    /// </summary>
+    public static List<AttachmentInfo> PendingAttachments(IEnumerable<MailKit.BodyPartBasic> parts, MailKit.BodyPart? textBody, MailKit.BodyPart? htmlBody)
+    {
+        var list = new List<AttachmentInfo>();
+        int k = 0, inl = 0;
+        foreach (var p in parts)
+        {
+            if (ReferenceEquals(p, textBody) || ReferenceEquals(p, htmlBody)) continue;
+            var cid = p.ContentId?.Trim('<', '>') ?? "";
+            var isAttachment = p.IsAttachment || (p is MailKit.BodyPartMessage);
+            var inline = !isAttachment && cid.Length > 0;
+            if (p is MailKit.BodyPartText && !isAttachment) continue;
+            if (!isAttachment && !inline) continue;
+            list.Add(new AttachmentInfo
+            {
+                Index = inline ? -1000 - inl++ : PendingIndex - k++,
+                FileName = p is MailKit.BodyPartMessage m ? (m.ContentDisposition?.FileName ?? m.Envelope?.Subject ?? "message") + ".eml"
+                                                          : p.FileName ?? (inline ? "image" : "attachment"),
+                ContentType = p.ContentType.MimeType,
+                Size = p.Octets,
+                ContentId = cid,
+                Inline = inline,
+            });
+        }
+        return list;
+    }
+
+    /// <summary>True when the stored body was made before the email was downloaded and has attachments or pictures to fetch.</summary>
+    public static bool NeedsDownload(MessageBody? body) => body?.Attachments.Any(a => a.Index < 0) == true;
+
+    /// <summary>The real index in <paramref name="msg"/> of an attachment listed before download (negative index); others unchanged.</summary>
+    public static int ResolveIndex(MimeMessage msg, int index)
+    {
+        if (index >= 0 || index <= -1000) return index;
+        var real = ListAttachments(msg).Where(a => !a.Inline).ElementAtOrDefault(PendingIndex - index);
+        return real?.Index ?? index;
+    }
+
     private static long EstimateSize(MimePart part)
     {
         try

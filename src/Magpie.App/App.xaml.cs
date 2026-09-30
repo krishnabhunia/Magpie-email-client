@@ -7,6 +7,7 @@ using Magpie.App.Views;
 using Magpie.Core;
 using Magpie.Core.Models;
 using Magpie.Core.Security;
+using Magpie.Core.Settings;
 
 namespace Magpie.App;
 
@@ -25,7 +26,13 @@ public partial class App : Application
         MailEngine engine;
         try
         {
-            engine = new MailEngine(AppPaths.Default(), new DpapiProtector());
+            var paths = AppPaths.Default();
+            var protector = new DpapiProtector();
+            // Before anything is loaded: a settings backup waiting to be restored (design EX1), then the mail folder
+            // (design DL1: a move asked for, or a chosen folder whose drive is locked or unplugged).
+            if (SettingsBackup.ApplyPending(paths, protector)) Log.Info("started with restored settings");
+            if (!MailFolderStartup.Prepare(paths)) { Shutdown(0); return; }
+            engine = new MailEngine(paths, protector);
         }
         catch (Exception ex)
         {
@@ -160,6 +167,29 @@ public partial class App : Application
             if (!await CloseComposeWindowsAsync()) return;
         }
         finally { _exitPending = false; }
+        Quit();
+    }
+
+    /// <summary>Closes Magpie (asking about open compose windows first) and starts it again, e.g. after a restore.</summary>
+    public async void RestartApp()
+    {
+        if (_exiting || _exitPending) return;
+        _exitPending = true;
+        try
+        {
+            if (!await CloseComposeWindowsAsync()) return;
+        }
+        finally { _exitPending = false; }
+        try
+        {
+            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "Magpie.exe");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--restart") { UseShellExecute = false });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("restart failed", ex);
+            MessageBox.Show("Magpie couldn't restart itself. Close it and open it again to finish.", "Magpie", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
         Quit();
     }
 

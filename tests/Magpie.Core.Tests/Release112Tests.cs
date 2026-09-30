@@ -31,7 +31,7 @@ public class Release112Tests
         };
         a.Normalise();
         Assert.Equal(new[] { "unread", "size" }, a.FolderHover.Lines);   // display order, no repeats, no unknowns
-        Assert.Equal(600, a.FolderHover.DelayMs);
+        Assert.Equal(50, a.FolderHover.DelayMs);   // 2.1.0: 50 … 1000 ms in steps of 50 (was 300 / 600 / 1000)
         Assert.Equal(new[] { "delete", "archive", "snooze", "read", "pin" }, a.RowActions.Ids);   // user's order, at most five
         Assert.Equal(0, a.RowActions.ConfirmDeleteOver);
         Assert.Equal(30, a.RowActions.BulkUndoSeconds);
