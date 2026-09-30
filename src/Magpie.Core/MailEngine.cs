@@ -857,7 +857,8 @@ public sealed class MailEngine : IDisposable
         var body = Store.GetBody(row.Id);
         if (body != null && !needMime) return (body, null);
         if (!_syncs.TryGetValue(row.AccountId, out var sync)) return (body, null);
-        var mime = await sync.GetMimeAsync(row, ct);
+        // Design RL1: an email saved before its pictures were kept gets them saved now, from the file on this PC.
+        var mime = await sync.GetMimeAsync(row, ct, refreshBody: body != null && MimeText.NeedsDownload(body));
         return (Store.GetBody(row.Id) ?? body, mime);
     }
 

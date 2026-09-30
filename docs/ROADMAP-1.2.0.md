@@ -33,6 +33,12 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 27 | Better layout for the buttons on email rows | RB1 (below) | RB1 approved 29 Sep 2026 · Built — not yet tried on Windows | [#30](https://github.com/krishnabhunia/Magpie-email-client/issues/30) |
 | 28 | Bug: can't type a signature; get the Gmail signature | B6 fix (below) | Built — not yet tried on Windows | [#31](https://github.com/krishnabhunia/Magpie-email-client/issues/31) |
 | 29 | Send a test notification | (below) | Built | [#32](https://github.com/krishnabhunia/Magpie-email-client/issues/32) |
+| 30 | Bug: emails reload every time they're opened — reader loads from this PC first | RL1 (below) | Built 30 Sep 2026 — not yet tried on Windows | [#33](https://github.com/krishnabhunia/Magpie-email-client/issues/33) |
+| 31 | Settings: Apply · Apply and Close · Cancel, enabled only when something changed; Apply is the default | AP1 (below) | Built 30 Sep 2026 — not yet tried on Windows | [#34](https://github.com/krishnabhunia/Magpie-email-client/issues/34) |
+| 32 | Collapsible: Sign-in apps, each account card, each template | CL1 (below) | Built 30 Sep 2026 — not yet tried on Windows | [#35](https://github.com/krishnabhunia/Magpie-email-client/issues/35) |
+| 33 | "Sign in again" enabled only when the sign-in has expired | (below) | Built 30 Sep 2026 | [#36](https://github.com/krishnabhunia/Magpie-email-client/issues/36) |
+| 34 | Your details per account: contact number, job title, company | AC1 (below) | Built 30 Sep 2026 | [#37](https://github.com/krishnabhunia/Magpie-email-client/issues/37) |
+| 35 | Default signature: "Thanks and Regards", name, contact number | SG1 (below) | Built 30 Sep 2026 | [#38](https://github.com/krishnabhunia/Magpie-email-client/issues/38) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -216,4 +222,25 @@ Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (rows "Your six new i
   compose; plain-text box if WebView2 can't start). "Get my Gmail signature" (Google sign-in accounts) reads Gmail's sendAs
   settings (`GmailSignature`); needs the Gmail API on in the Google Cloud project, and says so if it's off.
 - **#29** Settings → Notifications → "Send a test notification": a sample balloon (+ sound if on), from the page's switches.
+
+## Items #30–#35 (asked 30 Sep 2026)
+
+Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (row "30 Sep: reader from this PC, Settings buttons, details").
+
+- **#30 RL1 Reader loads from this PC.** Cause: the pictures inside an email were never kept with its text, so every opening
+  read the whole email again (server, or the message file) and drew the page twice. Now `MessageBody.Images` (cid → data
+  URI, ≤ 4 MB, `bodies.images`, schema v6) is filled when an email is downloaded — text-only accounts fetch the inline
+  picture parts too (`SaveTextOnlyAsync`), never attachments; `MimeText.NeedsDownload` is true only for a picture not kept
+  yet; `LoadAsync` re-saves a pre-2.2.0 body with its pictures from the message file (`refreshBody`). The reader renders
+  once from the store; "Loading…" only when `HasUncachedBody`; a 24-entry page cache keyed by a fingerprint of the rows.
+- **#31 AP1 Apply buttons.** `SettingsChanges.cs`: `Snapshot()` builds the settings as Apply would save them (pure twin of
+  `SaveCore`, rules via `ProjectRules` on a copy) and compares with the baseline taken at load / after Apply; every property
+  and observable list is watched (debounced 200 ms). `HasChanges` enables Apply (IsDefault) and Apply and Close.
+- **#32 CL1 Collapsible.** `Expander.Group` for Sign-in apps (closed), each account card (header: dot, address, kind,
+  "sign-in expired", Sign in again / Remove; open when it's the only account) and each template (header: its name; a new
+  one starts open).
+- **#33** `EditableAccount.NeedsSignIn` from `StatusOf(id).State == NeedsSignIn`, kept fresh from `StatusChanged`.
+- **#34 AC1** `Account.Phone / JobTitle / Company` (Add account, account card "Your details"; in backups).
+- **#35 SG1** `Composer.DefaultSignatureHtml`: "Thanks and Regards", <b>name</b>, job title · company, number. Put in on
+  Add account and once by `Normalise` for accounts with no signature (`SignatureDefaultApplied`); never replaces one.
 

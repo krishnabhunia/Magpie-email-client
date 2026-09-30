@@ -25,6 +25,15 @@ public partial class SettingsViewModel
         SignatureStatus = "";
     }
 
+    /// <summary>Design SG1: back to "Thanks and Regards", name, job title, company, number — from the account's details.</summary>
+    [RelayCommand]
+    private void UseDefaultSignature()
+    {
+        if (SignatureAccount is not { } a) return;
+        a.SignatureHtml = Magpie.Core.Mail.Composer.DefaultSignatureHtml(a.ToAccount());
+        SignatureStatus = "Default signature put in. Press Apply to keep it.";
+    }
+
     /// <summary>Copies the signature set in Gmail for the chosen account (signed in with Google).</summary>
     [RelayCommand]
     private async Task ImportGmailSignature()

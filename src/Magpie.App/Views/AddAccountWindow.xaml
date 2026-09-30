@@ -24,6 +24,26 @@
                      IsReadOnly="{Binding IsReauth}" Tag="you@example.com" />
             <TextBlock Text="Your name (shown to people you write to)" Style="{StaticResource Text.Caption}" Margin="0,12,0,5" Visibility="{Binding IsReauth, Converter={StaticResource InvBoolToVis}}" />
             <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsReauth, Converter={StaticResource InvBoolToVis}}" Tag="Krishna Bhunia" />
+            <!-- Design AC1: your details, optional; they go into the default signature (design SG1) -->
+            <Grid Margin="0,12,0,0" Visibility="{Binding IsReauth, Converter={StaticResource InvBoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Contact number (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}" Tag="+91 …" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Job title (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding JobTitle, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Company (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Company, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,6,0,0" Visibility="{Binding IsReauth, Converter={StaticResource InvBoolToVis}}"
+                       Text="Your signature starts as “Thanks and Regards”, your name and number. Change it any time in Settings → Signatures &amp; replies." />
 
             <TextBlock Text="Account type" Style="{StaticResource Text.Caption}" Margin="0,12,0,5" Visibility="{Binding IsReauth, Converter={StaticResource InvBoolToVis}}" />
             <ComboBox ItemsSource="{Binding Choices}" SelectedValue="{Binding Choice, Mode=TwoWay}" SelectedValuePath="Value" DisplayMemberPath="Label"

@@ -450,7 +450,11 @@ public partial class SettingsViewModel
     }
 
     /// <summary>The main Save button also keeps finished edits to rules (half-written ones stay unsaved).</summary>
-    private void CommitRuleEdits()
+    private void CommitRuleEdits() => _e.Config.Rules = ProjectRules(_savedRules);
+
+    /// <summary>The rules as they would be saved now: complete edits replace the saved ones in <paramref name="saved"/>
+    /// (a copy for a what-would-change check, the real dictionary when saving).</summary>
+    private List<MailRule> ProjectRules(Dictionary<string, MailRule> saved)
     {
         foreach (var e in RuleList)
         {
@@ -460,8 +464,8 @@ public partial class SettingsViewModel
                 && now.Actions.All(a => a.Kind is not (RuleActionKind.MoveToFolder or RuleActionKind.Tag) || a.Target.Length > 0);
             if (!complete) continue;
             if (now.Name.Length == 0) now.Name = "Rule " + (RuleList.IndexOf(e) + 1);
-            _savedRules[e.Id] = now;
+            saved[e.Id] = now;
         }
-        _e.Config.Rules = RuleList.Where(e => _savedRules.ContainsKey(e.Id)).Select(e => { var r = _savedRules[e.Id]; r.Enabled = e.Enabled; return r.Clone(); }).ToList();
+        return RuleList.Where(e => saved.ContainsKey(e.Id)).Select(e => { var r = saved[e.Id].Clone(); r.Enabled = e.Enabled; return r; }).ToList();
     }
 }

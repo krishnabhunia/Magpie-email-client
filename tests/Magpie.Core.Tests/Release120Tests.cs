@@ -371,8 +371,9 @@ public class Release120Tests
         Assert.Contains(msg.BodyParts, p => !string.IsNullOrEmpty(p.ContentId));
 
         // An empty rich signature adds nothing (and doesn't come back from the old text once cleared).
+        // (2.2.0: an account that never had the default signature gets it once — SignatureDefaultApplied says it did.)
         Assert.Equal("", Composer.SignatureHtml(new Account { SignatureHtml = "<p><br></p>" }, reply: false));
-        var cleared = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"Accounts":[{"Id":"a","Signature":"","SignatureHtml":""}]}""", AppSettings.Json)!;
+        var cleared = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("""{"Accounts":[{"Id":"a","Signature":"","SignatureHtml":"","SignatureDefaultApplied":true}]}""", AppSettings.Json)!;
         SettingsStore.Normalise(cleared);
         Assert.Equal("", cleared.Accounts[0].SignatureHtml);
     }

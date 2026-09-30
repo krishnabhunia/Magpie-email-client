@@ -146,6 +146,19 @@ public static class Composer
     /// A 1.1.x plain-text signature as HTML ("-- " line, then the text). Only &amp; &lt; &gt; are escaped — what the
     /// editor's innerHTML gives back — so opening it in the editor doesn't count as a change.
     /// </summary>
+    /// <summary>Design SG1: the signature every account starts with — "Thanks and Regards", your name, job title and
+    /// company, contact number (empty lines left out). Editable like any signature afterwards.</summary>
+    public static string DefaultSignatureHtml(Account a)
+    {
+        static string E(string s) => System.Net.WebUtility.HtmlEncode(s.Trim());
+        var lines = new List<string> { "Thanks and Regards" };
+        if (!string.IsNullOrWhiteSpace(a.DisplayName)) lines.Add("<b>" + E(a.DisplayName) + "</b>");
+        var role = string.Join(" · ", new[] { a.JobTitle, a.Company }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(E));
+        if (role.Length > 0) lines.Add(role);
+        if (!string.IsNullOrWhiteSpace(a.Phone)) lines.Add(E(a.Phone));
+        return "<p>" + string.Join("<br>", lines) + "</p>";
+    }
+
     public static string LegacySignatureHtml(string signature) =>
         string.IsNullOrWhiteSpace(signature) ? "" :
         "-- <br>" + signature.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");

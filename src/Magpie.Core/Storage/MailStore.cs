@@ -32,7 +32,7 @@ public sealed class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 5;
+    public const int SchemaVersion = 6;
 
     public MailStore(string dbPath)
     {
@@ -127,6 +127,9 @@ public sealed class MailStore
         // v5 (1.2.0): a body keeps its invite (text/calendar part, design B3).
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('bodies') WHERE name='calendar'")) == 0)
             Exec(c, "ALTER TABLE bodies ADD COLUMN calendar TEXT NOT NULL DEFAULT ''");
+        // v6 (2.2.0, design RL1): a body keeps the pictures inside the email, so opening it needs nothing else.
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('bodies') WHERE name='images'")) == 0)
+            Exec(c, "ALTER TABLE bodies ADD COLUMN images TEXT NOT NULL DEFAULT ''");
         // v4 → v5 (1.2.0): auto-delete / OTP delete (designs AD1–AD4). delete_rule is the rule's id, or "-" for "Keep this one".
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='delete_at'")) == 0)
         {
@@ -645,15 +648,17 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT html,text,attachments,calendar FROM bodies WHERE message_row=$id";
+        cmd.CommandText = "SELECT html,text,attachments,calendar,images FROM bodies WHERE message_row=$id";
         cmd.Parameters.AddWithValue("$id", rowId);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
+        var images = r.GetString(4);
         return new MessageBody
         {
             Html = r.GetString(0), Text = r.GetString(1),
             Attachments = JsonSerializer.Deserialize<List<AttachmentInfo>>(r.GetString(2)) ?? new(),
             Calendar = r.GetString(3),
+            Images = images.Length > 0 ? JsonSerializer.Deserialize<Dictionary<string, string>>(images) ?? new() : new(),
         };
     }
 
@@ -661,13 +666,26 @@ public sealed class MailStore
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
-        Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar) VALUES($id,$h,$t,$a,$c)",
-            ("$id", rowId), ("$h", body.Html), ("$t", body.Text), ("$a", JsonSerializer.Serialize(body.Attachments)), ("$c", body.Calendar ?? ""));
+        Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images) VALUES($id,$h,$t,$a,$c,$i)",
+            ("$id", rowId), ("$h", body.Html), ("$t", body.Text), ("$a", JsonSerializer.Serialize(body.Attachments)), ("$c", body.Calendar ?? ""),
+            ("$i", body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : ""));
         Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", rowId));
         Exec(c, """
             UPDATE messages_fts SET body=$b WHERE rowid=$id
             """, ("$b", body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text), ("$id", rowId));
         tx.Commit();
+    }
+
+    /// <summary>True when any email of the conversation still has to be downloaded (design RL1: then the reader shows
+    /// "Loading…"; otherwise it renders straight from this PC).</summary>
+    public bool HasUncachedBody(string accountId, string threadKey)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM messages WHERE account_id=$a AND thread_key=$t AND body_cached=0";
+        cmd.Parameters.AddWithValue("$a", accountId);
+        cmd.Parameters.AddWithValue("$t", threadKey);
+        return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
     }
 
     /// <summary>Newest emails in a folder with no downloaded text yet; only those since <paramref name="since"/> when given

@@ -14,6 +14,13 @@ public sealed class Account
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>Your details for this account (design AC1): shown in the default signature; kept in backups.</summary>
+    public string Phone { get; set; } = "";
+    public string JobTitle { get; set; } = "";
+    public string Company { get; set; } = "";
+    /// <summary>The default signature ("Thanks and Regards / name / number") was put in once; never again after that,
+    /// so a signature you cleared on purpose stays clear.</summary>
+    public bool SignatureDefaultApplied { get; set; }
     public AccountKind Kind { get; set; } = AccountKind.Imap;
     public AuthMethod Auth { get; set; } = AuthMethod.Password;
 

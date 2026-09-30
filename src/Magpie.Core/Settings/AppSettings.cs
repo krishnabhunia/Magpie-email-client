@@ -422,6 +422,13 @@ public sealed class SettingsStore
     internal static void Normalise(AppSettings s)
     {
         s.Accounts ??= new();
+        // Design SG1: an account with no signature yet gets the default one, once.
+        foreach (var a in s.Accounts)
+        {
+            if (a.SignatureDefaultApplied || !string.IsNullOrWhiteSpace(a.SignatureHtml) || !string.IsNullOrWhiteSpace(a.Signature)) continue;
+            a.SignatureHtml = Mail.Composer.DefaultSignatureHtml(a);
+            a.SignatureDefaultApplied = true;
+        }
         s.Ai ??= new();
         s.Ai.Consents ??= new();
         s.Tags ??= new();
