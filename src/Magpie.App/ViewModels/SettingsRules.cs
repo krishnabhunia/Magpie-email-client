@@ -321,6 +321,19 @@ public partial class SettingsViewModel
         RuleStatusIsError = false;
     }
 
+    /// <summary>Design HM1 (E9, S8): a new rule with its first condition filled in ("From contains anita@vendorco.in").</summary>
+    public void NewRuleWith(RuleField field, string value, string name)
+    {
+        GoTo("Rules:Filters");
+        NewRule();
+        if (SelectedRule is not { } r || r.Conditions.Count == 0) return;
+        r.Name = name;
+        r.Conditions[0].Field = field;
+        r.Conditions[0].Op = RuleOp.Contains;
+        r.Conditions[0].Value = value;
+        r.UpdateSummary();
+    }
+
     [RelayCommand]
     private void DeleteRule(EditableRule? r)
     {

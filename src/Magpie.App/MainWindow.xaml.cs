@@ -16,6 +16,8 @@ namespace Magpie.App;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
+    private readonly ReaderHover _hover;
+    private readonly SubjectCard _subjectCard;
     private bool _webReady;
     private string? _pendingUrl;
 
@@ -26,6 +28,9 @@ public partial class MainWindow : Window
         DataContext = _vm;
         _vm.Reader.PageReady += url => Ui.Post(() => ShowPage(url));
         _vm.Reader.Loading += ShowLoading;
+        // Design HM1: hover cards on addresses, files (in the page) and the subject.
+        _hover = new ReaderHover(this, _vm, _vm.Reader, js => _webReady ? Web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
+        _subjectCard = new SubjectCard(SubjectText, () => _hover.SubjectContent(ownWindow: false), (id, anchor) => _hover.RunSubject(id, anchor, _subjectCard!));
         _vm.StatusBar.SignInRequested += id =>
         {
             if (AppServices.Engine.AccountById(id) is { } a) AddAccountWindow.ShowReauth(this, a);
@@ -292,18 +297,7 @@ public partial class MainWindow : Window
         try
         {
             using var doc = JsonDocument.Parse(e.TryGetWebMessageAsString());
-            var root = doc.RootElement;
-            var t = root.GetProperty("t").GetString();
-            long id = root.TryGetProperty("id", out var idEl) ? idEl.GetInt64() : 0;
-            switch (t)
-            {
-                case "link": _vm.Reader.OnLink(root.GetProperty("href").GetString() ?? ""); break;
-                case "reply": _vm.Reader.Compose(ComposeMode.Reply, id); break;
-                case "replyall": _vm.Reader.Compose(ComposeMode.ReplyAll, id); break;
-                case "forward": _vm.Reader.Compose(ComposeMode.Forward, id); break;
-                case "att": _ = _vm.Reader.OpenAttachmentAsync(id, root.GetProperty("i").GetInt32()); break;
-                case "retry": _vm.Reader.RetryLoad(); break;
-            }
+            _hover.OnMessage(doc.RootElement);
         }
         catch (Exception ex) { Log.Warn("web message: " + ex.Message); }
     }
@@ -337,47 +331,17 @@ public partial class MainWindow : Window
 
     private void OnSnoozeMenu(object sender, RoutedEventArgs e)
     {
-        if (!_vm.Reader.HasThread) return;
-        var menu = new ContextMenu();
-        foreach (var p in TimePresets.For(DateTime.Now))
-            menu.Items.Add(Item($"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}", () => _vm.Reader.Snooze(p.When)));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Pick date & time…", () =>
-        {
-            var when = PickTimeDialog.Ask(this, "Snooze until", "The conversation leaves your inbox and comes back at this time.", DateTime.Now.AddDays(1).Date.AddHours(8));
-            if (when != null) _vm.Reader.Snooze(when.Value);
-        }));
-        if (_vm.Reader.IsSnoozed) menu.Items.Add(Item("Unsnooze now", () => _vm.Reader.UnsnoozeCommand.Execute(null)));
-        ShowMenu((FrameworkElement)sender, menu);
+        if (_vm.Reader.HasThread) ShowMenu((FrameworkElement)sender, ReaderMenus.Snooze(_vm.Reader, this));
     }
 
     private void OnRemindMenu(object sender, RoutedEventArgs e)
     {
-        if (!_vm.Reader.HasThread) return;
-        var ifNoReply = _vm.Reader.LatestIsMine;
-        var menu = new ContextMenu();
-        menu.Items.Add(new MenuItem { Header = ifNoReply ? "Remind me if nobody replies by…" : "Bring this back to the top on…", IsEnabled = false });
-        foreach (var p in TimePresets.For(DateTime.Now))
-            menu.Items.Add(Item($"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}", () => _vm.Reader.RemindMe(p.When, ifNoReply)));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Pick date & time…", () =>
-        {
-            var when = PickTimeDialog.Ask(this, "Remind me", ifNoReply ? "If nobody has replied by then, the conversation comes back to the top of your inbox." : "The conversation comes back to the top of your inbox at this time.", DateTime.Now.AddDays(2).Date.AddHours(9));
-            if (when != null) _vm.Reader.RemindMe(when.Value, ifNoReply);
-        }));
-        ShowMenu((FrameworkElement)sender, menu);
+        if (_vm.Reader.HasThread) ShowMenu((FrameworkElement)sender, ReaderMenus.Remind(_vm.Reader, this));
     }
 
     private void OnTagMenu(object sender, RoutedEventArgs e)
     {
-        if (!_vm.Reader.HasThread) return;
-        var current = _vm.Reader.CurrentTags;
-        var menu = new ContextMenu();
-        foreach (var t in AppServices.Engine.Config.Tags)
-            menu.Items.Add(Item(t.Name, () => _vm.Reader.ToggleTag(t.Name), isChecked: current.Contains(t.Name)));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Manage tags…", () => SettingsWindow.Open("General")));
-        ShowMenu((FrameworkElement)sender, menu);
+        if (_vm.Reader.HasThread) ShowMenu((FrameworkElement)sender, ReaderMenus.Tag(_vm.Reader));
     }
 
     /// <summary>A reading-pane toolbar button (designs C1, C3).</summary>

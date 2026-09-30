@@ -204,6 +204,20 @@ public partial class CalendarViewModel : ObservableObject
         OpenEvent?.Invoke(NewAt(start));
     }
 
+    /// <summary>Design HM1 (E7, S7): the new-event window with these people invited, from the next half hour.
+    /// False when there is no Google calendar Magpie may write to.</summary>
+    public bool NewEventWith(string title, IEnumerable<(string Name, string Email)> people, string notes = "")
+    {
+        if (WritableCalendars().Count == 0) return false;
+        var e = NewAt(NextHalfHour());
+        e.Title = title;
+        e.Description = notes;
+        foreach (var (name, email) in people.DistinctBy(p => p.Email.ToLowerInvariant()))
+            e.Attendees.Add(new EventAttendee { Email = email, Name = name });
+        OpenEvent?.Invoke(e);
+        return true;
+    }
+
     private static DateTime NextHalfHour()
     {
         var n = DateTime.Now;

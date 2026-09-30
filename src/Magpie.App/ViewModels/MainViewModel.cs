@@ -531,6 +531,15 @@ public partial class MainViewModel : ObservableObject
         Current = item;
     }
 
+    /// <summary>Design HM1: a search over every folder of every account (the Inbox view searches everywhere).</summary>
+    public void SearchEverywhere(string text)
+    {
+        IsCalendarView = false;
+        var inbox = Smart.FirstOrDefault(n => n.Kind == NavKind.Inbox);
+        if (inbox != null && Current != inbox) Current = inbox;
+        SearchText = text;
+    }
+
     partial void OnCategoryChanged(Category? value) => ReloadList();
     partial void OnUnreadOnlyChanged(bool value) => ReloadList();
     partial void OnSearchTextChanged(string value)

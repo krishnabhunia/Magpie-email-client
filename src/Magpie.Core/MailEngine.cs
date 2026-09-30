@@ -879,6 +879,12 @@ public sealed class MailEngine : IDisposable
     public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct) =>
         _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.LocalMimeAsync(row, ct) : null;
 
+    /// <summary>Design HM1: the whole email (attachments too) is on this PC as a message file.</summary>
+    public bool HasMessageFile(MessageRow row)
+    {
+        try { return File.Exists(Paths.MimePath(row.AccountId, row.Id)); } catch { return false; }
+    }
+
     /// <summary>Q38: emails the reader will probably open next; downloaded first.</summary>
     public void WantBodies(string accountId, IEnumerable<long> rowIds)
     {

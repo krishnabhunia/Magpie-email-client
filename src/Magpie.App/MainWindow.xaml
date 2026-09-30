@@ -738,7 +738,9 @@
                                 Foreground="{DynamicResource Brush.Accent.Text}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
                                 Visibility="{Binding IsPinned, Converter={StaticResource InvBoolToVis}}" />
-                        <TextBlock Text="{Binding Subject}" Style="{StaticResource Text.Serif}" FontSize="19" TextWrapping="Wrap" TextTrimming="None" />
+                        <!-- Design HM1: resting the mouse here (or right-click / Menu key) opens the subject card -->
+                        <TextBlock x:Name="SubjectText" Text="{Binding Subject}" Style="{StaticResource Text.Serif}" FontSize="19" TextWrapping="Wrap" TextTrimming="None"
+                                   Focusable="True" AutomationProperties.Name="Subject — press the Menu key for actions" />
                     </DockPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                         <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" />
