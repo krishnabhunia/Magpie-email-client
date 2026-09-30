@@ -28,11 +28,11 @@ public sealed class ListQuery
 /// Local mail store: SQLite (WAL) with an FTS5 index over subject, sender, recipients and body text.
 /// Every method opens its own pooled connection, so it is safe to call from the UI and sync threads.
 /// </summary>
-public sealed class MailStore
+public sealed partial class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 7;
+    public const int SchemaVersion = 8;
 
     public MailStore(string dbPath)
     {
@@ -149,6 +149,7 @@ public sealed class MailStore
               id TEXT PRIMARY KEY, pattern TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '', otp INTEGER NOT NULL DEFAULT 0,
               amount INTEGER NOT NULL DEFAULT 7, unit INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
             """);
+        MigrateCalendar(c);   // design B2 (MailStore.Calendar.cs)
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }

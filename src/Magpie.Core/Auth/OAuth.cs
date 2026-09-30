@@ -17,6 +17,8 @@ public sealed class OAuthTokens
     public DateTimeOffset ExpiresAt { get; init; }
     public string? Email { get; init; }
     public string? Name { get; init; }
+    /// <summary>What the sign-in allows, space-separated (Google says so with every token).</summary>
+    public string Scopes { get; init; } = "";
 }
 
 /// <summary>The saved sign-in no longer works (revoked, expired, password changed) — the user must sign in again.</summary>
@@ -51,9 +53,22 @@ public sealed class OAuthService
         "Google",
         "https://accounts.google.com/o/oauth2/v2/auth",
         "https://oauth2.googleapis.com/token",
-        "https://mail.google.com/ openid email profile",
+        // Mail, plus the calendar (design B2: read every calendar incl. holidays, change events) and contacts (design B4).
+        $"https://mail.google.com/ {GoogleCalendarRead} {GoogleCalendarEvents} {GoogleContacts} openid email profile",
         clientId, clientSecret, "127.0.0.1",
         "access_type=offline&prompt=consent");
+
+    public const string GoogleCalendarRead = "https://www.googleapis.com/auth/calendar.readonly";
+    public const string GoogleCalendarEvents = "https://www.googleapis.com/auth/calendar.events";
+    public const string GoogleContacts = "https://www.googleapis.com/auth/contacts";
+
+    /// <summary>What the account's current sign-in allows ("" when not known yet). Filled by <see cref="GetAccessTokenAsync"/>.</summary>
+    public string GrantedScopes(string accountId)
+    {
+        lock (_cache) return _cache.TryGetValue(accountId, out var t) ? t.Scopes : "";
+    }
+
+    public static bool Allows(string scopes, string scope) => scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(scope);
 
     public static OAuthConfig Microsoft(string clientId) => new(
         "Microsoft",
@@ -126,7 +141,8 @@ public sealed class OAuthService
         string? email = null, name = null;
         if (root.TryGetProperty("id_token", out var idt) && idt.GetString() is { } jwt)
             (email, name) = ReadIdToken(jwt);
-        return new OAuthTokens { AccessToken = access, RefreshToken = refresh, ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expires - 60), Email = email, Name = name };
+        var scopes = root.TryGetProperty("scope", out var sc) && sc.ValueKind == JsonValueKind.String ? sc.GetString() ?? "" : "";
+        return new OAuthTokens { AccessToken = access, RefreshToken = refresh, ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expires - 60), Email = email, Name = name, Scopes = scopes };
     }
 
     internal static (string? email, string? name) ReadIdToken(string jwt)
