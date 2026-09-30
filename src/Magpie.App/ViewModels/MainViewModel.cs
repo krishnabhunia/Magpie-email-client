@@ -854,6 +854,11 @@ public partial class MainViewModel : ObservableObject
             Reader.Clear("Draft saved on this PC", "Click it or press Enter to open it in a new window.");
             return;
         }
+        // Q38: the next three conversations and the one above get ready while this one is read.
+        var i = Threads.IndexOf(value);
+        Reader.Neighbours = new[] { i + 1, i + 2, i + 3, i - 1 }
+            .Where(j => j >= 0 && j < Threads.Count && Threads[j].LocalDraftId == null)
+            .Select(j => Threads[j].Row).ToList();
         Reader.Show(value.Row, this);
     }
 

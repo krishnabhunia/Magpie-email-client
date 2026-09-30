@@ -46,6 +46,8 @@ public partial class EditableAccount : ObservableObject
     [ObservableProperty] private string _company;
     /// <summary>Only then does "Sign in again" do anything (design AC1).</summary>
     [ObservableProperty] private bool _needsSignIn;
+    /// <summary>Q40: "All 1,234 emails from the last 90 days are on this PC" (empty until counted).</summary>
+    [ObservableProperty] private string _onThisPc = "";
     /// <summary>Collapsed card in Settings → Accounts (design CL1).</summary>
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _signature;
@@ -696,10 +698,37 @@ public partial class SettingsViewModel : ObservableObject
         }
         _e.StatusChanged += OnAccountStatus;
         StartChangeTracking();
+        foreach (var a in Accounts) RefreshOnThisPc(a.Original.Id);
     }
 
-    private void OnAccountStatus(string accountId, SyncStatus status) =>
+    private void OnAccountStatus(string accountId, SyncStatus status)
+    {
         Ui.Post(() => { if (Accounts.FirstOrDefault(a => a.Original.Id == accountId) is { } a) a.NeedsSignIn = status.State == SyncState.NeedsSignIn; });
+        RefreshOnThisPc(accountId);
+    }
+
+    private readonly Dictionary<string, DateTime> _countedAt = new();
+
+    /// <summary>Q40: counts the account's download window on this PC, off the UI thread and at most every 3 s.</summary>
+    private void RefreshOnThisPc(string accountId)
+    {
+        lock (_countedAt)
+        {
+            if (_countedAt.TryGetValue(accountId, out var at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(3)) return;
+            _countedAt[accountId] = DateTime.UtcNow;
+        }
+        var days = _e.AccountById(accountId)?.SyncDays ?? 0;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var (onPc, total) = _e.WindowProgress(accountId);
+                var text = Magpie.Core.Mail.AccountSync.DescribeWindow(onPc, total, days);
+                Ui.Post(() => { if (Accounts.FirstOrDefault(a => a.Original.Id == accountId) is { } a) a.OnThisPc = text; });
+            }
+            catch (Exception ex) { Log.Warn("count emails on this PC: " + ex.Message); }
+        });
+    }
 
     /// <summary>The window closed: stop listening to the engine.</summary>
     public void Detach() => _e.StatusChanged -= OnAccountStatus;

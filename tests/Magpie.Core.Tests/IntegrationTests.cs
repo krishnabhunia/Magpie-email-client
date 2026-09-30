@@ -174,6 +174,73 @@ public class IntegrationTests
     }
 
     [Fact]
+    public async Task Download_window_fills_in_batches_and_emails_open_from_this_pc()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await CreateFolder(me, "Label");
+        for (int i = 0; i < 30; i++)
+            await Append(me, "INBOX", Msg($"s{i}@x.test", me, $"Small {i}", $"body {i}", date: DateTimeOffset.Now.AddDays(-i)));
+        // A picture shown inside the email, kept with its text.
+        await Append(me, "INBOX", Msg("logo@x.test", me, "With logo", "", extra: m =>
+        {
+            var b = new BodyBuilder { HtmlBody = "<p>Logo</p><img src=\"cid:logo@x.test\">" };
+            var img = b.LinkedResources.Add("logo.png", new byte[] { 137, 80, 78, 71, 1, 2, 3 }, new ContentType("image", "png"));
+            img.ContentId = "logo@x.test";
+            m.Body = b.ToMessageBody();
+        }));
+        // A big attachment: a text-only account downloads just its text ahead.
+        await Append(me, "INBOX", Msg("big@x.test", me, "Big report", "", extra: m =>
+        {
+            var b = new BodyBuilder { TextBody = "See the report attached." };
+            b.Attachments.Add("report.bin", new byte[700_000]);
+            m.Body = b.ToMessageBody();
+        }));
+        // The same email in two folders (like Gmail's Inbox and All Mail): counted and downloaded once.
+        var copy = Msg("copy@x.test", me, "In two folders", "twice", "copy1@x.test");
+        await Append(me, "INBOX", copy);
+        await Append(me, "Label", copy);
+        // Outside the 90 days: listed, not downloaded ahead.
+        var old = new DateTimeOffset(2021, 3, 1, 9, 0, 0, TimeSpan.Zero);
+        await Append(me, "INBOX", Msg("old@x.test", me, "Old one", "from 2021", date: old), KitFlags.Seen, old);
+
+        var per = AccountSync.PrefetchPerRound;
+        AccountSync.PrefetchPerRound = 10;   // several rounds, back to back
+        try
+        {
+            using var dir = new TempDir();
+            using var e = NewEngine(dir);
+            e.Start();
+            var acc = AccountFor(me);   // 90 days, attachments when opened (the defaults)
+            e.AddAccount(acc, "secret", null);
+
+            await WaitUntil(() => e.WindowProgress(acc.Id) is var p && p.Total == 33 && p.OnPc == p.Total, "the 90 days on this PC", 60);
+            var inbox = e.FolderIds(FolderRole.Inbox);
+            var rows = e.Store.GetMessagesIn(inbox.Concat(e.Folders(acc.Id).Where(f => f.Name == "Label").Select(f => f.Id)).ToList());
+            MessageRow Row(string subject) => rows.First(r => r.Subject == subject);
+
+            var logo = e.Store.GetBody(Row("With logo").Id)!;
+            Assert.True(logo.Images.ContainsKey("logo@x.test"));
+            Assert.True(logo.ImagesComplete);
+            Assert.False(MimeText.NeedsDownload(logo));
+
+            var big = e.Store.GetBody(Row("Big report").Id)!;
+            Assert.Contains("report attached", big.Text);
+            Assert.Contains(big.Attachments, a => a.FileName == "report.bin" && a.Index < 0);   // fetched when clicked
+            Assert.False(File.Exists(e.Paths.MimePath(acc.Id, Row("Big report").Id)));
+
+            Assert.All(rows.Where(r => r.Subject == "In two folders"), r => Assert.Equal("twice", e.Store.GetBody(r.Id)!.Text.Trim()));
+            Assert.Null(e.Store.GetBody(Row("Old one").Id));
+
+            // Opening the old one downloads it on the reading connection; afterwards it is here.
+            var body = await e.FetchBodyAsync(Row("Old one"), CancellationToken.None);
+            Assert.Contains("from 2021", body!.Text);
+            await WaitUntil(() => e.StatusOf(acc.Id)!.Message == "Up to date", "status settles", 30);
+        }
+        finally { AccountSync.PrefetchPerRound = per; }
+    }
+
+    [Fact]
     public async Task Sync_threads_categories_and_server_roundtrips()
     {
         if (!ServersUp()) return;

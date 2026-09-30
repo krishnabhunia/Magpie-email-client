@@ -118,8 +118,17 @@ public static class MimeText
 
     /// <summary>True when the email must be read again to show it: a picture inside it isn't kept with the text yet
     /// (design RL1). Attachments listed before download are fetched only when clicked, not on opening.</summary>
-    public static bool NeedsDownload(MessageBody? body) =>
-        body?.Attachments.Any(a => a.Inline && a.ContentId.Length > 0 && !body.Images.ContainsKey(a.ContentId)) == true;
+    public static bool NeedsDownload(MessageBody? body) => body != null && !body.ImagesComplete && MissingPictures(body).Any();
+
+    /// <summary>Pictures the email shows (an image part referenced as cid: in its HTML) that aren't kept with its text.
+    /// Other inline parts (a calendar, a signature file) and unused pictures don't count (Q39: they made every
+    /// opening read the whole email again).</summary>
+    public static IEnumerable<string> MissingPictures(MessageBody body) =>
+        body.Attachments.Where(a => a.Inline && a.ContentId.Length > 0
+                                    && a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                                    && !body.Images.ContainsKey(a.ContentId)
+                                    && body.Html.Contains("cid:" + a.ContentId, StringComparison.OrdinalIgnoreCase))
+                        .Select(a => a.ContentId);
 
     /// <summary>Pictures kept with an email's text (design RL1): at most this many bytes; bigger sets come from the
     /// message file on this PC when the email is opened.</summary>

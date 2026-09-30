@@ -32,7 +32,7 @@ public sealed class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 6;
+    public const int SchemaVersion = 7;
 
     public MailStore(string dbPath)
     {
@@ -130,6 +130,8 @@ public sealed class MailStore
         // v6 (2.2.0, design RL1): a body keeps the pictures inside the email, so opening it needs nothing else.
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('bodies') WHERE name='images'")) == 0)
             Exec(c, "ALTER TABLE bodies ADD COLUMN images TEXT NOT NULL DEFAULT ''");
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('bodies') WHERE name='images_done'")) == 0)
+            Exec(c, "ALTER TABLE bodies ADD COLUMN images_done INTEGER NOT NULL DEFAULT 0");
         // v4 → v5 (1.2.0): auto-delete / OTP delete (designs AD1–AD4). delete_rule is the rule's id, or "-" for "Keep this one".
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='delete_at'")) == 0)
         {
@@ -648,7 +650,7 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT html,text,attachments,calendar,images FROM bodies WHERE message_row=$id";
+        cmd.CommandText = "SELECT html,text,attachments,calendar,images,images_done FROM bodies WHERE message_row=$id";
         cmd.Parameters.AddWithValue("$id", rowId);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
@@ -658,7 +660,9 @@ public sealed class MailStore
             Html = r.GetString(0), Text = r.GetString(1),
             Attachments = JsonSerializer.Deserialize<List<AttachmentInfo>>(r.GetString(2)) ?? new(),
             Calendar = r.GetString(3),
-            Images = images.Length > 0 ? JsonSerializer.Deserialize<Dictionary<string, string>>(images) ?? new() : new(),
+            Images = images.Length > 0 && JsonSerializer.Deserialize<Dictionary<string, string>>(images) is { } map
+                ? new Dictionary<string, string>(map, StringComparer.OrdinalIgnoreCase) : new(StringComparer.OrdinalIgnoreCase),
+            ImagesComplete = r.GetInt64(5) != 0,
         };
     }
 
@@ -666,14 +670,80 @@ public sealed class MailStore
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
-        Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images) VALUES($id,$h,$t,$a,$c,$i)",
-            ("$id", rowId), ("$h", body.Html), ("$t", body.Text), ("$a", JsonSerializer.Serialize(body.Attachments)), ("$c", body.Calendar ?? ""),
-            ("$i", body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : ""));
-        Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", rowId));
-        Exec(c, """
-            UPDATE messages_fts SET body=$b WHERE rowid=$id
-            """, ("$b", body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text), ("$id", rowId));
+        var attachments = JsonSerializer.Serialize(body.Attachments);
+        var images = body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : "";
+        var ftsText = body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text;
+        // Q39: the same email in other folders (Gmail keeps it in Inbox and All Mail) gets this body too, instead of
+        // being downloaded again. Copies that already have one keep theirs.
+        var targets = new List<long> { rowId };
+        using (var q = c.CreateCommand())
+        {
+            q.CommandText = """
+                SELECT s.id FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id
+                WHERE m.id=$id AND m.message_id<>'' AND s.body_cached=0
+                """;
+            q.Parameters.AddWithValue("$id", rowId);
+            using var r = q.ExecuteReader();
+            while (r.Read()) targets.Add(r.GetInt64(0));
+        }
+        foreach (var id in targets)
+        {
+            Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done) VALUES($id,$h,$t,$a,$c,$i,$d)",
+                ("$id", id), ("$h", body.Html), ("$t", body.Text), ("$a", attachments), ("$c", body.Calendar ?? ""), ("$i", images), ("$d", body.ImagesComplete ? 1 : 0));
+            Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", id));
+            Exec(c, "UPDATE messages_fts SET body=$b WHERE rowid=$id", ("$b", ftsText), ("$id", id));
+        }
         tx.Commit();
+    }
+
+    /// <summary>Q39: gives every copy of an email that has no body yet the body of a copy that has one (emails saved
+    /// before copies shared their body). Returns how many copies got one.</summary>
+    public int ShareBodiesWithCopies(string accountId)
+    {
+        using var c = Open();
+        var pairs = new List<(long to, long from)>();
+        using (var q = c.CreateCommand())
+        {
+            q.CommandText = """
+                SELECT m.id, MIN(s.id) FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id AND s.body_cached=1
+                WHERE m.account_id=$a AND m.body_cached=0 AND m.message_id<>'' GROUP BY m.id
+                """;
+            q.Parameters.AddWithValue("$a", accountId);
+            using var r = q.ExecuteReader();
+            while (r.Read()) pairs.Add((r.GetInt64(0), r.GetInt64(1)));
+        }
+        if (pairs.Count == 0) return 0;
+        using var tx = c.BeginTransaction();
+        foreach (var (to, from) in pairs)
+        {
+            Exec(c, """
+                INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done)
+                SELECT $to,html,text,attachments,calendar,images,images_done FROM bodies WHERE message_row=$from
+                """, ("$to", to), ("$from", from));
+            Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$to", ("$to", to));
+            Exec(c, "UPDATE messages_fts SET body=(SELECT substr(text,1,200000) FROM bodies WHERE message_row=$to) WHERE rowid=$to", ("$to", to));
+        }
+        tx.Commit();
+        return pairs.Count;
+    }
+
+    /// <summary>Q40: how many emails of the account's download window are on this PC (each email once, however many
+    /// folders it is in; Trash, Spam and Drafts left out, as they aren't downloaded ahead).</summary>
+    public (int OnPc, int Total) WindowProgress(string accountId, DateTimeOffset? since)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT COUNT(*), COALESCE(SUM(done),0) FROM (
+              SELECT MAX(m.body_cached) done FROM messages m JOIN folders f ON f.id=m.folder_id
+              WHERE m.account_id=$a AND m.sort_date >= $s AND f.role NOT IN ({(int)FolderRole.Trash},{(int)FolderRole.Junk},{(int)FolderRole.Drafts})
+              GROUP BY CASE WHEN m.message_id='' THEN 'id:' || m.id ELSE m.message_id END)
+            """;
+        cmd.Parameters.AddWithValue("$a", accountId);
+        cmd.Parameters.AddWithValue("$s", since?.ToUnixTimeMilliseconds() ?? long.MinValue);
+        using var r = cmd.ExecuteReader();
+        r.Read();
+        return (Convert.ToInt32(r.GetInt64(1)), Convert.ToInt32(r.GetInt64(0)));
     }
 
     /// <summary>True when any email of the conversation still has to be downloaded (design RL1: then the reader shows
@@ -682,7 +752,11 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM messages WHERE account_id=$a AND thread_key=$t AND body_cached=0";
+        // Q39: an email counts as here when any of its copies (Inbox, All Mail…) is.
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM messages m WHERE m.account_id=$a AND m.thread_key=$t AND m.body_cached=0
+              AND NOT (m.message_id<>'' AND EXISTS (SELECT 1 FROM messages s WHERE s.account_id=m.account_id AND s.message_id=m.message_id AND s.body_cached=1))
+            """;
         cmd.Parameters.AddWithValue("$a", accountId);
         cmd.Parameters.AddWithValue("$t", threadKey);
         return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
@@ -694,7 +768,13 @@ public sealed class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id FROM messages WHERE folder_id=$f AND body_cached=0 AND size < 5000000 AND sort_date >= $s ORDER BY sort_date DESC LIMIT $l";
+        // Q40: every size (big emails get their text only); copies of an email that is here already are left out
+        // (ShareBodiesWithCopies gives them its body).
+        cmd.CommandText = """
+            SELECT m.id FROM messages m WHERE m.folder_id=$f AND m.body_cached=0 AND m.sort_date >= $s
+              AND NOT (m.message_id<>'' AND EXISTS (SELECT 1 FROM messages s WHERE s.account_id=m.account_id AND s.message_id=m.message_id AND s.body_cached=1))
+            ORDER BY m.sort_date DESC LIMIT $l
+            """;
         cmd.Parameters.AddWithValue("$f", folderId);
         cmd.Parameters.AddWithValue("$s", since?.ToUnixTimeMilliseconds() ?? long.MinValue);
         cmd.Parameters.AddWithValue("$l", limit);

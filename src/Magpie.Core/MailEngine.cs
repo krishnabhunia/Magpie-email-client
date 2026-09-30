@@ -862,6 +862,28 @@ public sealed class MailEngine : IDisposable
         return (Store.GetBody(row.Id) ?? body, mime);
     }
 
+    /// <summary>Q39: gets an email ready to read — from this PC when its message file is here, else from the server
+    /// (its text and pictures only when attachments come on opening). Returns the saved body.</summary>
+    public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct) =>
+        _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.FetchBodyAsync(row, ct) : Store.GetBody(row.Id);
+
+    /// <summary>The email from its message file on this PC, or null; never the server.</summary>
+    public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct) =>
+        _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.LocalMimeAsync(row, ct) : null;
+
+    /// <summary>Q38: emails the reader will probably open next; downloaded first.</summary>
+    public void WantBodies(string accountId, IEnumerable<long> rowIds)
+    {
+        if (_syncs.TryGetValue(accountId, out var sync)) sync.WantBodies(rowIds);
+    }
+
+    /// <summary>Q40: emails of the account's download window on this PC / in the window.</summary>
+    public (int OnPc, int Total) WindowProgress(string accountId)
+    {
+        var a = AccountById(accountId);
+        return Store.WindowProgress(accountId, a is { SyncDays: > 0 } ? DateTimeOffset.Now.AddDays(-a.SyncDays) : null);
+    }
+
     // ───────────────────────── sending ─────────────────────────
 
     /// <summary>

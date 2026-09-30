@@ -277,7 +277,9 @@ public static class HtmlRenderer
     /// the subject and sender we already know from the list, and "Loading…". Injected into the current page
     /// (no navigation), so it appears at once instead of the previous message staying on screen.
     /// </summary>
-    public static string LoadingBody(string subject, string sender, string when, bool dark = false) =>
+    /// <summary>What the reading pane shows the moment another conversation is picked (Q38): its subject and sender,
+    /// with "Loading…" and placeholder lines only when it has to be downloaded.</summary>
+    public static string LoadingBody(string subject, string sender, string when, bool dark = false, bool downloading = true) =>
         "<style>" +
         (dark ? "html,body{background:#181C20}" : "") +
         "@keyframes mg-pulse{0%,100%{opacity:.45}50%{opacity:1}}" +
@@ -290,8 +292,8 @@ public static class HtmlRenderer
         "</style>" +
         "<div class=\"mg-l\" role=\"status\" aria-live=\"polite\">" +
         "<h1>" + Esc(subject) + "</h1>" +
-        "<div class=\"who\"><span class=\"spin\"></span><span><b style=\"color:" + (dark ? "#E8E6E1" : "#14181C") + "\">" + Esc(sender) + "</b> · " + Esc(when) + " · Loading…</span></div>" +
-        "<div class=\"bar\" style=\"width:92%\"></div><div class=\"bar\" style=\"width:84%\"></div><div class=\"bar\" style=\"width:88%\"></div><div class=\"bar\" style=\"width:52%\"></div>" +
+        "<div class=\"who\">" + (downloading ? "<span class=\"spin\"></span>" : "") + "<span><b style=\"color:" + (dark ? "#E8E6E1" : "#14181C") + "\">" + Esc(sender) + "</b> · " + Esc(when) + (downloading ? " · Loading…" : "") + "</span></div>" +
+        (downloading ? "<div class=\"bar\" style=\"width:92%\"></div><div class=\"bar\" style=\"width:84%\"></div><div class=\"bar\" style=\"width:88%\"></div><div class=\"bar\" style=\"width:52%\"></div>" : "") +
         "</div>";
 
     public static string Placeholder(string title, string detail, bool dark = false) => $$"""
