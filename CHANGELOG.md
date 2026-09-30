@@ -14,7 +14,13 @@
 - **Invitations in the calendar** show with a dashed border until you answer; open one to **Accept**, **Maybe** or **Decline**.
 - **Reminders**: a notification pops up before an event (10 minutes by default); click it to see that day.
 - Magpie checks Google for calendar changes every 5 minutes, or at once with **Check Google now**. **Sign in again to each Google account once** (Settings → Accounts) so Magpie may read your calendar — the calendar says so if it can't.
-<!-- closes: #3 -->
+- **Hover cards in the reading pane.** Rest the mouse on an email address, the subject or an attachment (or right-click it, or press the Menu key) and a small card offers what you can do with it:
+  - **Address**: copy the address, or name and address · write a new email · emails from this person · all emails with them · new event with them · always show their pictures · make a rule · auto-delete their emails · block (send to Spam).
+  - **Subject**: copy it · emails with this subject · open the conversation in its own window · remind me if no reply · snooze · tag · make an event from the email · make a rule · summarise with AI.
+  - **Attachment**: open · preview pictures and PDFs inside Magpie · save as · save all · copy the file · forward just this file · show in folder · files from this person · emails with this file name.
+  The card opens after the same delay as the folder card (Settings → Appearance) and says what happened ("Copied anita@vendorco.in").
+- **Search** understands `with:anita` (from, to or cc) and `file:contract` (attachment name).
+<!-- closes: #3 #50 -->
 
 ## 2.3.0 (30 Sep 2026)
 ### Changed
