@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.0 (not released yet)
+## 2.2.0 (30 Sep 2026)
 - **Emails open from this PC.** Opening an email no longer reads it from the server again: the pictures inside it (a logo, a newsletter) are now kept with its text when it is downloaded, so it is drawn once, straight away. "Loading…" shows only when an email really has to be downloaded, and going back to a conversation you just read is instant. Accounts set to download only the text get those pictures too (not the attachments).
 - **Settings buttons**: **Cancel** · **Apply** · **Apply and Close**. Apply (the default button, Enter) and Apply and Close come alive only when something differs from what is saved.
 - **Collapsible cards** in Settings: Sign-in apps, each account, and each template fold to one line.
