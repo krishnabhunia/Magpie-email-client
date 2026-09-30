@@ -45,6 +45,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 39 | Bug: emails still come from the server and open slowly — superfast loading | (below) | Built 30 Sep 2026 — not yet tried on Windows | [#46](https://github.com/krishnabhunia/Magpie-email-client/issues/46) |
 | 40 | Check that the chosen days (e.g. 90) really are on this PC | (below) | Built 30 Sep 2026 — tested against a real IMAP server | [#47](https://github.com/krishnabhunia/Magpie-email-client/issues/47) |
 | 41 | Row buttons on hover not arranged properly | RB4 (below) | RB4 approved 30 Sep 2026 · Built — not yet tried on Windows | [#43](https://github.com/krishnabhunia/Magpie-email-client/issues/43) |
+| 42 | Release workflow closes the issues a release ships | (CI) | Built 30 Sep 2026 — runs first on the next release | [#48](https://github.com/krishnabhunia/Magpie-email-client/issues/48) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 

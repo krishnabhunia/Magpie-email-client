@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   pull-requests: read   # the PR's changed files, for the version rule (design VB1)
+  issues: write         # close the [Q..] issues a release ships
 
 # One release job at a time, so a push to main and a tag push can't race to create the same release.
 concurrency:
@@ -193,6 +194,25 @@ jobs:
         run: |
           $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' | Where-Object { $_ -like "v${{ steps.ver.outputs.version }}-beta.*" }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }
+
+      # The [Q..] issues a release ships are listed in its CHANGELOG section (<!-- closes: #n … -->): closed here with
+      # a link to the release, as GitHub's "Closes #n" in the PR doesn't close them in this repository. Never fails the release.
+      - name: Close the issues this release ships
+        if: steps.rel.outputs.needed == 'true' && !contains(steps.ver.outputs.version, '-')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $ids = (python build/release_prep.py closes $v) -split ' ' | Where-Object { $_ }
+          foreach ($n in $ids) {
+            $state = gh issue view $n --repo "${{ github.repository }}" --json state --jq .state 2>$null
+            if ($LASTEXITCODE -ne 0) { Write-Host "::warning::issue #$n not found"; $global:LASTEXITCODE = 0; continue }
+            if ($state -eq "CLOSED") { Write-Host "#$n already closed"; continue }
+            gh issue close $n --repo "${{ github.repository }}" --reason completed --comment "Shipped in Magpie ${v}: https://github.com/${{ github.repository }}/releases/tag/v${v}"
+            if ($LASTEXITCODE -ne 0) { Write-Host "::warning::could not close #$n"; $global:LASTEXITCODE = 0 } else { Write-Host "closed #$n" }
+          }
+          exit 0
 
       # ─── Test version for a PR that sets a new version (design E1) ───
       - name: Beta release notes

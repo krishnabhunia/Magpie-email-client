@@ -13,7 +13,7 @@ needed a personal `RELEASE_TOKEN` secret.)
 | 3 | Same CI run publishes a **test version** `x.y.z-beta.N` (pre-release; only the newest is kept). If the PR is merged before this finishes and `vx.y.z` is out, no test version is published (or it is removed right away) | `build.yml` |
 | 4 | Smoke-test it: Magpie → Settings → Updates → *Include test versions* → Check now (or download it from the release page) | **Krishna** |
 | 5 | Merge the PR — this is the deploy | **Krishna** |
-| 6 | Release `vx.y.z` is published (EXE, installer, `Magpie-x.y.z.zip`, checksums, notes from CHANGELOG), marked Latest; its test versions are removed; "Closes #n" in the PR closes the issues | `build.yml` + GitHub |
+| 6 | Release `vx.y.z` is published (EXE, installer, `Magpie-x.y.z.zip`, checksums, notes from CHANGELOG), marked Latest; its test versions are removed; the issues in its CHANGELOG section's `<!-- closes: #n … -->` are closed with a link to the release | `build.yml` |
 | 7 | Installed copies update themselves (Auto update, or Settings → Updates / the title-bar pill) | Magpie |
 
 ## Version rule (design VB1, Krishna 30 Sep 2026)
