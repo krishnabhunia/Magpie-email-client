@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0 (not released yet)
+- **Emails open from this PC.** Opening an email no longer reads it from the server again: the pictures inside it (a logo, a newsletter) are now kept with its text when it is downloaded, so it is drawn once, straight away. "Loading…" shows only when an email really has to be downloaded, and going back to a conversation you just read is instant. Accounts set to download only the text get those pictures too (not the attachments).
+- **Settings buttons**: **Cancel** · **Apply** · **Apply and Close**. Apply (the default button, Enter) and Apply and Close come alive only when something differs from what is saved.
+- **Collapsible cards** in Settings: Sign-in apps, each account, and each template fold to one line.
+- **Sign in again** is greyed out until Magpie says the account's sign-in has expired; the account card says so too.
+- **Your details** for each account (contact number, job title, company), when adding it and later in Settings → Accounts.
+- **Default signature**: every account starts with "Thanks and Regards", your name, job title · company and contact number — put in once for accounts that had no signature. **Use the default signature** in Settings → Signatures & replies brings it back.
+<!-- closes: #33 #34 #35 #36 #37 #38 -->
+
 ## 2.1.0 (30 Sep 2026)
 - **Back up your settings** (Settings → General): one file with everything you set up in Magpie — accounts and their sign-ins, rules, signatures, quick replies, templates, tags, Gatekeeper lists, look and layout — locked with a password you choose. After reinstalling Magpie (or on another PC), **Restore from a backup** puts it all back and the accounts sign in by themselves. The Add account window offers it on first start too.
 - **Where your mail is kept** (Settings → General): move your mail to another folder or drive, for example a BitLocker or VeraCrypt drive to keep it encrypted. Magpie restarts and moves it, and only removes the old copy once the new one is checked. If that drive is locked or unplugged when Magpie starts, it waits for you instead of starting an empty mailbox.

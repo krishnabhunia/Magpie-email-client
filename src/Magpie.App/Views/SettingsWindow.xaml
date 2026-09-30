@@ -107,9 +107,12 @@
             <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="36,12" Background="{DynamicResource Brush.Window.Background}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <!-- Design AP1: Apply (the default button) and Apply and Close come alive only when something changed -->
                         <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Apply" Margin="0,0,8,0" Click="OnApply" ToolTip="Save the changes and keep Settings open" />
-                        <Button Style="{StaticResource Button.Primary}" Content="Save and close" Padding="24,7" Click="OnSave" />
+                        <Button Style="{StaticResource Button.Primary}" Content="Apply" IsDefault="True" Padding="24,7" Margin="0,0,8,0" Click="OnApply" IsEnabled="{Binding HasChanges}"
+                                ToolTip="Save the changes and keep Settings open (Enter)" ToolTipService.ShowOnDisabled="True" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Apply and Close" Click="OnSave" IsEnabled="{Binding HasChanges}"
+                                ToolTip="Save the changes and close Settings" ToolTipService.ShowOnDisabled="True" />
                     </StackPanel>
                     <TextBlock x:Name="AppliedNote" Text="✓ Saved" Foreground="{DynamicResource Brush.Success}" VerticalAlignment="Center" Visibility="Collapsed" />
                 </DockPanel>
@@ -328,23 +331,46 @@
                         <ItemsControl x:Name="RowAccounts" ItemsSource="{Binding Accounts}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditableAccount}">
-                                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                                        <StackPanel>
+                                    <Border Style="{StaticResource Card}" Margin="0,0,0,12" Padding="0">
+                                        <!-- Design CL1: each account is a collapsible card; AC1: your details; "Sign in again" only when needed -->
+                                        <Expander Style="{StaticResource Expander.Group}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                        <Expander.Header>
                                             <DockPanel>
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                                    <Button Style="{StaticResource Button.Secondary}" Content="Sign in again" FontWeight="Normal" Margin="0,0,8,0" Click="OnReauth" Tag="{Binding}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="Sign in again" FontWeight="Normal" Margin="0,0,8,0" Click="OnReauth" Tag="{Binding}"
+                                                            IsEnabled="{Binding NeedsSignIn}" ToolTipService.ShowOnDisabled="True"
+                                                            ToolTip="Only needed when Magpie says this account's sign-in has expired" />
                                                     <Button Style="{StaticResource Button.Secondary}" Content="Remove" FontWeight="Normal" Foreground="{DynamicResource Brush.Danger}"
                                                             Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                                 </StackPanel>
-                                                <StackPanel>
+                                                <StackPanel VerticalAlignment="Center">
                                                     <StackPanel Orientation="Horizontal">
                                                         <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource HexBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
                                                         <TextBlock Text="{Binding Email}" FontWeight="SemiBold" FontSize="14" />
+                                                        <TextBlock Text="· sign-in expired" Foreground="{DynamicResource Brush.Warning}" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                   Visibility="{Binding NeedsSignIn, Converter={StaticResource BoolToVis}}" />
                                                     </StackPanel>
                                                     <TextBlock Text="{Binding Kind}" Style="{StaticResource Text.Caption}" Margin="18,2,0,0" />
-                                                    <TextBlock Text="{Binding Servers}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="18,0,0,0" />
                                                 </StackPanel>
                                             </DockPanel>
+                                        </Expander.Header>
+                                        <StackPanel Margin="16,0,16,16">
+                                            <TextBlock Text="{Binding Servers}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                            <Grid Margin="0,14,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="130" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="Your details" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                                                <Grid Grid.Column="1">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}" Tag="Contact number" ToolTip="Contact number" />
+                                                    <TextBox Grid.Column="2" Style="{StaticResource TextBox.Field}" Text="{Binding JobTitle, UpdateSourceTrigger=PropertyChanged}" Tag="Job title" ToolTip="Job title" />
+                                                    <TextBox Grid.Column="4" Style="{StaticResource TextBox.Field}" Text="{Binding Company, UpdateSourceTrigger=PropertyChanged}" Tag="Company" ToolTip="Company" />
+                                                </Grid>
+                                            </Grid>
                                             <Grid Margin="0,14,0,0">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="130" />
@@ -393,13 +419,18 @@
                                                 </StackPanel>
                                             </Grid>
                                         </StackPanel>
+                                    </Expander>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <TextBlock Text="SIGN-IN APPS (FOR GOOGLE AND MICROSOFT SIGN-IN)" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,10" />
-                        <Border x:Name="RowSignIn" Style="{StaticResource Card}">
+                        <!-- Design CL1: closed by default; it is set up once -->
+                        <Expander x:Name="RowSignIn" Style="{StaticResource Expander.Group}" IsExpanded="False" Margin="0,18,0,0">
+                            <Expander.Header>
+                                <TextBlock Text="SIGN-IN APPS (FOR GOOGLE AND MICROSOFT SIGN-IN)" Style="{StaticResource Text.SectionCaps}" Margin="0" />
+                            </Expander.Header>
+                        <Border Style="{StaticResource Card}" Margin="0,6,0,0">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,12"
                                            Text="Signing in with Google or Microsoft needs your own free app registration (5 minutes, once). The steps are in SIGN-IN-SETUP.md next to Magpie.exe. Without it you can still add Gmail with an app password, and any IMAP account with its password." />
@@ -424,6 +455,7 @@
                                 </Grid>
                             </StackPanel>
                         </Border>
+                        </Expander>
                     </StackPanel>
 
                     <!-- ═══════════ AI features (S1 / S2 / S3) ═══════════ -->
@@ -938,6 +970,8 @@
                                                Visibility="{Binding SignatureAccount.HasSignaturePicture, Converter={StaticResource BoolToVis}}" />
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <Button Style="{StaticResource Button.Primary}" Content="Edit signature…" Click="OnEditSignature" />
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Use the default signature" Margin="8,0,0,0" Command="{Binding UseDefaultSignatureCommand}"
+                                                ToolTip="“Thanks and Regards”, your name, job title, company and contact number, from the account's details" />
                                         <Button Style="{StaticResource Button.Secondary}" Content="Get my Gmail signature" Margin="8,0,0,0" Command="{Binding ImportGmailSignatureCommand}"
                                                 Visibility="{Binding SignatureAccount.CanImportGmailSignature, Converter={StaticResource BoolToVis}}"
                                                 ToolTip="Copies the signature set in Gmail (Settings → Signature) for this address" />
@@ -978,16 +1012,23 @@
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditableTemplate}">
-                                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
-                                        <StackPanel>
-                                            <DockPanel Margin="0,0,0,8">
-                                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove template"
-                                                        Command="{Binding DataContext.RemoveTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,8,0" />
-                                            </DockPanel>
-                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                                     MinHeight="70" VerticalContentAlignment="Top" />
-                                        </StackPanel>
+                                    <!-- Design CL1: a collapsible card per template -->
+                                    <Border Style="{StaticResource Card}" Margin="0,0,0,10" Padding="0">
+                                        <Expander Style="{StaticResource Expander.Group}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                            <Expander.Header>
+                                                <DockPanel>
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE74D;" ToolTip="Remove template"
+                                                            Command="{Binding DataContext.RemoveTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                    <TextBlock Text="{Binding Title}" FontWeight="Medium" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                            </Expander.Header>
+                                            <StackPanel Margin="16,0,16,16">
+                                                <TextBlock Text="Name" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,0,8" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                         MinHeight="70" VerticalContentAlignment="Top" />
+                                            </StackPanel>
+                                        </Expander>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

@@ -108,6 +108,9 @@ public sealed class MessageBody
     /// <summary>The message's iCalendar part (text/calendar), if it carries an invite (design B3).</summary>
     public string Calendar { get; set; } = "";
     public List<AttachmentInfo> Attachments { get; set; } = new();
+    /// <summary>Pictures inside the email (design RL1): content-id → data: URI, kept with the text so the email shows
+    /// from this PC without reading the whole message again.</summary>
+    public Dictionary<string, string> Images { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public enum OutboxStatus { Queued = 0, Sending = 1, Failed = 2, Sent = 3, Cancelled = 4 }

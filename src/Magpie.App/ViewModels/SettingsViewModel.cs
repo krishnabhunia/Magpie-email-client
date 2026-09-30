@@ -22,6 +22,9 @@ public partial class EditableAccount : ObservableObject
     {
         Original = a;
         _displayName = a.DisplayName;
+        _phone = a.Phone;
+        _jobTitle = a.JobTitle;
+        _company = a.Company;
         _signature = a.Signature;
         _signatureHtml = a.SignatureHtml;
         _signatureOnNew = a.SignatureOnNew;
@@ -37,6 +40,14 @@ public partial class EditableAccount : ObservableObject
                           + (Original.Auth == AuthMethod.OAuth2 ? " · signed in with " + (Original.Kind == AccountKind.Gmail ? "Google" : "Microsoft") : " · password");
     public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
     [ObservableProperty] private string _displayName;
+    /// <summary>Design AC1: your details for this account.</summary>
+    [ObservableProperty] private string _phone;
+    [ObservableProperty] private string _jobTitle;
+    [ObservableProperty] private string _company;
+    /// <summary>Only then does "Sign in again" do anything (design AC1).</summary>
+    [ObservableProperty] private bool _needsSignIn;
+    /// <summary>Collapsed card in Settings → Accounts (design CL1).</summary>
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _signature;
     /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain), nameof(HasSignaturePicture), nameof(HasSignature))] private string _signatureHtml;
@@ -65,6 +76,9 @@ public partial class EditableAccount : ObservableObject
     {
         var a = Original.Clone();
         a.DisplayName = DisplayName.Trim();
+        a.Phone = Phone.Trim();
+        a.JobTitle = JobTitle.Trim();
+        a.Company = Company.Trim();
         a.SignatureHtml = SignatureHtml.Trim();
         // The old plain-text field mirrors the rich one, so it never brings back a signature that was cleared.
         if (a.SignatureHtml != Original.SignatureHtml) a.Signature = MimeText.HtmlToText(a.SignatureHtml).Trim();
@@ -78,6 +92,7 @@ public partial class EditableAccount : ObservableObject
     }
 
     public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+                           || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
                            || Enabled != Original.Enabled || SyncDays != Original.SyncDays
                            || DownloadAttachments != Original.DownloadAttachments;
@@ -96,8 +111,11 @@ public partial class EditableQuickReply : ObservableObject
 
 public partial class EditableTemplate : ObservableObject
 {
-    [ObservableProperty] private string _name = "";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _name = "";
     [ObservableProperty] private string _body = "";
+    /// <summary>Collapsed card (design CL1); a new template starts open.</summary>
+    [ObservableProperty] private bool _isExpanded;
+    public string Title => string.IsNullOrWhiteSpace(Name) ? "New template" : Name.Trim();
 }
 
 public sealed record Choice<T>(T Value, string Label);
@@ -671,7 +689,20 @@ public partial class SettingsViewModel : ObservableObject
         LoadRowActions(ap.RowActions);
         _autoUpdate = c.Updates.AutoUpdate ?? true;
         _includePrerelease = c.Updates.IncludePrerelease;
+        foreach (var a in Accounts)
+        {
+            a.NeedsSignIn = _e.StatusOf(a.Original.Id)?.State == SyncState.NeedsSignIn;   // "Sign in again" only then
+            a.IsExpanded = Accounts.Count == 1;
+        }
+        _e.StatusChanged += OnAccountStatus;
+        StartChangeTracking();
     }
+
+    private void OnAccountStatus(string accountId, SyncStatus status) =>
+        Ui.Post(() => { if (Accounts.FirstOrDefault(a => a.Original.Id == accountId) is { } a) a.NeedsSignIn = status.State == SyncState.NeedsSignIn; });
+
+    /// <summary>The window closed: stop listening to the engine.</summary>
+    public void Detach() => _e.StatusChanged -= OnAccountStatus;
 
     partial void OnProviderChanged(AiProviderKind value)
     {
@@ -728,7 +759,7 @@ public partial class SettingsViewModel : ObservableObject
 
     [RelayCommand] private void AddTag() => Tags.Add(new EditableTag { Name = "New tag", Color = ColorChoices[Tags.Count % ColorChoices.Length] });
     [RelayCommand] private void RemoveTag(EditableTag? t) { if (t != null) Tags.Remove(t); }
-    [RelayCommand] private void AddTemplate() => Templates.Add(new EditableTemplate { Name = "New template", Body = "" });
+    [RelayCommand] private void AddTemplate() => Templates.Add(new EditableTemplate { Name = "New template", Body = "", IsExpanded = true });
     [RelayCommand] private void RemoveTemplate(EditableTemplate? t) { if (t != null) Templates.Remove(t); }
 
     [RelayCommand]
@@ -830,5 +861,7 @@ public partial class SettingsViewModel : ObservableObject
             Accounts.FirstOrDefault(x => x.Original.Id == a.Id)?.Accept(a);
         }
         if (openGate) _e.OpenGate();
+        _baseline = Snapshot();
+        HasChanges = false;
     }
 }

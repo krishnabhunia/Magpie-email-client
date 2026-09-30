@@ -25,6 +25,10 @@ public partial class AddAccountViewModel : ObservableObject
 
     [ObservableProperty] private string _email = "";
     [ObservableProperty] private string _displayName = "";
+    /// <summary>Design AC1: optional details, used in the default signature.</summary>
+    [ObservableProperty] private string _phone = "";
+    [ObservableProperty] private string _jobTitle = "";
+    [ObservableProperty] private string _company = "";
     [ObservableProperty] private AccountChoice _choice = AccountChoice.Automatic;
     [ObservableProperty] private bool _showAdvanced;
     [ObservableProperty] private string _imapHost = "";
@@ -144,6 +148,7 @@ public partial class AddAccountViewModel : ObservableObject
         var a = _reauth?.Clone() ?? new Account();
         a.Email = Email.Trim();
         a.DisplayName = DisplayName.Trim();
+        if (_reauth == null) { a.Phone = Phone.Trim(); a.JobTitle = JobTitle.Trim(); a.Company = Company.Trim(); }
         a.Kind = EffectiveKind;
         a.Auth = auth;
         a.ImapHost = ImapHost.Trim(); a.ImapPort = ImapPort; a.ImapSecurity = ImapSecurity;
@@ -154,6 +159,8 @@ public partial class AddAccountViewModel : ObservableObject
         {
             a.SyncDays = DownloadChoice.Normalise(SyncDays);
             a.DownloadAttachments = DownloadAttachments;
+            a.SignatureHtml = Composer.DefaultSignatureHtml(a);   // design SG1
+            a.SignatureDefaultApplied = true;
             var palette = new[] { "#14606E", "#4B3F86", "#B45309", "#1B6B2E", "#2F5BEA", "#B3261E" };
             a.Color = palette[_e.Accounts.Count % palette.Length];
         }

@@ -127,7 +127,8 @@ public partial class ThreadViewModel : ObservableObject
         AccountId = row.AccountId;
         ThreadKey = row.ThreadKey;
         HasThread = true;
-        if (!same)
+        // Design RL1: "Loading…" only when something must be downloaded; a conversation kept on this PC is drawn straight away.
+        if (!same && _e.Store.HasUncachedBody(AccountId, ThreadKey))
         {
             var m = row.Latest;
             var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
@@ -175,24 +176,28 @@ public partial class ThreadViewModel : ObservableObject
             IsDraftFolder = folders.TryGetValue(latest.FolderId, out var lf) && lf.Role == FolderRole.Drafts;
             RefreshAiVisibility();
 
-            // 1. Instant render from what is stored locally.
+            // 1. Render from what is on this PC: the text and the pictures inside each email (design RL1).
             var bodies = new Dictionary<long, (MessageBody?, Dictionary<string, string>)>();
-            foreach (var r in rows) bodies[r.Id] = (_e.Store.GetBody(r.Id), new Dictionary<string, string>());
+            foreach (var r in rows)
+            {
+                var b = _e.Store.GetBody(r.Id);
+                bodies[r.Id] = (b, b?.Images ?? new Dictionary<string, string>());
+            }
             await RenderAsync(rows, bodies, ct);
 
-            // 2. Download what is missing and inline images, then render again.
+            // 2. Only what isn't here yet is read: an email not downloaded, or one saved before its pictures were kept.
             bool fetched = false;
             foreach (var r in rows)
             {
                 ct.ThrowIfCancellationRequested();
                 var (b, _) = bodies[r.Id];
-                var needsImages = b?.Attachments.Any(a => a.Inline) == true || MimeText.NeedsDownload(b);   // design DS1
-                if (b != null && !needsImages) continue;
+                if (b != null && !MimeText.NeedsDownload(b)) continue;
                 fetched = true;
                 try
                 {
-                    var (body, mime) = await Task.Run(() => _e.LoadAsync(r, needsImages || b == null, ct), ct);
-                    var images = mime != null ? MimeText.InlineImages(mime) : new Dictionary<string, string>();
+                    var (body, mime) = await Task.Run(() => _e.LoadAsync(r, true, ct), ct);
+                    var images = body?.Images ?? new Dictionary<string, string>();
+                    if (mime != null && images.Count == 0) images = MimeText.InlineImages(mime);
                     bodies[r.Id] = (body, images);
                 }
                 catch (OperationCanceledException) { throw; }
@@ -223,6 +228,27 @@ public partial class ThreadViewModel : ObservableObject
 
     private Dictionary<long, (MessageBody?, Dictionary<string, string>)> _lastBodies = new();
 
+    /// <summary>Design RL1: the last pages built, so going back to a conversation that hasn't changed skips the
+    /// (slow) cleaning of its HTML. Keyed by conversation; the fingerprint says whether it is still current.</summary>
+    private static readonly Dictionary<string, (string Fingerprint, string Html, int Blocked)> _pageCache = new();
+    private static readonly Queue<string> _pageCacheOrder = new();
+    private const int PageCacheSize = 24;
+
+    private static string Fingerprint(string subject, List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
+        bool allow, bool dark, Dictionary<long, string> errors)
+    {
+        var sb = new System.Text.StringBuilder(subject).Append('|').Append(allow).Append('|').Append(dark)
+            .Append('|').Append(DateTime.Now.Ticks / (TimeSpan.TicksPerMinute * 10));   // relative times ("just now") stay fresh enough
+        foreach (var r in rows)
+        {
+            var b = bodies.TryGetValue(r.Id, out var v) ? v : default;
+            sb.Append('|').Append(r.Id).Append(':').Append((int)r.Flags).Append(':').Append(r.Tags).Append(':').Append(r.SnoozeUntil?.Ticks ?? 0)
+              .Append(':').Append(b.body?.Html.Length ?? -1).Append(':').Append(b.images?.Count ?? 0)
+              .Append(':').Append(errors.TryGetValue(r.Id, out var e) ? e : "");
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Builds the page off the UI thread (cleaning big newsletters can take a moment) and shows it
     /// only if the user is still on this conversation.</summary>
     private async Task RenderAsync(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies, CancellationToken ct)
@@ -230,14 +256,32 @@ public partial class ThreadViewModel : ObservableObject
         _lastBodies = bodies;
         var subject = Subject;
         var allow = ImagesAllowed(rows);
-        var list = BuildRenderList(rows, bodies);
         var dark = ThemeManager.IsDark;
-        var (url, blocked) = await Task.Run(() =>
+        var key = AccountId + "\n" + ThreadKey;
+        var fp = Fingerprint(subject, rows, bodies, allow, dark, _loadErrors);
+        string url; int blocked;
+        if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == fp)
         {
-            var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark);
-            ct.ThrowIfCancellationRequested();
-            return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
-        }, ct);
+            (url, blocked) = (WebHost.Publish(hit.Html, "view"), hit.Blocked);
+        }
+        else
+        {
+            var list = BuildRenderList(rows, bodies);
+            var html = "";
+            (url, blocked) = await Task.Run(() =>
+            {
+                var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark);
+                ct.ThrowIfCancellationRequested();
+                html = result.Html;
+                return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
+            }, ct);
+            if (!_pageCache.ContainsKey(key))
+            {
+                _pageCacheOrder.Enqueue(key);
+                while (_pageCacheOrder.Count > PageCacheSize) _pageCache.Remove(_pageCacheOrder.Dequeue());
+            }
+            _pageCache[key] = (fp, html, blocked);
+        }
         ct.ThrowIfCancellationRequested();
         BlockedImages = allow ? 0 : blocked;
         PageReady?.Invoke(url);

@@ -116,8 +116,14 @@ public static class MimeText
         return list;
     }
 
-    /// <summary>True when the stored body was made before the email was downloaded and has attachments or pictures to fetch.</summary>
-    public static bool NeedsDownload(MessageBody? body) => body?.Attachments.Any(a => a.Index < 0) == true;
+    /// <summary>True when the email must be read again to show it: a picture inside it isn't kept with the text yet
+    /// (design RL1). Attachments listed before download are fetched only when clicked, not on opening.</summary>
+    public static bool NeedsDownload(MessageBody? body) =>
+        body?.Attachments.Any(a => a.Inline && a.ContentId.Length > 0 && !body.Images.ContainsKey(a.ContentId)) == true;
+
+    /// <summary>Pictures kept with an email's text (design RL1): at most this many bytes; bigger sets come from the
+    /// message file on this PC when the email is opened.</summary>
+    public const long ImageCacheBytes = 4 * 1024 * 1024;
 
     /// <summary>The real index in <paramref name="msg"/> of an attachment listed before download (negative index); others unchanged.</summary>
     public static int ResolveIndex(MimeMessage msg, int index)

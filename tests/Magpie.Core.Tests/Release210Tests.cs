@@ -195,8 +195,10 @@ public class Release210Tests
         Assert.Equal(real[1].Index, MimeText.ResolveIndex(msg, MimeText.PendingIndex - 1));
         Assert.Equal(3, MimeText.ResolveIndex(msg, 3));   // real indices unchanged
 
-        Assert.True(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1, FileName = "a.pdf" } } }));
-        Assert.False(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = 2, FileName = "a.pdf" } } }));
+        // Design RL1: only a picture inside the email that isn't kept with the text makes Magpie read the email again.
+        Assert.False(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1, FileName = "a.pdf" } } }));
+        Assert.True(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1000, FileName = "logo.png", Inline = true, ContentId = "logo" } } }));
+        Assert.False(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1000, FileName = "logo.png", Inline = true, ContentId = "logo" } }, Images = { ["logo"] = "data:image/png;base64,AA==" } }));
         Assert.False(MimeText.NeedsDownload(null));
     }
 

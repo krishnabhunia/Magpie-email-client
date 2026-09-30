@@ -762,14 +762,27 @@ public sealed class AccountSync : IDisposable
         var cal = s.BodyParts.OfType<BodyPartText>().FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
         if (cal != null) body.Calendar = await TextOf(cal);
         body.Attachments = MimeText.PendingAttachments(s.BodyParts, s.TextBody, s.HtmlBody);
+        // Design RL1: the pictures inside the email come too (they are part of what it shows), attachments don't.
+        long total = 0;
+        foreach (var p in s.BodyParts.OfType<BodyPartBasic>())
+        {
+            var cid = p.ContentId?.Trim('<', '>') ?? "";
+            if (cid.Length == 0 || p.IsAttachment || !p.ContentType.MediaType.Equals("image", StringComparison.OrdinalIgnoreCase)) continue;
+            if (total + (long)p.Octets > MimeText.ImageCacheBytes) break;
+            if (await f.GetBodyPartAsync(uid, p, ct) is not MimePart part || part.Content == null) continue;
+            using var ms = new MemoryStream();
+            part.Content.DecodeTo(ms);
+            total += ms.Length;
+            body.Images[cid] = $"data:{part.ContentType.MimeType};base64,{Convert.ToBase64String(ms.ToArray())}";
+        }
         _store.SaveBody(row.Id, body);
     }
 
     public Func<string, long, string>? MimePathFor { get; set; }
 
-    private void SaveBody(MessageRow row, MimeMessage msg)
+    private void SaveBody(MessageRow row, MimeMessage msg, bool writeFile = true)
     {
-        if (MimePathFor != null)
+        if (MimePathFor != null && writeFile)
         {
             var path = MimePathFor(Account.Id, row.Id);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -777,16 +790,24 @@ public sealed class AccountSync : IDisposable
             msg.WriteTo(fs);
         }
         var body = MimeText.Extract(msg);
+        body.Images = MimeText.InlineImages(msg, MimeText.ImageCacheBytes);   // design RL1: shown from this PC next time
         _store.SaveBody(row.Id, body);
     }
 
-    /// <summary>Downloads a message (interactive connection). Uses the local cache when present.</summary>
-    public async Task<MimeMessage?> GetMimeAsync(MessageRow row, CancellationToken ct)
+    /// <summary>Downloads a message (interactive connection). Uses the message file on this PC when present;
+    /// <paramref name="refreshBody"/> then also re-saves the stored text with the email's pictures (design RL1, for
+    /// emails saved before pictures were kept), so the next opening needs neither.</summary>
+    public async Task<MimeMessage?> GetMimeAsync(MessageRow row, CancellationToken ct, bool refreshBody = false)
     {
         var path = MimePathFor?.Invoke(Account.Id, row.Id);
         if (path != null && File.Exists(path))
         {
-            try { return await MimeMessage.LoadAsync(path, ct); }
+            try
+            {
+                var cached = await MimeMessage.LoadAsync(path, ct);
+                if (refreshBody) SaveBody(row, cached, writeFile: false);
+                return cached;
+            }
             catch (Exception ex) { Log.Warn("cached message unreadable, refetching: " + ex.Message); }
         }
         var folder = _store.GetFolder(row.FolderId);

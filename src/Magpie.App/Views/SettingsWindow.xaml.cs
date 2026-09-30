@@ -47,7 +47,7 @@ public partial class SettingsWindow : Window
         _vm.HighlightRequested += Highlight;
         Action onAutoDelete = () => Ui.Post(_vm.LoadAutoDelete);
         AppServices.Engine.AutoDeleteChanged += onAutoDelete;
-        Closed += (_, _) => AppServices.Engine.AutoDeleteChanged -= onAutoDelete;
+        Closed += (_, _) => { AppServices.Engine.AutoDeleteChanged -= onAutoDelete; _vm.Detach(); };
         PreviewKeyDown += (_, e) =>
         {
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
@@ -116,6 +116,7 @@ public partial class SettingsWindow : Window
         if (_reloadingKey) return;
         _vm.ApiKey = ApiKeyBox.Password;
         _vm.ApiKeyChanged = true;
+        _vm.NoteChange();
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
