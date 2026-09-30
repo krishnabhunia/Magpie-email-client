@@ -39,6 +39,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 33 | "Sign in again" enabled only when the sign-in has expired | (below) | Built 30 Sep 2026 | [#36](https://github.com/krishnabhunia/Magpie-email-client/issues/36) |
 | 34 | Your details per account: contact number, job title, company | AC1 (below) | Built 30 Sep 2026 | [#37](https://github.com/krishnabhunia/Magpie-email-client/issues/37) |
 | 35 | Default signature: "Thanks and Regards", name, contact number | SG1 (below) | Built 30 Sep 2026 | [#38](https://github.com/krishnabhunia/Magpie-email-client/issues/38) |
+| 36 | Version rule: x = feature added / big UI change, y = feature changed, z = fix; a new number with every update | VB1 (below) | Approved 30 Sep 2026 · Built | [#41](https://github.com/krishnabhunia/Magpie-email-client/issues/41) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -244,3 +245,16 @@ Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (row "30 Sep: reader 
 - **#35 SG1** `Composer.DefaultSignatureHtml`: "Thanks and Regards", <b>name</b>, job title · company, number. Put in on
   Add account and once by `Normalise` for accounts with no signature (`SignatureDefaultApplied`); never replaces one.
 
+## #36 VB1 — Version rule (approved 30 Sep 2026)
+
+Krishna: *"All software must show their respective version number in home window page. Version number must be changed
+as soon as there is an update. x to be updated when there is a major change with UI/UX or when there is an added feature,
+y when there is a feature modification and z when there is a bug or error fix."*
+
+- Version in the main window: already there (design V1, title bar); it follows the built version.
+- CHANGELOG: `## Next version (not released yet)` with lines under `### New` (x), `### Changed` (y), `### Fixed` (z).
+  `release_prep.py apply` works the number out from the newest dated release + the biggest kind.
+- CI: `needs-version` fails a PR that changes `src/`, `installer/`, `Directory.Build.props`, `global.json` or `Magpie.sln`
+  while its version is already released; `check` fails a number that breaks the rule. Release notes show the kinds as
+  **New** / **Changed** / **Fixed**.
+- Releases up to 2.2.0 keep their numbers (renumbering would break auto-update). Evict needs the same rule from its own chat.

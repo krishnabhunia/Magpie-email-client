@@ -1,5 +1,12 @@
 # Changelog
 
+<!-- Version rule (design VB1): put the next version's lines at the top, under the heading
+    "## Next version (not released yet)" and, inside it, under
+    "### New"      a feature added, or a big change to how Magpie looks or works  -> x.0.0
+    "### Changed"  a feature changed                                             -> x.y.0
+    "### Fixed"    a bug or error fixed                                          -> x.y.z
+    then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+
 ## 2.2.0 (30 Sep 2026)
 - **Emails open from this PC.** Opening an email no longer reads it from the server again: the pictures inside it (a logo, a newsletter) are now kept with its text when it is downloaded, so it is drawn once, straight away. "Loading…" shows only when an email really has to be downloaded, and going back to a conversation you just read is instant. Accounts set to download only the text get those pictures too (not the attachments).
 - **Settings buttons**: **Cancel** · **Apply** · **Apply and Close**. Apply (the default button, Enter) and Apply and Close come alive only when something differs from what is saved.

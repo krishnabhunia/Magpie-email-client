@@ -25,6 +25,7 @@ Current release: **2.2.0** (see CHANGELOG.md). Next: whatever is queued — the 
 | Updates | The software checks GitHub for new versions and updates itself in the background; an **Auto update** checkbox in the app (checks again once a day). |
 | Installer | If the previous version is running, the installer updates it in the background (closes it cleanly, installs, starts it again). |
 | Version | Every program shows its version number in its main (home) window. |
+| Version numbers (30 Sep 2026, design VB1) | x.y.z — **x** when a feature is added or the UI/UX changes in a big way, **y** when a feature is changed, **z** for a bug or error fix. The number changes with every update: each PR that changes the program sets a new version (so each merge is a release). |
 
 ## Build, test, check (run before every commit)
 
@@ -44,12 +45,12 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 
 ## Releasing (automatic — design E1, `docs/CI-CD.md`)
 
-1. In the PR that should ship, write the user-facing lines under `## x.y.z (not released yet)` at the top of `CHANGELOG.md` (minor for features, patch for fixes; `x.y.z-rc.1` etc. for a pre-release) and put "Closes #n" in the PR body for the `[Q..]` issues it finishes.
-2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI's `check` step fails if any of that is missing.
+1. Every PR that changes the program (`src/`, `installer/`, `Directory.Build.props`, `global.json`, `Magpie.sln`) is a release (design VB1). Write the user-facing lines at the top of `CHANGELOG.md` under `## Next version (not released yet)`, each under `### New` (feature added / big UI-UX change → x), `### Changed` (feature changed → y) or `### Fixed` (bug or error fix → z), and put "Closes #n" in the PR body for the `[Q..]` issues it finishes. Never type the number.
+2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it works the number out (last release + the biggest kind) and sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI fails a PR that changes the program without a new version (`needs-version`), and `check` fails if anything is missing or the number breaks the rule.
 3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges.
 4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes) and removes its test versions. Tags are created by CI — never push tags.
 5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar pill; SHA-256 checked, rollback on failure).
-6. PRs that don't change the version release nothing; several PRs can collect lines under a `(not released yet)` section until one runs `apply`.
+6. PRs that only touch docs, CI, tests or build scripts need no version and release nothing.
 
 ## Where things are
 
