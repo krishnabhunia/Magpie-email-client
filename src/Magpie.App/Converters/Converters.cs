@@ -130,3 +130,18 @@ public sealed class DoubleToGridLengthConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is GridLength g ? g.Value : Binding.DoNothing;
 }
+
+/// <summary>Design B2: a fraction times a width (where an event sits in a day column: left and width).</summary>
+public sealed class MultiplyConverter : IMultiValueConverter
+{
+    public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        double product = 1;
+        foreach (var v in values)
+            product *= v is double d && !double.IsNaN(d) ? d : 0;
+        if (parameter is string s && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var shrink)) product = Math.Max(0, product - shrink);
+        return product;
+    }
+
+    public object?[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}

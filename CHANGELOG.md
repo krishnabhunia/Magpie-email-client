@@ -7,6 +7,15 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 3.0.0 (30 Sep 2026)
+### New
+- **Calendar.** A new **Calendar** entry in the sidebar (and a calendar button in the title bar; Ctrl+2 opens it, Ctrl+1 goes back to mail) shows your Google Calendar as **Day**, **Week**, **Month** or **Agenda**, with **Today ‹ ›**, a small month to jump to any day, and a tick box and colour for each calendar (one per Google account, plus Holidays in India).
+- **Add, change and delete events** — double-click a time or press **New event**: title, date and time or all day, calendar, people to invite, where, a Google Meet link, a reminder and repeat (every day, week or month). Changes are kept on this PC at once and sent to Google in the background, so the calendar works without internet too.
+- **Invitations in the calendar** show with a dashed border until you answer; open one to **Accept**, **Maybe** or **Decline**.
+- **Reminders**: a notification pops up before an event (10 minutes by default); click it to see that day.
+- Magpie checks Google for calendar changes every 5 minutes, or at once with **Check Google now**. **Sign in again to each Google account once** (Settings → Accounts) so Magpie may read your calendar — the calendar says so if it can't.
+<!-- closes: #3 -->
+
 ## 2.3.0 (30 Sep 2026)
 ### Changed
 - **Buttons on email rows** now sit where the date is, on the first line, when you point at a row: the same spot on every row, one size, evenly spaced, **⋯** last. Nothing covers the subject, preview or tags any more; the date comes back when the mouse leaves (and shows in full as a tooltip).

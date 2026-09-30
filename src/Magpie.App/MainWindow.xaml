@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:svc="clr-namespace:Magpie.App.Services"
+        xmlns:views="clr-namespace:Magpie.App.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="Magpie"
@@ -117,6 +118,8 @@
                             <TextBlock Text="{Binding PillText}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <!-- Design B2: mail / calendar -->
+                    <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
                     <Border Width="1" Margin="4,12" Background="{DynamicResource Brush.TitleBar.Hover}" />
@@ -251,6 +254,18 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
+                            <!-- Design B2: the calendar, under the folders -->
+                            <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsCalendarView, Mode=OneWay}" Command="{Binding ShowCalendarCommand}"
+                                         ToolTip="Calendar (Ctrl+2)" AutomationProperties.Name="Calendar">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="34" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <svc:IconChip Icon="calendar" Size="24" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Column="1" Text="Calendar" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" />
+                                </Grid>
+                            </RadioButton>
                             <Border Style="{StaticResource Divider}" Margin="14,8" Visibility="{Binding SidebarRail, Converter={StaticResource BoolToVis}}" />
                             <Grid Style="{StaticResource WideOnly}">
                                 <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding AccountsOpen, Mode=TwoWay}"
@@ -386,7 +401,8 @@
             </Thumb>
 
             <!-- ─── Message list ─── -->
-            <Border Grid.Column="2" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="2" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0"
+                    Visibility="{Binding IsCalendarView, Converter={StaticResource InvBoolToVis}}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -647,10 +663,16 @@
                 </Grid>
             </Border>
 
-            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" ResizeBehavior="PreviousAndNext" ShowsPreview="False" DragCompleted="OnSplitterDragged" />
+            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" ResizeBehavior="PreviousAndNext" ShowsPreview="False" DragCompleted="OnSplitterDragged"
+                          Visibility="{Binding IsCalendarView, Converter={StaticResource InvBoolToVis}}" />
+
+            <!-- ─── Calendar (design B2): in place of the list and the reading pane ─── -->
+            <views:CalendarView Grid.Column="2" Grid.ColumnSpan="3" DataContext="{Binding Cal}"
+                                Visibility="{Binding DataContext.IsCalendarView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
 
             <!-- ─── Reading pane ─── -->
-            <Grid Grid.Column="4" Background="{DynamicResource Brush.Card.Background}" DataContext="{Binding Reader}">
+            <Grid Grid.Column="4" Background="{DynamicResource Brush.Card.Background}" DataContext="{Binding Reader}"
+                  Visibility="{Binding DataContext.IsCalendarView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvBoolToVis}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />

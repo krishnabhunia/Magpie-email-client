@@ -240,3 +240,63 @@ public class Release300Tests
         Assert.True(OAuthService.Allows(cfg.Scopes, "https://mail.google.com/"));
     }
 }
+
+/// <summary>3.0.0: where things sit in the calendar views (design B2).</summary>
+public class Release300LayoutTests
+{
+    private static CalendarEvent At(int h, int m, int minutes, string title = "") =>
+        new() { Title = title, Start = new DateTimeOffset(new DateTime(2026, 10, 6, h, m, 0)), End = new DateTimeOffset(new DateTime(2026, 10, 6, h, m, 0)).AddMinutes(minutes) };
+
+    [Fact]
+    public void Views_cover_the_right_days_with_weeks_from_monday()
+    {
+        var tue = new DateTime(2026, 10, 6);
+        Assert.Equal((new DateTime(2026, 10, 5), new DateTime(2026, 10, 12)), CalendarLayout.Range(CalendarMode.Week, tue));
+        Assert.Equal((tue, tue.AddDays(1)), CalendarLayout.Range(CalendarMode.Day, tue));
+        var (from, to) = CalendarLayout.Range(CalendarMode.Month, tue);
+        Assert.Equal(new DateTime(2026, 9, 28), from);       // the Monday before 1 October
+        Assert.Equal(42, (to - from).Days);                   // six weeks, always
+        Assert.Equal(new DateTime(2026, 11, 6), CalendarLayout.Step(CalendarMode.Month, tue, 1));
+        Assert.Equal(new DateTime(2026, 9, 29), CalendarLayout.Step(CalendarMode.Week, tue, -1));
+    }
+
+    [Fact]
+    public void Titles_read_like_a_diary()
+    {
+        Assert.Equal("5 – 11 October 2026", CalendarLayout.Title(CalendarMode.Week, new DateTime(2026, 10, 6)));
+        Assert.Equal("28 September – 4 October 2026", CalendarLayout.Title(CalendarMode.Week, new DateTime(2026, 10, 1)));
+        Assert.Equal("28 December 2026 – 3 January 2027", CalendarLayout.Title(CalendarMode.Week, new DateTime(2026, 12, 30)));
+        Assert.Equal("Tuesday 6 October 2026", CalendarLayout.Title(CalendarMode.Day, new DateTime(2026, 10, 6)));
+        Assert.Equal("October 2026", CalendarLayout.Title(CalendarMode.Month, new DateTime(2026, 10, 6)));
+    }
+
+    [Fact]
+    public void Overlapping_events_sit_side_by_side_and_others_take_the_full_width()
+    {
+        var day = new DateTime(2026, 10, 6);
+        var placed = CalendarLayout.PlaceTimed(new[]
+        {
+            At(9, 0, 60, "A"), At(9, 30, 60, "B"), At(10, 0, 30, "C"),   // A and B overlap; C starts when A ends, beside B
+            At(14, 0, 30, "D"),                                          // alone
+        }, day).ToDictionary(p => p.Event.Title);
+        Assert.Equal((0, 2), (placed["A"].Column, placed["A"].Columns));
+        Assert.Equal((1, 2), (placed["B"].Column, placed["B"].Columns));
+        Assert.Equal((0, 2), (placed["C"].Column, placed["C"].Columns));   // reuses A's column
+        Assert.Equal((0, 1), (placed["D"].Column, placed["D"].Columns));
+        Assert.Equal(9 * 60, placed["A"].StartMinute);
+        Assert.Equal(14 * 60 + 30, placed["D"].EndMinute);
+    }
+
+    [Fact]
+    public void An_event_past_midnight_is_cut_to_each_day_and_all_day_events_stay_out()
+    {
+        var late = new CalendarEvent { Title = "Flight", Start = new DateTimeOffset(new DateTime(2026, 10, 6, 23, 0, 0)), End = new DateTimeOffset(new DateTime(2026, 10, 7, 1, 0, 0)) };
+        var allDay = new CalendarEvent { Title = "Leave", AllDay = true, Start = new DateTimeOffset(new DateTime(2026, 10, 6)), End = new DateTimeOffset(new DateTime(2026, 10, 7)) };
+        var tue = Assert.Single(CalendarLayout.PlaceTimed(new[] { late, allDay }, new DateTime(2026, 10, 6)));
+        Assert.Equal((23 * 60.0, 24 * 60.0), (tue.StartMinute, tue.EndMinute));
+        var wed = Assert.Single(CalendarLayout.PlaceTimed(new[] { late }, new DateTime(2026, 10, 7)));
+        Assert.Equal((0.0, 60.0), (wed.StartMinute, wed.EndMinute));
+        Assert.True(CalendarLayout.OnDay(allDay, new DateTime(2026, 10, 6)));
+        Assert.False(CalendarLayout.OnDay(allDay, new DateTime(2026, 10, 7)));   // the end is exclusive
+    }
+}

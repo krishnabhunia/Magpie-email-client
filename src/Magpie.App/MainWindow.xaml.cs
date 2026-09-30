@@ -606,7 +606,11 @@ public partial class MainWindow : Window
         if (ctrl && e.Key == Key.N) { _vm.ComposeCommand.Execute(null); e.Handled = true; return; }
         if (ctrl && e.Key == Key.F) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F5) { _vm.SyncAllCommand.Execute(null); e.Handled = true; return; }
+        // Design B2: Ctrl+1 mail, Ctrl+2 calendar.
+        if (ctrl && e.Key is Key.D1 or Key.NumPad1) { _vm.IsCalendarView = false; e.Handled = true; return; }
+        if (ctrl && e.Key is Key.D2 or Key.NumPad2) { _vm.IsCalendarView = true; e.Handled = true; return; }
         if (Keyboard.FocusedElement is TextBox) return;
+        if (_vm.IsCalendarView) return;   // the mail keys don't act on the hidden list
         // Sidebar headings and accounts (design Q2): ← closes, → opens the focused one.
         if (e.Key is Key.Left or Key.Right && Keyboard.FocusedElement is ToggleButton section && section.Style is { } st
             && (ReferenceEquals(st, TryFindResource("Toggle.SectionHeader")) || ReferenceEquals(st, TryFindResource("Toggle.Account"))))
@@ -668,6 +672,9 @@ public partial class MainWindow : Window
     private void OnSettings(object sender, RoutedEventArgs e) => SettingsWindow.Open(null);
     private void OnVersionClick(object sender, RoutedEventArgs e) => SettingsWindow.Open("About");
     private void OnAddAccount(object sender, RoutedEventArgs e) => AddAccountWindow.ShowAdd(this);
+
+    /// <summary>Design B2: a calendar reminder was clicked.</summary>
+    public void OpenCalendarAt(DateTime day) => _vm.OpenCalendarAt(day);
 
     private void OnReauth(object sender, RoutedEventArgs e)
     {

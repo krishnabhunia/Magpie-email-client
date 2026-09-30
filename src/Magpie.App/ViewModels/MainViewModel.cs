@@ -294,6 +294,31 @@ public partial class MainViewModel : ObservableObject
     public bool IsInbox => Current?.Kind == NavKind.Inbox;
     public bool ShowCategories => IsInbox && _e.Config.SmartInbox && string.IsNullOrWhiteSpace(SearchText);
     public bool IsScheduledView => Current?.Kind == NavKind.Scheduled;
+
+    // ───────────────────────── calendar (design B2) ─────────────────────────
+
+    private CalendarViewModel? _cal;
+    /// <summary>The calendar page (made the first time it is opened).</summary>
+    public CalendarViewModel Cal => _cal ??= new CalendarViewModel();
+    /// <summary>The calendar replaces the list and the reading pane.</summary>
+    [ObservableProperty] private bool _isCalendarView;
+
+    partial void OnIsCalendarViewChanged(bool value)
+    {
+        OnPropertyChanged(nameof(Cal));
+        if (value) Cal.Refresh();
+        ListTitle = value ? "Calendar" : Current?.Label ?? "";
+    }
+
+    [RelayCommand] private void ShowCalendar() => IsCalendarView = true;
+    [RelayCommand] private void ToggleCalendar() => IsCalendarView = !IsCalendarView;
+
+    /// <summary>A reminder was clicked: the calendar on that day.</summary>
+    public void OpenCalendarAt(DateTime day)
+    {
+        IsCalendarView = true;
+        Cal.GoTo(day);
+    }
     public bool HasAccounts => _e.Accounts.Count > 0;
 
     public MainViewModel()
@@ -501,6 +526,7 @@ public partial class MainViewModel : ObservableObject
     private void Navigate(NavItem? item)
     {
         if (item == null) return;
+        IsCalendarView = false;
         if (item == Current) { ReloadList(); return; }
         Current = item;
     }

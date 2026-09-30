@@ -6,6 +6,7 @@
     <conv:BoolToVisibilityConverter x:Key="InvBoolToVis" Invert="True" />
     <conv:InverseBoolConverter x:Key="InvBool" />
     <conv:EqualsConverter x:Key="EqualsToBool" />
+    <conv:MultiplyConverter x:Key="Multiply" />
     <conv:EqualsConverter x:Key="EqualsToVis" ToVisibility="True" />
     <conv:EqualsConverter x:Key="NotEqualsToVis" ToVisibility="True" Invert="True" />
     <conv:MaximizedMarginConverter x:Key="MaxMargin" />
