@@ -111,6 +111,9 @@ public sealed class MessageBody
     /// <summary>Pictures inside the email (design RL1): content-id → data: URI, kept with the text so the email shows
     /// from this PC without reading the whole message again.</summary>
     public Dictionary<string, string> Images { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Every picture of the email was looked at when it was saved (Q39): those not in <see cref="Images"/>
+    /// are too big to keep with the text, so opening the email never reads it from the server again for them.</summary>
+    public bool ImagesComplete { get; set; }
 }
 
 public enum OutboxStatus { Queued = 0, Sending = 1, Failed = 2, Sent = 3, Cancelled = 4 }

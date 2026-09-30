@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read   # the PR's changed files, for the version rule (design VB1)
 
 # One release job at a time, so a push to main and a tag push can't race to create the same release.
 concurrency:
@@ -59,6 +60,20 @@ jobs:
 
       - name: Release script tests
         run: python build/test_release_prep.py
+
+      # Design VB1 (Krishna, 30 Sep 2026): every change to the program gets a new version number x.y.z, worked out
+      # from its CHANGELOG lines (New -> x, Changed -> y, Fixed -> z). A PR that changes src/, the installer or the
+      # build files but keeps a version that is already released fails here. Docs, CI and tests alone need none.
+      - name: A change to Magpie gets a new version
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)'
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't list the files this PR changes" }
+          $files | python build/release_prep.py needs-version --released ${{ steps.ver.outputs.released }}
+          if ($LASTEXITCODE -ne 0) { throw "This PR changes Magpie without a new version (see the line above)" }
 
       # A new version must be ready to go out: CHANGELOG section dated, installer version matching.
       - name: New version is ready to release

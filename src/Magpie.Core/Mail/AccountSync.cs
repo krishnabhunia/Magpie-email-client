@@ -215,9 +215,14 @@ public sealed class AccountSync : IDisposable
                 backoff = TimeSpan.FromSeconds(15);
                 var pending = _store.PendingOpCount(Account.Id);
                 var backlog = Backlog;
+                var windowLeft = _windowPending ? _windowLeft : 0;
                 if (full || backlog == 0)
-                    SetStatus(SyncState.Idle, pending > 0 ? $"{pending} change(s) waiting to reach the server" : backlog > 0 ? "Getting older emails…" : "Up to date");
-                if (backlog > 0)
+                    SetStatus(SyncState.Idle, pending > 0 ? $"{pending} change(s) waiting to reach the server"
+                        : backlog > 0 ? "Getting older emails…"
+                        : windowLeft > 0 ? $"Downloading emails to this PC… {windowLeft:N0} left"
+                        : "Up to date");
+                // Q40: older emails are listed and the download window filled back to back, not one batch per check.
+                if (backlog > 0 || _windowPending)
                 {
                     await _wake.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
                     continue;
@@ -387,7 +392,8 @@ public sealed class AccountSync : IDisposable
 
             // Design DS1: download the emails of the account's window (newest first, inbox first) a batch per full check,
             // so they open instantly, work offline and are searchable. Older emails download when opened.
-            if (full) await PrefetchWindowAsync(client, PrefetchPerCheck, ct);
+            // Q40: every round, not only on full checks, until the window is complete.
+            await PrefetchWindowAsync(client, PrefetchPerRound, ct);
         }, ct);
     }
 
@@ -695,50 +701,125 @@ public sealed class AccountSync : IDisposable
     // ───────────────────────── bodies ─────────────────────────
 
     /// <summary>Emails downloaded per full check (design DS1); the rest of the window follows at the next checks.</summary>
-    public static int PrefetchPerCheck { get; set; } = 150;
+    /// <summary>Emails downloaded ahead per round (Q40: rounds run back to back until the window is complete).</summary>
+    public static int PrefetchPerRound { get; set; } = 200;
+    /// <summary>Emails up to this size are downloaded whole, many per request (Q40); bigger ones in a text-only account
+    /// get just their text and pictures.</summary>
+    public const long WholeMessageMax = 512 * 1024;
+    private const int StreamBatch = 25;
+    private volatile bool _windowPending = true;
+    private int _windowLeft;
+    private readonly HashSet<long> _noBody = new();          // gone from the server or unreadable: not tried again this session
+    private readonly System.Collections.Concurrent.ConcurrentQueue<long> _wanted = new();
+
+    /// <summary>Q38: emails the reader will probably open next; downloaded before the rest of the window.</summary>
+    public void WantBodies(IEnumerable<long> rowIds)
+    {
+        var any = false;
+        foreach (var id in rowIds) { _wanted.Enqueue(id); any = true; }
+        if (any) _wake.Release();   // a quick round, not a full check
+    }
+
+    /// <summary>Q40: the line under "Download emails" on the account card.</summary>
+    public static string DescribeWindow(int onPc, int total, int syncDays)
+    {
+        var span = syncDays > 0 ? $" from the last {syncDays} days" : "";
+        if (total == 0) return syncDays > 0 ? $"No emails{span} listed yet." : "No emails listed yet.";
+        if (onPc >= total) return total == 1 ? $"The 1 email{span} is on this PC." : $"All {total:N0} emails{span} are on this PC.";
+        return $"On this PC: {onPc:N0} of {total:N0} emails{span}. The rest are downloading.";
+    }
+
+    /// <summary>Q40: emails of the window on this PC / in the window.</summary>
+    public (int OnPc, int Total) WindowProgress() => _store.WindowProgress(Account.Id, WindowStart);
 
     /// <summary>Start of the account's download window (design DS1), or null for everything.</summary>
     public DateTimeOffset? WindowStart => Account.SyncDays > 0 ? DateTimeOffset.Now.AddDays(-Account.SyncDays) : null;
 
     private async Task PrefetchWindowAsync(ImapClient client, int budget, CancellationToken ct)
     {
-        var folders = _store.GetFolders(Account.Id)
+        _store.ShareBodiesWithCopies(Account.Id);   // Q39: copies in other folders need no download
+        var folders = _store.GetFolders(Account.Id).ToDictionary(f => f.Id);
+
+        // 1. What the reader asked for (the conversations next to the open one), wherever they are.
+        var wanted = new List<MessageRow>();
+        while (_wanted.TryDequeue(out var id))
+            if (_store.GetMessage(id) is { BodyCached: false } r && !_noBody.Contains(r.Id) && wanted.All(w => w.Id != r.Id)) wanted.Add(r);
+        foreach (var group in wanted.GroupBy(r => r.FolderId))
+        {
+            if (!folders.TryGetValue(group.Key, out var folder)) continue;
+            try { await FetchBodiesAsync(client, folder, group.ToList(), ct); }
+            catch (FolderNotFoundException) { }
+        }
+
+        // 2. The account's download window: Inbox first, then Sent, then the rest (newest first in each).
+        var order = folders.Values
             .Where(f => f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Drafts))
             .OrderBy(f => f.Role == FolderRole.Inbox ? 0 : f.Role == FolderRole.Sent ? 1 : 2)
             .ToList();
-        foreach (var folder in folders)
+        var left = budget;
+        foreach (var folder in order)
         {
-            if (budget <= 0) return;
+            if (left <= 0) break;
             ct.ThrowIfCancellationRequested();
-            try { budget -= await PrefetchBodiesAsync(client, folder, budget, ct); }
+            var rows = _store.RowsWithoutBody(folder.Id, left + _noBody.Count, WindowStart)
+                .Where(id => !_noBody.Contains(id)).Take(left)
+                .Select(id => _store.GetMessage(id)).OfType<MessageRow>().ToList();
+            if (rows.Count == 0) continue;
+            left -= rows.Count;
+            try { await FetchBodiesAsync(client, folder, rows, ct); }
             catch (FolderNotFoundException) { }
         }
+        _windowPending = left <= 0;
+        var (onPc, total) = WindowProgress();
+        _windowLeft = Math.Max(0, total - onPc);
     }
 
-    private async Task<int> PrefetchBodiesAsync(ImapClient client, MailFolder folder, int count, CancellationToken ct)
+    /// <summary>
+    /// Downloads emails of one folder so they open from this PC. Small ones come whole, 25 per request (one round
+    /// trip instead of one per email — Q40); bigger ones in a text-only account get their text and pictures only.
+    /// </summary>
+    private async Task FetchBodiesAsync(ImapClient client, MailFolder folder, List<MessageRow> rows, CancellationToken ct)
     {
-        var rows = _store.RowsWithoutBody(folder.Id, count, WindowStart);
-        if (rows.Count == 0) return 0;
+        if (rows.Count == 0) return;
         var f = await client.GetFolderAsync(folder.Path, ct);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
-            foreach (var id in rows)
+            var whole = rows.Where(r => Account.DownloadAttachments ? r.Size < 5_000_000 : r.Size <= WholeMessageMax).ToList();
+            foreach (var chunk in whole.Chunk(StreamBatch))
             {
                 ct.ThrowIfCancellationRequested();
-                var row = _store.GetMessage(id);
-                if (row == null) continue;
-                var uid = new UniqueId(f.UidValidity, (uint)row.Uid);
-                try
+                var byUid = chunk.GroupBy(r => (uint)r.Uid).ToDictionary(g => g.Key, g => g.First());
+                var done = new HashSet<long>();
+                if (f is ImapFolder imap)
                 {
-                    if (Account.DownloadAttachments) SaveBody(row, await f.GetMessageAsync(uid, ct));
-                    else await SaveTextOnlyAsync(f, uid, row, ct);
+                    await imap.GetStreamsAsync(chunk.Select(r => new UniqueId(f.UidValidity, (uint)r.Uid)).Distinct().ToList(), async (_, _, uid, stream, token) =>
+                    {
+                        if (!byUid.TryGetValue(uid.Id, out var row)) return;
+                        try
+                        {
+                            var msg = await MimeMessage.LoadAsync(stream, token);
+                            SaveBody(row, msg, writeFile: Account.DownloadAttachments);
+                            done.Add(row.Id);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn($"[{Account.Email}] email {row.Id} unreadable: {ex.Message}"); }
+                    }, ct);
                 }
-                catch (MessageNotFoundException) { }
+                foreach (var row in chunk.Where(r => !done.Contains(r.Id)))
+                {
+                    // Not in the batch answer (gone from the server, or not an IMAP folder): one by one, then give up.
+                    try { SaveBody(row, await f.GetMessageAsync(new UniqueId(f.UidValidity, (uint)row.Uid), ct), writeFile: Account.DownloadAttachments); }
+                    catch (Exception ex) when (ex is MessageNotFoundException or FormatException or ParseException) { _noBody.Add(row.Id); }
+                }
+            }
+            foreach (var row in rows.Except(whole))
+            {
+                ct.ThrowIfCancellationRequested();
+                try { await SaveTextOnlyAsync(f, new UniqueId(f.UidValidity, (uint)row.Uid), row, ct); }
+                catch (Exception ex) when (ex is MessageNotFoundException or FormatException or ParseException) { _noBody.Add(row.Id); }
             }
         }
         finally { try { await f.CloseAsync(false, ct); } catch { } }
-        return rows.Count;
     }
 
     /// <summary>
@@ -759,16 +840,28 @@ public sealed class AccountSync : IDisposable
         var body = new MessageBody { Text = await TextOf(s.TextBody), Html = await TextOf(s.HtmlBody) };
         if (body.Html.Length == 0 && body.Text.Length > 0) body.Html = MimeText.TextToHtml(body.Text);
         if (body.Text.Length == 0 && body.Html.Length > 0) body.Text = MimeText.HtmlToText(body.Html);
-        var cal = s.BodyParts.OfType<BodyPartText>().FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
-        if (cal != null) body.Calendar = await TextOf(cal);
+        // The invite, also when it came as an .ics file (Q39: else every opening read the whole email for it).
+        var cal = s.BodyParts.OfType<BodyPartBasic>().FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar")
+            || p.ContentType.IsMimeType("application", "ics") || (p.FileName ?? "").EndsWith(".ics", StringComparison.OrdinalIgnoreCase));
+        if (cal != null && await f.GetBodyPartAsync(uid, cal, ct) is MimePart cp)
+        {
+            if (cp is TextPart ctp) body.Calendar = ctp.Text ?? "";
+            else if (cp.Content != null)
+            {
+                using var cms = new MemoryStream();
+                cp.Content.DecodeTo(cms);
+                body.Calendar = System.Text.Encoding.UTF8.GetString(cms.ToArray());
+            }
+        }
         body.Attachments = MimeText.PendingAttachments(s.BodyParts, s.TextBody, s.HtmlBody);
         // Design RL1: the pictures inside the email come too (they are part of what it shows), attachments don't.
         long total = 0;
+        body.ImagesComplete = true;   // every picture looked at; too big ones are left out on purpose (Q39)
         foreach (var p in s.BodyParts.OfType<BodyPartBasic>())
         {
             var cid = p.ContentId?.Trim('<', '>') ?? "";
             if (cid.Length == 0 || p.IsAttachment || !p.ContentType.MediaType.Equals("image", StringComparison.OrdinalIgnoreCase)) continue;
-            if (total + (long)p.Octets > MimeText.ImageCacheBytes) break;
+            if (total + (long)p.Octets > MimeText.ImageCacheBytes) continue;
             if (await f.GetBodyPartAsync(uid, p, ct) is not MimePart part || part.Content == null) continue;
             using var ms = new MemoryStream();
             part.Content.DecodeTo(ms);
@@ -791,7 +884,47 @@ public sealed class AccountSync : IDisposable
         }
         var body = MimeText.Extract(msg);
         body.Images = MimeText.InlineImages(msg, MimeText.ImageCacheBytes);   // design RL1: shown from this PC next time
+        body.ImagesComplete = true;
         _store.SaveBody(row.Id, body);
+    }
+
+    /// <summary>
+    /// Q39: gets an email ready to read. From the message file on this PC when there is one; otherwise from the server
+    /// on the reading connection — whole when attachments come with emails (or it is small), else just its text and
+    /// pictures (a 20 MB attachment isn't downloaded to show a few lines). Returns the saved body.
+    /// </summary>
+    public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct)
+    {
+        if (await LocalMimeAsync(row, ct) is { } local)
+        {
+            SaveBody(row, local, writeFile: false);
+            return _store.GetBody(row.Id);
+        }
+        var folder = _store.GetFolder(row.FolderId);
+        if (folder == null) return null;
+        return await _ui.UseAsync(async client =>
+        {
+            var f = await client.GetFolderAsync(folder.Path, ct);
+            await f.OpenAsync(FolderAccess.ReadOnly, ct);
+            try
+            {
+                var uid = new UniqueId(f.UidValidity, (uint)row.Uid);
+                if (Account.DownloadAttachments || row.Size <= WholeMessageMax) SaveBody(row, await f.GetMessageAsync(uid, ct));
+                else await SaveTextOnlyAsync(f, uid, row, ct);
+                return _store.GetBody(row.Id);
+            }
+            catch (MessageNotFoundException) { return null; }
+            finally { try { await f.CloseAsync(false, ct); } catch { } }
+        }, ct);
+    }
+
+    /// <summary>The email from its message file on this PC, or null (never the server).</summary>
+    public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct)
+    {
+        var path = MimePathFor?.Invoke(Account.Id, row.Id);
+        if (path == null || !File.Exists(path)) return null;
+        try { return await MimeMessage.LoadAsync(path, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("cached message unreadable: " + ex.Message); return null; }
     }
 
     /// <summary>Downloads a message (interactive connection). Uses the message file on this PC when present;

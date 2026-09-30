@@ -108,7 +108,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <!-- Design AP1: Apply (the default button) and Apply and Close come alive only when something changed -->
-                        <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Close" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" ToolTip="Close Settings without applying the changes" />
                         <Button Style="{StaticResource Button.Primary}" Content="Apply" IsDefault="True" Padding="24,7" Margin="0,0,8,0" Click="OnApply" IsEnabled="{Binding HasChanges}"
                                 ToolTip="Save the changes and keep Settings open (Enter)" ToolTipService.ShowOnDisabled="True" />
                         <Button Style="{StaticResource Button.Secondary}" Content="Apply and Close" Click="OnSave" IsEnabled="{Binding HasChanges}"
@@ -406,9 +406,14 @@
                                                 </CheckBox>
                                                 <!-- Design DS1 -->
                                                 <TextBlock Grid.Row="4" Text="Download emails" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,10,0,0" />
-                                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
-                                                    <TextBlock Text="from the last" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                                    <ComboBox Width="140" ItemsSource="{Binding DownloadChoices}" DisplayMemberPath="Label" SelectedValuePath="Days" SelectedValue="{Binding SyncDays, Mode=TwoWay}" />
+                                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,10,0,0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="from the last" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                        <ComboBox Width="140" ItemsSource="{Binding DownloadChoices}" DisplayMemberPath="Label" SelectedValuePath="Days" SelectedValue="{Binding SyncDays, Mode=TwoWay}" />
+                                                    </StackPanel>
+                                                    <!-- Q40: how much of that is on this PC already -->
+                                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                                               Text="{Binding OnThisPc}" Visibility="{Binding OnThisPc, Converter={StaticResource BoolToVis}}" />
                                                 </StackPanel>
                                                 <TextBlock Grid.Row="5" Text="Attachments" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,10,0,0" />
                                                 <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,10,0,0">

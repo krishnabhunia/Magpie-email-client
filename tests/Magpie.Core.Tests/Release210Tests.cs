@@ -197,7 +197,8 @@ public class Release210Tests
 
         // Design RL1: only a picture inside the email that isn't kept with the text makes Magpie read the email again.
         Assert.False(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1, FileName = "a.pdf" } } }));
-        Assert.True(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1000, FileName = "logo.png", Inline = true, ContentId = "logo" } } }));
+        // (2.3.0, Q39: only a picture the email shows, i.e. referenced as cid: in its HTML.)
+        Assert.True(MimeText.NeedsDownload(new MessageBody { Html = "<img src=\"cid:logo\">", Attachments = { new AttachmentInfo { Index = -1000, FileName = "logo.png", ContentType = "image/png", Inline = true, ContentId = "logo" } } }));
         Assert.False(MimeText.NeedsDownload(new MessageBody { Attachments = { new AttachmentInfo { Index = -1000, FileName = "logo.png", Inline = true, ContentId = "logo" } }, Images = { ["logo"] = "data:image/png;base64,AA==" } }));
         Assert.False(MimeText.NeedsDownload(null));
     }

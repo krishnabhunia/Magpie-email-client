@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **2.2.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **2.3.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -25,12 +25,13 @@ Current release: **2.2.0** (see CHANGELOG.md). Next: whatever is queued — the 
 | Updates | The software checks GitHub for new versions and updates itself in the background; an **Auto update** checkbox in the app (checks again once a day). |
 | Installer | If the previous version is running, the installer updates it in the background (closes it cleanly, installs, starts it again). |
 | Version | Every program shows its version number in its main (home) window. |
+| Version numbers (30 Sep 2026, design VB1) | x.y.z — **x** when a feature is added or the UI/UX changes in a big way, **y** when a feature is changed, **z** for a bug or error fix. The number changes with every update: each PR that changes the program sets a new version (so each merge is a release). |
 
 ## Build, test, check (run before every commit)
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 228 unit tests
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 236 unit tests
 build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -38,18 +39,18 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 - **Cloud (Linux) sessions:** `global.json` needs SDK ≥ 8.0.400 *with* the WindowsDesktop SDK. Ubuntu's `dotnet-sdk-8.0` lacks it and builds.dotnet.microsoft.com is blocked; the Microsoft SDK layer of the `mcr.microsoft.com/dotnet/sdk:8.0-noble` image works (extract `usr/share/dotnet` to e.g. `/opt/msdotnet`, put it first on `PATH`, then `build/publish.sh` steps run). You can build, test and XAML-check there, but not run the app.
 - **Missing-assembly check is mandatory too:** `dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64` — the 1.2.0 Settings crash (WebView2CompositionControl needs `Microsoft.Windows.SDK.NET`) only showed on Windows. The app targets `net8.0-windows10.0.19041.0` for that reason; don't drop the Windows version from the TFM.
 - **XAML check is mandatory.** WPF crashes at run time on XAML mistakes; `build/xaml_check.py` catches Setter/Trigger/StaticResource/typo errors statically (`build/README-checks.md`). 0 problems or don't ship.
-- The 5 integration tests (`Category=Integration`) need Dovecot + a test SMTP on Linux (`build/test-servers/start.sh`); they self-skip on Windows. Don't try to make them run here.
+- The 6 integration tests (`Category=Integration`) need Dovecot + a test SMTP on Linux (`build/test-servers/start.sh`); they self-skip on Windows. Don't try to make them run on the laptop. In a cloud session `apt-get install -y dovecot-imapd` + `pip install aiosmtpd` works; run start.sh in the background (it doesn't return while the SMTP server runs).
 - On this laptop you **can run the app**: `dotnet run --project src/Magpie.App` (or `publish/Magpie.exe`). Do that for UI work and say what you saw. Data lives in `%APPDATA%\Magpie` (settings.json, mail.db, magpie.log).
 - Warnings are errors in spirit: keep the build at 0 warnings.
 
 ## Releasing (automatic — design E1, `docs/CI-CD.md`)
 
-1. In the PR that should ship, write the user-facing lines under `## x.y.z (not released yet)` at the top of `CHANGELOG.md` (minor for features, patch for fixes; `x.y.z-rc.1` etc. for a pre-release) and put "Closes #n" in the PR body for the `[Q..]` issues it finishes.
-2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI's `check` step fails if any of that is missing.
+1. Every PR that changes the program (`src/`, `installer/`, `Directory.Build.props`, `global.json`, `Magpie.sln`) is a release (design VB1). Write the user-facing lines at the top of `CHANGELOG.md` under `## Next version (not released yet)`, each under `### New` (feature added / big UI-UX change → x), `### Changed` (feature changed → y) or `### Fixed` (bug or error fix → z), and put "Closes #n" in the PR body for the `[Q..]` issues it finishes. Never type the number.
+2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it works the number out (last release + the biggest kind) and sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI fails a PR that changes the program without a new version (`needs-version`), and `check` fails if anything is missing or the number breaks the rule.
 3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges.
 4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes) and removes its test versions. Tags are created by CI — never push tags.
 5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar pill; SHA-256 checked, rollback on failure).
-6. PRs that don't change the version release nothing; several PRs can collect lines under a `(not released yet)` section until one runs `apply`.
+6. PRs that only touch docs, CI, tests or build scripts need no version and release nothing.
 
 ## Where things are
 
@@ -64,7 +65,8 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Mail folder (DL1) | `AppPaths.MailRoot` (+ `mail-folder.txt`), `src/Magpie.Core/Storage/MailLocation.cs` (move), `src/Magpie.App/Services/MailFolderStartup.cs` (move at start, drive missing) |
 | AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
 | Settings change tracking (AP1) | `ViewModels/SettingsChanges.cs` — `Snapshot()` is the pure twin of `SaveCore`: add every new setting to BOTH, or Apply stays greyed out for it |
-| Reader (RL1) | `ThreadViewModel.LoadAsync` renders from the store first; `MessageBody.Images` (schema v6) holds the pictures inside an email; `MimeText.NeedsDownload`; page cache |
+| Reader (RL1, Q38/Q39) | `ThreadViewModel.Show` switches the pane at once; `LoadAsync` renders from the store first; `MessageBody.Images` + `ImagesComplete` (schema v7); `MimeText.NeedsDownload` / `MissingPictures`; `MailEngine.FetchBodyAsync` (text-only on open); page cache + `WarmNeighboursAsync` |
+| Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
 | Main window | `src/Magpie.App/MainWindow.xaml(.cs)`, `ViewModels/MainViewModel.cs` (nav, list, counts, toasts, sidebar, hover card, row actions, bulk bar), `ViewModels/ThreadViewModel.cs` (reader) |

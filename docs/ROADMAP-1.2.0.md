@@ -39,6 +39,12 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 33 | "Sign in again" enabled only when the sign-in has expired | (below) | Built 30 Sep 2026 | [#36](https://github.com/krishnabhunia/Magpie-email-client/issues/36) |
 | 34 | Your details per account: contact number, job title, company | AC1 (below) | Built 30 Sep 2026 | [#37](https://github.com/krishnabhunia/Magpie-email-client/issues/37) |
 | 35 | Default signature: "Thanks and Regards", name, contact number | SG1 (below) | Built 30 Sep 2026 | [#38](https://github.com/krishnabhunia/Magpie-email-client/issues/38) |
+| 36 | Version rule: x = feature added / big UI change, y = feature changed, z = fix; a new number with every update | VB1 (below) | Approved 30 Sep 2026 · Built | [#41](https://github.com/krishnabhunia/Magpie-email-client/issues/41) |
+| 37 | Settings: "Cancel" becomes "Close" | (below) | Built 30 Sep 2026 | [#44](https://github.com/krishnabhunia/Magpie-email-client/issues/44) |
+| 38 | Bug: picking another email still shows the previous one — switch at once (or blank) | (below) | Built 30 Sep 2026 — not yet tried on Windows | [#45](https://github.com/krishnabhunia/Magpie-email-client/issues/45) |
+| 39 | Bug: emails still come from the server and open slowly — superfast loading | (below) | Built 30 Sep 2026 — not yet tried on Windows | [#46](https://github.com/krishnabhunia/Magpie-email-client/issues/46) |
+| 40 | Check that the chosen days (e.g. 90) really are on this PC | (below) | Built 30 Sep 2026 — tested against a real IMAP server | [#47](https://github.com/krishnabhunia/Magpie-email-client/issues/47) |
+| 41 | Row buttons on hover not arranged properly | RB4 (below) | RB4 approved 30 Sep 2026 · Built — not yet tried on Windows | [#43](https://github.com/krishnabhunia/Magpie-email-client/issues/43) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -244,3 +250,43 @@ Screens: https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr (row "30 Sep: reader 
 - **#35 SG1** `Composer.DefaultSignatureHtml`: "Thanks and Regards", <b>name</b>, job title · company, number. Put in on
   Add account and once by `Normalise` for accounts with no signature (`SignatureDefaultApplied`); never replaces one.
 
+## #36 VB1 — Version rule (approved 30 Sep 2026)
+
+Krishna: *"All software must show their respective version number in home window page. Version number must be changed
+as soon as there is an update. x to be updated when there is a major change with UI/UX or when there is an added feature,
+y when there is a feature modification and z when there is a bug or error fix."*
+
+- Version in the main window: already there (design V1, title bar); it follows the built version.
+- CHANGELOG: `## Next version (not released yet)` with lines under `### New` (x), `### Changed` (y), `### Fixed` (z).
+  `release_prep.py apply` works the number out from the newest dated release + the biggest kind.
+- CI: `needs-version` fails a PR that changes `src/`, `installer/`, `Directory.Build.props`, `global.json` or `Magpie.sln`
+  while its version is already released; `check` fails a number that breaks the rule. Release notes show the kinds as
+  **New** / **Changed** / **Fixed**.
+- Releases up to 2.2.0 keep their numbers (renumbering would break auto-update). Evict needs the same rule from its own chat.
+
+## Items #37–#41 (asked 30 Sep 2026)
+
+- **#37** Settings footer: Close · Apply · Apply and Close (Close = discard, as Cancel did).
+- **#38** `ThreadViewModel.Show` replaces the page body at once (script, no navigation) with the new conversation's subject and
+  sender (`LoadingBody(downloading: false)`; "Loading…" only when it must be downloaded). After a conversation is shown,
+  `WarmNeighboursAsync` prepares the next three and the one above (`MainViewModel` sets `Reader.Neighbours`): pages built
+  into the page cache off the UI thread; emails not here are asked of the sync first (`WantBodies`).
+- **#39** Causes and fixes: `MimeText.NeedsDownload` counted any inline part (calendar, signature file) and pictures over the
+  4 MB cap, so those emails were read again on every opening — now only a picture the HTML shows (`cid:`), and never once
+  `MessageBody.ImagesComplete` (schema v7, `bodies.images_done`) says every picture was looked at; bigger pictures come from
+  the message file on this PC only. `MailStore.SaveBody` gives the body to the email's copies in other folders (same
+  Message-ID; Gmail Inbox + All Mail), `ShareBodiesWithCopies` for older data; `HasUncachedBody` counts an email as here when
+  any copy is. Opening an email not here (`AccountSync.FetchBodyAsync`): the message file, else whole when attachments come
+  with emails or it is ≤ 512 KB, else text and pictures only. Text-only downloads keep an invite that came as an .ics file;
+  an invite read from the message file is saved with the text.
+- **#40** The window was 150 emails per full check (every 5 min), skipped emails ≥ 5 MB and fetched Gmail copies twice. Now
+  `PrefetchWindowAsync` runs every round, back to back until the window is complete (`PrefetchPerRound` 200), emails
+  ≤ 512 KB (all < 5 MB when attachments come too) are fetched 25 per request (`ImapFolder.GetStreamsAsync`), bigger ones get
+  text and pictures; emails the server no longer has are not retried. `MailStore.WindowProgress` (each email once, Trash /
+  Spam / Drafts left out) feeds the account card line (`AccountSync.DescribeWindow`) and the status "Downloading emails to
+  this PC… N left". Integration test `Download_window_fills_in_batches_and_emails_open_from_this_pc` (Dovecot).
+- **#41 RB4 approved** (30 Sep 2026) and built: in `MainWindow.xaml` the first line's date slot holds the date (`RowDate`
+  style, hidden) and the buttons (`RowBar`: every chosen action, 26 px, plain coloured icons 16 px, 4 px gaps, ⋯ last,
+  negative margins so the row doesn't grow); the full date is a tooltip (`ThreadItem.DateTip`). Replaces RB1's floating
+  bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
+  kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr

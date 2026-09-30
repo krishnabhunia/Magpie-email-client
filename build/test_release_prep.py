@@ -22,15 +22,25 @@ PROPS = """<Project>
 ISS = '#ifndef MyAppVersion\n  #define MyAppVersion "1.1.2"\n#endif\n'
 LOG = """# Changelog
 
-## 1.2.0 (not released yet)
+## Next version (not released yet)
+### New
 - **Dark theme**: lighter at night.
+
+### Fixed
 - **Rules**: sort mail.
 <!-- closes: #2 #4, #13 -->
 
 ## 1.1.2 (28 Sep 2026)
 - About Me.
+
+## 1.1.1 (27 Sep 2026)
+- Older.
 """
 CLAUDE = "Current release: **1.1.2** (see CHANGELOG.md).\n"
+
+
+def only(kind, line="- A line."):
+    return LOG.replace(LOG[LOG.index("### New"):LOG.index("<!-- closes")], f"### {kind}\n{line}\n")
 
 
 class ReleasePrepTests(unittest.TestCase):
@@ -53,61 +63,102 @@ class ReleasePrepTests(unittest.TestCase):
         with self.assertRaises(rp.ReleaseError):
             rp.parse("1.2")
 
-    def test_pending_notes_and_closes(self):
+    def test_version_rule_x_new_y_changed_z_fixed(self):
+        # Krishna, 30 Sep 2026 (VB1): x = feature added / big UI change, y = feature changed, z = fix.
+        self.assertEqual(rp.bump("2.2.0", "New"), "3.0.0")
+        self.assertEqual(rp.bump("2.2.3", "Changed"), "2.3.0")
+        self.assertEqual(rp.bump("2.2.3", "Fixed"), "2.2.4")
+        self.assertEqual(rp.pending(self.root), "2.0.0")                      # New + Fixed: the biggest kind wins
+        rp.write("CHANGELOG.md", only("Changed"), self.root)
         self.assertEqual(rp.pending(self.root), "1.2.0")
-        notes = rp.section("1.2.0", self.root)
-        self.assertTrue(notes.startswith("- **Dark theme**"))
+        rp.write("CHANGELOG.md", only("Fixed"), self.root)
+        self.assertEqual(rp.pending(self.root), "1.1.3")
+        rp.write("CHANGELOG.md", only("Changed").replace("- A line.", "- A line.\n### Fixed\n- Another."), self.root)
+        self.assertEqual(rp.pending(self.root), "1.2.0")
+
+    def test_every_line_needs_a_kind(self):
+        for bad in (only("Improved"),                                          # not a kind
+                    LOG.replace("### New\n", ""),                              # a line above any kind
+                    only("New", "")):                                          # no lines at all
+            rp.write("CHANGELOG.md", bad, self.root)
+            with self.assertRaises(rp.ReleaseError):
+                rp.pending(self.root)
+
+    def test_counts_from_the_newest_release_not_the_first_heading(self):
+        rp.write("CHANGELOG.md", LOG.replace("## 1.1.1 (27 Sep 2026)", "## 1.9.0 (1 Sep 2026)"), self.root)
+        self.assertEqual(rp.last_release(self.root), "1.9.0")
+
+    def test_pending_notes_and_closes(self):
+        notes = rp.section(rp.NEXT, self.root)
+        self.assertTrue(notes.startswith("### New"))
         self.assertNotIn("1.1.2", notes)
-        self.assertEqual(rp.closes("1.2.0", self.root), [2, 4, 13])
-        self.assertNotIn("<!--", rp.notes("1.2.0", self.root))                  # the updater shows notes as text
-        self.assertTrue(rp.notes("1.2.0", self.root).endswith("- **Rules**: sort mail."))
+        self.assertEqual(rp.closes(rp.NEXT, self.root), [2, 4, 13])
+        rp.apply(datetime.date(2026, 10, 3), self.root)
+        text = rp.notes("2.0.0", self.root)
+        self.assertNotIn("<!--", text)                                         # the updater shows notes as text
+        self.assertNotIn("###", text)
+        self.assertTrue(text.startswith("**New**\n- **Dark theme**"))
+        self.assertTrue(text.endswith("- **Rules**: sort mail."))
+        self.assertEqual(rp.closes("2.0.0", self.root), [2, 4, 13])
         self.assertEqual(rp.closes("1.1.2", self.root), [])
 
-    def test_apply_bumps_every_file(self):
-        self.assertEqual(rp.apply(datetime.date(2026, 10, 3), self.root), "1.2.0")
+    def test_apply_sets_the_worked_out_version_everywhere(self):
+        self.assertEqual(rp.apply(datetime.date(2026, 10, 3), self.root), "2.0.0")
         props = rp.read("Directory.Build.props", self.root)
-        for want in ("<Version>1.2.0</Version>", "<AssemblyVersion>1.2.0.0</AssemblyVersion>",
-                     "<FileVersion>1.2.0.0</FileVersion>", "<ReleaseDate>2026-10-03</ReleaseDate>"):
+        for want in ("<Version>2.0.0</Version>", "<AssemblyVersion>2.0.0.0</AssemblyVersion>",
+                     "<FileVersion>2.0.0.0</FileVersion>", "<ReleaseDate>2026-10-03</ReleaseDate>"):
             self.assertIn(want, props)
-        self.assertIn('#define MyAppVersion "1.2.0"', rp.read("installer/Magpie.iss", self.root))
+        self.assertIn('#define MyAppVersion "2.0.0"', rp.read("installer/Magpie.iss", self.root))
         log = rp.read("CHANGELOG.md", self.root)
-        self.assertIn("## 1.2.0 (3 Oct 2026)", log)
+        self.assertIn("## 2.0.0 (3 Oct 2026)\n### New", log)
         self.assertNotIn("not released yet", log)
-        self.assertIn("Current release: **1.2.0**", rp.read("CLAUDE.md", self.root))
+        self.assertIn("Current release: **2.0.0**", rp.read("CLAUDE.md", self.root))
         self.assertIsNone(rp.pending(self.root))
-        self.assertEqual(rp.section("1.2.0", self.root).splitlines()[0], "- **Dark theme**: lighter at night.")
 
-    def test_prerelease_suffix_keeps_numeric_file_versions(self):
-        rp.write("CHANGELOG.md", LOG.replace("## 1.2.0 (not", "## 1.2.0-rc.1 (not"), self.root)
-        rp.apply(datetime.date(2026, 10, 3), self.root)
-        props = rp.read("Directory.Build.props", self.root)
-        self.assertIn("<Version>1.2.0-rc.1</Version>", props)
-        self.assertIn("<FileVersion>1.2.0.0</FileVersion>", props)
-
-    def test_refuses_an_older_or_missing_version(self):
-        rp.write("CHANGELOG.md", LOG.replace("## 1.2.0 (not", "## 1.1.1 (not"), self.root)
-        with self.assertRaises(rp.ReleaseError):
-            rp.apply(datetime.date(2026, 10, 3), self.root)
+    def test_refuses_nothing_pending_or_not_newer(self):
         rp.write("CHANGELOG.md", "# Changelog\n\n## 1.1.2 (28 Sep 2026)\n- x\n", self.root)
         self.assertIsNone(rp.pending(self.root))
         with self.assertRaises(rp.ReleaseError):
             rp.apply(datetime.date(2026, 10, 3), self.root)
+        rp.write("CHANGELOG.md", LOG, self.root)
+        rp.write("Directory.Build.props", PROPS.replace("1.1.2", "2.0.0"), self.root)   # already there
+        with self.assertRaises(rp.ReleaseError):
+            rp.apply(datetime.date(2026, 10, 3), self.root)
 
-    def test_check_passes_only_after_apply(self):
+    def test_check_passes_only_after_apply_and_with_the_rule_number(self):
         with self.assertRaises(rp.ReleaseError):
-            rp.check("1.2.0", self.root)                       # still 1.1.2 and "(not released yet)"
+            rp.check("2.0.0", self.root)                       # still 1.1.2 and "Next version"
         rp.apply(datetime.date(2026, 9, 29), self.root)
-        rp.check("1.2.0", self.root)
+        rp.check("2.0.0", self.root)
         with self.assertRaises(rp.ReleaseError):
-            rp.check("1.2.1", self.root)
+            rp.check("2.0.1", self.root)
+        # A number typed by hand that breaks the rule (New lines but only y raised) is refused.
+        for name in ("Directory.Build.props", "installer/Magpie.iss", "CHANGELOG.md"):
+            rp.write(name, rp.read(name, self.root).replace("2.0.0", "1.2.0"), self.root)
+        with self.assertRaises(rp.ReleaseError) as e:
+            rp.check("1.2.0", self.root)
+        self.assertIn("2.0.0", str(e.exception))
+
+    def test_a_program_change_needs_a_new_version(self):
+        with self.assertRaises(rp.ReleaseError):
+            rp.needs_version(["src/Magpie.App/MainWindow.xaml", "docs/x.md"], released=True)
+        with self.assertRaises(rp.ReleaseError):
+            rp.needs_version(["Directory.Build.props"], released=True)
+        with self.assertRaises(rp.ReleaseError):
+            rp.needs_version(["installer/Magpie.iss"], released=True)
+        self.assertEqual(rp.needs_version(["src/a.cs"], released=False), ["src/a.cs"])   # new version set: fine
+        for other in (["docs/CI-CD.md", "CLAUDE.md", "CHANGELOG.md"], [".github/workflows/build.yml", "build/release_prep.py"],
+                      ["tests/Magpie.Core.Tests/X.cs"]):
+            self.assertEqual(rp.needs_version(other, released=True), [])
 
     def test_real_repository_files_are_readable(self):
         # The repo's own files must keep the shapes apply() edits.
         self.assertTrue(rp.SEMVER.match(rp.current()))
         self.assertIn("MyAppVersion", rp.read("installer/Magpie.iss"))
+        self.assertEqual(rp.compare(rp.last_release(), rp.current()), 0, "Directory.Build.props should be the last release in CHANGELOG.md")
         p = rp.pending()
         if p:
-            self.assertGreater(rp.compare(p, rp.current()), 0, "pending CHANGELOG version must be newer than Directory.Build.props")
+            self.assertGreater(rp.compare(p, rp.current()), 0, "the next version must be newer than Directory.Build.props")
 
 
 class ReleaseZipTests(unittest.TestCase):

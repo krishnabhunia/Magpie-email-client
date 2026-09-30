@@ -56,6 +56,8 @@ public partial class ThreadViewModel
                 {
                     var (_, mime) = await Task.Run(() => _e.LoadAsync(r, true, ct), ct);
                     if (mime != null) ics = MimeText.CalendarText(mime);
+                    // Q39: kept with the text, so the next opening doesn't read the whole email again for it.
+                    if (ics.Length > 0 && body != null) { body.Calendar = ics; _e.Store.SaveBody(r.Id, body); }
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { Log.Warn("invite: " + ex.Message); }

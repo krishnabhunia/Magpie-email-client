@@ -127,15 +127,21 @@ public partial class ThreadViewModel : ObservableObject
         AccountId = row.AccountId;
         ThreadKey = row.ThreadKey;
         HasThread = true;
-        // Design RL1: "Loading…" only when something must be downloaded; a conversation kept on this PC is drawn straight away.
-        if (!same && _e.Store.HasUncachedBody(AccountId, ThreadKey))
+        // Q38: the previous email never stays on screen. The pane switches at once (inside the current page, no
+        // navigation) to the new conversation's subject and sender; "Loading…" only when it must be downloaded.
+        if (!same)
         {
             var m = row.Latest;
             var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
-            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark));
+            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark,
+                downloading: _e.Store.HasUncachedBody(AccountId, ThreadKey)));
         }
         _ = LoadAsync(_cts.Token, markRead: true);
     }
+
+    /// <summary>Q38: the conversations next to the open one in the list (set by the list after each pick); prepared
+    /// in the background so they open at once.</summary>
+    public IReadOnlyList<ThreadRow> Neighbours { get; set; } = Array.Empty<ThreadRow>();
 
     /// <summary>Called after list reloads: re-render if the open conversation changed (new reply, flags).</summary>
     public void RefreshIfShowing(ThreadRow row)
@@ -163,7 +169,7 @@ public partial class ThreadViewModel : ObservableObject
             Messages.Clear();
             foreach (var r in rows) Messages.Add(r);
             var latest = rows[^1];
-            Subject = string.IsNullOrWhiteSpace(latest.Subject) ? "(no subject)" : Threading.StripSubjectPrefixes(rows[0].Subject) is { Length: > 0 } s ? s : latest.Subject;
+            Subject = SubjectOf(rows);
             var people = rows.Select(r => IsMine(r) ? "you" : r.Sender).Distinct().Take(5);
             Meta = $"{rows.Count} message{(rows.Count == 1 ? "" : "s")} · {string.Join(", ", people)}";
             IsPinned = rows.Any(r => r.IsFlagged);
@@ -185,20 +191,31 @@ public partial class ThreadViewModel : ObservableObject
             }
             await RenderAsync(rows, bodies, ct);
 
-            // 2. Only what isn't here yet is read: an email not downloaded, or one saved before its pictures were kept.
+            // 2. Only what isn't here yet is read: an email not downloaded, or one saved before its pictures were kept
+            //    (Q39: its text and pictures only — attachments wait for a click). Pictures too big to keep with the
+            //    text come from the message file on this PC, never the server.
             bool fetched = false;
             foreach (var r in rows)
             {
                 ct.ThrowIfCancellationRequested();
                 var (b, _) = bodies[r.Id];
-                if (b != null && !MimeText.NeedsDownload(b)) continue;
+                if (b != null && !MimeText.NeedsDownload(b))
+                {
+                    if (b.ImagesComplete && MimeText.MissingPictures(b).Any()
+                        && await Task.Run(() => _e.LocalMimeAsync(r, ct), ct) is { } local)
+                    {
+                        var all = new Dictionary<string, string>(b.Images, StringComparer.OrdinalIgnoreCase);
+                        foreach (var (cid, uri) in MimeText.InlineImages(local)) all.TryAdd(cid, uri);
+                        bodies[r.Id] = (b, all);
+                        fetched = true;
+                    }
+                    continue;
+                }
                 fetched = true;
                 try
                 {
-                    var (body, mime) = await Task.Run(() => _e.LoadAsync(r, true, ct), ct);
-                    var images = body?.Images ?? new Dictionary<string, string>();
-                    if (mime != null && images.Count == 0) images = MimeText.InlineImages(mime);
-                    bodies[r.Id] = (body, images);
+                    var body = await Task.Run(() => _e.FetchBodyAsync(r, ct), ct);
+                    bodies[r.Id] = (body ?? b, (body ?? b)?.Images ?? new Dictionary<string, string>());
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
@@ -217,6 +234,7 @@ public partial class ThreadViewModel : ObservableObject
 
             UpdateRepliesBar();
             if (ShowReplies && !RepliesNeedClick && Replies.Count == 0) _ = GenerateRepliesAsync();
+            _ = WarmNeighboursAsync(ct);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -266,7 +284,7 @@ public partial class ThreadViewModel : ObservableObject
         }
         else
         {
-            var list = BuildRenderList(rows, bodies);
+            var list = BuildRenderList(AccountId, rows, bodies, _loadErrors);
             var html = "";
             (url, blocked) = await Task.Run(() =>
             {
@@ -275,16 +293,67 @@ public partial class ThreadViewModel : ObservableObject
                 html = result.Html;
                 return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
             }, ct);
-            if (!_pageCache.ContainsKey(key))
-            {
-                _pageCacheOrder.Enqueue(key);
-                while (_pageCacheOrder.Count > PageCacheSize) _pageCache.Remove(_pageCacheOrder.Dequeue());
-            }
-            _pageCache[key] = (fp, html, blocked);
+            PutPage(key, fp, html, blocked);
         }
         ct.ThrowIfCancellationRequested();
         BlockedImages = allow ? 0 : blocked;
         PageReady?.Invoke(url);
+    }
+
+    /// <summary>
+    /// Q38: gets the conversations next to the open one ready, one at a time, after it is shown: those not on this PC
+    /// are downloaded first by the account's sync; the others have their page built now, so picking them only
+    /// shows it.
+    /// </summary>
+    private async Task WarmNeighboursAsync(CancellationToken ct)
+    {
+        try
+        {
+            var dark = ThemeManager.IsDark;
+            foreach (var t in Neighbours.Take(4))
+            {
+                ct.ThrowIfCancellationRequested();
+                var key = t.AccountId + "\n" + t.ThreadKey;
+                // Reading the emails (pictures included) happens off the UI thread; only the page cache is touched on it.
+                var prep = await Task.Run(() =>
+                {
+                    var rows = _e.Store.GetThread(t.AccountId, t.ThreadKey);
+                    if (rows.Count == 0) return null;
+                    if (rows.Any(r => !r.BodyCached)) { _e.WantBodies(t.AccountId, rows.Where(r => !r.BodyCached).Select(r => r.Id)); return null; }
+                    var bodies = new Dictionary<long, (MessageBody?, Dictionary<string, string>)>();
+                    foreach (var r in rows) { var b = _e.Store.GetBody(r.Id); bodies[r.Id] = (b, b?.Images ?? new Dictionary<string, string>()); }
+                    var subject = SubjectOf(rows);
+                    var allow = _e.Config.RemoteImages == RemoteImages.Always
+                        || (_e.Config.RemoteImages == RemoteImages.Ask && rows.All(r => IsMine(r) || _e.Config.TrustedImageSenders.Contains(r.FromAddress, StringComparer.OrdinalIgnoreCase)));
+                    var errors = new Dictionary<long, string>();
+                    return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors) };
+                }, ct);
+                if (prep == null) continue;
+                if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == prep.fp) continue;
+                var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
+                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark), ct);
+                ct.ThrowIfCancellationRequested();
+                PutPage(key, prep.fp, result.Html, result.BlockedImages);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Log.Warn("prepare next conversations: " + ex.Message); }
+    }
+
+    private static void PutPage(string key, string fp, string html, int blocked)
+    {
+        if (!_pageCache.ContainsKey(key))
+        {
+            _pageCacheOrder.Enqueue(key);
+            while (_pageCacheOrder.Count > PageCacheSize) _pageCache.Remove(_pageCacheOrder.Dequeue());
+        }
+        _pageCache[key] = (fp, html, blocked);
+    }
+
+    private static string SubjectOf(List<MessageRow> rows)
+    {
+        var latest = rows[^1];
+        return string.IsNullOrWhiteSpace(latest.Subject) ? "(no subject)" : Threading.StripSubjectPrefixes(rows[0].Subject) is { Length: > 0 } s ? s : latest.Subject;
     }
 
     private bool ImagesAllowed(List<MessageRow> rows) =>
@@ -293,9 +362,10 @@ public partial class ThreadViewModel : ObservableObject
 
     private Dictionary<long, string> _loadErrors = new();
 
-    private List<RenderMessage> BuildRenderList(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies)
+    private List<RenderMessage> BuildRenderList(string accountId, List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
+        Dictionary<long, string> errors)
     {
-        var account = _e.AccountById(AccountId);
+        var account = _e.AccountById(accountId);
         var where = account?.Kind switch
         {
             AccountKind.Gmail => "Gmail",
@@ -310,7 +380,7 @@ public partial class ThreadViewModel : ObservableObject
             Expanded = i == rows.Count - 1 || !r.IsSeen || rows.Count <= 2,
             IsMine = IsMine(r),
             LoadingText = $"Downloading from {where}…",
-            LoadError = _loadErrors.TryGetValue(r.Id, out var err) ? err : null,
+            LoadError = errors.TryGetValue(r.Id, out var err) ? err : null,
         }).ToList();
     }
 
@@ -328,7 +398,7 @@ public partial class ThreadViewModel : ObservableObject
     {
         _lastBodies = bodies;
         var allow = ImagesAllowed(rows);
-        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(rows, bodies), allow, DateTimeOffset.Now, ThemeManager.IsDark);
+        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(AccountId, rows, bodies, _loadErrors), allow, DateTimeOffset.Now, ThemeManager.IsDark);
         BlockedImages = allow ? 0 : result.BlockedImages;
         PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
     }

@@ -56,6 +56,24 @@
             </Style.Triggers>
         </Style>
         <!-- Action bar on an email row (designs H3, RB1): on hover, always, or never -->
+        <!-- Design RB4: the date gives its place to the row buttons, under the same conditions as RowBar below -->
+        <Style x:Key="RowDate" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.RowActionsAlways, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Hidden" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding MenuOpen}" Value="True">
+                    <Setter Property="Visibility" Value="Hidden" />
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding DataContext.RowActionsOnHover, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Hidden" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="RowBar" TargetType="Border">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
@@ -481,8 +499,30 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <DockPanel Grid.Row="0">
-                                                <!-- Design RB1: the date always stays; the buttons float at the bottom right (below) -->
-                                                <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
+                                                <!-- Design RB4 (approved 30 Sep 2026): the chosen buttons take the date's place on the first line, the same
+                                                     spot on every row; one size, even gaps, ⋯ last. On hover (or always / never, Settings → Appearance). -->
+                                                <Grid DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Style="{StaticResource RowDate}" Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                               HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip="{Binding DateTip}" />
+                                                    <Border Style="{StaticResource RowBar}" Background="Transparent" Margin="0,-5,-4,-5" ToolTip="{Binding DateTip}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <ItemsControl ItemsSource="{Binding DataContext.RowActionButtons, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
+                                                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
+                                                                        <Button Style="{StaticResource Button.RowAction}" Width="26" Height="26" Margin="0,0,4,0" Tag="{Binding}" Click="OnRowAction"
+                                                                                ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding Name}">
+                                                                            <svc:IconChip Icon="{Binding IconKey}" Size="16" Plain="True" />
+                                                                        </Button>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                            <Button Style="{StaticResource Button.RowAction}" Width="26" Height="26" Margin="0" Click="OnRowMore" ToolTip="More actions" AutomationProperties.Name="More actions">
+                                                                <TextBlock Text="⋯" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Grid>
                                                 <StackPanel Orientation="Horizontal">
                                                     <Ellipse Width="7" Height="7" Fill="{DynamicResource Brush.Accent.Text}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding IsUnread, Converter={StaticResource BoolToVis}}" />
                                                     <Ellipse Width="7" Height="7" Fill="{Binding AccountColor, Converter={StaticResource HexBrush}}" Margin="0,0,7,0" VerticalAlignment="Center" Opacity="0.55"
@@ -527,39 +567,6 @@
                                                        Visibility="{Binding SnoozeText, Converter={StaticResource BoolToVis}}" />
                                         </Grid>
                                         </DockPanel>
-                                        <!-- Design RB1 (approved 29 Sep 2026): a floating bar at the right of the row — the first two chosen buttons,
-                                             a divider, the rest, then ⋯ with every other action. On hover (or always / never, Settings → Appearance). -->
-                                        <Border Style="{StaticResource RowBar}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2" Padding="3"
-                                                Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="8">
-                                            <Border.Effect><DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.16" Direction="270" /></Border.Effect>
-                                            <StackPanel Orientation="Horizontal">
-                                                <ItemsControl ItemsSource="{Binding DataContext.RowActionsLead, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
-                                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
-                                                            <Button Style="{StaticResource Button.RowAction}" Tag="{Binding}" Click="OnRowAction" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding Name}">
-                                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" />
-                                                            </Button>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                                <Border Width="1" Height="18" Margin="4,0,2,0" Background="{DynamicResource Brush.Divider}" VerticalAlignment="Center"
-                                                        Visibility="{Binding DataContext.HasRowActionsRest, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
-                                                <ItemsControl ItemsSource="{Binding DataContext.RowActionsRest, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
-                                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate DataType="{x:Type vm:ToolbarButtonVm}">
-                                                            <Button Style="{StaticResource Button.RowAction}" Tag="{Binding}" Click="OnRowAction" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding Name}">
-                                                                <svc:IconChip Icon="{Binding IconKey}" Size="22" />
-                                                            </Button>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                                <Button Style="{StaticResource Button.RowAction}" Click="OnRowMore" ToolTip="More actions" AutomationProperties.Name="More actions">
-                                                    <TextBlock Text="⋯" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                                </Button>
-                                            </StackPanel>
-                                        </Border>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>

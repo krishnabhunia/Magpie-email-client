@@ -1,5 +1,25 @@
 # Changelog
 
+<!-- Version rule (design VB1): put the next version's lines at the top, under the heading
+    "## Next version (not released yet)" and, inside it, under
+    "### New"      a feature added, or a big change to how Magpie looks or works  -> x.0.0
+    "### Changed"  a feature changed                                             -> x.y.0
+    "### Fixed"    a bug or error fixed                                          -> x.y.z
+    then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+
+## 2.3.0 (30 Sep 2026)
+### Changed
+- **Buttons on email rows** now sit where the date is, on the first line, when you point at a row: the same spot on every row, one size, evenly spaced, **⋯** last. Nothing covers the subject, preview or tags any more; the date comes back when the mouse leaves (and shows in full as a tooltip).
+- **Settings**: the first button is now **Close** (it closes Settings without applying your changes), next to **Apply** and **Apply and Close**.
+- **Downloading, per account**: Settings → Accounts now says how many emails of the chosen days are on this PC ("All 2,400 emails from the last 90 days are on this PC"), and the status bar says "Downloading emails to this PC… 120 left" while they come in.
+
+### Fixed
+- **Picking another email** no longer shows the previous one: the reading pane switches to the new email's subject and sender at once, and the next few emails in the list are prepared while you read, so they appear straight away.
+- **Emails no longer come from the server again when opened.** Some emails (with an invite, a signature file or a very large picture inside) were read again every time; now everything an email shows is kept on this PC. An email that is in two folders (Gmail's Inbox and All Mail) is downloaded once.
+- **Much faster downloading of the chosen days** (e.g. 90): emails come 25 per request and keep coming until all of them are on this PC — before, only 150 came every 5 minutes, and emails with big attachments were skipped. Emails with big attachments now get their text ahead; the attachments come when you open them.
+- **Opening an email that isn't on this PC yet** downloads just its text and pictures when attachments come on opening, so a 20 MB attachment no longer delays reading a few lines.
+<!-- closes: #43 #44 #45 #46 #47 -->
+
 ## 2.2.0 (30 Sep 2026)
 - **Emails open from this PC.** Opening an email no longer reads it from the server again: the pictures inside it (a logo, a newsletter) are now kept with its text when it is downloaded, so it is drawn once, straight away. "Loading…" shows only when an email really has to be downloaded, and going back to a conversation you just read is instant. Accounts set to download only the text get those pictures too (not the attachments).
 - **Settings buttons**: **Cancel** · **Apply** · **Apply and Close**. Apply (the default button, Enter) and Apply and Close come alive only when something differs from what is saved.
