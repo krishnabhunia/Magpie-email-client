@@ -44,7 +44,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 38 | Bug: picking another email still shows the previous one — switch at once (or blank) | (below) | Built 30 Sep 2026 — not yet tried on Windows | [#45](https://github.com/krishnabhunia/Magpie-email-client/issues/45) |
 | 39 | Bug: emails still come from the server and open slowly — superfast loading | (below) | Built 30 Sep 2026 — not yet tried on Windows | [#46](https://github.com/krishnabhunia/Magpie-email-client/issues/46) |
 | 40 | Check that the chosen days (e.g. 90) really are on this PC | (below) | Built 30 Sep 2026 — tested against a real IMAP server | [#47](https://github.com/krishnabhunia/Magpie-email-client/issues/47) |
-| 41 | Row buttons on hover not arranged properly | RB4–RB7 (designs) | Designs shown 30 Sep 2026 · waiting for Krishna's pick | [#43](https://github.com/krishnabhunia/Magpie-email-client/issues/43) |
+| 41 | Row buttons on hover not arranged properly | RB4 (below) | RB4 approved 30 Sep 2026 · Built — not yet tried on Windows | [#43](https://github.com/krishnabhunia/Magpie-email-client/issues/43) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -285,5 +285,8 @@ y when there is a feature modification and z when there is a bug or error fix."*
   text and pictures; emails the server no longer has are not retried. `MailStore.WindowProgress` (each email once, Trash /
   Spam / Drafts left out) feeds the account card line (`AccountSync.DescribeWindow`) and the status "Downloading emails to
   this PC… N left". Integration test `Download_window_fills_in_batches_and_emails_open_from_this_pc` (Dovecot).
-- **#41** Designs RB4 (recommended: icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
+- **#41 RB4 approved** (30 Sep 2026) and built: in `MainWindow.xaml` the first line's date slot holds the date (`RowDate`
+  style, hidden) and the buttons (`RowBar`: every chosen action, 26 px, plain coloured icons 16 px, 4 px gaps, ⋯ last,
+  negative margins so the row doesn't grow); the full date is a tooltip (`ThreadItem.DateTip`). Replaces RB1's floating
+  bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr

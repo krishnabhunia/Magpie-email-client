@@ -155,6 +155,8 @@ public sealed partial class ThreadItem : ObservableObject
     public string Subject => string.IsNullOrWhiteSpace(Row.Latest.Subject) ? "(no subject)" : Row.Latest.Subject;
     public string Preview => Row.Latest.Preview;
     public string DateText { get; }
+    /// <summary>Design RB4: the full date, on hover (the row buttons take the date's place).</summary>
+    public string DateTip => Row.Latest.Date.LocalDateTime.ToString("dddd d MMMM yyyy, HH:mm");
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
     public bool HasAttachments => Row.HasAttachments;
@@ -1152,10 +1154,6 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>The action buttons on every email row, in the user's order.</summary>
     public ObservableCollection<ToolbarButtonVm> RowActionButtons { get; } = new();
-    /// <summary>Design RB1: the first two chosen buttons, then (after a divider) the rest; ⋯ offers every other action.</summary>
-    public ObservableCollection<ToolbarButtonVm> RowActionsLead { get; } = new();
-    public ObservableCollection<ToolbarButtonVm> RowActionsRest { get; } = new();
-    public bool HasRowActionsRest => RowActionsRest.Count > 0;
     /// <summary>Actions for the ⋯ menu: every row action not already on the bar.</summary>
     public IEnumerable<ToolbarButtonVm> RowActionsMore =>
         RowActionsSettings.ActionIds.Where(id => RowActionButtons.All(b => b.Id != id)).Select(id => ToolbarButtonVm.For(id, ButtonStyle.IconOnly));
@@ -1390,10 +1388,6 @@ public partial class MainViewModel : ObservableObject
         HiddenButtons = a.Toolbar.Where(b => !b.Visible).Select(b => ToolbarButtonVm.For(b.Id, a.ButtonStyle)).ToList();
         RowActionButtons.Clear();
         foreach (var id in a.RowActions.Ids) RowActionButtons.Add(ToolbarButtonVm.For(id, ButtonStyle.IconOnly));
-        RowActionsLead.Clear();
-        RowActionsRest.Clear();
-        foreach (var (b, i) in RowActionButtons.Select((b, i) => (b, i))) (i < 2 ? RowActionsLead : RowActionsRest).Add(b);
-        OnPropertyChanged(nameof(HasRowActionsRest));
         OnPropertyChanged(nameof(RowActionsAlways));
         OnPropertyChanged(nameof(RowActionsOnHover));
         OnPropertyChanged(nameof(HoverCardsOn));
