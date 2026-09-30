@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **2.0.0** (see CHANGELOG.md). Next: **2.1.0** (settings backup, mail folder, downloads — CHANGELOG "not released yet") — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **2.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
