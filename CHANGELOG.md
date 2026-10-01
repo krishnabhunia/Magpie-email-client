@@ -7,6 +7,21 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 4.0.0 (1 Oct 2026)
+### New
+- **Tick boxes on every email row**, always there: click (or Space) ticks one, Shift+click ticks a range. The box above the list ticks everything on screen or nothing; **Ctrl+A** ticks all, **Esc** clears.
+- **Select ▾** above the list ticks by filter: All, None, Invert, Unread, Read, Pinned, With attachments, From the same sender as the email open, Older than (1 week to 1 year), People / Notifications / Newsletters, or a tag.
+- **Select all in the folder**: once everything on screen is ticked, one click reaches every conversation of the folder or search, not only those loaded. The bar above the list now also has **Mark unread**, **Pin** and **Spam**.
+- **Trash and Spam**: a bar shows how many conversations are there, with **Empty Trash** / **Empty Spam** (it says how many go for good and asks first, one account at a time). Ticked conversations (or right-click) can be **restored** to where they were, **moved**, marked read or unread, or **deleted forever**; in Spam, **Not spam** moves them to the Inbox and lets the sender through the Gatekeeper.
+- **Empty Trash by itself** after 7 or 30 days (Settings → General; off unless you choose it).
+- **Delete the emails already here** from a sender: the Delete ▾ menu can delete every email from that person, or from anyone at their domain, or only those older than 1 week to 2 years — in all folders and accounts, pinned ones kept. It says how many and from when, and gives a few seconds to undo.
+### Changed
+- **Auto-delete rules include the emails already in the Inbox** by default; those already past the time you choose go to Trash at once (untick "Include the … emails already in the Inbox" for new emails only).
+### Fixed
+- **Menus no longer show a grey panel with a vertical line** in submenus (Move to, Auto-delete, "From … after…"): every menu and submenu now looks the same, icons line up, and ticked items show a tick.
+- **Making the same auto-delete rule twice no longer adds a second rule**: the second changes the first, and rules already doubled are merged when Magpie starts.
+<!-- closes: #51 #52 #53 -->
+
 ## 3.0.0 (30 Sep 2026)
 ### New
 - **Calendar.** A new **Calendar** entry in the sidebar (and a calendar button in the title bar; Ctrl+2 opens it, Ctrl+1 goes back to mail) shows your Google Calendar as **Day**, **Week**, **Month** or **Agenda**, with **Today ‹ ›**, a small month to jump to any day, and a tick box and colour for each calendar (one per Google account, plus Holidays in India).
