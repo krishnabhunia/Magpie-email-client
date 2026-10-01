@@ -25,8 +25,10 @@ public sealed class AppVersion : IComparable<AppVersion>
         if (string.IsNullOrWhiteSpace(text)) return null;
         var m = Regex.Match(text.Trim(), @"^[vV]?(\d+)\.(\d+)(?:\.(\d+))?(?:\.\d+)?(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$");
         if (!m.Success) return null;
-        return new AppVersion(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture),
-            m.Groups[3].Success ? int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) : 0, m.Groups[4].Success ? m.Groups[4].Value : "");
+        if (!int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var major)
+            || !int.TryParse(m.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
+            || !int.TryParse(m.Groups[3].Success ? m.Groups[3].Value : "0", NumberStyles.None, CultureInfo.InvariantCulture, out var patch)) return null;
+        return new AppVersion(major, minor, patch, m.Groups[4].Success ? m.Groups[4].Value : "");
     }
 
     public int CompareTo(AppVersion? other)

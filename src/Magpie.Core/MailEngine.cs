@@ -30,7 +30,12 @@ public sealed class MailEngine : IDisposable
     private readonly object _knownGate = new();
     private CancellationTokenSource? _cts;
     private Task? _timers;
+    private Task? _rules;
+    private readonly object _ruleGate = new();
+    private readonly SemaphoreSlim _deferredRulesGate = new(1, 1);
+    private long _lastDeferredRuleMessage;
     private int _promotePending;
+    private readonly Func<Account, MimeMessage, CancellationToken, Task> _sendMessage;
 
     public event Action<ChangeSet>? Changed;
     public event Action<string, SyncStatus>? StatusChanged;
@@ -45,7 +50,8 @@ public sealed class MailEngine : IDisposable
     /// <summary>Design B2: the Google calendars of the Google accounts.</summary>
     public Calendar.CalendarService Calendar { get; }
 
-    public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null)
+    public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null,
+        Func<Account, MimeMessage, CancellationToken, Task>? sendMessage = null)
     {
         Paths = paths;
         Log.Init(paths.Logs);
@@ -66,7 +72,8 @@ public sealed class MailEngine : IDisposable
             },
         };
         Connector = new Connector(Vault, OAuth);
-        Ai = new AiService(Http, () => Settings.Current.Ai, () => Vault.Get(SecretVault.AiKeyFor(Settings.Current.Ai.ActiveId)));
+        _sendMessage = sendMessage ?? Connector.SendAsync;
+        Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id)));
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
     }
 
@@ -84,6 +91,7 @@ public sealed class MailEngine : IDisposable
         lock (_knownGate) _known = Store.KnownContacts();
         foreach (var a in Accounts.Where(a => a.Enabled)) StartAccount(a);
         _timers = Task.Run(() => TimersAsync(_cts.Token));
+        _rules = Task.Run(() => DeferredRulesLoopAsync(_cts.Token));
         Calendar.Start(_cts.Token);
     }
 
@@ -103,7 +111,7 @@ public sealed class MailEngine : IDisposable
                 var quiet = new HashSet<long>();
                 try { quiet.UnionWith(RunGatekeeper(cs.AccountId, cs.NewInboxArrivals)); }
                 catch (Exception ex) { Log.Error("gatekeeper failed", ex); }
-                try { quiet.UnionWith(RunRules(cs.AccountId, cs.NewInboxArrivals.Where(m => !quiet.Contains(m.Id)).ToList())); }
+                try { quiet.UnionWith(RunRules(cs.AccountId, cs.NewInboxArrivals.Where(m => !quiet.Contains(m.Id)).ToList(), notifyWhenReady: cs.NewInboxMessages.Select(m => m.Id).ToHashSet())); }
                 catch (Exception ex) { Log.Error("rules failed", ex); }
                 try { TagArrivals(cs.AccountId, cs.NewInboxArrivals); }
                 catch (Exception ex) { Log.Error("auto-delete tagging failed", ex); }
@@ -197,6 +205,7 @@ public sealed class MailEngine : IDisposable
         Settings.Save();
         Vault.RemovePrefix($"account:{accountId}:");
         OAuth.Forget(accountId);
+        Calendar.ForgetAccount(accountId);
         Store.DeleteAccount(accountId);
         Store.DeleteLocalDraftsForAccount(accountId);
         try
@@ -482,7 +491,13 @@ public sealed class MailEngine : IDisposable
     /// that a rule moves or deletes is not seen by later rules. Returns the ids that should not be announced
     /// (skip notification, marked read, moved, deleted, snoozed or set aside).
     /// </summary>
-    public HashSet<long> RunRules(string accountId, IReadOnlyList<MessageRow> messages, IReadOnlyList<MailRule>? only = null)
+    public HashSet<long> RunRules(string accountId, IReadOnlyList<MessageRow> messages, IReadOnlyList<MailRule>? only = null, IReadOnlySet<long>? notifyWhenReady = null)
+    {
+        lock (_ruleGate) return RunRulesCore(accountId, messages, only, notifyWhenReady);
+    }
+
+    private HashSet<long> RunRulesCore(string accountId, IReadOnlyList<MessageRow> messages,
+        IReadOnlyList<MailRule>? only, IReadOnlySet<long>? notifyWhenReady = null)
     {
         var quiet = new HashSet<long>();
         var rules = (only ?? Config.Rules).Where(r => RuleEngine.IsRunnable(r) && RuleEngine.AppliesToAccount(r, accountId)).ToList();
@@ -496,6 +511,12 @@ public sealed class MailEngine : IDisposable
         {
             var m = Store.GetMessage(arrived.Id);
             if (m == null) continue;
+            if (needsBody && !m.BodyCached)
+            {
+                Store.DeferRules(m.Id, notifyWhenReady?.Contains(m.Id) == true && !m.IsSeen, rules);
+                quiet.Add(m.Id);
+                continue;
+            }
             var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
             foreach (var rule in rules)
             {
@@ -504,9 +525,63 @@ public sealed class MailEngine : IDisposable
                 if (ApplyRule(rule, m, folders, touched, quiet, now)) break;
                 m = Store.GetMessage(m.Id) ?? m;
             }
+            Store.CompleteDeferredRules(m.Id);
         }
         if (touched.Count > 0) Touched(accountId, touched);
         return quiet;
+    }
+
+    internal async Task ProcessDeferredRulesAsync(CancellationToken ct)
+    {
+        await _deferredRulesGate.WaitAsync(ct);
+        try
+        {
+            foreach (var pending in Store.DeferredRules(afterMessageId: _lastDeferredRuleMessage))
+            {
+                ct.ThrowIfCancellationRequested();
+                // Unavailable bodies must not keep later messages behind the first batch forever.
+                _lastDeferredRuleMessage = pending.Row.Id;
+                try
+                {
+                    var row = pending.Row;
+                    if (!row.BodyCached) await FetchBodyAsync(row, ct);
+                    row = Store.GetMessage(row.Id)!;
+                    if (row == null || !row.BodyCached) continue;
+                    MessageRow? announcement = null;
+                    lock (_ruleGate)
+                    {
+                        var work = Store.DeferredRules(row.Id).SingleOrDefault();
+                        if (work.Row == null) continue;
+                        if (!Store.GetFolders(row.AccountId).Any(f => f.Id == row.FolderId && f.Role == FolderRole.Inbox))
+                        {
+                            Store.CompleteDeferredRules(row.Id);
+                            continue;
+                        }
+                        var quiet = RunRulesCore(row.AccountId, new[] { row }, work.Rules);
+                        var current = Store.GetMessage(row.Id);
+                        if (work.Notify && current is { IsSeen: false } && !quiet.Contains(row.Id)
+                            && Store.GetFolders(row.AccountId).Any(f => f.Id == current.FolderId && f.Role == FolderRole.Inbox))
+                            announcement = current;
+                    }
+                    if (announcement != null) NewMail?.Invoke(new[] { announcement });
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex) { Log.Warn("waiting to apply mail rules: " + ex.Message); }
+            }
+        }
+        finally { _deferredRulesGate.Release(); }
+    }
+
+    private async Task DeferredRulesLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await ProcessDeferredRulesAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch (Exception ex) { Log.Error("deferred rules", ex); }
+            try { await Task.Delay(TimeSpan.FromSeconds(5), ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+        }
     }
 
     /// <summary>True when the message left its folder (moved or deleted).</summary>
@@ -839,7 +914,7 @@ public sealed class MailEngine : IDisposable
             foreach (var m in Store.GetMessagesIn(FolderIds(FolderRole.Inbox, acc.Id), limit))
             {
                 var body = needsBody && m.BodyCached ? Store.GetBody(m.Id)?.Text ?? "" : "";
-                if (RuleEngine.Matches(rule, m, new RuleContext(acc.Email, body))) found.Add(m);
+                if (RuleEngine.Matches(rule, m, new RuleContext(acc.Email, body, !needsBody || m.BodyCached))) found.Add(m);
                 if (found.Count >= limit) return found;
             }
         }
@@ -1103,7 +1178,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>The outbox without the messages themselves — cheap enough to read every second (status bar).</summary>
     public List<OutboxItem> OutboxSummary() => Store.GetOutbox(withMime: false);
 
-    private async Task ProcessOutboxAsync(CancellationToken ct)
+    internal async Task ProcessOutboxAsync(CancellationToken ct)
     {
         var now = DateTimeOffset.Now;
         foreach (var item in Store.GetOutbox().Where(o => o.SendAt <= now))
@@ -1113,11 +1188,13 @@ public sealed class MailEngine : IDisposable
             if (!Store.TryClaimOutbox(item.Id)) continue;
             OutboxChanged?.Invoke();
             var account = AccountById(item.AccountId);
+            var accepted = false;
             try
             {
                 if (account == null) throw new InvalidOperationException("The account for this message was removed.");
                 var msg = Composer.FromBytes(item.Mime);
-                await Connector.SendAsync(account, msg, ct);
+                await _sendMessage(account, msg, ct);
+                accepted = true;
                 Store.SetOutboxResult(item.Id, OutboxStatus.Sent);
                 Log.Info($"sent '{item.Subject}' from {account.Email}");
                 if (!account.ServerSavesSent && _syncs.TryGetValue(account.Id, out var sync))
@@ -1136,19 +1213,29 @@ public sealed class MailEngine : IDisposable
                 Sent?.Invoke(item);
                 SyncNow(item.AccountId);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested && !accepted)
             {
                 Store.SetOutboxResult(item.Id, OutboxStatus.Failed, "Interrupted", DateTimeOffset.Now);
                 throw;
             }
             catch (Exception ex)
             {
-                var attempts = item.Attempts + 1;
-                var retry = DateTimeOffset.Now.AddMinutes(Math.Min(60, Math.Pow(2, attempts)));
-                var msgText = Connector.Friendly(ex);
-                Log.Error($"send failed ({attempts}) '{item.Subject}'", ex);
-                Store.SetOutboxResult(item.Id, OutboxStatus.Failed, msgText, retry);
-                SendFailed?.Invoke(item, msgText);
+                if (accepted)
+                {
+                    // SMTP accepted the message. A failed cleanup must never send it again.
+                    Log.Error($"message sent; cleanup failed for '{item.Subject}'", ex);
+                    try { Store.SetOutboxResult(item.Id, OutboxStatus.Sent); }
+                    catch (Exception saveError) { Log.Error("could not record the accepted send", saveError); }
+                }
+                else
+                {
+                    var attempts = item.Attempts + 1;
+                    var retry = DateTimeOffset.Now.AddMinutes(Math.Min(60, Math.Pow(2, attempts)));
+                    var msgText = Connector.Friendly(ex);
+                    Log.Error($"send failed ({attempts}) '{item.Subject}'", ex);
+                    Store.SetOutboxResult(item.Id, OutboxStatus.Failed, msgText, retry);
+                    SendFailed?.Invoke(item, msgText);
+                }
             }
             OutboxChanged?.Invoke();
         }

@@ -32,6 +32,7 @@ html.dark .magpie-quote a{color:#14606E}
 <script>
 const ed = document.getElementById('ed');
 let saved = null;
+let rewrite = null;
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
 function setHtml(h){
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
@@ -55,10 +56,20 @@ function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }
 function cmd(mode, text){
-  ed.focus();
-  if (mode === 'replaceSelection') { restore(); document.execCommand('insertHTML', false, inlineHtml(text)); }
-  else if (mode === 'insert') { restore(); document.execCommand('insertHTML', false, toHtml(text)); }
+  if (mode === 'captureRewrite') {
+    if (!saved || saved.collapsed || saved.toString() !== text) return false;
+    rewrite = { range: saved.cloneRange(), html: ed.innerHTML };
+    return true;
+  }
+  if (mode === 'replaceSelection') {
+    if (!rewrite || rewrite.html !== ed.innerHTML) return false;
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(rewrite.range);
+    ed.focus(); document.execCommand('insertHTML', false, inlineHtml(text));
+    rewrite = null;
+  }
+  else if (mode === 'insert') { ed.focus(); restore(); document.execCommand('insertHTML', false, toHtml(text)); }
   else if (mode === 'replaceBody') {
+    ed.focus();
     const stop = topChild(ed.querySelector('.magpie-signature, .magpie-quote'));
     const r = document.createRange();
     r.setStart(ed, 0);
@@ -67,6 +78,7 @@ function cmd(mode, text){
     document.execCommand('insertHTML', false, toHtml(text));
   }
   post({t:'dirty'});
+  return true;
 }
 ed.addEventListener('input', function(){ post({t:'dirty'}); });
 document.addEventListener('keydown', function(e){

@@ -20,6 +20,8 @@ public sealed class CalendarService
     private readonly SemaphoreSlim _wake = new(0, int.MaxValue);
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly ConcurrentDictionary<string, CalendarProblem> _problems = new();
+    private readonly ConcurrentDictionary<string, byte> _removed = new();
+    private readonly object _accountGate = new();
 
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromMinutes(5);
     /// <summary>The window kept on this PC: two months back, thirteen months ahead.</summary>
@@ -41,7 +43,7 @@ public sealed class CalendarService
     }
 
     /// <summary>Google accounts (signed in with Google): the only ones with a calendar here.</summary>
-    public IReadOnlyList<Account> GoogleAccounts => _accounts().Where(a => a.Enabled && a.Kind == AccountKind.Gmail && a.Auth == AuthMethod.OAuth2).ToList();
+    public IReadOnlyList<Account> GoogleAccounts => _accounts().Where(a => !_removed.ContainsKey(a.Id) && a.Enabled && a.Kind == AccountKind.Gmail && a.Auth == AuthMethod.OAuth2).ToList();
 
     /// <summary>Why an account's calendar can't be shown or updated right now (account id → problem).</summary>
     public IReadOnlyDictionary<string, CalendarProblem> Problems => _problems;
@@ -50,6 +52,27 @@ public sealed class CalendarService
 
     /// <summary>Check Google now (after a change, a new sign-in, or a calendar ticked on).</summary>
     public void Poke() => _wake.Release();
+
+    public void ForgetAccount(string accountId)
+    {
+        lock (_accountGate)
+        {
+            _removed[accountId] = 0;
+            _store.DeleteCalendarsForAccount(accountId);
+            _problems.TryRemove(accountId, out _);
+        }
+        Changed?.Invoke();
+    }
+
+    private bool ForActiveAccount(string accountId, Action work)
+    {
+        lock (_accountGate)
+        {
+            if (_removed.ContainsKey(accountId)) return false;
+            work();
+            return true;
+        }
+    }
 
     private async Task LoopAsync(CancellationToken ct)
     {
@@ -105,7 +128,7 @@ public sealed class CalendarService
         var calendars = await client.ListCalendarsAsync(a.Id, ct);
         if (holidays && calendars.All(c => c.Id != GoogleCalendarClient.IndiaHolidays))
             calendars.Add(new CalendarInfo { AccountId = a.Id, Id = GoogleCalendarClient.IndiaHolidays, Name = "Holidays in India", Color = "#B45309" });
-        _store.SaveCalendars(a.Id, calendars);
+        if (!ForActiveAccount(a.Id, () => _store.SaveCalendars(a.Id, calendars))) return;
 
         var from = DateTimeOffset.Now.Date - Before;
         var to = DateTimeOffset.Now.Date + After;
@@ -115,7 +138,7 @@ public sealed class CalendarService
             try
             {
                 var events = await client.ListEventsAsync(a.Id, cal.Id, a.Email, from, to, ct);
-                _store.ReplaceEvents(a.Id, cal.Id, from, to, events);
+                if (!ForActiveAccount(a.Id, () => _store.ReplaceEvents(a.Id, cal.Id, from, to, events))) return;
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
             {
@@ -130,8 +153,11 @@ public sealed class CalendarService
         foreach (var e in _store.PendingEvents(a.Id))
         {
             ct.ThrowIfCancellationRequested();
+            if (_removed.ContainsKey(a.Id)) return;
             try
             {
+                if (e.Pending == PendingEventOp.Create && e.CreationId.Length == 0)
+                    if (!ForActiveAccount(a.Id, () => _store.EnsureCreationId(e))) return;
                 CalendarEvent? saved = null;
                 switch (e.Pending)
                 {
@@ -139,19 +165,18 @@ public sealed class CalendarService
                     case PendingEventOp.Update: saved = await client.UpdateAsync(e, a.Email, ct); break;
                     case PendingEventOp.Respond: saved = await client.RespondAsync(e, a.Email, ct); break;
                     case PendingEventOp.Delete:
+                        if (e.EventId.Length == 0) e.EventId = e.CreationId;
                         if (e.EventId.Length > 0) await client.DeleteAsync(e, ct);
-                        _store.DeleteEventRow(e.Id);
+                        ForActiveAccount(a.Id, () => _store.DeleteEventIfUnchanged(e));
                         continue;
                 }
                 if (saved == null) continue;
-                saved.Id = e.Id;
-                saved.Pending = PendingEventOp.None;
-                _store.SaveLocalEvent(saved);
+                ForActiveAccount(a.Id, () => _store.CompleteEventUpload(e, saved));
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
             {
                 Log.Warn($"[{a.Email}] event \"{e.Title}\" is gone from Google; dropped here too");
-                _store.DeleteEventRow(e.Id);
+                ForActiveAccount(a.Id, () => _store.DeleteEventIfUnchanged(e));
             }
         }
     }
@@ -172,9 +197,18 @@ public sealed class CalendarService
     /// <summary>Adds or changes an event: saved on this PC at once, sent to Google in the background.</summary>
     public CalendarEvent Save(CalendarEvent e)
     {
-        e.Pending = e.Id == 0 || e.EventId.Length == 0 ? PendingEventOp.Create : PendingEventOp.Update;
-        e.Updated = DateTimeOffset.Now;
-        _store.SaveLocalEvent(e);
+        if (!ForActiveAccount(e.AccountId, () =>
+        {
+            var current = e.Id == 0 ? null : _store.GetEvent(e.Id);
+            if (current != null)
+            {
+                e.EventId = current.EventId;
+                e.CreationId = current.CreationId;
+            }
+            e.Pending = e.Id == 0 || e.EventId.Length == 0 ? PendingEventOp.Create : PendingEventOp.Update;
+            e.Updated = DateTimeOffset.Now;
+            _store.SaveLocalEvent(e);
+        })) throw new InvalidOperationException("This calendar account was removed.");
         Changed?.Invoke();
         Poke();
         return e;
@@ -182,12 +216,13 @@ public sealed class CalendarService
 
     public void Delete(CalendarEvent e)
     {
-        if (e.EventId.Length == 0) _store.DeleteEventRow(e.Id);
-        else
+        ForActiveAccount(e.AccountId, () =>
         {
+            var current = _store.GetEvent(e.Id);
+            if (current != null) { e.EventId = current.EventId; e.CreationId = current.CreationId; }
             e.Pending = PendingEventOp.Delete;
             _store.SaveLocalEvent(e);
-        }
+        });
         Changed?.Invoke();
         Poke();
     }
@@ -198,7 +233,7 @@ public sealed class CalendarService
         e.MyAnswer = answer;
         foreach (var at in e.Attendees.Where(x => x.Self)) at.Answer = answer;
         if (e.Pending is not (PendingEventOp.Create or PendingEventOp.Update)) e.Pending = PendingEventOp.Respond;
-        _store.SaveLocalEvent(e);
+        ForActiveAccount(e.AccountId, () => _store.SaveLocalEvent(e));
         Changed?.Invoke();
         Poke();
     }

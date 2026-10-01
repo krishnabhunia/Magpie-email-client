@@ -218,16 +218,34 @@ public partial class ComposeWindow : Window
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
 
+    private (int Start, int Length, string Text)? _plainRewrite;
+
     private async Task EditorCommandAsync(string mode, string text)
     {
         if (_plain)
         {
-            if (mode == "replaceSelection" && PlainEditor.SelectionLength > 0) PlainEditor.SelectedText = text;
+            if (mode == "captureRewrite")
+            {
+                if (PlainEditor.SelectionLength == 0 || PlainEditor.SelectedText != text)
+                    throw new InvalidOperationException("Select the text again before rewriting it.");
+                _plainRewrite = (PlainEditor.SelectionStart, PlainEditor.SelectionLength, PlainEditor.Text);
+                return;
+            }
+            if (mode == "replaceSelection")
+            {
+                if (_plainRewrite is not { } saved || saved.Text != PlainEditor.Text)
+                    throw new InvalidOperationException("Your message changed. Select the text and rewrite it again.");
+                PlainEditor.Select(saved.Start, saved.Length);
+                PlainEditor.SelectedText = text;
+                _plainRewrite = null;
+            }
             else if (mode == "replaceBody") PlainEditor.Text = text + "\n\n" + PlainEditor.Text;
             else PlainEditor.SelectedText = text;
             return;
         }
-        await Editor.CoreWebView2.ExecuteScriptAsync($"cmd({JsonSerializer.Serialize(mode)}, {JsonSerializer.Serialize(text)})");
+        var result = await Editor.CoreWebView2.ExecuteScriptAsync($"cmd({JsonSerializer.Serialize(mode)}, {JsonSerializer.Serialize(text)})");
+        if (result == "false")
+            throw new InvalidOperationException("Your message or selection changed. Select the text and rewrite it again.");
     }
 
     private async void OnFormat(object sender, RoutedEventArgs e)

@@ -617,6 +617,17 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OnThreadListScroll(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.OriginalSource is ScrollViewer viewer && e.VerticalChange > 0
+            && e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 5)
+        {
+            var offset = e.VerticalOffset;
+            _vm.LoadMoreThreads();
+            Dispatcher.BeginInvoke(() => viewer.ScrollToVerticalOffset(offset), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
     private void OnThreadListClick(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject src) return;

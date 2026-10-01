@@ -7,6 +7,19 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 3.0.1 (1 Oct 2026)
+### Fixed
+- Sent emails stay sent when draft cleanup or a notification fails, so they are not sent again.
+- Offline mail actions check that the server still uses the same message identifiers. Deleting one message no longer clears other messages waiting in Trash on servers without selective deletion.
+- Calendar sync preserves edits and deletions made while an upload is running, retries new events without creating duplicates, and removes calendar data when an account is removed.
+- Calendar reminders set for the start of an event now appear once, including shortly after the PC wakes.
+- Moving the mail checks a temporary copy before replacing existing mail. Failed settings restores recover the previous settings and sign-ins and keep the backup for retry.
+- Rules that check the body wait for the complete message and keep their order and notification choices.
+- Scrolling the message list can reach conversations after the first 400. AI rewrites replace the original selection and ask for a new rewrite if the message changed.
+- AI calls check permission in the service for each connection and endpoint, accept HTTPS or a local HTTP model, and handle empty suggested replies safely.
+- Quoted recipient names containing commas are accepted, oversized update versions are ignored, and deletion dates display consistently across Windows settings.
+- The README now describes the current calendar, dark theme, search and AI permission behaviour.
+
 ## 3.0.0 (30 Sep 2026)
 ### New
 - **Calendar.** A new **Calendar** entry in the sidebar (and a calendar button in the title bar; Ctrl+2 opens it, Ctrl+1 goes back to mail) shows your Google Calendar as **Day**, **Week**, **Month** or **Agenda**, with **Today ‹ ›**, a small month to jump to any day, and a tick box and colour for each calendar (one per Google account, plus Holidays in India).
