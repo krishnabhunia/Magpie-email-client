@@ -82,6 +82,18 @@ public partial class App : Application
         engine.NewMail += OnNewMail;
         engine.SendFailed += (item, err) => Ui.Post(() => tray.ShowBalloon("Couldn't send \"" + item.Subject + "\"", err + " Magpie will retry.", () => ShowMain()));
         engine.ReminderDue += r => Ui.Post(() => tray.ShowBalloon("Follow up", r.Subject, () => ShowMain()?.OpenThread(r.AccountId, r.ThreadKey)));
+        // Design B2: an event starts soon.
+        engine.EventReminderDue += events => Ui.Post(() =>
+        {
+            foreach (var ev in events.Take(3))
+            {
+                var mins = (int)Math.Round((ev.Start - DateTimeOffset.Now).TotalMinutes);
+                var when = mins <= 0 ? "Now" : mins < 60 ? $"In {mins} min" : $"At {ev.Start.LocalDateTime:HH:mm}";
+                var text = $"{ev.Start.LocalDateTime:HH:mm} – {ev.End.LocalDateTime:HH:mm}" + (ev.Location.Length > 0 ? " · " + ev.Location : "") + (ev.MeetLink.Length > 0 ? " · video call" : "");
+                var day = ev.Start.LocalDateTime.Date;
+                tray.ShowBalloon($"{when}: {ev.Title}", text, () => ShowMain()?.OpenCalendarAt(day));
+            }
+        });
         engine.SnoozeWoke += rows => Ui.Post(() =>
         {
             var first = rows.OrderByDescending(r => r.Date).First();

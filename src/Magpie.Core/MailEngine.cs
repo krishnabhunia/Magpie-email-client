@@ -40,6 +40,10 @@ public sealed class MailEngine : IDisposable
     public event Action<OutboxItem, string>? SendFailed;
     public event Action<IReadOnlyList<MessageRow>>? SnoozeWoke;
     public event Action<Reminder>? ReminderDue;
+    /// <summary>Design B2: a calendar event starts soon (its reminder is due).</summary>
+    public event Action<IReadOnlyList<CalendarEvent>>? EventReminderDue;
+    /// <summary>Design B2: the Google calendars of the Google accounts.</summary>
+    public Calendar.CalendarService Calendar { get; }
 
     public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null)
     {
@@ -63,6 +67,7 @@ public sealed class MailEngine : IDisposable
         };
         Connector = new Connector(Vault, OAuth);
         Ai = new AiService(Http, () => Settings.Current.Ai, () => Vault.Get(SecretVault.AiKeyFor(Settings.Current.Ai.ActiveId)));
+        Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
     }
 
     public AppSettings Config => Settings.Current;
@@ -79,6 +84,7 @@ public sealed class MailEngine : IDisposable
         lock (_knownGate) _known = Store.KnownContacts();
         foreach (var a in Accounts.Where(a => a.Enabled)) StartAccount(a);
         _timers = Task.Run(() => TimersAsync(_cts.Token));
+        Calendar.Start(_cts.Token);
     }
 
     private void StartAccount(Account a)
@@ -165,6 +171,7 @@ public sealed class MailEngine : IDisposable
         Settings.Current.Accounts.Add(a);
         Settings.Save();
         StartAccount(a);
+        Calendar.Poke();
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
@@ -179,6 +186,7 @@ public sealed class MailEngine : IDisposable
         Settings.Save();
         if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
         if (a.Enabled) StartAccount(a);
+        Calendar.Poke();   // a new sign-in may now allow the calendar (design B2)
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
@@ -871,6 +879,12 @@ public sealed class MailEngine : IDisposable
     public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct) =>
         _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.LocalMimeAsync(row, ct) : null;
 
+    /// <summary>Design HM1: the whole email (attachments too) is on this PC as a message file.</summary>
+    public bool HasMessageFile(MessageRow row)
+    {
+        try { return File.Exists(Paths.MimePath(row.AccountId, row.Id)); } catch { return false; }
+    }
+
     /// <summary>Q38: emails the reader will probably open next; downloaded first.</summary>
     public void WantBodies(string accountId, IEnumerable<long> rowIds)
     {
@@ -1169,6 +1183,8 @@ public sealed class MailEngine : IDisposable
                 {
                     lastMinute = DateTimeOffset.Now;
                     CheckReminders();
+                    var soon = Store.TakeDueEventReminders(DateTimeOffset.Now);   // design B2
+                    if (soon.Count > 0) EventReminderDue?.Invoke(soon);
                     RunDueDeletes(DateTimeOffset.Now);   // also the overdue ones at start (this runs straight away)
                     if (Interlocked.Exchange(ref _promotePending, 0) == 1) PromoteKnownSenders();
                     _ = Task.Run(async () =>

@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **2.3.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **3.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -31,7 +31,7 @@ Current release: **2.3.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 236 unit tests
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 264 unit tests
 build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -66,6 +66,8 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
 | Settings change tracking (AP1) | `ViewModels/SettingsChanges.cs` — `Snapshot()` is the pure twin of `SaveCore`: add every new setting to BOTH, or Apply stays greyed out for it |
 | Reader (RL1, Q38/Q39) | `ThreadViewModel.Show` switches the pane at once; `LoadAsync` renders from the store first; `MessageBody.Images` + `ImagesComplete` (schema v7); `MimeText.NeedsDownload` / `MissingPictures`; `MailEngine.FetchBodyAsync` (text-only on open); page cache + `WarmNeighboursAsync` |
+| Calendar (B2, Q7) | `src/Magpie.Core/Calendar/` — `GoogleCalendar.cs` (Calendar API v3 client, errors → plain messages), `CalendarService.cs` (poll 5 min + `Poke`, local-first save/delete/respond, pending ops pushed next round), `CalendarLayout.cs` (ranges, titles, overlap columns); `MailStore.Calendar.cs` (`cal_calendars`, `cal_events`, `TakeDueEventReminders`); `ViewModels/CalendarViewModel.cs`, `Views/CalendarView.xaml`, `Views/EventWindow.xaml`; Google sign-in asks for calendar + contacts scopes (`OAuth.GrantedScopes`) |
+| Hover cards (HM1) | `src/Magpie.Core/Mail/HoverMenus.cs` (which lines each card shows, ids E1–E11 / S1–S9 / A1–A9), page script + `hm-a` / `hm-f` targets in `HtmlRenderer`, `Services/ReaderHover.cs` (address + file cards, runs the ids), `Services/SubjectCard.cs` (WPF popup), `Views/ThreadWindow.cs` (S3), `Views/PreviewWindow.cs` (A5); search `with:` / `file:` in `SearchQuery` |
 | Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |

@@ -29,6 +29,13 @@ public partial class SettingsWindow : Window
         w.Show();
     }
 
+    /// <summary>Design HM1: Settings → Rules with a new rule already started.</summary>
+    public static void OpenNewRule(Magpie.Core.Mail.RuleField field, string value, string name)
+    {
+        Open("Rules:Filters");
+        _open?._vm.NewRuleWith(field, value, name);
+    }
+
     public SettingsWindow(string? page)
     {
         InitializeComponent();

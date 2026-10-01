@@ -49,6 +49,27 @@ public partial class ComposeWindow : Window
 
     public static void OpenDraft(Draft d) => Show(d, null);
 
+    /// <summary>Design HM1 (A6): a new email carrying only this one file of <paramref name="original"/>.</summary>
+    public static async void OpenForwardOnly(MessageRow original, int attachmentIndex)
+    {
+        var e = AppServices.Engine;
+        try
+        {
+            var account = e.AccountById(original.AccountId) ?? e.Accounts[0];
+            var (body, mime) = await e.LoadAsync(original, true, CancellationToken.None);
+            if (mime == null || MimeText.PartAt(mime, MimeText.ResolveIndex(mime, attachmentIndex)) is not { } part) return;
+            var d = Composer.Prepare(ComposeMode.Forward, account, original, body, e.MyAddresses, mime);
+            d.CarriedParts = new List<MimeKit.MimeEntity> { part };
+            d.Html = "<p><br></p>" + Composer.SignatureHtml(account, reply: false);
+            Show(d, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("forward file", ex);
+            Ui.Error("Forward", Connector.Friendly(ex));
+        }
+    }
+
     /// <summary>Brings forward the window already editing this local draft. False when none is open.</summary>
     public static bool ActivateLocal(long localDraftId)
     {

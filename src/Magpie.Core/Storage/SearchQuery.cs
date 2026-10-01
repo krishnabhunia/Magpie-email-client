@@ -5,7 +5,8 @@ namespace Magpie.Core.Storage;
 
 /// <summary>
 /// Search box syntax: free words (prefix-matched over subject, people and body), "exact phrases",
-/// from:anita  to:sandeep  subject:invoice  has:attachment  is:unread  is:pinned  before:2026-09-01  after:2026-08-01
+/// from:anita  to:sandeep  with:anita (from, to or cc)  subject:invoice  file:contract (attachment name)
+/// has:attachment  is:unread  is:pinned  before:2026-09-01  after:2026-08-01
 /// </summary>
 public sealed class SearchQuery
 {
@@ -14,13 +15,17 @@ public sealed class SearchQuery
     public List<string> From { get; } = new();
     public List<string> To { get; } = new();
     public List<string> Subject { get; } = new();
+    /// <summary>with: — the person is the sender or among To / Cc (design HM1, E5).</summary>
+    public List<string> With { get; } = new();
+    /// <summary>file: — an attachment's name contains this (emails whose text is on this PC; design HM1, A9).</summary>
+    public List<string> File { get; } = new();
     public bool HasAttachment { get; private set; }
     public bool Unread { get; private set; }
     public bool Pinned { get; private set; }
     public DateTimeOffset? Before { get; private set; }
     public DateTimeOffset? After { get; private set; }
 
-    public bool IsEmpty => Terms.Count == 0 && Phrases.Count == 0 && From.Count == 0 && To.Count == 0 && Subject.Count == 0
+    public bool IsEmpty => Terms.Count == 0 && Phrases.Count == 0 && From.Count == 0 && To.Count == 0 && Subject.Count == 0 && With.Count == 0 && File.Count == 0
                            && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
 
     public static SearchQuery Parse(string? text)
@@ -41,6 +46,8 @@ public sealed class SearchQuery
                     case "from": q.From.Add(val); continue;
                     case "to": q.To.Add(val); continue;
                     case "subject": q.Subject.Add(val); continue;
+                    case "with": q.With.Add(val); continue;
+                    case "file": q.File.Add(val); continue;
                     case "has" when val.StartsWith("attach", StringComparison.OrdinalIgnoreCase): q.HasAttachment = true; continue;
                     case "is" when val.Equals("unread", StringComparison.OrdinalIgnoreCase): q.Unread = true; continue;
                     case "is" when val is "pinned" or "flagged" or "starred": q.Pinned = true; continue;
@@ -126,6 +133,18 @@ public sealed class SearchQuery
         {
             cmd.Parameters.AddWithValue($"$sq_s{i}", Like(s));
             preds.Add($"{m}.subject LIKE $sq_s{i} ESCAPE '\\'");
+            i++;
+        }
+        foreach (var w in With)
+        {
+            cmd.Parameters.AddWithValue($"$sq_w{i}", Like(w));
+            preds.Add($"({m}.from_addr LIKE $sq_w{i} ESCAPE '\\' OR {m}.from_name LIKE $sq_w{i} ESCAPE '\\' OR {m}.to_list LIKE $sq_w{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_w{i} ESCAPE '\\')");
+            i++;
+        }
+        foreach (var f in File)
+        {
+            cmd.Parameters.AddWithValue($"$sq_n{i}", Like(f));
+            preds.Add($"EXISTS (SELECT 1 FROM bodies b, json_each(b.attachments) j WHERE b.message_row={m}.id AND json_extract(j.value,'$.FileName') LIKE $sq_n{i} ESCAPE '\\')");
             i++;
         }
         if (HasAttachment) preds.Add($"{m}.has_attach=1");

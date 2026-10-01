@@ -288,7 +288,7 @@ public partial class ThreadViewModel : ObservableObject
             var html = "";
             (url, blocked) = await Task.Run(() =>
             {
-                var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark);
+                var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, HoverDelay);
                 ct.ThrowIfCancellationRequested();
                 html = result.Html;
                 return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
@@ -331,7 +331,7 @@ public partial class ThreadViewModel : ObservableObject
                 if (prep == null) continue;
                 if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
-                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark), ct);
+                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay), ct);
                 ct.ThrowIfCancellationRequested();
                 PutPage(key, prep.fp, result.Html, result.BlockedImages);
             }
@@ -355,6 +355,9 @@ public partial class ThreadViewModel : ObservableObject
         var latest = rows[^1];
         return string.IsNullOrWhiteSpace(latest.Subject) ? "(no subject)" : Threading.StripSubjectPrefixes(rows[0].Subject) is { Length: > 0 } s ? s : latest.Subject;
     }
+
+    /// <summary>Design HM1: hover cards open after the same delay as the folder card (Settings → Appearance).</summary>
+    private int HoverDelay => _e.Config.Appearance.FolderHover.DelayMs;
 
     private bool ImagesAllowed(List<MessageRow> rows) =>
         _imagesAllowedOnce || _e.Config.RemoteImages == RemoteImages.Always
@@ -398,7 +401,7 @@ public partial class ThreadViewModel : ObservableObject
     {
         _lastBodies = bodies;
         var allow = ImagesAllowed(rows);
-        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(AccountId, rows, bodies, _loadErrors), allow, DateTimeOffset.Now, ThemeManager.IsDark);
+        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(AccountId, rows, bodies, _loadErrors), allow, DateTimeOffset.Now, ThemeManager.IsDark, HoverDelay);
         BlockedImages = allow ? 0 : result.BlockedImages;
         PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
     }
@@ -564,12 +567,19 @@ public partial class ThreadViewModel : ObservableObject
 
     public async Task OpenAttachmentAsync(long rowId, int index)
     {
+        if (await ExtractAttachmentAsync(rowId, index) is { } f) Views.AttachmentDialog.Show(f.Path, f.Name);
+    }
+
+    /// <summary>An attachment written to a new temporary folder (downloaded first when it isn't on this PC).
+    /// Null (after telling the user why) when it can't be had.</summary>
+    public async Task<(string Path, string Name)?> ExtractAttachmentAsync(long rowId, int index)
+    {
         var row = Messages.FirstOrDefault(m => m.Id == rowId);
-        if (row == null) return;
+        if (row == null) return null;
         try
         {
             var (_, mime) = await _e.LoadAsync(row, true, CancellationToken.None);
-            if (mime == null || MimeText.PartAt(mime, MimeText.ResolveIndex(mime, index)) is not { } entity) return;
+            if (mime == null || MimeText.PartAt(mime, MimeText.ResolveIndex(mime, index)) is not { } entity) return null;
             var name = entity switch
             {
                 MimePart p => p.FileName ?? "attachment",
@@ -585,10 +595,52 @@ public partial class ThreadViewModel : ObservableObject
                 if (entity is MimePart part) await part.Content!.DecodeToAsync(fs);
                 else if (entity is MessagePart mp && mp.Message != null) await mp.Message.WriteToAsync(fs);
             }
-            Views.AttachmentDialog.Show(path, name);
+            return (path, name);
         }
-        catch (Exception ex) { Ui.Error("Attachment", Connector.Friendly(ex)); }
+        catch (Exception ex) { Ui.Error("Attachment", Connector.Friendly(ex)); return null; }
     }
+
+    /// <summary>Design HM1: the email's own files (not the pictures inside the text), as listed on this PC.</summary>
+    public List<AttachmentInfo> AttachmentsOf(long rowId) =>
+        _e.Store.GetBody(rowId)?.Attachments.Where(a => !a.Inline).ToList() ?? new();
+
+    public MessageRow? RowById(long rowId) => Messages.FirstOrDefault(m => m.Id == rowId);
+
+    public bool IsMyAddress(string address) => _e.MyAddresses.Contains(address.Trim().ToLowerInvariant());
+
+    public bool PicturesTrusted(string address) =>
+        _e.Config.RemoteImages == RemoteImages.Always || _e.Config.TrustedImageSenders.Contains(address, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>E8: this sender's pictures load without asking from now on.</summary>
+    public void TrustAddress(string address)
+    {
+        if (!_e.Config.TrustedImageSenders.Contains(address, StringComparer.OrdinalIgnoreCase)) _e.Config.TrustedImageSenders.Add(address);
+        _e.Settings.Save();
+        if (Messages.Count > 0 && BlockedImages > 0) Render(Messages.ToList(), _lastBodies);
+    }
+
+    /// <summary>The folder the newest email is in ("Inbox"), for the subject card.</summary>
+    public string FolderName => Messages.LastOrDefault() is { } last && _e.Folders(AccountId).FirstOrDefault(f => f.Id == last.FolderId) is { } f ? f.Name : "";
+
+    /// <summary>S7: everyone in the conversation except you.</summary>
+    public List<(string Name, string Email)> People()
+    {
+        var list = new List<(string, string)>();
+        foreach (var m in Messages)
+        {
+            if (!IsMine(m)) list.Add((m.FromName, m.FromAddress));
+            foreach (var mb in Composer.ParseAddresses(m.To + "," + m.Cc).Mailboxes)
+                if (!IsMyAddress(mb.Address)) list.Add((mb.Name ?? "", mb.Address));
+        }
+        return list.Where(p => p.Item2.Contains('@')).DistinctBy(p => p.Item2.ToLowerInvariant()).ToList();
+    }
+
+    /// <summary>S3: a second reader for its own window, showing this conversation.</summary>
+    public ThreadRow? CurrentThreadRow => Messages.Count == 0 ? null : new ThreadRow
+    {
+        AccountId = AccountId, ThreadKey = ThreadKey, Latest = Messages[^1], Count = Messages.Count,
+        UnreadCount = Messages.Count(m => !m.IsSeen), Flagged = IsPinned,
+    };
 
     public void OnLink(string href)
     {

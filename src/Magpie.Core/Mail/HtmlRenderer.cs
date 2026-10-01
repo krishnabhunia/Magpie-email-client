@@ -163,7 +163,8 @@ public static class HtmlRenderer
         "pre{white-space:pre-wrap}table{max-width:100%}";
 
     /// <summary>The whole conversation page. <paramref name="dark"/> = the dark theme (design B1).</summary>
-    public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false)
+    public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false,
+        int hoverDelayMs = 600)
     {
         var p = dark ? DarkPalette : LightPalette;
         var sb = new StringBuilder();
@@ -203,6 +204,23 @@ public static class HtmlRenderer
             .att:hover{background:var(--bg)}
             .att .sz{color:var(--muted)}
             .paper{background:#fff;border-radius:10px;padding:12px 14px;margin-top:2px}
+            .hm-a,.hm-f{outline-offset:2px}
+            .hm-a{cursor:default;border-radius:3px}
+            .hm-a:hover,.hm-a.hm-on{text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:3px}
+            .hm{position:absolute;z-index:50;width:300px;max-width:calc(100vw - 24px);background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 0;font-size:13px;cursor:default}
+            .hm[hidden]{display:none}
+            .hm .hm-top{display:flex;gap:10px;align-items:center;padding:8px 14px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}
+            .hm .hm-ic{width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:var(--avbg);color:var(--avfg);font-weight:600;font-size:11.5px;display:flex;align-items:center;justify-content:center}
+            .hm .hm-ic.file{border-radius:6px;font-size:10px}
+            .hm .hm-t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+            .hm .hm-s{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+            .hm .hm-tx{min-width:0;flex:1}
+            .hm button{display:flex;justify-content:space-between;width:100%;border:0;background:none;color:var(--ink);font:inherit;text-align:left;padding:6px 14px;cursor:pointer}
+            .hm button:hover,.hm button:focus{background:var(--bg);outline:none}
+            .hm button .hm-id{color:var(--muted);font-size:11px;margin-left:12px}
+            .hm .hm-sep{height:1px;background:var(--line);margin:4px 0}
+            .hm .hm-note{border-top:1px solid var(--line);margin-top:4px;padding:7px 14px 3px;color:var(--teal);font-size:12px}
+            .hm .hm-note[hidden]{display:none}
             .unread .name::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:6px;vertical-align:1px}
             </style>
             <script>
@@ -218,9 +236,61 @@ public static class HtmlRenderer
                 Array.prototype.forEach.call(d.images,function(i){ i.addEventListener('load',function(){ size(f); }); });
               }catch(e){}
             }
-            window.addEventListener('resize',function(){ document.querySelectorAll('iframe').forEach(size); });
+            window.addEventListener('resize',function(){ document.querySelectorAll('iframe').forEach(size); hmHide(); });
+            // Design HM1: resting the mouse on an address or a file (or right-click / Menu key) opens a small card of actions.
+            var HM={timer:0,hide:0,target:null,ctx:null,kbd:false};
+            function hmEl(n){ return n&&n.closest?n.closest('.hm-a,.hm-f'):null; }
+            function hmIn(n){ return n&&n.closest?n.closest('.hm-a,.hm-f,#hm'):null; }
+            function hmCtx(el){ var d=el.dataset; return el.classList.contains('hm-a')?{k:'a',a:d.a,n:d.n,m:+d.m}:{k:'f',m:+d.m,i:+d.i,f:d.f}; }
+            function hmAsk(el,kbd){ clearTimeout(HM.hide); if(HM.target) HM.target.classList.remove('hm-on'); HM.target=el; HM.kbd=!!kbd; HM.ctx=hmCtx(el); el.classList.add('hm-on'); post({t:'hmopen',c:HM.ctx}); }
+            function hmHide(){ clearTimeout(HM.timer); var c=document.getElementById('hm'); if(c) c.hidden=true; if(HM.target) HM.target.classList.remove('hm-on'); HM.target=null; }
+            function hmText(el,cls,t){ var d=document.createElement('div'); d.className=cls; d.textContent=t; el.appendChild(d); return d; }
+            function hmShow(o){
+              var c=document.getElementById('hm'); if(!HM.target||!c) return;
+              c.innerHTML='';
+              var top=document.createElement('div'); top.className='hm-top';
+              var ic=hmText(top,'hm-ic'+(o.file?' file':''),o.badge||'');
+              var tx=document.createElement('div'); tx.className='hm-tx'; hmText(tx,'hm-t',o.title||''); hmText(tx,'hm-s',o.sub||''); top.appendChild(tx);
+              c.appendChild(top);
+              (o.items||[]).forEach(function(it){
+                if(it.sep){ hmText(c,'hm-sep',''); return; }
+                var b=document.createElement('button'); b.type='button'; b.setAttribute('role','menuitem');
+                var l=document.createElement('span'); l.textContent=it.label; b.appendChild(l);
+                b.onclick=function(ev){ ev.stopPropagation(); post({t:'hmdo',id:it.id,c:HM.ctx}); };
+                c.appendChild(b);
+              });
+              var note=hmText(c,'hm-note',''); note.id='hm-note'; note.hidden=true;
+              c.hidden=false;
+              var r=HM.target.getBoundingClientRect(), w=c.offsetWidth, h=c.offsetHeight;
+              var x=Math.max(8,Math.min(r.left,window.innerWidth-w-12)), y=r.bottom+4;
+              if(y+h>window.innerHeight-8&&r.top-h-4>8) y=r.top-h-4;
+              c.style.left=(x+window.scrollX)+'px'; c.style.top=(y+window.scrollY)+'px';
+              if(HM.kbd){ var f=c.querySelector('button'); if(f) f.focus(); }
+            }
+            function hmNote(t){ var n=document.getElementById('hm-note'); if(!n) return; n.textContent=t; n.hidden=!t; }
+            document.addEventListener('mouseover',function(ev){
+              var t=hmEl(ev.target);
+              if(t){ if(t===HM.target){ clearTimeout(HM.hide); return; } clearTimeout(HM.timer); HM.timer=setTimeout(function(){ hmAsk(t,false); },HM_DELAY); }
+              else if(hmIn(ev.target)) clearTimeout(HM.hide);
+            });
+            document.addEventListener('mouseout',function(ev){
+              if(!hmIn(ev.target)||hmIn(ev.relatedTarget)) return;
+              clearTimeout(HM.timer); HM.hide=setTimeout(hmHide,300);
+            });
+            document.addEventListener('contextmenu',function(ev){ var t=hmEl(ev.target); if(!t) return; ev.preventDefault(); hmAsk(t,ev.button!==2); });
+            document.addEventListener('keydown',function(ev){
+              if(ev.key==='Escape'){ hmHide(); return; }
+              var c=document.getElementById('hm'); if(!c||c.hidden) return;
+              if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){
+                var bs=Array.prototype.slice.call(c.querySelectorAll('button')); if(!bs.length) return;
+                var i=bs.indexOf(document.activeElement); i=ev.key==='ArrowDown'?(i+1)%bs.length:(i<=0?bs.length-1:i-1); bs[i].focus(); ev.preventDefault();
+              }
+            });
+            document.addEventListener('mousedown',function(ev){ if(!hmIn(ev.target)) hmHide(); });
+            window.addEventListener('scroll',hmHide);
             </script></head><body><div class="wrap">
             """);
+        sb.Insert(sb.ToString().IndexOf("function post(", StringComparison.Ordinal), $"var HM_DELAY={Math.Clamp(hoverDelayMs, 50, 1000)};\n");
 
         foreach (var m in messages)
         {
@@ -241,9 +311,11 @@ public static class HtmlRenderer
             sb.Append($"<div class=\"hdr\" onclick=\"toggle({row.Id})\">");
             sb.Append($"<div class=\"av{(m.IsMine ? " me" : "")}\">{Esc(Initials(row.Sender))}</div>");
             sb.Append("<div class=\"who\">");
-            sb.Append($"<div><span class=\"name\">{Esc(m.IsMine ? "Me" : row.Sender)}</span><span class=\"addr\">{Esc(row.FromAddress)}</span></div>");
-            var to = row.To + (string.IsNullOrEmpty(row.Cc) ? "" : " · cc " + row.Cc);
-            sb.Append($"<div class=\"to\">to {Esc(to)}</div>");
+            var fromAttrs = $"class=\"hm-a\" tabindex=\"0\" data-a=\"{Esc(row.FromAddress)}\" data-n=\"{Esc(row.FromName)}\" data-m=\"{row.Id}\"";
+            sb.Append($"<div><span {fromAttrs}><span class=\"name\">{Esc(m.IsMine ? "Me" : row.Sender)}</span><span class=\"addr\">{Esc(row.FromAddress)}</span></span></div>");
+            sb.Append("<div class=\"to\">to ").Append(People(row.To, row.Id));
+            if (!string.IsNullOrEmpty(row.Cc)) sb.Append(" · cc ").Append(People(row.Cc, row.Id));
+            sb.Append("</div>");
             sb.Append($"<div class=\"snip\">{Esc(row.Preview)}</div>");
             sb.Append("</div>");
             sb.Append($"<div class=\"date\">{Esc(FriendlyDate(row.Date, now))}</div>");
@@ -262,13 +334,25 @@ public static class HtmlRenderer
             {
                 sb.Append("<div class=\"atts\">");
                 foreach (var a in m.Body.Attachments.Where(a => !a.Inline))
-                    sb.Append($"<div class=\"att\" title=\"Open\" onclick=\"post({{t:'att',id:{row.Id},i:{a.Index}}})\">📎 {Esc(a.FileName)} <span class=\"sz\">{Esc(FormatSize(a.Size))}</span></div>");
+                    sb.Append($"<div class=\"att hm-f\" tabindex=\"0\" data-m=\"{row.Id}\" data-i=\"{a.Index}\" data-f=\"{Esc(a.FileName)}\" onclick=\"post({{t:'att',id:{row.Id},i:{a.Index}}})\" onkeydown=\"if(event.key==='Enter')post({{t:'att',id:{row.Id},i:{a.Index}}})\">📎 {Esc(a.FileName)} <span class=\"sz\">{Esc(FormatSize(a.Size))}</span></div>");
                 sb.Append("</div>");
             }
             sb.Append("</div></div>");
         }
-        sb.Append("</div></body></html>");
+        sb.Append("</div><div id=\"hm\" class=\"hm\" role=\"menu\" hidden onclick=\"event.stopPropagation()\"></div></body></html>");
         return new RenderResult { Html = sb.ToString(), BlockedImages = blockedTotal };
+    }
+
+    /// <summary>Design HM1: each person of a To / Cc line as its own hover target ("Anita Rao, sandeep@x.in").</summary>
+    internal static string People(string list, long rowId)
+    {
+        var parts = new List<string>();
+        foreach (var mb in Composer.ParseAddresses(list).Mailboxes)
+        {
+            var label = string.IsNullOrWhiteSpace(mb.Name) ? mb.Address : mb.Name;
+            parts.Add($"<span class=\"hm-a\" tabindex=\"0\" data-a=\"{Esc(mb.Address)}\" data-n=\"{Esc(mb.Name)}\" data-m=\"{rowId}\" title=\"{Esc(mb.Address)}\">{Esc(label)}</span>");
+        }
+        return parts.Count > 0 ? string.Join(", ", parts) : Esc(list);
     }
 
     /// <summary>Plain page for empty/error states.</summary>

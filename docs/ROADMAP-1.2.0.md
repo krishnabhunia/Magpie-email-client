@@ -10,8 +10,8 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 |---|---|---|---|---|
 | 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
 | 6 | Dark theme (Match Windows / Light / Dark) | B1 | Built — not yet tried on Windows | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
-| 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Approved — needs Calendar API enabled + re-sign-in | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
-| 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Built — not yet tried on Windows. Until #7: answers aren't added to Google Calendar, no "Open in Calendar", clash line only knows invites answered in Magpie | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
+| 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Built (3.0.0) — not yet tried on Windows; each Google account must sign in again once (calendar scope) | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
+| 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Built — not yet tried on Windows. Calendar is now built (#7); still to do: an answer in the email also shown in Magpie's calendar right away, "Open in Calendar", clash line from the calendar | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
 | 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
 | 10 | Rules / filters | B5 | Built — not yet tried on Windows | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
 | 11 | Signatures per account + quick replies | B6 | Built — not yet tried on Windows | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
@@ -46,6 +46,10 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 40 | Check that the chosen days (e.g. 90) really are on this PC | (below) | Built 30 Sep 2026 — tested against a real IMAP server | [#47](https://github.com/krishnabhunia/Magpie-email-client/issues/47) |
 | 41 | Row buttons on hover not arranged properly | RB4 (below) | RB4 approved 30 Sep 2026 · Built — not yet tried on Windows | [#43](https://github.com/krishnabhunia/Magpie-email-client/issues/43) |
 | 42 | Release workflow closes the issues a release ships | (CI) | Built 30 Sep 2026 — runs first on the next release | [#48](https://github.com/krishnabhunia/Magpie-email-client/issues/48) |
+| 43 | Hover menus on email address, subject and attachments in the reading pane | HM1 (HTML) | Approved 30 Sep 2026 (all options) · Built — tried in a browser, not yet on Windows; E6 (Add to contacts) comes with #9 | [#50](https://github.com/krishnabhunia/Magpie-email-client/issues/50) |
+| 44 | Bin / Trash: Empty Trash, move to folder, more options | TB1 (HTML) | Design shown 30 Sep 2026 — waiting for approval | [#51](https://github.com/krishnabhunia/Magpie-email-client/issues/51) |
+| 45 | Delete options that include past emails | DP1 (HTML) | Design shown 30 Sep 2026 — waiting for approval | [#52](https://github.com/krishnabhunia/Magpie-email-client/issues/52) |
+| 46 | Checkboxes on email rows + select by filter | SL1 (HTML) | Design shown 30 Sep 2026 — waiting for approval | [#53](https://github.com/krishnabhunia/Magpie-email-client/issues/53) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
