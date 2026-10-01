@@ -183,6 +183,7 @@ public class AiProviderTests
         var http = new FakeHttp { Respond = (_, _) => FakeHttp.Sse("{\"choices\":[{\"delta\":{\"content\":\"• Decide by Friday\"}}]}", "[DONE]") };
         var s = new AiSettings { Enabled = true, Summarise = true, Endpoint = "https://api.openai.com/v1", Model = "gpt-4.1-mini" };
         var svc = new AiService(new HttpClient(http), () => s, () => "sk-1");
+        s.Consents.Add(AiService.ConsentKey(AiFeature.Summarise, s));
         var t = AiService.BuildThread("Vendor", new[] { (Rows.Make("A", 1, "t"), (MessageBody?)new MessageBody { Text = "We need a call by Friday." }) });
         var sb = new StringBuilder();
         var result = await svc.SummariseAsync(t, x => sb.Append(x), CancellationToken.None);

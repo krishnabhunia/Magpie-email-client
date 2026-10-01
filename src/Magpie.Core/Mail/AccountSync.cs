@@ -982,6 +982,12 @@ public sealed class AccountSync : IDisposable
                     foreach (var op in group)
                     {
                         ct.ThrowIfCancellationRequested();
+                        if (!CanReplay(op, f.UidValidity))
+                        {
+                            Log.Warn($"[{Account.Email}] queued {op.Kind} was not replayed: this mailbox's message identifiers changed or were not recorded");
+                            _store.RemovePendingOp(op.Id);
+                            continue;
+                        }
                         var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                         try
                         {
@@ -995,13 +1001,20 @@ public sealed class AccountSync : IDisposable
                                     if (folders.TryGetValue(op.Arg, out var dst))
                                     {
                                         var target = await client.GetFolderAsync(dst.Path, ct);
-                                        await f.MoveToAsync(uid, target, ct);
+                                        if (client.Capabilities.HasFlag(ImapCapabilities.Move) || client.Capabilities.HasFlag(ImapCapabilities.UidPlus))
+                                            await f.MoveToAsync(uid, target, ct);
+                                        else
+                                        {
+                                            // MailKit's MOVE fallback can expunge the whole source folder without UIDPLUS.
+                                            await f.CopyToAsync(uid, target, ct);
+                                            await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+                                        }
                                     }
                                     break;
                                 case PendingOpKind.Delete:
                                     await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
                                     if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await f.ExpungeAsync(new[] { uid }, ct);
-                                    else await f.ExpungeAsync(ct);
+                                    // Leave deletion flagged when selective expunge is unavailable.
                                     break;
                             }
                             _store.RemovePendingOp(op.Id);
@@ -1023,6 +1036,8 @@ public sealed class AccountSync : IDisposable
             }
         }, ct);
     }
+
+    internal static bool CanReplay(PendingOp op, uint uidValidity) => op.UidValidity != 0 && op.UidValidity == uidValidity;
 
     /// <summary>Stores a copy of a sent message in the Sent folder (servers that don't do it themselves).</summary>
     public Task AppendToSentAsync(MimeMessage msg, CancellationToken ct) => AppendAsync(FolderRole.Sent, msg, KitFlags.Seen, ct);
@@ -1080,7 +1095,7 @@ public sealed class AccountSync : IDisposable
         if (uids.Count == 0) return;
         await f.StoreAsync(uids, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
         if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await f.ExpungeAsync(uids, ct);
-        else await f.ExpungeAsync(ct);
+        // Do not purge unrelated messages marked Deleted by another client.
     }
 
     /// <summary>Creates a folder (e.g. "Archive") at the top level of the personal namespace.</summary>

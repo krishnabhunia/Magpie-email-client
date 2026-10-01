@@ -489,7 +489,7 @@
                                 </DockPanel>
                             </Border>
 
-                            <ListBox Grid.Row="1" x:Name="ThreadList" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
+                            <ListBox Grid.Row="1" x:Name="ThreadList" ScrollViewer.ScrollChanged="OnThreadListScroll" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">

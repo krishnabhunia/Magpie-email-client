@@ -101,7 +101,7 @@ public static class AutoDelete
         var today = now.ToLocalTime().Date;
         if (d <= today) return "Deletes today";
         if (d == today.AddDays(1)) return "Deletes tomorrow";
-        return "Deletes " + d.ToString("d MMM yyyy");
+        return "Deletes " + d.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public static DeleteUrgency Urgency(DateTimeOffset deleteAt, DateTimeOffset now, bool otp)

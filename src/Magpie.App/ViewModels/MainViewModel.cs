@@ -575,10 +575,27 @@ public partial class MainViewModel : ObservableObject
         return ids.Where(own.Contains).ToList();
     }
 
+    private const int ListPageSize = 400;
+    private int _listLimit = ListPageSize;
+    private (NavItem? Nav, Category? Category, bool Unread, string? Search) _listScope;
+    private bool _hasMoreThreads;
+    private bool _loadingMoreThreads;
+
+    public void LoadMoreThreads()
+    {
+        if (!_hasMoreThreads || _reloading || _loadingMoreThreads) return;
+        _loadingMoreThreads = true;
+        try { _listLimit += ListPageSize; ReloadList(); }
+        finally { _loadingMoreThreads = false; }
+    }
+
     public void ReloadList()
     {
         var nav = Current;
         if (nav == null) return;
+        var scope = (nav, Category, UnreadOnly, SearchText);
+        if (_listScope != scope) { _listScope = scope; _listLimit = ListPageSize; }
+        _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
         var keepKey = Selected?.Key;
 
@@ -619,9 +636,11 @@ public partial class MainViewModel : ObservableObject
                 DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
                 Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
                 Search = search,
-                Limit = 400,
+                Limit = _listLimit + 1,
             };
             rows = _e.Store.ListThreads(q, now);
+            _hasMoreThreads = rows.Count > _listLimit;
+            rows = rows.Take(_listLimit).ToList();
         }
 
         // Conversations a bulk action is about to remove (design H3: Undo still possible) are not shown.
