@@ -63,6 +63,7 @@ public partial class SettingsViewModel
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
         c.RemoteImages = RemoteImages;
+        c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;
         c.SyncIntervalMinutes = SyncIntervalMinutes;
         c.CloseToTray = CloseToTray;

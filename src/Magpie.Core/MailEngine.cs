@@ -81,6 +81,7 @@ public sealed class MailEngine : IDisposable
     {
         _cts = new CancellationTokenSource();
         Store.RecoverStuckOutbox();
+        try { MergeDuplicateAutoDeleteRules(); } catch (Exception ex) { Log.Warn("auto-delete rules: " + ex.Message); }
         lock (_knownGate) _known = Store.KnownContacts();
         foreach (var a in Accounts.Where(a => a.Enabled)) StartAccount(a);
         _timers = Task.Run(() => TimersAsync(_cts.Token));
@@ -310,6 +311,8 @@ public sealed class MailEngine : IDisposable
         var folders = Store.GetFolders(accountId).ToDictionary(f => f.Id);
         var copies = Store.GetThreadCopies(accountId, threadKey).Where(m => fromFolders.Contains(m.FolderId)).ToList();
         var touched = new HashSet<long>();
+        if (trash != null)
+            Store.RecordTrashed(copies.Where(m => !(folders.TryGetValue(m.FolderId, out var f0) && f0.Role is FolderRole.Trash or FolderRole.Junk)), DateTimeOffset.Now);
         foreach (var m in copies)
         {
             var inTrash = folders.TryGetValue(m.FolderId, out var f) && f.Role is FolderRole.Trash or FolderRole.Junk;
@@ -323,6 +326,82 @@ public sealed class MailEngine : IDisposable
 
     public void MoveTo(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, MailFolder dest) =>
         MoveCopies(accountId, threadKey, fromFolders.Where(f => f != dest.Id).ToList(), dest);
+
+    // ───────────────────────── Trash and Spam (design TB1) ─────────────────────────
+
+    private DateTimeOffset _lastAutoEmpty = DateTimeOffset.MinValue;
+
+    /// <summary>Empty Trash / Empty Spam (T1, T6): every email there is deleted for good, on this PC and on the server
+    /// (also those not listed here yet). Returns how many were on this PC.</summary>
+    public int EmptyFolder(string accountId, FolderRole role)
+    {
+        if (role is not (FolderRole.Trash or FolderRole.Junk)) throw new ArgumentException("Only Trash and Spam can be emptied.");
+        var folder = Store.GetFolders(accountId).FirstOrDefault(f => f.Role == role);
+        if (folder == null) return 0;
+        var rows = Store.MessagesInFolder(folder.Id);
+        foreach (var m in rows) Store.DeleteRow(m.Id);
+        Store.ForgetTrashed(accountId, rows.Select(m => m.MessageId));
+        Store.AddPendingOp(new PendingOp { AccountId = accountId, FolderId = folder.Id, Kind = PendingOpKind.EmptyFolder });
+        Log.Info($"emptied {role} of {AccountById(accountId)?.Email}: {rows.Count} email(s) on this PC");
+        Touched(accountId, new[] { folder.Id });
+        return rows.Count;
+    }
+
+    /// <summary>Restore (T2): the conversation's copies in Trash go back to the folder they came from (Inbox when not known).</summary>
+    public void Restore(string accountId, string threadKey)
+    {
+        var folders = Store.GetFolders(accountId);
+        var trash = folders.Where(f => f.Role == FolderRole.Trash).Select(f => f.Id).ToHashSet();
+        var inbox = folders.FirstOrDefault(f => f.Role == FolderRole.Inbox) ?? throw new InvalidOperationException("This account has no Inbox.");
+        var copies = Store.GetThreadCopies(accountId, threadKey).Where(m => trash.Contains(m.FolderId)).ToList();
+        var touched = new HashSet<long>();
+        foreach (var m in copies)
+        {
+            var origin = Store.TrashOrigin(accountId, m.MessageId);
+            var dest = origin is { } o && folders.FirstOrDefault(f => f.Id == o && !trash.Contains(f.Id)) is { } back ? back : inbox;
+            Queue(m, PendingOpKind.Move, dest.Id);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+            touched.Add(dest.Id);
+        }
+        Store.ForgetTrashed(accountId, copies.Select(m => m.MessageId));
+        if (touched.Count > 0) Touched(accountId, touched);
+    }
+
+    /// <summary>Not spam (T6): the conversation goes to the Inbox and its senders get through the Gatekeeper from now on.</summary>
+    public void NotSpam(string accountId, string threadKey)
+    {
+        var folders = Store.GetFolders(accountId);
+        var junk = folders.Where(f => f.Role == FolderRole.Junk).Select(f => f.Id).ToList();
+        var inbox = folders.FirstOrDefault(f => f.Role == FolderRole.Inbox) ?? throw new InvalidOperationException("This account has no Inbox.");
+        var senders = Store.GetThreadCopies(accountId, threadKey).Where(m => junk.Contains(m.FolderId))
+            .Select(m => m.FromAddress.Trim().ToLowerInvariant()).Where(a => a.Contains('@') && !MyAddresses.Contains(a)).Distinct().ToList();
+        MoveCopies(accountId, threadKey, junk, inbox);
+        foreach (var a in senders) AllowSender(a);
+    }
+
+    /// <summary>Emptying Trash by itself (T7): emails in Trash for longer than the chosen days are deleted for good.
+    /// Time in Trash is counted from when Magpie moved it there, or first saw it there.</summary>
+    public int AutoEmptyTrash(DateTimeOffset now)
+    {
+        var days = Config.EmptyTrashAfterDays;
+        if (days <= 0) return 0;
+        var n = 0;
+        foreach (var a in Accounts)
+        {
+            var trash = Store.GetFolders(a.Id).FirstOrDefault(f => f.Role == FolderRole.Trash);
+            if (trash == null) continue;
+            Store.StampTrash(trash.Id, now);
+            var old = Store.TrashedBefore(trash.Id, now.AddDays(-days));
+            if (old.Count == 0) continue;
+            foreach (var m in old) { Queue(m, PendingOpKind.Delete); Store.DeleteRow(m.Id); }
+            Store.ForgetTrashed(a.Id, old.Select(m => m.MessageId));
+            Touched(a.Id, new[] { trash.Id });
+            n += old.Count;
+        }
+        if (n > 0) Log.Info($"Trash emptied by itself: {n} email(s) older than {days} days");
+        return n;
+    }
 
     private void MoveCopies(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, MailFolder dest)
     {
@@ -597,6 +676,24 @@ public sealed class MailEngine : IDisposable
 
     public List<AutoDeleteRule> AutoDeleteRules() => Store.GetAutoDeleteRules();
 
+    /// <summary>Rules saved twice for one sender before rules were kept unique: the newest stays, the others' emails join it.</summary>
+    public int MergeDuplicateAutoDeleteRules()
+    {
+        var merged = 0;
+        foreach (var g in Store.GetAutoDeleteRules().GroupBy(r => (r.Pattern, r.AccountId)).Where(g => g.Count() > 1))
+        {
+            var keep = g.OrderByDescending(r => r.Created).First();
+            foreach (var r in g.Where(r => r.Id != keep.Id))
+            {
+                Store.MoveDeleteTimers(r.Id, keep.Id);
+                Store.DeleteAutoDeleteRule(r.Id, clearTimers: false);
+                merged++;
+            }
+        }
+        if (merged > 0) { Log.Info($"auto-delete: {merged} duplicate rule(s) merged"); AutoDeleteChanged?.Invoke(); }
+        return merged;
+    }
+
     /// <summary>
     /// Creates or updates a rule. With <paramref name="startOnExisting"/> the emails already in the Inbox from that
     /// sender get a timer too, counted from now. Returns how many emails got a timer.
@@ -606,16 +703,62 @@ public sealed class MailEngine : IDisposable
         rule.Pattern = AutoDelete.NormalisePattern(rule.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
         rule.Amount = Math.Clamp(rule.Amount, 1, 100);
         rule.AccountId ??= "";
+        // One rule per sender (and account): a second one for the same sender changes the first instead of adding a row.
+        if (Store.GetAutoDeleteRules().FirstOrDefault(r => r.Id != rule.Id && r.Pattern == rule.Pattern && r.AccountId == rule.AccountId) is { } same)
+        {
+            Store.DeleteAutoDeleteRule(rule.Id, clearTimers: false);   // editing a rule into an existing one's sender: they merge
+            Store.MoveDeleteTimers(rule.Id, same.Id);
+            rule.Id = same.Id;
+            rule.Created = same.Created;
+        }
         Store.SaveAutoDeleteRule(rule);
         var n = 0;
         if (startOnExisting && !rule.Paused)
         {
             var now = DateTimeOffset.Now;
-            n = Store.SetDeleteTimers(ExistingFor(rule).Select(m => (m.Id, AutoDelete.DeleteAt(rule, now))), rule.Id);
+            // Design DP1 (D7): counted from when each email arrived, so those already past their time go to Trash at once.
+            n = Store.SetDeleteTimers(ExistingFor(rule).Select(m => (m.Id, AutoDelete.DeleteAt(rule, m.Date < now ? m.Date : now))), rule.Id);
         }
         Log.Info($"auto-delete rule saved: {rule.Pattern}, {AutoDelete.Describe(rule)}" + (n > 0 ? $", {n} existing email(s)" : ""));
         AutoDeleteTouched();
         return n;
+    }
+
+    // ───────────────────────── emails already here (design DP1) ─────────────────────────
+
+    /// <summary>D2–D4: the emails already here from an address or "*@domain", in every account and folder except Trash,
+    /// Spam, Sent and Drafts; pinned ones are kept. <paramref name="olderThan"/> keeps only those that arrived before it.</summary>
+    public AutoDelete.PastEmails PastFrom(string pattern, DateTimeOffset? olderThan = null)
+    {
+        var p = AutoDelete.NormalisePattern(pattern);
+        if (p == null) return AutoDelete.PastEmails.Of(Array.Empty<MessageRow>());
+        var folders = Store.GetFolders().Where(f => f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Sent or FolderRole.Drafts)).Select(f => f.Id).ToList();
+        var rows = Store.MessagesFrom(folders, p).Where(m => !m.IsFlagged && (olderThan == null || m.Date < olderThan)).ToList();
+        return AutoDelete.PastEmails.Of(rows);
+    }
+
+    /// <summary>Moves these emails (one by one, not whole conversations) to Trash; in accounts without Trash they are deleted.</summary>
+    public int TrashEmails(IReadOnlyList<MessageRow> rows)
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var acc in rows.GroupBy(m => m.AccountId))
+        {
+            var trash = Store.GetFolders(acc.Key).FirstOrDefault(f => f.Role == FolderRole.Trash);
+            var list = acc.Where(m => trash == null || m.FolderId != trash.Id).ToList();
+            if (trash != null) Store.RecordTrashed(list, now);
+            var touched = new HashSet<long>();
+            foreach (var m in list)
+            {
+                if (trash == null) Queue(m, PendingOpKind.Delete);
+                else Queue(m, PendingOpKind.Move, trash.Id);
+                Store.DeleteRow(m.Id);
+                touched.Add(m.FolderId);
+            }
+            if (trash != null) touched.Add(trash.Id);
+            if (touched.Count > 0) Touched(acc.Key, touched);
+        }
+        Log.Info($"deleted {rows.Count} email(s) already here (design DP1)");
+        return rows.Count;
     }
 
     /// <summary>Emails already in the Inbox (not pinned) that a rule would put a timer on.</summary>
@@ -685,6 +828,7 @@ public sealed class MailEngine : IDisposable
             var folders = Store.GetFolders(acc.Key);
             var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
             var touched = new HashSet<long>();
+            if (trash != null) Store.RecordTrashed(acc.Where(m => m.FolderId != trash.Id), now);
             foreach (var m in acc)
             {
                 if (trash == null) Queue(m, PendingOpKind.Delete);
@@ -1186,6 +1330,11 @@ public sealed class MailEngine : IDisposable
                     var soon = Store.TakeDueEventReminders(DateTimeOffset.Now);   // design B2
                     if (soon.Count > 0) EventReminderDue?.Invoke(soon);
                     RunDueDeletes(DateTimeOffset.Now);   // also the overdue ones at start (this runs straight away)
+                    if (DateTimeOffset.Now - _lastAutoEmpty > TimeSpan.FromHours(1))
+                    {
+                        _lastAutoEmpty = DateTimeOffset.Now;
+                        try { AutoEmptyTrash(DateTimeOffset.Now); } catch (Exception ex) { Log.Warn("emptying Trash: " + ex.Message); }   // design TB1 (T7)
+                    }
                     if (Interlocked.Exchange(ref _promotePending, 0) == 1) PromoteKnownSenders();
                     _ = Task.Run(async () =>
                     {

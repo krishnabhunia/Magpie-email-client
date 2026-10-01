@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
         xmlns:set="clr-namespace:Magpie.Core.Settings;assembly=Magpie.Core"
         xmlns:svc="clr-namespace:Magpie.App.Services"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
         Title="Magpie — Settings" Width="1040" Height="800" MinWidth="820" MinHeight="560"
@@ -170,6 +171,20 @@
                                             <TextBlock Text="Otherwise conversations stay unread until you mark them." Style="{StaticResource Text.Caption}" />
                                         </StackPanel>
                                     </CheckBox>
+                                </Border>
+                                <!-- Design TB1 (T7) -->
+                                <Border x:Name="RowEmptyTrash" Style="{StaticResource FeatureRow}">
+                                    <DockPanel>
+                                        <ComboBox DockPanel.Dock="Right" Width="200" SelectedValue="{Binding EmptyTrashAfterDays, Mode=TwoWay}" SelectedValuePath="Tag">
+                                            <ComboBoxItem Content="Never"><ComboBoxItem.Tag><sys:Int32>0</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                                            <ComboBoxItem Content="After 7 days"><ComboBoxItem.Tag><sys:Int32>7</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                                            <ComboBoxItem Content="After 30 days"><ComboBoxItem.Tag><sys:Int32>30</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                                        </ComboBox>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="Empty Trash by itself" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Emails that have been in Trash this long are deleted for good. Gmail already does this after 30 days." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DockPanel>
                                 </Border>
                                 <Border x:Name="RowImages" Style="{StaticResource FeatureRow}">
                                     <DockPanel>

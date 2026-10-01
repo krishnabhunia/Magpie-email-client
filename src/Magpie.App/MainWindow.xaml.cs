@@ -111,7 +111,54 @@ public partial class MainWindow : Window
 
     private void OnAvatarClick(object sender, MouseButtonEventArgs e)
     {
-        if (RowOf(sender as DependencyObject) is { } item) { _vm.ToggleCheck(item); e.Handled = true; }
+        if (RowOf(sender as DependencyObject) is { } item) { _vm.ToggleCheck(item, (Keyboard.Modifiers & ModifierKeys.Shift) != 0); e.Handled = true; }
+    }
+
+    /// <summary>Design SL1 (F0): the tick box on a row; Shift+click ticks the range from the last one clicked.</summary>
+    private void OnRowCheck(object sender, MouseButtonEventArgs e)
+    {
+        if (RowOf(sender as DependencyObject) is { } item) { _vm.ToggleCheck(item, (Keyboard.Modifiers & ModifierKeys.Shift) != 0); e.Handled = true; }
+    }
+
+    /// <summary>The box above the list: all on screen, or none.</summary>
+    private void OnHeaderCheck(object sender, RoutedEventArgs e)
+    {
+        _vm.SelectBy(_vm.SelectedCount > 0 ? SelectFilter.None : SelectFilter.All);
+        HeaderCheck.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, _vm.HeaderTick);
+    }
+
+    /// <summary>Select ▾ (design SL1, F1–F11): ticks the conversations of the list that match.</summary>
+    private void OnSelectMenu(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement anchor) return;
+        var menu = new ContextMenu();
+        void Add(string header, SelectFilter f, object? arg = null) => menu.Items.Add(Item(header, () => _vm.SelectBy(f, arg)));
+        Add("All", SelectFilter.All);
+        Add("None", SelectFilter.None);
+        Add("Invert selection", SelectFilter.Invert);
+        menu.Items.Add(new Separator());
+        Add("Unread", SelectFilter.Unread);
+        Add("Read", SelectFilter.Read);
+        Add("Pinned", SelectFilter.Pinned);
+        Add("With attachments", SelectFilter.WithAttachments);
+        var sender0 = _vm.Reader.HasThread ? _vm.Reader.SenderAddress : null;
+        menu.Items.Add(Item(sender0 is { Length: > 0 } ? $"From {sender0}" : "From the same sender as the one open",
+            () => _vm.SelectBy(SelectFilter.SameSender, sender0), enabled: sender0 is { Length: > 0 }));
+        var older = new MenuItem { Header = "Older than" };
+        foreach (var (label, cutoff) in Selection.OlderThan)
+            older.Items.Add(Item(label, () => _vm.SelectBy(SelectFilter.OlderThan, cutoff(DateTimeOffset.Now))));
+        menu.Items.Add(older);
+        menu.Items.Add(new Separator());
+        foreach (var c in new[] { Category.People, Category.Notifications, Category.Newsletters })
+            Add(c.ToString(), SelectFilter.Category, c);
+        var tags = AppServices.Engine.Config.Tags;
+        if (tags.Count > 0)
+        {
+            var withTag = new MenuItem { Header = "With tag" };
+            foreach (var t in tags) { var name = t.Name; withTag.Items.Add(Item(name, () => _vm.SelectBy(SelectFilter.Tag, name))); }
+            menu.Items.Add(withTag);
+        }
+        ShowMenu(anchor, menu);
     }
 
     /// <summary>A hover button on a row acts on that row only (even when another conversation is open).</summary>
@@ -399,16 +446,42 @@ public partial class MainWindow : Window
     private ContextMenu AutoDeleteMenu(bool withDeleteNow)
     {
         var r = _vm.Reader;
+        var e = AppServices.Engine;
         var menu = new ContextMenu();
         if (withDeleteNow) menu.Items.Add(IconItem("Delete now", "delete", () => RunAction("delete", this), "Del"));
         var sender = r.SenderAddress?.Trim().ToLowerInvariant();
         if (sender is { Length: > 0 } && sender.Contains('@'))
         {
-            if (withDeleteNow) menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem { Header = "AUTO-DELETE FUTURE EMAILS", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
-            menu.Items.Add(AfterMenu($"From {sender} after…", sender));
+            var who = HoverMenus.FirstName(r.Messages.LastOrDefault(m => m.FromAddress.Equals(sender, StringComparison.OrdinalIgnoreCase))?.FromName, sender);
             var domain = AutoDelete.DomainPattern(sender);
+            // Design DP1: the emails already here from this sender (D2–D4).
+            if (withDeleteNow) menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "EMAILS ALREADY HERE", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
+            var fromSender = e.PastFrom(sender);
+            var fromDomain = e.PastFrom(domain);
+            menu.Items.Add(IconItem($"Delete all {fromSender.Count:N0} from {who}…", "delete", () => ConfirmDeletePast(fromSender, $"from {who}", sender)));
+            menu.Items.Add(IconItem($"Delete all {fromDomain.Count:N0} from anyone at {domain[2..]}…", "delete", () => ConfirmDeletePast(fromDomain, $"from anyone at {domain[2..]}", domain)));
+            var older = new MenuItem { Header = $"Delete {who}'s emails older than", Icon = new IconChip { Icon = "delete", Size = 18 } };
+            foreach (var (label, cutoff) in AutoDelete.OlderThan)
+            {
+                var cut = cutoff(DateTimeOffset.Now);
+                older.Items.Add(Item(label, () => ConfirmDeletePast(e.PastFrom(sender, cut), $"from {who} older than {label}", sender)));
+            }
+            menu.Items.Add(older);
+
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = e.Config.AutoDeleteIncludePast ? "AUTO-DELETE (NEW AND PAST EMAILS)" : "AUTO-DELETE FUTURE EMAILS", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
+            menu.Items.Add(AfterMenu($"From {sender} after…", sender));
             menu.Items.Add(AfterMenu($"From anyone at {domain} after…", domain));
+            // D7: the rule also starts on the emails already in the Inbox (on by default).
+            var inInbox = e.ExistingFor(new AutoDeleteRule { Pattern = sender }).Count;
+            var include = Item($"Include the {inInbox:N0} email{(inInbox == 1 ? "" : "s")} already in the Inbox", () =>
+            {
+                e.Config.AutoDeleteIncludePast = !e.Config.AutoDeleteIncludePast;
+                e.Settings.Save();
+            }, isChecked: e.Config.AutoDeleteIncludePast);
+            include.ToolTip = "Those already past the time you pick go to Trash at once; the others when their time comes";
+            menu.Items.Add(include);
             menu.Items.Add(IconItem("OTP delete — this sender's emails 24 h after they arrive", "clock",
                 () => CreateAutoDelete(new AutoDeleteRule { Pattern = sender, Otp = true })));
             menu.Items.Add(Item("Choose sender and time…", () => EditAutoDelete(new AutoDeleteRule { Pattern = sender }, editing: false)));
@@ -417,6 +490,16 @@ public partial class MainWindow : Window
         if (r.HasDeleteTimer) menu.Items.Add(Item("Keep this one (no auto-delete)", () => r.KeepFromAutoDeleteCommand.Execute(null)));
         menu.Items.Add(Item("Manage auto-delete rules", () => SettingsWindow.Open("Rules:AutoDelete")));
         return menu;
+    }
+
+    /// <summary>Design DP1 (D2–D4): says how many and from when, then moves them to Trash after a few seconds to undo.</summary>
+    private void ConfirmDeletePast(AutoDelete.PastEmails past, string what, string pattern)
+    {
+        if (past.Count == 0) { Ui.Error("Delete", $"There are no emails {what} on this PC (pinned ones are kept)."); return; }
+        var many = past.Count == 1 ? "1 email" : $"{past.Count:N0} emails";
+        var message = $"They go to Trash (all accounts). Pinned emails are kept. You can undo for a few seconds, and restore them from Trash for 30 days.\n\n{AutoDelete.DatesLine(past)}";
+        if (ChoiceDialog.Ask(this, $"Delete {many} {what}?", message, $"Move {past.Count:N0} to Trash") != 0) return;
+        _vm.DeletePastLater(past.Rows, $"Moving {many} {what} to Trash");
     }
 
     private MenuItem AfterMenu(string header, string pattern)
@@ -443,9 +526,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            AppServices.Engine.SaveAutoDeleteRule(rule, startOnExisting: false);
+            var engine = AppServices.Engine;
+            var past = engine.Config.AutoDeleteIncludePast;
+            engine.SaveAutoDeleteRule(rule, startOnExisting: past);
+            var now = past ? engine.RunDueDeletes(DateTimeOffset.Now) : 0;   // design DP1 (D7): those already past their time
             var what = rule.Otp ? "24 hours" : AutoDelete.After(rule.Amount, rule.Unit);
-            _vm.ShowActionToast($"Future {AutoDelete.Who(rule.Pattern)} will be deleted {what} after they arrive",
+            var text = (past ? $"{char.ToUpper(AutoDelete.Who(rule.Pattern)[0])}{AutoDelete.Who(rule.Pattern)[1..]}" : $"Future {AutoDelete.Who(rule.Pattern)}")
+                       + $" will be deleted {what} after they arrive" + (now > 0 ? $" · {now:N0} already past that went to Trash" : "");
+            _vm.ShowActionToast(text,
                 () => AppServices.Engine.RemoveAutoDeleteRule(rule.Id, clearTimers: true),
                 () => EditAutoDelete(rule, editing: true));
         }
@@ -521,6 +609,19 @@ public partial class MainWindow : Window
             return;
         }
         if (!r.HasThread) { menu.IsOpen = false; return; }
+        if (_vm.IsBinView)
+        {
+            // Design TB1: in Trash / Spam, right-click acts on the ticked conversations, or the one picked.
+            var items = _vm.SelectedCount > 0 ? _vm.CheckedItems : _vm.Selected is { } one ? new List<ThreadItem> { one } : new List<ThreadItem>();
+            if (_vm.IsTrashView) menu.Items.Add(IconItem("Restore to Inbox", "inbox", () => _ = _vm.RunOnAsync(items, "restore")));
+            else menu.Items.Add(IconItem("Not spam", "inbox", () => _ = _vm.RunOnAsync(items, "notspam")));
+            menu.Items.Add(IconItem("Move to…", "move", () => _ = RunOnItemsAsync(items, "move", ThreadList)));
+            var anyUnread = items.Any(i => i.IsUnread);
+            menu.Items.Add(Item(anyUnread ? "Mark read" : "Mark unread", () => _ = _vm.RunOnAsync(items, anyUnread ? "markread" : "unread")));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(IconItem("Delete forever", "delete", () => _ = _vm.RunOnAsync(items, "deleteforever")));
+            return;
+        }
         var a = AppServices.Engine.Config.Appearance;
         var ids = a.MenuFollowsToolbar ? a.Toolbar.Where(b => b.Visible).Select(b => b.Id).ToList() : Core.Settings.Appearance.ToolbarIds.Take(Core.Settings.Appearance.DefaultVisible).ToList();
         foreach (var id in ids.Where(id => id is not ("replyall" or "forward")))
@@ -567,6 +668,11 @@ public partial class MainWindow : Window
         if (ctrl && shift && e.Key == Key.Enter && _vm.Toasts.Any(t => t.CanSendNow)) { _vm.SendNowCommand.Execute(null); e.Handled = true; return; }
         if (ctrl && !shift && e.Key == Key.Z && Keyboard.FocusedElement is not TextBox && _vm.Toasts.Any(t => !t.Done)) { _vm.UndoSendCommand.Execute(null); e.Handled = true; return; }
         if (e.Key == Key.Escape && Keyboard.FocusedElement is not TextBox && _vm.SelectedCount > 0) { _vm.ClearSelection(); e.Handled = true; return; }
+        // Design SL1: Ctrl+A ticks everything in the list, Space ticks the conversation picked in it.
+        if (ctrl && !shift && e.Key == Key.A && Keyboard.FocusedElement is not TextBox && !_vm.IsCalendarView && ThreadList.IsKeyboardFocusWithin)
+        { _vm.SelectBy(SelectFilter.All); e.Handled = true; return; }
+        if (e.Key == Key.Space && Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift && ThreadList.IsKeyboardFocusWithin && _vm.Selected is { } picked)
+        { _vm.ToggleCheck(picked, shift); e.Handled = true; return; }
         if (ctrl && e.Key == Key.N) { _vm.ComposeCommand.Execute(null); e.Handled = true; return; }
         if (ctrl && e.Key == Key.F) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F5) { _vm.SyncAllCommand.Execute(null); e.Handled = true; return; }
