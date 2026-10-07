@@ -162,6 +162,26 @@ public class Release402Tests
     }
 
     [Fact]
+    public void Oversized_local_pictures_have_no_retained_digest_and_can_be_recovered_again()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, _) = Rows.NewStore(dir);
+        var row = store.InsertMessages(new[] { Rows.Make("A", inbox, "t") }).Single();
+        store.SaveBody(row.Id, new MessageBody { Html = "<img src=\"cid:photo\">", ImagesComplete = true });
+        var pictures = new Dictionary<string, string> { ["photo"] = "data:image/png;base64," + new string('A', 33 * 1024 * 1024) };
+        for (var selection = 0; selection < 2; selection++)
+        {
+            var presentation = store.GetBody(row.Id)!;
+            Assert.True(store.RetainInlineImages(row.Id, presentation, pictures));
+            presentation.Images = pictures;
+            Assert.Null(store.BodyFingerprint(row.Id, presentation)); // Cannot suppress recovery on the next open.
+            Assert.False(store.TryGetBodyFromMemory(row.Id, out _));
+            Assert.Same(pictures["photo"], presentation.Images["photo"]);
+            Assert.Empty(new MailStore(dir.File("mail.db")).GetBody(row.Id)!.Images);
+        }
+    }
+
+    [Fact]
     public void Prepared_page_fingerprints_cover_content_images_permissions_and_theme()
     {
         var body = new MessageBody { Html = "<p>one</p>", Text = "one", Images = { ["logo"] = "data:one" } };

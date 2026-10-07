@@ -220,7 +220,9 @@ public partial class ThreadViewModel : ObservableObject
                             foreach (var (cid, uri) in MimeText.InlineImages(local)) all.TryAdd(cid, uri);
                             ct.ThrowIfCancellationRequested();
                             if (!_e.Store.RetainInlineImages(r.Id, b, all)) return null;
-                            return new { Body = _e.Store.GetBody(r.Id) ?? b, Images = all };
+                            // The recovered pictures must stay in this presentation even if the body cache is full.
+                            b.Images = all;
+                            return new { Body = b, Images = all };
                         }, ct);
                         ct.ThrowIfCancellationRequested();
                         if (images != null)

@@ -10,7 +10,8 @@ public sealed partial class MailStore
 {
     private readonly object _bodyGate = new();
     private sealed record CachedBody(MessageBody Body, string Fingerprint);
-    private readonly LruCache<long, CachedBody> _bodyCache = new(256, 64 * 1024 * 1024);
+    private const long BodyCacheBudget = 64 * 1024 * 1024;
+    private readonly LruCache<long, CachedBody> _bodyCache = new(256, BodyCacheBudget);
 
     public string? BodyFingerprint(long rowId, MessageBody body)
     {
@@ -28,8 +29,10 @@ public sealed partial class MailStore
 
     private void RememberBody(long rowId, MessageBody body)
     {
+        var bytes = BodyBytes(body) + 128;
+        if (bytes > BodyCacheBudget) { _bodyCache.Remove(rowId); return; }
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body))));
-        _bodyCache.Set(rowId, new CachedBody(CopyBody(body), digest), BodyBytes(body) + 128);
+        _bodyCache.Set(rowId, new CachedBody(CopyBody(body), digest), bytes);
     }
 
     /// <summary>Retain pictures recovered from the local MIME file without growing the SQLite body.</summary>
