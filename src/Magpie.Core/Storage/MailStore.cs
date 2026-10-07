@@ -228,19 +228,29 @@ public sealed partial class MailStore
 
     public void DeleteFolder(long folderId)
     {
-        using var c = Open();
-        DeleteFtsForFolder(c, folderId);
-        Exec(c, "DELETE FROM folders WHERE id=$id", ("$id", folderId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            DeleteFtsForFolder(c, folderId);
+            Exec(c, "DELETE FROM folders WHERE id=$id", ("$id", folderId));
+        }
     }
 
     public void DeleteAccount(string accountId)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-        foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from" })
-            Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
-        tx.Commit();
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
+            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from" })
+                Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
+            tx.Commit();
+        }
     }
 
     // ───────────────────────── messages (sync side) ─────────────────────────
@@ -372,21 +382,31 @@ public sealed partial class MailStore
 
     public void DeleteUids(long folderId, IEnumerable<long> uids)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        using var del = c.CreateCommand();
-        del.CommandText = "DELETE FROM messages_fts WHERE rowid=(SELECT id FROM messages WHERE folder_id=$f AND uid=$u); DELETE FROM messages WHERE folder_id=$f AND uid=$u;";
-        del.Parameters.AddWithValue("$f", folderId);
-        var pu = del.Parameters.Add("$u", SqliteType.Integer);
-        foreach (var u in uids) { pu.Value = u; del.ExecuteNonQuery(); }
-        tx.Commit();
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            using var del = c.CreateCommand();
+            del.CommandText = "DELETE FROM messages_fts WHERE rowid=(SELECT id FROM messages WHERE folder_id=$f AND uid=$u); DELETE FROM messages WHERE folder_id=$f AND uid=$u;";
+            del.Parameters.AddWithValue("$f", folderId);
+            var pu = del.Parameters.Add("$u", SqliteType.Integer);
+            foreach (var u in uids) { pu.Value = u; del.ExecuteNonQuery(); }
+            tx.Commit();
+        }
     }
 
     public void WipeFolderMessages(long folderId)
     {
-        using var c = Open();
-        DeleteFtsForFolder(c, folderId);
-        Exec(c, "DELETE FROM messages WHERE folder_id=$f", ("$f", folderId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            DeleteFtsForFolder(c, folderId);
+            Exec(c, "DELETE FROM messages WHERE folder_id=$f", ("$f", folderId));
+        }
     }
 
     private static void DeleteFtsForFolder(SqliteConnection c, long folderId) =>
@@ -592,8 +612,13 @@ public sealed partial class MailStore
 
     public void DeleteRow(long rowId)
     {
-        using var c = Open();
-        Exec(c, "DELETE FROM messages_fts WHERE rowid=$id; DELETE FROM messages WHERE id=$id;", ("$id", rowId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            Exec(c, "DELETE FROM messages_fts WHERE rowid=$id; DELETE FROM messages WHERE id=$id;", ("$id", rowId));
+        }
     }
 
     public void SetTags(long rowId, string tags)
@@ -657,6 +682,18 @@ public sealed partial class MailStore
 
     public MessageBody? GetBody(long rowId)
     {
+        if (TryGetBodyFromMemory(rowId, out var hot)) return hot;
+        lock (_bodyGate)
+        {
+            if (_bodyCache.TryGet(rowId, out var cached)) return CopyBody(cached.Body);
+            var body = ReadBody(rowId);
+            if (body != null) RememberBody(rowId, body);
+            return body;
+        }
+    }
+
+    private MessageBody? ReadBody(long rowId)
+    {
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT html,text,attachments,calendar,images,images_done FROM bodies WHERE message_row=$id";
@@ -677,32 +714,37 @@ public sealed partial class MailStore
 
     public void SaveBody(long rowId, MessageBody body, string? subject = null, string? sender = null, string? recipients = null)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        var attachments = JsonSerializer.Serialize(body.Attachments);
-        var images = body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : "";
-        var ftsText = body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text;
-        // Q39: the same email in other folders (Gmail keeps it in Inbox and All Mail) gets this body too, instead of
-        // being downloaded again. Copies that already have one keep theirs.
-        var targets = new List<long> { rowId };
-        using (var q = c.CreateCommand())
+
+        lock (_bodyGate)
         {
-            q.CommandText = """
-                SELECT s.id FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id
-                WHERE m.id=$id AND m.message_id<>'' AND s.body_cached=0
-                """;
-            q.Parameters.AddWithValue("$id", rowId);
-            using var r = q.ExecuteReader();
-            while (r.Read()) targets.Add(r.GetInt64(0));
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            var attachments = JsonSerializer.Serialize(body.Attachments);
+            var images = body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : "";
+            var ftsText = body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text;
+            // Q39: the same email in other folders (Gmail keeps it in Inbox and All Mail) gets this body too, instead of
+            // being downloaded again. Copies that already have one keep theirs.
+            var targets = new List<long> { rowId };
+            using (var q = c.CreateCommand())
+            {
+                q.CommandText = """
+                    SELECT s.id FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id
+                    WHERE m.id=$id AND m.message_id<>'' AND s.body_cached=0
+                    """;
+                q.Parameters.AddWithValue("$id", rowId);
+                using var r = q.ExecuteReader();
+                while (r.Read()) targets.Add(r.GetInt64(0));
+            }
+            foreach (var id in targets)
+            {
+                Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done) VALUES($id,$h,$t,$a,$c,$i,$d)",
+                    ("$id", id), ("$h", body.Html), ("$t", body.Text), ("$a", attachments), ("$c", body.Calendar ?? ""), ("$i", images), ("$d", body.ImagesComplete ? 1 : 0));
+                Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", id));
+                Exec(c, "UPDATE messages_fts SET body=$b WHERE rowid=$id", ("$b", ftsText), ("$id", id));
+            }
+            tx.Commit();
+            foreach (var id in targets) _bodyCache.Remove(id);
         }
-        foreach (var id in targets)
-        {
-            Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done) VALUES($id,$h,$t,$a,$c,$i,$d)",
-                ("$id", id), ("$h", body.Html), ("$t", body.Text), ("$a", attachments), ("$c", body.Calendar ?? ""), ("$i", images), ("$d", body.ImagesComplete ? 1 : 0));
-            Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", id));
-            Exec(c, "UPDATE messages_fts SET body=$b WHERE rowid=$id", ("$b", ftsText), ("$id", id));
-        }
-        tx.Commit();
     }
 
     /// <summary>Q39: gives every copy of an email that has no body yet the body of a copy that has one (emails saved

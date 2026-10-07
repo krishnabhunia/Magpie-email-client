@@ -20,7 +20,7 @@ public sealed class ThreadWindow : Window
     private readonly WebView2 _web = new();
     private readonly ReaderHover _hover;
     private bool _ready;
-    private string? _pending;
+    private readonly ReaderPresenter _presenter = new();
 
     public static void Open(MainViewModel main, ThreadRow row)
     {
@@ -72,7 +72,8 @@ public sealed class ThreadWindow : Window
         SubjectCard? card = null;
         card = new SubjectCard(subject, () => _hover.SubjectContent(ownWindow: true), (id, anchor) => _hover.RunSubject(id, anchor, card!));
 
-        _reader.PageReady += url => Ui.Post(() => ShowPage(url));
+        _reader.PageReady += page => Ui.Post(() => _presenter.Show(page));
+        _reader.Loading += _presenter.Loading;
         _reader.ThreadRemoved += () => Ui.Post(Close);
         Action redraw = () => Ui.Post(() => { _web.DefaultBackgroundColor = ThemeManager.WebBackground; _reader.Redraw(); });
         ThemeManager.Changed += redraw;
@@ -114,7 +115,7 @@ public sealed class ThreadWindow : Window
                         e.MenuItems.Remove(item);
             };
             _ready = true;
-            if (_pending != null) ShowPage(_pending);
+            _presenter.Attach(core);
             _reader.Show(_row, _main);
         }
         catch (Exception ex)
@@ -122,12 +123,6 @@ public sealed class ThreadWindow : Window
             Log.Error("conversation window", ex);
             Close();
         }
-    }
-
-    private void ShowPage(string url)
-    {
-        if (!_ready) { _pending = url; return; }
-        try { _web.CoreWebView2.Navigate(url); } catch (Exception ex) { Log.Warn("navigate: " + ex.Message); }
     }
 
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)

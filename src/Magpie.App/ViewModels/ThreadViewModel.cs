@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Text.Json;
+using Magpie.Core.Caching;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Magpie.App.Services;
@@ -21,10 +23,11 @@ public partial class ThreadViewModel : ObservableObject
     private CancellationTokenSource? _aiCts;
     private readonly Dictionary<string, List<string>> _replyCache = new();
     private bool _imagesAllowedOnce;
+    private readonly LruCache<long, string> _localPictureAttempts = new(256, 32 * 1024);
 
     public event Action? ThreadRemoved;
     /// <summary>Raised with a page URL for the WebView2 to show.</summary>
-    public event Action<string>? PageReady;
+    public event Action<ReaderPage>? PageReady;
     /// <summary>Another conversation was picked: show "Loading…" at once (HTML for the page body).</summary>
     public event Action<string>? Loading;
 
@@ -90,7 +93,7 @@ public partial class ThreadViewModel : ObservableObject
         AccountId = ThreadKey = "";
         ShowSummarise = false;
         _placeholder = (title, text);
-        PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(title, text, ThemeManager.IsDark), "view"));
+        PageReady?.Invoke(new ReaderPage("placeholder", "", HtmlRenderer.Placeholder(title, text, ThemeManager.IsDark), 0, Retain: false));
     }
 
     private (string Title, string Text) _placeholder = ("Welcome to Magpie", "Pick a conversation to read it here.");
@@ -100,7 +103,7 @@ public partial class ThreadViewModel : ObservableObject
     {
         if (!HasThread)
         {
-            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder(_placeholder.Title, _placeholder.Text, ThemeManager.IsDark), "view"));
+            PageReady?.Invoke(new ReaderPage("placeholder", "", HtmlRenderer.Placeholder(_placeholder.Title, _placeholder.Text, ThemeManager.IsDark), 0, Retain: false));
             return;
         }
         _cts.Cancel();
@@ -127,15 +130,7 @@ public partial class ThreadViewModel : ObservableObject
         AccountId = row.AccountId;
         ThreadKey = row.ThreadKey;
         HasThread = true;
-        // Q38: the previous email never stays on screen. The pane switches at once (inside the current page, no
-        // navigation) to the new conversation's subject and sender; "Loading…" only when it must be downloaded.
-        if (!same)
-        {
-            var m = row.Latest;
-            var subject = string.IsNullOrWhiteSpace(m.Subject) ? "(no subject)" : m.Subject;
-            Loading?.Invoke(HtmlRenderer.LoadingBody(subject, m.Sender, m.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark,
-                downloading: _e.Store.HasUncachedBody(AccountId, ThreadKey)));
-        }
+        // A prepared page is shown immediately; only a cache miss needs a placeholder.
         _ = LoadAsync(_cts.Token, markRead: true);
     }
 
@@ -147,21 +142,15 @@ public partial class ThreadViewModel : ObservableObject
     public void RefreshIfShowing(ThreadRow row)
     {
         if (row.AccountId != AccountId || row.ThreadKey != ThreadKey) return;
-        var current = _e.Store.GetThread(AccountId, ThreadKey);
-        if (current.Count != Messages.Count || current.Any(m => m.IsFlagged) != IsPinned || current.LastOrDefault()?.Tags != Messages.LastOrDefault()?.Tags)
-        {
-            _cts.Cancel();
-            _cts = new CancellationTokenSource();
-            _ = LoadAsync(_cts.Token, markRead: false);
-        }
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        _ = LoadAsync(_cts.Token, markRead: false);
     }
 
     private async Task LoadAsync(CancellationToken ct, bool markRead)
     {
         try
         {
-            // Let the list highlight and the "Loading…" page paint before any work starts.
-            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
             ct.ThrowIfCancellationRequested();
             _loadErrors = new Dictionary<long, string>();
             var rows = _e.Store.GetThread(AccountId, ThreadKey);
@@ -184,12 +173,31 @@ public partial class ThreadViewModel : ObservableObject
 
             // 1. Render from what is on this PC: the text and the pictures inside each email (design RL1).
             var bodies = new Dictionary<long, (MessageBody?, Dictionary<string, string>)>();
+            var allHot = true;
             foreach (var r in rows)
             {
-                var b = _e.Store.GetBody(r.Id);
-                bodies[r.Id] = (b, b?.Images ?? new Dictionary<string, string>());
+                if (!_e.Store.TryGetBodyFromMemory(r.Id, out var b)) { allHot = false; break; }
+                bodies[r.Id] = (b, b!.Images);
             }
-            await RenderAsync(rows, bodies, ct);
+            if (!allHot)
+            {
+                Loading?.Invoke(HtmlRenderer.LoadingBody(Subject, latest.Sender,
+                    latest.Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), ThemeManager.IsDark,
+                    downloading: rows.Any(r => !r.BodyCached)));
+                bodies = await Task.Run(() =>
+                {
+                    var loaded = new Dictionary<long, (MessageBody?, Dictionary<string, string>)>();
+                    foreach (var r in rows)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var b = _e.Store.GetBody(r.Id);
+                        loaded[r.Id] = (b, b?.Images ?? new Dictionary<string, string>());
+                    }
+                    return loaded;
+                }, ct);
+                ct.ThrowIfCancellationRequested();
+            }
+            await RenderAsync(rows, bodies, ct, showLoading: allHot && markRead);
 
             // 2. Only what isn't here yet is read: an email not downloaded, or one saved before its pictures were kept
             //    (Q39: its text and pictures only — attachments wait for a click). Pictures too big to keep with the
@@ -201,13 +209,27 @@ public partial class ThreadViewModel : ObservableObject
                 var (b, _) = bodies[r.Id];
                 if (b != null && !MimeText.NeedsDownload(b))
                 {
+                    var digest = _e.Store.BodyFingerprint(r.Id, b);
                     if (b.ImagesComplete && MimeText.MissingPictures(b).Any()
-                        && await Task.Run(() => _e.LocalMimeAsync(r, ct), ct) is { } local)
+                        && (digest == null || !_localPictureAttempts.TryGet(r.Id, out var attempted) || attempted != digest))
                     {
-                        var all = new Dictionary<string, string>(b.Images, StringComparer.OrdinalIgnoreCase);
-                        foreach (var (cid, uri) in MimeText.InlineImages(local)) all.TryAdd(cid, uri);
-                        bodies[r.Id] = (b, all);
-                        fetched = true;
+                        var images = await Task.Run(async () =>
+                        {
+                            if (await _e.LocalMimeAsync(r, ct) is not { } local) return null;
+                            var all = new Dictionary<string, string>(b.Images, StringComparer.OrdinalIgnoreCase);
+                            foreach (var (cid, uri) in MimeText.InlineImages(local)) all.TryAdd(cid, uri);
+                            ct.ThrowIfCancellationRequested();
+                            if (!_e.Store.RetainInlineImages(r.Id, b, all)) return null;
+                            return new { Body = _e.Store.GetBody(r.Id) ?? b, Images = all };
+                        }, ct);
+                        ct.ThrowIfCancellationRequested();
+                        if (images != null)
+                        {
+                            bodies[r.Id] = (images.Body, images.Images);
+                            digest = _e.Store.BodyFingerprint(r.Id, images.Body);
+                            fetched = true;
+                        }
+                        if (digest != null) _localPictureAttempts.Set(r.Id, digest, 128);
                     }
                     continue;
                 }
@@ -240,7 +262,7 @@ public partial class ThreadViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error("open conversation", ex);
-            PageReady?.Invoke(WebHost.Publish(HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message, ThemeManager.IsDark), "view"));
+            if (!ct.IsCancellationRequested) PageReady?.Invoke(new ReaderPage("error", "", HtmlRenderer.Placeholder("Couldn't open this conversation", ex.Message, ThemeManager.IsDark), 0, Retain: false));
         }
     }
 
@@ -248,56 +270,53 @@ public partial class ThreadViewModel : ObservableObject
 
     /// <summary>Design RL1: the last pages built, so going back to a conversation that hasn't changed skips the
     /// (slow) cleaning of its HTML. Keyed by conversation; the fingerprint says whether it is still current.</summary>
-    private static readonly Dictionary<string, (string Fingerprint, string Html, int Blocked)> _pageCache = new();
-    private static readonly Queue<string> _pageCacheOrder = new();
-    private const int PageCacheSize = 24;
+    private readonly LruCache<string, ReaderPage> _pageCache = new(64, 64 * 1024 * 1024);
 
-    private static string Fingerprint(string subject, List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
-        bool allow, bool dark, Dictionary<long, string> errors)
+    private string PageContext => JsonSerializer.Serialize(new
     {
-        var sb = new System.Text.StringBuilder(subject).Append('|').Append(allow).Append('|').Append(dark)
-            .Append('|').Append(DateTime.Now.Ticks / (TimeSpan.TicksPerMinute * 10));   // relative times ("just now") stay fresh enough
-        foreach (var r in rows)
-        {
-            var b = bodies.TryGetValue(r.Id, out var v) ? v : default;
-            sb.Append('|').Append(r.Id).Append(':').Append((int)r.Flags).Append(':').Append(r.Tags).Append(':').Append(r.SnoozeUntil?.Ticks ?? 0)
-              .Append(':').Append(b.body?.Html.Length ?? -1).Append(':').Append(b.images?.Count ?? 0)
-              .Append(':').Append(errors.TryGetValue(r.Id, out var e) ? e : "");
-        }
-        return sb.ToString();
-    }
+        ThemeManager.IsDark, _e.Config.RemoteImages, HoverDelay,
+        Trusted = _e.Config.TrustedImageSenders.OrderBy(s => s, StringComparer.OrdinalIgnoreCase),
+        Mine = _e.MyAddresses.OrderBy(s => s, StringComparer.OrdinalIgnoreCase),
+    });
+
+    private string Fingerprint(string subject, List<MessageRow> rows,
+        Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
+        bool allow, bool dark, Dictionary<long, string> errors, string? accountId = null) =>
+        ReaderPage.ContentFingerprint(subject, BuildRenderList(accountId ?? AccountId, rows, bodies, errors),
+            allow, dark, HoverDelay, DateTimeOffset.Now, _e.Store.BodyFingerprint);
 
     /// <summary>Builds the page off the UI thread (cleaning big newsletters can take a moment) and shows it
     /// only if the user is still on this conversation.</summary>
-    private async Task RenderAsync(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies, CancellationToken ct)
+    private async Task RenderAsync(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
+        CancellationToken ct, bool showLoading = false)
     {
+        ct.ThrowIfCancellationRequested();
         _lastBodies = bodies;
         var subject = Subject;
         var allow = ImagesAllowed(rows);
         var dark = ThemeManager.IsDark;
+        var context = PageContext;
         var key = AccountId + "\n" + ThreadKey;
         var fp = Fingerprint(subject, rows, bodies, allow, dark, _loadErrors);
-        string url; int blocked;
-        if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == fp)
-        {
-            (url, blocked) = (WebHost.Publish(hit.Html, "view"), hit.Blocked);
-        }
+        ReaderPage page;
+        if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == fp && hit.Context == context)
+            page = hit;
         else
         {
+            if (showLoading)
+                Loading?.Invoke(HtmlRenderer.LoadingBody(subject, rows[^1].Sender,
+                    rows[^1].Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), dark, downloading: false));
             var list = BuildRenderList(AccountId, rows, bodies, _loadErrors);
-            var html = "";
-            (url, blocked) = await Task.Run(() =>
-            {
-                var result = HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, HoverDelay);
-                ct.ThrowIfCancellationRequested();
-                html = result.Html;
-                return (WebHost.Publish(result.Html, "view"), result.BlockedImages);
-            }, ct);
-            PutPage(key, fp, html, blocked);
+            var hoverDelay = HoverDelay;
+            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay), ct);
+            ct.ThrowIfCancellationRequested();
+            if (context != PageContext) return;
+            page = new ReaderPage(key, fp, result.Html, result.BlockedImages, context);
+            _pageCache.Set(key, page, page.Bytes);
         }
         ct.ThrowIfCancellationRequested();
-        BlockedImages = allow ? 0 : blocked;
-        PageReady?.Invoke(url);
+        BlockedImages = allow ? 0 : page.BlockedImages;
+        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen) });
     }
 
     /// <summary>
@@ -310,7 +329,7 @@ public partial class ThreadViewModel : ObservableObject
         try
         {
             var dark = ThemeManager.IsDark;
-            foreach (var t in Neighbours.Take(4))
+            foreach (var t in Neighbours.Take(8))
             {
                 ct.ThrowIfCancellationRequested();
                 var key = t.AccountId + "\n" + t.ThreadKey;
@@ -326,10 +345,10 @@ public partial class ThreadViewModel : ObservableObject
                     var allow = _e.Config.RemoteImages == RemoteImages.Always
                         || (_e.Config.RemoteImages == RemoteImages.Ask && rows.All(r => IsMine(r) || _e.Config.TrustedImageSenders.Contains(r.FromAddress, StringComparer.OrdinalIgnoreCase)));
                     var errors = new Dictionary<long, string>();
-                    return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors) };
+                    return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors, t.AccountId) };
                 }, ct);
                 if (prep == null) continue;
-                if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == prep.fp) continue;
+                if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
                 var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay), ct);
                 ct.ThrowIfCancellationRequested();
@@ -340,14 +359,10 @@ public partial class ThreadViewModel : ObservableObject
         catch (Exception ex) { Log.Warn("prepare next conversations: " + ex.Message); }
     }
 
-    private static void PutPage(string key, string fp, string html, int blocked)
+    private void PutPage(string key, string fp, string html, int blocked)
     {
-        if (!_pageCache.ContainsKey(key))
-        {
-            _pageCacheOrder.Enqueue(key);
-            while (_pageCacheOrder.Count > PageCacheSize) _pageCache.Remove(_pageCacheOrder.Dequeue());
-        }
-        _pageCache[key] = (fp, html, blocked);
+        var page = new ReaderPage(key, fp, html, blocked, PageContext);
+        _pageCache.Set(key, page, page.Bytes);
     }
 
     private static string SubjectOf(List<MessageRow> rows)
@@ -391,6 +406,7 @@ public partial class ThreadViewModel : ObservableObject
     public void RetryLoad()
     {
         if (!HasThread) return;
+        foreach (var row in Messages) _localPictureAttempts.Remove(row.Id);
         _cts.Cancel();
         _cts = new CancellationTokenSource();
         _ = LoadAsync(_cts.Token, markRead: false);
@@ -399,11 +415,7 @@ public partial class ThreadViewModel : ObservableObject
     /// <summary>Re-render the open conversation right away (e.g. after "Show images").</summary>
     private void Render(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies)
     {
-        _lastBodies = bodies;
-        var allow = ImagesAllowed(rows);
-        var result = HtmlRenderer.BuildConversation(Subject, BuildRenderList(AccountId, rows, bodies, _loadErrors), allow, DateTimeOffset.Now, ThemeManager.IsDark, HoverDelay);
-        BlockedImages = allow ? 0 : result.BlockedImages;
-        PageReady?.Invoke(WebHost.Publish(result.Html, "view"));
+        _ = RenderAsync(rows, bodies, _cts.Token);
     }
 
     private bool IsMine(MessageRow r) => _e.MyAddresses.Contains(r.FromAddress.ToLowerInvariant());
