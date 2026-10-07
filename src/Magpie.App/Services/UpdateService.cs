@@ -263,7 +263,8 @@ public sealed partial class UpdateService : ObservableObject
             Detail = $"You have {Current}" + (rel.Published is { } p ? " · released " + p.LocalDateTime.ToString("d MMM yyyy") : "") + (rel.ExeSize > 0 ? $" · {rel.ExeSize / 1048576.0:0} MB" : "");
             State = UpdateState.Available;
             Log.Info($"update available: {rel.Version}");
-            if (cfg.AutoUpdate == true) await DownloadAsync();
+            // Not awaited: the download runs on while the caller (the title-bar button, Settings) shows "available" at once.
+            if (cfg.AutoUpdate == true) _ = DownloadAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
