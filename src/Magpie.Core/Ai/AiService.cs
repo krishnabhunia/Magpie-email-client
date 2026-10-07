@@ -39,7 +39,7 @@ public sealed class AiService
 {
     private readonly HttpClient _http;
     private readonly Func<AiSettings> _settings;
-    private readonly Func<string?> _apiKey;
+    private readonly Func<string, string?> _apiKey;
 
     public const int ThreadBudgetChars = 24_000;
 
@@ -47,11 +47,19 @@ public sealed class AiService
     {
         _http = http;
         _settings = settings;
-        _apiKey = apiKey;
+        _apiKey = _ => apiKey();
+    }
+
+    public AiService(HttpClient http, Func<AiSettings> settings, Func<string, string?> apiKeyFor)
+    {
+        _http = http;
+        _settings = settings;
+        _apiKey = apiKeyFor;
     }
 
     public static bool IsConfigured(AiSettings s, string? key) =>
-        !string.IsNullOrWhiteSpace(s.Endpoint) && Uri.TryCreate(s.Endpoint, UriKind.Absolute, out _) && !string.IsNullOrWhiteSpace(s.Model)
+        !string.IsNullOrWhiteSpace(s.Endpoint) && Uri.TryCreate(s.Endpoint, UriKind.Absolute, out var endpoint)
+        && (endpoint.Scheme == "https" || endpoint.Scheme == "http" && endpoint.IsLoopback) && !string.IsNullOrWhiteSpace(s.Model)
         && (!string.IsNullOrWhiteSpace(key) || AiProviderFactory.IsLocalEndpoint(s.Endpoint) || s.Provider == AiProviderKind.Custom);
 
     public static AiAvailability Availability(AiSettings s, string? key, AiFeature f)
@@ -61,14 +69,19 @@ public sealed class AiService
         return IsConfigured(s, key) ? AiAvailability.Ready : AiAvailability.NotConfigured;
     }
 
-    public AiAvailability Availability(AiFeature f) => Availability(_settings(), _apiKey(), f);
+    public AiAvailability Availability(AiFeature f)
+    {
+        var s = _settings().Clone();
+        return Availability(s, _apiKey(s.ActiveId), f);
+    }
 
     /// <summary>Should the UI show this feature's control at all? (Visible when switched on, even if not yet configured.)</summary>
     public bool IsVisible(AiFeature f) => Availability(f) is AiAvailability.Ready or AiAvailability.NotConfigured;
 
     public bool IsLocal => AiProviderFactory.IsLocalEndpoint(_settings().Endpoint);
 
-    public static string ConsentKey(AiFeature f, AiSettings s) => $"{f}@{AiProviderFactory.Host(s.Endpoint)}";
+    public static string ConsentKey(AiFeature f, AiSettings s) =>
+        $"{f}@{s.ActiveId}:{(Uri.TryCreate(s.Endpoint, UriKind.Absolute, out var uri) ? uri.AbsoluteUri.TrimEnd('/') : s.Endpoint)}";
 
     /// <summary>Local models never need consent — nothing leaves the PC.</summary>
     public bool NeedsConsent(AiFeature f)
@@ -87,20 +100,20 @@ public sealed class AiService
         }
     }
 
-    private IAiProvider Provider()
+    private IAiProvider Require(AiFeature f)
     {
-        var s = _settings();
-        return AiProviderFactory.Create(_http, s, _apiKey());
-    }
-
-    private void Require(AiFeature f)
-    {
-        switch (Availability(f))
+        // Validate and construct from the same snapshot, even if Settings changes during a request.
+        var s = _settings().Clone();
+        var key = _apiKey(s.ActiveId);
+        switch (Availability(s, key, f))
         {
             case AiAvailability.MasterOff: throw new AiException("AI features are turned off in Settings.");
             case AiAvailability.FeatureOff: throw new AiException("This AI feature is turned off in Settings.");
             case AiAvailability.NotConfigured: throw new AiException("Set up an AI provider in Settings → AI features first.");
         }
+        if (!AiProviderFactory.IsLocalEndpoint(s.Endpoint) && !s.Consents.Contains(ConsentKey(f, s)))
+            throw new AiException("Allow this AI feature to send your text to the selected provider first.");
+        return AiProviderFactory.Create(_http, s, key);
     }
 
     // ───────────────────────── context building ─────────────────────────
@@ -141,23 +154,23 @@ public sealed class AiService
 
     public async Task<string> SummariseAsync(ThreadForAi thread, Action<string> onToken, CancellationToken ct)
     {
-        Require(AiFeature.Summarise);
+        var provider = Require(AiFeature.Summarise);
         var system = "You summarise email conversations for a busy reader. " + Rules;
         var prompt = "Summarise this email thread in 2–4 short bullet points (start each with \"• \"). "
                      + "Then, if something is asked of the reader or a decision/deadline is pending, add one final line starting with \"Action: \". "
                      + "Keep it under 90 words.\n\n" + thread.Text;
-        return await Provider().CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, onToken, 400, ct);
+        return await provider.CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, onToken, 400, ct);
     }
 
     public async Task<string> DraftAsync(string instruction, string tone, ThreadForAi? context, string myName, Action<string> onToken, CancellationToken ct)
     {
-        Require(AiFeature.Draft);
+        var provider = Require(AiFeature.Draft);
         var system = "You write email drafts for the user, who will review and edit them before sending. " + Rules
                      + " Output only the email body (greeting, text, sign-off with the user's name). No subject line.";
         var sb = new StringBuilder();
         if (context != null) sb.Append("The user is replying to this conversation:\n\n").Append(context.Text).Append("\n\n");
         sb.Append($"Write the email. Tone: {tone}. The user's name: {myName}.\nWhat the user wants to say: {instruction}");
-        return await Provider().CompleteAsync(system, new[] { new ChatMessage("user", sb.ToString()) }, onToken, 700, ct);
+        return await provider.CompleteAsync(system, new[] { new ChatMessage("user", sb.ToString()) }, onToken, 700, ct);
     }
 
     public static string RewriteInstruction(RewriteKind kind, string? custom) => kind switch
@@ -172,19 +185,19 @@ public sealed class AiService
 
     public async Task<string> RewriteAsync(string text, RewriteKind kind, string? custom, Action<string> onToken, CancellationToken ct)
     {
-        Require(AiFeature.Rewrite);
+        var provider = Require(AiFeature.Rewrite);
         var system = "You rewrite a passage from an email the user is writing. " + Rules + " Output only the rewritten passage.";
         var prompt = RewriteInstruction(kind, custom) + "\n\nPassage:\n" + text;
-        return await Provider().CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, onToken, Math.Clamp(text.Length / 2 + 200, 200, 1500), ct);
+        return await provider.CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, onToken, Math.Clamp(text.Length / 2 + 200, 200, 1500), ct);
     }
 
     public async Task<List<string>> SuggestRepliesAsync(ThreadForAi thread, string myName, CancellationToken ct)
     {
-        Require(AiFeature.Replies);
+        var provider = Require(AiFeature.Replies);
         var system = "You suggest short replies to the latest email in a thread, from the user's point of view. " + Rules;
         var prompt = $"The user is {myName}. Suggest exactly 3 different short replies (each under 25 words, ready to send, no greeting needed) to the latest message. "
                      + "Return them as a JSON array of 3 strings and nothing else.\n\n" + thread.Text;
-        var text = await Provider().CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, null, 300, ct);
+        var text = await provider.CompleteAsync(system, new[] { new ChatMessage("user", prompt) }, null, 300, ct);
         return ParseReplies(text);
     }
 
@@ -196,7 +209,7 @@ public sealed class AiService
             try
             {
                 var arr = JsonSerializer.Deserialize<List<string>>(m.Value);
-                if (arr != null) return arr.Select(s => s.Trim()).Where(s => s.Length > 0).Take(3).ToList();
+                if (arr != null) return arr.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).Take(3).ToList();
             }
             catch (JsonException) { }
         }
@@ -208,7 +221,8 @@ public sealed class AiService
 
     public async Task<string> TestAsync(AiSettings candidate, string? key, CancellationToken ct)
     {
-        var p = AiProviderFactory.Create(_http, candidate, key);
+        if (!IsConfigured(candidate, key)) throw new AiException("Use HTTPS for a cloud provider, or HTTP for a model on this PC, and supply its model and key.");
+        var p = AiProviderFactory.Create(_http, candidate.Clone(), key);
         var reply = await p.CompleteAsync("Reply with exactly: OK", new[] { new ChatMessage("user", "Say OK") }, null, 10, ct);
         return reply.Trim();
     }

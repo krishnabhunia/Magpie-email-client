@@ -3,7 +3,7 @@
 A Windows email client that combines the power features of **eM Client** with the calm, smart inbox of **Spark** —
 local-first, with optional AI you control from one Settings page.
 
-**Version 1.1.0** · C# / .NET 8 / WPF · installer or single-file `Magpie.exe` from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) · updates itself from GitHub
+**Version 4.0.2** · C# / .NET 8 / WPF · installer or single-file `Magpie.exe` from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) · updates itself from GitHub
 
 ## Features
 
@@ -16,8 +16,8 @@ local-first, with optional AI you control from one Settings page.
 | 5 | Conversations | Threaded view with collapsed quotes, safe HTML rendering (WebView2, scripts stripped), remote images blocked until you allow them, trusted senders |
 | 6 | Triage | Archive (E), Delete (Del), Pin (P), Mark unread (U), Snooze (S), Remind me (incl. "if nobody replies by…"), Tags, Unsubscribe, move to folder, auto-advance to the next conversation |
 | 7 | Compose | Rich editor, Cc/Bcc, attachments and pasted images, quick templates, server drafts, **Send later**, **Undo send** |
-| 8 | Search | Full-text search (SQLite FTS5) with operators `from:` `to:` `subject:` `has:attachment` `is:unread` `is:pinned` `before:` `after:` |
-| 9 | Views | Inbox, Pinned, Snoozed, Follow up, Scheduled, Sent, Drafts, Archive, Spam, Trash, Tags |
+| 8 | Search | Full-text search (SQLite FTS5) with operators `from:` `to:` `subject:` `has:attachment` `is:unread` `is:pinned` `before:` `after:` `with:` `file:` |
+| 9 | Views | Inbox, Pinned, Snoozed, Follow up, Scheduled, Sent, Drafts, Archive, Spam, Trash, Tags, Calendar |
 | 10 | Desktop | Tray icon, close-to-tray, start with Windows, notifications (optionally people only), single instance, keyboard shortcuts (J/K, R, A, F, E, Ctrl+N, Ctrl+F, F5, /) |
 | 11 | **AI features** (optional) | One master switch + four feature switches — see below |
 | 12 | Drafts | Autosaved on this PC while you type; kept offline and uploaded to Drafts when you are back online |
@@ -26,7 +26,8 @@ local-first, with optional AI you control from one Settings page.
 | 15 | Toolbar | Icon + name on every button; Settings → Toolbar & buttons: show/hide, order, style, colourful on/off |
 | 16 | Folder numbers | Unread / total conversations where mail arrives (3 / 10), a single count for Pinned, Drafts, Trash…, none for Sent |
 | 17 | Status bar | Online/offline, sync progress, what just arrived, sending + Undo, problems with their fix; click for activity |
-| 18 | Updates | Checks GitHub Releases daily, downloads and verifies in the background, "Restart now" swaps the EXE (rollback if it fails) |
+| 18 | Calendar | Google Calendar Day / Week / Month / Agenda views, event editing, Meet links, invitation responses and reminders |
+| 19 | Updates | Checks GitHub Releases daily, downloads and verifies in the background, "Restart now" swaps the EXE (rollback if it fails) |
 
 ## AI features — one page, five switches (approved designs S1–S5)
 
@@ -41,7 +42,7 @@ local-first, with optional AI you control from one Settings page.
 | 5 | Suggested replies | Reply chips under the last message of a thread | Thread text |
 
 Providers: **OpenAI**, **Anthropic**, **Ollama (local)**, or any **OpenAI-compatible** endpoint. Each feature asks for
-consent the first time it sends data to a cloud provider; a local model never asks because nothing leaves the PC.
+consent per feature, connection and endpoint before sending data to a cloud provider. Cloud endpoints require HTTPS; local HTTP models are allowed without a cloud consent prompt.
 Nothing is ever inserted or sent automatically — every AI result is a card you accept. Mail keeps working when the
 provider is down or switched off.
 
@@ -52,7 +53,7 @@ provider is down or switched off.
    Without it, Gmail works with an **app password**, and any IMAP mailbox with its normal password.
 3. Optional: **Settings → AI features** → switch on, pick a provider, paste an API key (or choose Ollama), **Test connection**, then switch on the features you want.
 
-Data lives in `%APPDATA%\Magpie` (mail cache, settings, `magpie.log`). Updates download to `%LOCALAPPDATA%\Magpie\updates`.
+Data lives in `%APPDATA%\Magpie` (mail cache, settings, `magpie.log`). Updates download to `%LOCALAPPDATA%\Magpie\updates`. Portable copies keep data in `MagpieData` beside the executable. Settings can choose a different mail folder. Light and dark themes are available.
 
 ## Releases
 
@@ -64,8 +65,7 @@ pre-release, offered only to copies with "Include test versions" ticked.
 
 | # | Limit | Planned |
 |---|-------|---------|
-| 1 | Light theme only; dialogs use the Windows title-bar colour | Dark theme (1.2.0) |
-| 2 | Not code-signed, so Windows shows "unknown publisher" for the installer | Signing (needs a certificate) |
+| 1 | Not code-signed, so Windows shows "unknown publisher" for the installer | Signing (needs a certificate) |
 
 ## Build
 

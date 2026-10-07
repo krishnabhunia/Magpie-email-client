@@ -149,7 +149,12 @@ public sealed class AccountSync : IDisposable
         _ui = new ImapLease(ct => _connector.OpenImapAsync(Account, ct));
     }
 
-    public void UpdateAccount(Account a) => Account = a;
+    public void UpdateAccount(Account a)
+    {
+        Account = a;
+        _windowPending = true;
+        Poke(); // A larger download window starts now, rather than waiting for the next five-minute check.
+    }
 
     public void Start()
     {
@@ -438,13 +443,13 @@ public sealed class AccountSync : IDisposable
                 else
                 {
                     var since = Account.SyncDays > 0 ? DateTime.Now.AddDays(-Math.Max(7, Account.SyncDays)) : new DateTime(1970, 1, 2);
-                    var found = await f.SearchAsync(KitSearch.DeliveredAfter(since), ct);
+                    var found = await f.SearchAsync(KitSearch.DeliveredAfter(since).And(KitSearch.NotDeleted), ct);
                     var limit = local.Role == FolderRole.Inbox ? InitialInboxLimit : InitialFolderLimit;
                     newUids = found.OrderByDescending(u => u.Id).Take(limit).ToList();
                     if (newUids.Count == 0 && local.Role is FolderRole.Inbox or FolderRole.Sent)
                     {
                         // Quiet mailbox: still show the latest few.
-                        var allUids = await f.SearchAsync(KitSearch.All, ct);
+                        var allUids = await f.SearchAsync(KitSearch.NotDeleted, ct);
                         newUids = allUids.OrderByDescending(u => u.Id).Take(50).ToList();
                     }
                 }
@@ -457,7 +462,7 @@ public sealed class AccountSync : IDisposable
                 else
                 {
                     var range = new UniqueIdRange(new UniqueId(f.UidValidity, (uint)Math.Clamp(floor, 1, uint.MaxValue)), UniqueId.MaxValue);
-                    newUids = (await f.SearchAsync(KitSearch.Uids(range), ct)).Where(u => u.Id >= floor).ToList();
+                    newUids = (await f.SearchAsync(KitSearch.Uids(range).And(KitSearch.NotDeleted), ct)).Where(u => u.Id >= floor).ToList();
                 }
             }
             newUids = newUids.Where(u => !pendingRemovals.Contains((local.Id, u.Id))).ToList();
@@ -483,7 +488,7 @@ public sealed class AccountSync : IDisposable
             }
 
             // The whole list of UIDs on the server (for deletions and for older emails not listed yet).
-            var serverAll = (await f.SearchAsync(KitSearch.All, ct)).ToList();
+            var serverAll = (await f.SearchAsync(KitSearch.NotDeleted, ct)).ToList();
 
             // 2. Flag changes and 3. deletions on messages we already had
             if (map.Count > 0)
@@ -567,10 +572,10 @@ public sealed class AccountSync : IDisposable
             ct.ThrowIfCancellationRequested();
             try
             {
-                var rows = await FetchRowsAsync(client, f, local, batch, ct);
+                var returned = new HashSet<long>();
+                var rows = await FetchRowsAsync(client, f, local, batch, ct, returned);
                 var inserted = _store.InsertMessages(rows);
                 // A UID the server didn't return (expunged meanwhile) is not asked for again this session.
-                var returned = rows.Select(r => r.Uid).ToHashSet();
                 lock (_tried) foreach (var u in batch) if (!returned.Contains(u.Id)) _tried.Add((local.Id, u.Id));
                 backfilled += inserted.Count;
                 if (local.Role == FolderRole.Sent && inserted.Count > 0)
@@ -607,7 +612,7 @@ public sealed class AccountSync : IDisposable
         return f;
     }
 
-    private async Task<List<MessageRow>> FetchRowsAsync(ImapClient client, IMailFolder f, MailFolder local, IList<UniqueId> uids, CancellationToken ct)
+    private async Task<List<MessageRow>> FetchRowsAsync(ImapClient client, IMailFolder f, MailFolder local, IList<UniqueId> uids, CancellationToken ct, ISet<long>? returnedUids = null)
     {
         var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
                     | MessageSummaryItems.Size | MessageSummaryItems.BodyStructure | MessageSummaryItems.References | MessageSummaryItems.PreviewText;
@@ -615,10 +620,11 @@ public sealed class AccountSync : IDisposable
         if (gmail) items |= MessageSummaryItems.GMailThreadId;
         var req = new FetchRequest(items) { Headers = new HeaderSet(ExtraHeaders) };
         var summaries = await f.FetchAsync(uids, req, ct);
+        foreach (var summary in summaries) returnedUids?.Add(summary.UniqueId.Id);
         var rows = new List<MessageRow>();
         // Oldest first so replies can find their parents' thread keys within the same batch.
         _pendingBatchMerges.Clear();
-        foreach (var s in summaries.OrderBy(s => s.UniqueId.Id))
+        foreach (var s in summaries.Where(IsVisibleSummary).OrderBy(s => s.UniqueId.Id))
             rows.Add(ToRow(s, local, gmail));
         // A later row in this batch may have merged conversations that earlier rows were keyed under.
         for (int pass = 0; pass < 3 && _pendingBatchMerges.Count > 0; pass++)
@@ -630,6 +636,9 @@ public sealed class AccountSync : IDisposable
         }
         return rows;
     }
+
+    internal static bool IsVisibleSummary(IMessageSummary summary) =>
+        summary.Flags is not { } flags || !flags.HasFlag(KitFlags.Deleted);
 
     private readonly HashSet<long> _deferred = new();
     private readonly Dictionary<string, string> _batchKeys = new();
@@ -782,6 +791,7 @@ public sealed class AccountSync : IDisposable
     /// </summary>
     private async Task FetchBodiesAsync(ImapClient client, MailFolder folder, List<MessageRow> rows, CancellationToken ct)
     {
+        rows = rows.Where(r => _store.GetBody(r.Id) is not { } body || MimeText.NeedsDownload(body)).ToList();
         if (rows.Count == 0) return;
         var f = await client.GetFolderAsync(folder.Path, ct);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
@@ -895,8 +905,22 @@ public sealed class AccountSync : IDisposable
     /// on the reading connection — whole when attachments come with emails (or it is small), else just its text and
     /// pictures (a 20 MB attachment isn't downloaded to show a few lines). Returns the saved body.
     /// </summary>
+    private readonly Caching.SharedWork<long, MessageBody?> _bodyDownloads = new();
+
     public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+        var saved = _store.GetBody(row.Id);
+        if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
+        // Changing selection cancels that reader's wait, not a shared download that should finish saving to disk.
+        return await _bodyDownloads.RunAsync(row.Id,
+            () => FetchBodyCoreAsync(row, _cts?.Token ?? CancellationToken.None), ct);
+    }
+
+    private async Task<MessageBody?> FetchBodyCoreAsync(MessageRow row, CancellationToken ct)
+    {
+        var saved = _store.GetBody(row.Id);
+        if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
         if (await LocalMimeAsync(row, ct) is { } local)
         {
             SaveBody(row, local, writeFile: false);
@@ -984,6 +1008,12 @@ public sealed class AccountSync : IDisposable
                     foreach (var op in group)
                     {
                         ct.ThrowIfCancellationRequested();
+                        if (!CanReplay(op, f.UidValidity))
+                        {
+                            Log.Warn($"[{Account.Email}] queued {op.Kind} was not replayed: this mailbox's message identifiers changed or were not recorded");
+                            _store.RemovePendingOp(op.Id);
+                            continue;
+                        }
                         try
                         {
                             if (op.Kind == PendingOpKind.EmptyFolder)
@@ -1005,13 +1035,20 @@ public sealed class AccountSync : IDisposable
                                     if (folders.TryGetValue(op.Arg, out var dst))
                                     {
                                         var target = await client.GetFolderAsync(dst.Path, ct);
-                                        await f.MoveToAsync(uid, target, ct);
+                                        if (client.Capabilities.HasFlag(ImapCapabilities.Move) || client.Capabilities.HasFlag(ImapCapabilities.UidPlus))
+                                            await f.MoveToAsync(uid, target, ct);
+                                        else
+                                        {
+                                            // MailKit's MOVE fallback can expunge the whole source folder without UIDPLUS.
+                                            await f.CopyToAsync(uid, target, ct);
+                                            await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+                                        }
                                     }
                                     break;
                                 case PendingOpKind.Delete:
                                     await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
                                     if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await f.ExpungeAsync(new[] { uid }, ct);
-                                    else await f.ExpungeAsync(ct);
+                                    // Leave deletion flagged when selective expunge is unavailable.
                                     break;
                             }
                             _store.RemovePendingOp(op.Id);
@@ -1033,6 +1070,11 @@ public sealed class AccountSync : IDisposable
             }
         }, ct);
     }
+
+    internal static bool CanReplay(PendingOp op, uint uidValidity) =>
+        op.Kind == PendingOpKind.EmptyFolder
+            ? op.UidValidity == 0 || op.UidValidity == uidValidity
+            : op.Uid is > 0 and <= uint.MaxValue && op.UidValidity != 0 && op.UidValidity == uidValidity;
 
     /// <summary>Stores a copy of a sent message in the Sent folder (servers that don't do it themselves).</summary>
     public Task AppendToSentAsync(MimeMessage msg, CancellationToken ct) => AppendAsync(FolderRole.Sent, msg, KitFlags.Seen, ct);
@@ -1090,7 +1132,7 @@ public sealed class AccountSync : IDisposable
         if (uids.Count == 0) return;
         await f.StoreAsync(uids, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
         if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await f.ExpungeAsync(uids, ct);
-        else await f.ExpungeAsync(ct);
+        // Do not purge unrelated messages marked Deleted by another client.
     }
 
     /// <summary>Creates a folder (e.g. "Archive") at the top level of the personal namespace.</summary>

@@ -39,6 +39,9 @@ public sealed class CalendarEvent
     public string CalendarId { get; set; } = "";
     /// <summary>Google's event id; empty until a new event has reached Google.</summary>
     public string EventId { get; set; } = "";
+    /// <summary>Persistent client-generated Google id, reused if a create response is lost.</summary>
+    public string CreationId { get; set; } = "";
+    public long Revision { get; set; }
     public string Title { get; set; } = "";
     public string Location { get; set; } = "";
     public string Description { get; set; } = "";

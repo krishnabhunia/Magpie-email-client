@@ -113,7 +113,8 @@ public class Release120Tests
         Assert.True(RuleEngine.Matches(Rule(true, (RuleField.ToCc, RuleOp.Is, "team@work.com")), m, ctx));
         Assert.True(RuleEngine.Matches(Rule(true, (RuleField.ToCc, RuleOp.Contains, "krishna")), m, ctx));
         Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Subject, RuleOp.StartsWith, "your order")), m, ctx));
-        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx));     // preview when no body yet
+        Assert.False(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx with { BodyAvailable = false }));
+        Assert.True(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx with { BodyText = "Track your parcel here" }));
         Assert.False(RuleEngine.Matches(Rule(true, (RuleField.Body, RuleOp.Contains, "parcel")), m, ctx with { BodyText = "Nothing here" }));
         Assert.True(RuleEngine.Matches(Rule(true, (RuleField.HasAttachment, RuleOp.Is, "Yes")), m, ctx));
         Assert.False(RuleEngine.Matches(Rule(true, (RuleField.HasAttachment, RuleOp.Is, "No")), m, ctx));

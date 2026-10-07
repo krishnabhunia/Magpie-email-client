@@ -47,9 +47,10 @@ public static class Composer
         var list = new InternetAddressList();
         if (string.IsNullOrWhiteSpace(text)) return list;
         // Accept ; and newlines as separators too.
-        var normalised = Regex.Replace(text, @"[;\r\n]+", ",");
+        var pieces = AddressPieces(text);
+        var normalised = string.Join(",", pieces);
         if (InternetAddressList.TryParse(normalised, out var parsed)) return parsed;
-        foreach (var piece in normalised.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var piece in pieces)
             if (MailboxAddress.TryParse(piece, out var mb)) list.Add(mb);
         return list;
     }
@@ -59,12 +60,32 @@ public static class Composer
     {
         var bad = new List<string>();
         if (string.IsNullOrWhiteSpace(text)) return bad;
-        foreach (var piece in Regex.Split(text, @"[,;\r\n]+").Select(p => p.Trim()).Where(p => p.Length > 0))
-        {
+        foreach (var piece in AddressPieces(text))
             if (!MailboxAddress.TryParse(piece, out var mb) || !Regex.IsMatch(mb.Address, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
                 bad.Add(piece);
-        }
         return bad;
+    }
+
+    // Keep separators inside quoted display names intact in both parsing and validation.
+    private static List<string> AddressPieces(string text)
+    {
+        var pieces = new List<string>();
+        var part = new StringBuilder();
+        var quoted = false;
+        var escaped = false;
+        foreach (var ch in text)
+        {
+            if (ch == '"' && !escaped) quoted = !quoted;
+            if (!quoted && ch is ',' or ';' or '\r' or '\n')
+            {
+                if (part.ToString().Trim() is { Length: > 0 } value) pieces.Add(value);
+                part.Clear();
+            }
+            else part.Append(ch);
+            escaped = ch == '\\' && !escaped;
+        }
+        if (part.ToString().Trim() is { Length: > 0 } last) pieces.Add(last);
+        return pieces;
     }
 
     public static string FormatList(IEnumerable<InternetAddress> list) => string.Join(", ", list.Select(a => a.ToString()));

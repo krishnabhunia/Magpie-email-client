@@ -51,7 +51,7 @@ public sealed class MailRule
 public sealed record GateSender(string Address, string Name, string FirstSubject, int Count, DateTimeOffset Latest);
 
 /// <summary>What a rule needs to know about a message beyond its row.</summary>
-public sealed record RuleContext(string AccountEmail, string BodyText);
+public sealed record RuleContext(string AccountEmail, string BodyText, bool BodyAvailable = true);
 
 public static class RuleEngine
 {
@@ -109,8 +109,7 @@ public static class RuleEngine
             case RuleField.Subject: return Text(c.Op, m.Subject, v);
             case RuleField.Body:
             {
-                var body = ctx.BodyText.Length > 0 ? ctx.BodyText : m.Preview;
-                return Text(c.Op, body, v);
+                return ctx.BodyAvailable && Text(c.Op, ctx.BodyText, v);
             }
             case RuleField.HasAttachment:
                 return m.HasAttachments == !v.Equals("No", StringComparison.OrdinalIgnoreCase);

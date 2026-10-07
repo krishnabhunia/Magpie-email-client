@@ -31,6 +31,8 @@ public partial class App : Application
             // Before anything is loaded: a settings backup waiting to be restored (design EX1), then the mail folder
             // (design DL1: a move asked for, or a chosen folder whose drive is locked or unplugged).
             if (SettingsBackup.ApplyPending(paths, protector)) Log.Info("started with restored settings");
+            if (File.Exists(Path.Combine(paths.Root, SettingsBackup.RestoreJournal)))
+                throw new IOException("The previous settings could not be recovered. The backup and recovery files have been kept in " + paths.Root + ".");
             if (!MailFolderStartup.Prepare(paths)) { Shutdown(0); return; }
             engine = new MailEngine(paths, protector);
         }

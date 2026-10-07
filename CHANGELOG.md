@@ -14,6 +14,30 @@
   - **On the row**: a countdown pill coloured by how soon (red under 48 hours, amber under 30 days, grey later), the deletion date in place of the arrival date, a red edge with a clock and the days left, or a small ring that empties.
   - **In the reading pane**: a banner with the full date and time, the rule, **Keep this one** / **Change rule** and a bar of the time left; a chip next to the subject; or the time on each email of the conversation.
 
+## 4.0.2 (7 Oct 2026)
+### Fixed
+- Opening saved emails uses this PC first. Switching between recently opened conversations reuses their text, prepared pages and rendered views without showing a loading page again.
+- The 90-day download window keeps filling in the background. Switching selection keeps shared downloads saving to disk, and changing the download window starts the new work at once.
+- Reader memory stays bounded, changed messages and image permissions refresh correctly, and modern calendar attachments no longer trigger unnecessary full-message reads.
+
+## 4.0.1 (7 Oct 2026)
+### Fixed
+- Existing files in a chosen mail folder stay intact unless replacement is explicitly chosen. Interrupted backup writes no longer block startup.
+- Applying one mail rule keeps any earlier body-dependent rules and notifications waiting for that message.
+- Deletions on older mail servers stay deleted, and sending during shutdown keeps local cleanup and follow-up reminders.
+- AI rewrites accept selections with leading or trailing spaces, while retaining protection against edits made during generation.
+- Reliability fixes work alongside the new Trash, Spam and selection features, including mail databases upgraded from version 4.0.0.
+- Sent emails stay sent when draft cleanup or a notification fails, so they are not sent again.
+- Offline mail actions check that the server still uses the same message identifiers. Deleting one message no longer clears other messages waiting in Trash on servers without selective deletion.
+- Calendar sync preserves edits and deletions made while an upload is running, retries new events without creating duplicates, and removes calendar data when an account is removed.
+- Calendar reminders set for the start of an event now appear once, including shortly after the PC wakes.
+- Moving the mail checks a temporary copy before replacing existing mail. Failed settings restores recover the previous settings and sign-ins and keep the backup for retry.
+- Rules that check the body wait for the complete message and keep their order and notification choices.
+- Scrolling the message list can reach conversations after the first 400. AI rewrites replace the original selection and ask for a new rewrite if the message changed.
+- AI calls check permission in the service for each connection and endpoint, accept HTTPS or a local HTTP model, and handle empty suggested replies safely.
+- Quoted recipient names containing commas are accepted, oversized update versions are ignored, and deletion dates display consistently across Windows settings.
+- The README now describes the current calendar, dark theme, search and AI permission behaviour.
+
 ## 4.0.0 (1 Oct 2026)
 ### New
 - **Tick boxes on every email row**, always there: click (or Space) ticks one, Shift+click ticks a range. The box above the list ticks everything on screen or nothing; **Ctrl+A** ticks all, **Esc** clears.

@@ -224,7 +224,7 @@ public class Release400Tests
     [Fact]
     public void Schema_9_keeps_where_trashed_emails_came_from()
     {
-        Assert.Equal(9, MailStore.SchemaVersion);
+        Assert.True(MailStore.SchemaVersion >= 9);
         using var dir = new TempDir();
         var (s, inbox, _) = Rows.NewStore(dir);
         var m = Rows.Make("A", inbox, "t", messageId: "m@x");

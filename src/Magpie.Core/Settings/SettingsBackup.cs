@@ -21,6 +21,7 @@ public static class SettingsBackup
     private const int Iterations = 600_000;
     /// <summary>A restore waiting for the next start: the unlocked backup, protected for this Windows user (DPAPI).</summary>
     public const string PendingFile = "restore-pending.bin";
+    public const string RestoreJournal = "restore-transaction.json";
 
     public sealed class Contents
     {
@@ -125,28 +126,72 @@ public static class SettingsBackup
 
     /// <summary>
     /// At start, before settings and sign-ins are loaded: puts a staged backup in place (settings.json, secrets,
-    /// mail folder). Returns true when one was applied. The staged file is removed either way.
+    /// mail folder). Failed restores retain the staged backup and restore the previous files.
     /// </summary>
     public static bool ApplyPending(AppPaths paths, ISecretProtector protector)
     {
         var f = Path.Combine(paths.Root, PendingFile);
-        if (!File.Exists(f)) return false;
         try
         {
+            RecoverRestore(paths);
+            if (!File.Exists(f)) return false;
             var c = JsonSerializer.Deserialize<Contents>(protector.Unprotect(File.ReadAllBytes(f)));
-            if (c == null) return false;
-            if (File.Exists(paths.Settings)) File.Copy(paths.Settings, paths.Settings + ".before-restore", true);
-            File.WriteAllText(paths.Settings, c.SettingsJson);
-            new SecretVault(paths.Secrets, protector).ReplaceAll(c.Secrets);
-            paths.SetMailRoot(c.MailFolder.Length > 0 ? c.MailFolder : null);
+            if (c == null) throw new InvalidDataException("The backup is empty.");
+            _ = JsonSerializer.Deserialize<AppSettings>(c.SettingsJson, AppSettings.Json)
+                ?? throw new InvalidDataException("The settings in this backup are empty.");
+            var destinations = RestoreFiles(paths);
+            var stages = destinations.Select(p => p + ".restore-next").ToArray();
+            File.WriteAllText(stages[0], c.SettingsJson);
+            new SecretVault(stages[1], protector).ReplaceAll(c.Secrets);
+            var folder = c.MailFolder.Length == 0 ? "" : Path.GetFullPath(c.MailFolder);
+            File.WriteAllText(stages[2], folder);
+            var existed = destinations.Select(File.Exists).ToArray();
+            for (var index = 0; index < destinations.Length; index++)
+                if (existed[index]) File.Copy(destinations[index], destinations[index] + ".before-restore", true);
+            // Retain a recovery journal until every file is installed, including across a process crash.
+            var journal = Path.Combine(paths.Root, RestoreJournal);
+            var nextJournal = journal + ".next";
+            using (var stream = new FileStream(nextJournal, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(JsonSerializer.SerializeToUtf8Bytes(existed));
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(nextJournal, journal, true);
+            for (var index = 0; index < destinations.Length; index++) File.Move(stages[index], destinations[index], true);
+            File.Delete(Path.Combine(paths.Root, RestoreJournal));
+            paths.RefreshMailRoot();
+            File.Delete(f);
             Log.Info("settings restored from a backup made by Magpie " + c.AppVersion + " on " + c.Created.ToString("d MMM yyyy HH:mm"));
             return true;
         }
         catch (Exception ex)
         {
+            try { RecoverRestore(paths); }
+            catch (Exception rollback) { Log.Error("could not recover the previous settings; restore journal retained", rollback); }
             Log.Error("restoring the backup failed", ex);
             return false;
         }
-        finally { try { File.Delete(f); } catch { } }
+        finally
+        {
+            foreach (var path in RestoreFiles(paths))
+                try { File.Delete(path + ".restore-next"); } catch { }
+            try { File.Delete(Path.Combine(paths.Root, RestoreJournal) + ".next"); } catch { }
+        }
+    }
+
+    private static string[] RestoreFiles(AppPaths paths) => [paths.Settings, paths.Secrets, Path.Combine(paths.Root, AppPaths.MailFolderFile)];
+
+    private static void RecoverRestore(AppPaths paths)
+    {
+        var journal = Path.Combine(paths.Root, RestoreJournal);
+        if (!File.Exists(journal)) return;
+        var existed = JsonSerializer.Deserialize<bool[]>(File.ReadAllText(journal));
+        var destinations = RestoreFiles(paths);
+        if (existed == null || existed.Length != destinations.Length) throw new InvalidDataException("The restore recovery record is incomplete.");
+        for (var index = 0; index < destinations.Length; index++)
+            if (existed[index]) File.Copy(destinations[index] + ".before-restore", destinations[index], true);
+            else File.Delete(destinations[index]);
+        File.Delete(journal);
+        paths.RefreshMailRoot();
     }
 }

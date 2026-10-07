@@ -27,6 +27,10 @@ public sealed partial class MailStore
             CREATE UNIQUE INDEX IF NOT EXISTS ix_cal_event ON cal_events(account_id, calendar_id, event_id) WHERE event_id <> '';
             CREATE INDEX IF NOT EXISTS ix_cal_time ON cal_events(start, end);
             """);
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('cal_events') WHERE name='revision'")) == 0)
+            Exec(c, "ALTER TABLE cal_events ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('cal_events') WHERE name='creation_id'")) == 0)
+            Exec(c, "ALTER TABLE cal_events ADD COLUMN creation_id TEXT NOT NULL DEFAULT ''");
     }
 
     // ───────────────────────── calendars ─────────────────────────
@@ -81,7 +85,7 @@ public sealed partial class MailStore
 
     // ───────────────────────── events ─────────────────────────
 
-    private const string EventCols = "id,account_id,calendar_id,event_id,title,location,description,start,end,all_day,status,my_answer,i_organize,organizer,attendees,meet,recurrence,recurring_id,reminder,updated,pending,add_meet";
+    private const string EventCols = "id,account_id,calendar_id,event_id,title,location,description,start,end,all_day,status,my_answer,i_organize,organizer,attendees,meet,recurrence,recurring_id,reminder,updated,pending,add_meet,revision,creation_id";
 
     private static CalendarEvent ReadCalEvent(SqliteDataReader r) => new()
     {
@@ -93,6 +97,7 @@ public sealed partial class MailStore
         Organizer = r.GetString(13), Attendees = JsonSerializer.Deserialize<List<EventAttendee>>(r.GetString(14)) ?? new(),
         MeetLink = r.GetString(15), Recurrence = r.GetString(16), RecurringEventId = r.GetString(17), ReminderMinutes = r.GetInt32(18),
         Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(19)), Pending = (PendingEventOp)r.GetInt32(20), AddMeet = r.GetInt64(21) != 0,
+        Revision = r.GetInt64(22), CreationId = r.GetString(23),
     };
 
     private static (string, object?)[] EventParams(CalendarEvent e) =>
@@ -102,6 +107,7 @@ public sealed partial class MailStore
         ("$my", (int)e.MyAnswer), ("$io", e.IAmOrganizer ? 1 : 0), ("$o", e.Organizer), ("$at", JsonSerializer.Serialize(e.Attendees)),
         ("$m", e.MeetLink), ("$r", e.Recurrence), ("$ri", e.RecurringEventId), ("$rm", e.ReminderMinutes),
         ("$u", e.Updated.ToUnixTimeMilliseconds()), ("$p", (int)e.Pending), ("$am", e.AddMeet ? 1 : 0),
+        ("$rv", e.Revision), ("$ci", e.CreationId),
     ];
 
     /// <summary>
@@ -140,7 +146,7 @@ public sealed partial class MailStore
             }
             else
                 e.Id = Convert.ToInt64(Scalar(c, $"""
-                    INSERT INTO cal_events({EventCols[3..]}) VALUES($a,$c,$e,$t,$l,$d,$s,$n,$ad,$st,$my,$io,$o,$at,$m,$r,$ri,$rm,$u,$p,$am) RETURNING id
+                    INSERT INTO cal_events({EventCols[3..]}) VALUES($a,$c,$e,$t,$l,$d,$s,$n,$ad,$st,$my,$io,$o,$at,$m,$r,$ri,$rm,$u,$p,$am,$rv,$ci) RETURNING id
                     """, EventParams(e)));
         }
         // Gone from Google (deleted, or moved out of the window): only those that were in the window asked for.
@@ -184,19 +190,67 @@ public sealed partial class MailStore
     public long SaveLocalEvent(CalendarEvent e)
     {
         using var c = Open();
+        if (e.Pending == PendingEventOp.Create && e.CreationId.Length == 0) e.CreationId = Guid.NewGuid().ToString("N");
         if (e.Id == 0)
         {
-            e.Id = Convert.ToInt64(Scalar(c, $"INSERT INTO cal_events({EventCols[3..]}) VALUES($a,$c,$e,$t,$l,$d,$s,$n,$ad,$st,$my,$io,$o,$at,$m,$r,$ri,$rm,$u,$p,$am) RETURNING id",
+            e.Revision = 1;
+            e.Id = Convert.ToInt64(Scalar(c, $"INSERT INTO cal_events({EventCols[3..]}) VALUES($a,$c,$e,$t,$l,$d,$s,$n,$ad,$st,$my,$io,$o,$at,$m,$r,$ri,$rm,$u,$p,$am,$rv,$ci) RETURNING id",
                 EventParams(e)));
             return e.Id;
         }
-        Exec(c, """
+        return WriteLocalEvent(c, e, null) ? e.Id : 0;
+    }
+
+    private static bool WriteLocalEvent(SqliteConnection c, CalendarEvent e, long? expectedRevision)
+    {
+        var revision = Scalar(c, """
             UPDATE cal_events SET account_id=$a,calendar_id=$c,event_id=$e,title=$t,location=$l,description=$d,start=$s,end=$n,all_day=$ad,status=$st,
               my_answer=$my,i_organize=$io,organizer=$o,attendees=$at,meet=$m,recurrence=$r,recurring_id=$ri,reminder=$rm,updated=$u,pending=$p,add_meet=$am,
-              reminded=CASE WHEN start=$s THEN reminded ELSE 0 END
-            WHERE id=$id
-            """, [.. EventParams(e), ("$id", e.Id)]);
-        return e.Id;
+              reminded=CASE WHEN start=$s THEN reminded ELSE 0 END, revision=revision+1,
+              creation_id=CASE WHEN creation_id<>'' THEN creation_id ELSE $ci END
+            WHERE id=$id AND ($expected IS NULL OR revision=$expected) RETURNING revision
+            """, [.. EventParams(e), ("$id", e.Id), ("$expected", expectedRevision)]);
+        if (revision == null || revision is DBNull) return false;
+        e.Revision = Convert.ToInt64(revision);
+        return true;
+    }
+
+    public void EnsureCreationId(CalendarEvent e)
+    {
+        using var c = Open();
+        Exec(c, "UPDATE cal_events SET creation_id=$ci WHERE id=$id AND creation_id=''", ("$ci", Guid.NewGuid().ToString("N")), ("$id", e.Id));
+        e.CreationId = Convert.ToString(Scalar(c, "SELECT creation_id FROM cal_events WHERE id=$id", ("$id", e.Id))) ?? "";
+    }
+
+    public bool CompleteEventUpload(CalendarEvent sent, CalendarEvent saved)
+    {
+        using var c = Open();
+        saved.Id = sent.Id;
+        saved.CreationId = sent.CreationId;
+        saved.Pending = PendingEventOp.None;
+        if (WriteLocalEvent(c, saved, sent.Revision)) return true;
+        // Keep newer edits/deletions, while recording the server identity of a newly created event.
+        Exec(c, """
+            UPDATE cal_events SET event_id=$event, revision=revision+1,
+              pending=CASE WHEN pending=1 THEN 2 ELSE pending END
+            WHERE id=$id AND event_id='' AND $event<>''
+            """, ("$event", saved.EventId), ("$id", sent.Id));
+        return false;
+    }
+
+    public void DeleteEventIfUnchanged(CalendarEvent sent)
+    {
+        using var c = Open();
+        Exec(c, "DELETE FROM cal_events WHERE id=$id AND revision=$rv", ("$id", sent.Id), ("$rv", sent.Revision));
+    }
+
+    public void DeleteCalendarsForAccount(string accountId)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        Exec(c, "DELETE FROM cal_events WHERE account_id=$a", ("$a", accountId));
+        Exec(c, "DELETE FROM cal_calendars WHERE account_id=$a", ("$a", accountId));
+        tx.Commit();
     }
 
     public void DeleteEventRow(long id)
@@ -223,6 +277,7 @@ public sealed partial class MailStore
     {
         using var c = Open();
         var list = new List<CalendarEvent>();
+        using var tx = c.BeginTransaction();
         using (var cmd = c.CreateCommand())
         {
             cmd.CommandText = $"""
@@ -230,13 +285,15 @@ public sealed partial class MailStore
                 JOIN cal_calendars k ON k.account_id=e.account_id AND k.id=e.calendar_id
                 WHERE k.selected=1 AND e.reminder >= 0 AND e.all_day=0 AND e.status<>'cancelled' AND e.my_answer<>{(int)EventAnswer.Declined}
                   AND e.pending<>{(int)PendingEventOp.Delete} AND e.reminded<>e.start
-                  AND e.start - e.reminder*60000 <= $now AND e.start > $now
+                  AND e.start - e.reminder*60000 <= $now AND e.start >= $grace
                 """;
             cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+            cmd.Parameters.AddWithValue("$grace", now.AddMinutes(-5).ToUnixTimeMilliseconds());
             using var r = cmd.ExecuteReader();
             while (r.Read()) list.Add(ReadCalEvent(r));
         }
         foreach (var e in list) Exec(c, "UPDATE cal_events SET reminded=start WHERE id=$id", ("$id", e.Id));
+        tx.Commit();
         return list;
     }
 }

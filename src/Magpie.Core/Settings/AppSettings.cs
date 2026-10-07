@@ -26,7 +26,7 @@ public sealed class AiSettings
     public bool Rewrite { get; set; }
     public bool Replies { get; set; }
 
-    /// <summary>Consents given, as "Feature@host" — changing the provider host asks again.</summary>
+    /// <summary>Consents scoped to the feature, connection and full endpoint; changing any asks again.</summary>
     public List<string> Consents { get; set; } = new();
 
     public bool FeatureSwitch(AiFeature f) => f switch

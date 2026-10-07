@@ -32,7 +32,7 @@ public sealed partial class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 9;
+    public const int SchemaVersion = 10;
 
     public MailStore(string dbPath)
     {
@@ -150,6 +150,13 @@ public sealed partial class MailStore
               amount INTEGER NOT NULL DEFAULT 7, unit INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
             """);
         MigrateCalendar(c);   // design B2 (MailStore.Calendar.cs)
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='uidvalidity'")) == 0)
+            Exec(c, "ALTER TABLE pending_ops ADD COLUMN uidvalidity INTEGER NOT NULL DEFAULT 0");
+        Exec(c, """
+            CREATE TABLE IF NOT EXISTS pending_rules(
+              message_row INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+              notify INTEGER NOT NULL DEFAULT 0, rules TEXT NOT NULL);
+            """);
         MigrateTrash(c);      // design TB1 (MailStore.Trash.cs)
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
@@ -221,19 +228,29 @@ public sealed partial class MailStore
 
     public void DeleteFolder(long folderId)
     {
-        using var c = Open();
-        DeleteFtsForFolder(c, folderId);
-        Exec(c, "DELETE FROM folders WHERE id=$id", ("$id", folderId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            DeleteFtsForFolder(c, folderId);
+            Exec(c, "DELETE FROM folders WHERE id=$id", ("$id", folderId));
+        }
     }
 
     public void DeleteAccount(string accountId)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-        foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries" })
-            Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
-        tx.Commit();
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
+            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from" })
+                Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
+            tx.Commit();
+        }
     }
 
     // ───────────────────────── messages (sync side) ─────────────────────────
@@ -365,21 +382,31 @@ public sealed partial class MailStore
 
     public void DeleteUids(long folderId, IEnumerable<long> uids)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        using var del = c.CreateCommand();
-        del.CommandText = "DELETE FROM messages_fts WHERE rowid=(SELECT id FROM messages WHERE folder_id=$f AND uid=$u); DELETE FROM messages WHERE folder_id=$f AND uid=$u;";
-        del.Parameters.AddWithValue("$f", folderId);
-        var pu = del.Parameters.Add("$u", SqliteType.Integer);
-        foreach (var u in uids) { pu.Value = u; del.ExecuteNonQuery(); }
-        tx.Commit();
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            using var del = c.CreateCommand();
+            del.CommandText = "DELETE FROM messages_fts WHERE rowid=(SELECT id FROM messages WHERE folder_id=$f AND uid=$u); DELETE FROM messages WHERE folder_id=$f AND uid=$u;";
+            del.Parameters.AddWithValue("$f", folderId);
+            var pu = del.Parameters.Add("$u", SqliteType.Integer);
+            foreach (var u in uids) { pu.Value = u; del.ExecuteNonQuery(); }
+            tx.Commit();
+        }
     }
 
     public void WipeFolderMessages(long folderId)
     {
-        using var c = Open();
-        DeleteFtsForFolder(c, folderId);
-        Exec(c, "DELETE FROM messages WHERE folder_id=$f", ("$f", folderId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            DeleteFtsForFolder(c, folderId);
+            Exec(c, "DELETE FROM messages WHERE folder_id=$f", ("$f", folderId));
+        }
     }
 
     private static void DeleteFtsForFolder(SqliteConnection c, long folderId) =>
@@ -585,8 +612,13 @@ public sealed partial class MailStore
 
     public void DeleteRow(long rowId)
     {
-        using var c = Open();
-        Exec(c, "DELETE FROM messages_fts WHERE rowid=$id; DELETE FROM messages WHERE id=$id;", ("$id", rowId));
+
+        lock (_bodyGate)
+        {
+            _bodyCache.Clear();
+            using var c = Open();
+            Exec(c, "DELETE FROM messages_fts WHERE rowid=$id; DELETE FROM messages WHERE id=$id;", ("$id", rowId));
+        }
     }
 
     public void SetTags(long rowId, string tags)
@@ -650,6 +682,18 @@ public sealed partial class MailStore
 
     public MessageBody? GetBody(long rowId)
     {
+        if (TryGetBodyFromMemory(rowId, out var hot)) return hot;
+        lock (_bodyGate)
+        {
+            if (_bodyCache.TryGet(rowId, out var cached)) return CopyBody(cached.Body);
+            var body = ReadBody(rowId);
+            if (body != null) RememberBody(rowId, body);
+            return body;
+        }
+    }
+
+    private MessageBody? ReadBody(long rowId)
+    {
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT html,text,attachments,calendar,images,images_done FROM bodies WHERE message_row=$id";
@@ -670,32 +714,37 @@ public sealed partial class MailStore
 
     public void SaveBody(long rowId, MessageBody body, string? subject = null, string? sender = null, string? recipients = null)
     {
-        using var c = Open();
-        using var tx = c.BeginTransaction();
-        var attachments = JsonSerializer.Serialize(body.Attachments);
-        var images = body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : "";
-        var ftsText = body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text;
-        // Q39: the same email in other folders (Gmail keeps it in Inbox and All Mail) gets this body too, instead of
-        // being downloaded again. Copies that already have one keep theirs.
-        var targets = new List<long> { rowId };
-        using (var q = c.CreateCommand())
+
+        lock (_bodyGate)
         {
-            q.CommandText = """
-                SELECT s.id FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id
-                WHERE m.id=$id AND m.message_id<>'' AND s.body_cached=0
-                """;
-            q.Parameters.AddWithValue("$id", rowId);
-            using var r = q.ExecuteReader();
-            while (r.Read()) targets.Add(r.GetInt64(0));
+            using var c = Open();
+            using var tx = c.BeginTransaction();
+            var attachments = JsonSerializer.Serialize(body.Attachments);
+            var images = body.Images.Count > 0 ? JsonSerializer.Serialize(body.Images) : "";
+            var ftsText = body.Text.Length > 200_000 ? body.Text[..200_000] : body.Text;
+            // Q39: the same email in other folders (Gmail keeps it in Inbox and All Mail) gets this body too, instead of
+            // being downloaded again. Copies that already have one keep theirs.
+            var targets = new List<long> { rowId };
+            using (var q = c.CreateCommand())
+            {
+                q.CommandText = """
+                    SELECT s.id FROM messages m JOIN messages s ON s.account_id=m.account_id AND s.message_id=m.message_id AND s.id<>m.id
+                    WHERE m.id=$id AND m.message_id<>'' AND s.body_cached=0
+                    """;
+                q.Parameters.AddWithValue("$id", rowId);
+                using var r = q.ExecuteReader();
+                while (r.Read()) targets.Add(r.GetInt64(0));
+            }
+            foreach (var id in targets)
+            {
+                Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done) VALUES($id,$h,$t,$a,$c,$i,$d)",
+                    ("$id", id), ("$h", body.Html), ("$t", body.Text), ("$a", attachments), ("$c", body.Calendar ?? ""), ("$i", images), ("$d", body.ImagesComplete ? 1 : 0));
+                Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", id));
+                Exec(c, "UPDATE messages_fts SET body=$b WHERE rowid=$id", ("$b", ftsText), ("$id", id));
+            }
+            tx.Commit();
+            foreach (var id in targets) _bodyCache.Remove(id);
         }
-        foreach (var id in targets)
-        {
-            Exec(c, "INSERT OR REPLACE INTO bodies(message_row,html,text,attachments,calendar,images,images_done) VALUES($id,$h,$t,$a,$c,$i,$d)",
-                ("$id", id), ("$h", body.Html), ("$t", body.Text), ("$a", attachments), ("$c", body.Calendar ?? ""), ("$i", images), ("$d", body.ImagesComplete ? 1 : 0));
-            Exec(c, "UPDATE messages SET body_cached=1 WHERE id=$id", ("$id", id));
-            Exec(c, "UPDATE messages_fts SET body=$b WHERE rowid=$id", ("$b", ftsText), ("$id", id));
-        }
-        tx.Commit();
     }
 
     /// <summary>Q39: gives every copy of an email that has no body yet the body of a copy that has one (emails saved
@@ -791,20 +840,22 @@ public sealed partial class MailStore
     public void AddPendingOp(PendingOp op)
     {
         using var c = Open();
-        Exec(c, "INSERT INTO pending_ops(account_id,folder_id,uid,kind,arg,created) VALUES($a,$f,$u,$k,$g,$c)",
-            ("$a", op.AccountId), ("$f", op.FolderId), ("$u", op.Uid), ("$k", (int)op.Kind), ("$g", op.Arg), ("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        if (op.UidValidity == 0)
+            op.UidValidity = Convert.ToUInt32(Scalar(c, "SELECT uidvalidity FROM folders WHERE id=$f AND account_id=$a", ("$f", op.FolderId), ("$a", op.AccountId)) ?? 0);
+        Exec(c, "INSERT INTO pending_ops(account_id,folder_id,uid,kind,arg,created,uidvalidity) VALUES($a,$f,$u,$k,$g,$c,$v)",
+            ("$a", op.AccountId), ("$f", op.FolderId), ("$u", op.Uid), ("$k", (int)op.Kind), ("$g", op.Arg), ("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("$v", op.UidValidity));
     }
 
     public List<PendingOp> GetPendingOps(string accountId)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id,account_id,folder_id,uid,kind,arg,attempts FROM pending_ops WHERE account_id=$a ORDER BY id";
+        cmd.CommandText = "SELECT id,account_id,folder_id,uid,kind,arg,attempts,uidvalidity FROM pending_ops WHERE account_id=$a ORDER BY id";
         cmd.Parameters.AddWithValue("$a", accountId);
         var list = new List<PendingOp>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new PendingOp { Id = r.GetInt64(0), AccountId = r.GetString(1), FolderId = r.GetInt64(2), Uid = r.GetInt64(3), Kind = (PendingOpKind)r.GetInt32(4), Arg = r.GetInt64(5), Attempts = r.GetInt32(6) });
+            list.Add(new PendingOp { Id = r.GetInt64(0), AccountId = r.GetString(1), FolderId = r.GetInt64(2), Uid = r.GetInt64(3), Kind = (PendingOpKind)r.GetInt32(4), Arg = r.GetInt64(5), Attempts = r.GetInt32(6), UidValidity = (uint)r.GetInt64(7) });
         return list;
     }
 

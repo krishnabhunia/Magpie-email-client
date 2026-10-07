@@ -21,14 +21,14 @@ public partial class MainWindow : Window
     /// <summary>Design DD1: H2 (pointing at a row with a timer) and R2 (the chip next to the subject).</summary>
     private readonly HoverCard _deleteCard;
     private bool _webReady;
-    private string? _pendingUrl;
+    private readonly ReaderPresenter _presenter = new();
 
     public MainWindow()
     {
         InitializeComponent();
         _vm = new MainViewModel();
         DataContext = _vm;
-        _vm.Reader.PageReady += url => Ui.Post(() => ShowPage(url));
+        _vm.Reader.PageReady += page => Ui.Post(() => _presenter.Show(page));
         _vm.Reader.Loading += ShowLoading;
         // Design HM1: hover cards on addresses, files (in the page) and the subject.
         _hover = new ReaderHover(this, _vm, _vm.Reader, js => _webReady ? Web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
@@ -369,7 +369,8 @@ public partial class MainWindow : Window
                         e.MenuItems.Remove(item);
             };
             _webReady = true;
-            ShowPage(_pendingUrl ?? WebHost.Publish(HtmlRenderer.Placeholder("Welcome to Magpie", "Pick a conversation to read it here.", ThemeManager.IsDark), "view"));
+            _presenter.Attach(core);
+            if (!_vm.Reader.HasThread) _vm.Reader.Clear("Welcome to Magpie", "Pick a conversation to read it here.");
         }
         catch (Exception ex)
         {
@@ -379,26 +380,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowPage(string url)
-    {
-        if (!_webReady) { _pendingUrl = url; return; }
-        try { Web.CoreWebView2.Navigate(url); } catch (Exception ex) { Log.Warn("navigate: " + ex.Message); }
-    }
-
-    /// <summary>
-    /// Another conversation was picked: replace what is on screen with "Loading…" straight away, inside the
-    /// current page (no navigation, so it is instant), and stop any page that is still on its way in.
-    /// </summary>
-    private void ShowLoading(string bodyHtml)
-    {
-        if (!_webReady) return;
-        try
-        {
-            Web.CoreWebView2.Stop();
-            _ = Web.CoreWebView2.ExecuteScriptAsync("document.body.innerHTML=" + JsonSerializer.Serialize(bodyHtml) + ";window.scrollTo(0,0);");
-        }
-        catch (Exception ex) { Log.Warn("loading page: " + ex.Message); }
-    }
+    private void ShowLoading(string bodyHtml) => _presenter.Loading(bodyHtml);
 
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
@@ -782,6 +764,17 @@ public partial class MainWindow : Window
             default: return;
         }
         e.Handled = true;
+    }
+
+    private void OnThreadListScroll(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.OriginalSource is ScrollViewer viewer && e.VerticalChange > 0
+            && e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 5)
+        {
+            var offset = e.VerticalOffset;
+            _vm.LoadMoreThreads();
+            Dispatcher.BeginInvoke(() => viewer.ScrollToVerticalOffset(offset), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
     }
 
     private void OnThreadListClick(object sender, MouseButtonEventArgs e)
