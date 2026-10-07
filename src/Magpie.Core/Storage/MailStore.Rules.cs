@@ -9,10 +9,16 @@ public sealed partial class MailStore
     public void DeferRules(long messageId, bool notify, IReadOnlyList<MailRule> rules)
     {
         using var c = Open();
+        using var tx = c.BeginTransaction();
+        var existing = Scalar(c, "SELECT rules FROM pending_rules WHERE message_row=$id", ("$id", messageId));
+        var queued = existing is string json ? JsonSerializer.Deserialize<List<MailRule>>(json) ?? new() : new List<MailRule>();
+        // A targeted rule run must preserve the arrival's ordered snapshot and notification.
+        var combined = queued.Concat(rules).DistinctBy(rule => rule.Id).ToList();
         Exec(c, """
             INSERT INTO pending_rules(message_row,notify,rules) VALUES($id,$n,$r)
             ON CONFLICT(message_row) DO UPDATE SET notify=MAX(notify,excluded.notify),rules=excluded.rules
-            """, ("$id", messageId), ("$n", notify ? 1 : 0), ("$r", JsonSerializer.Serialize(rules)));
+            """, ("$id", messageId), ("$n", notify ? 1 : 0), ("$r", JsonSerializer.Serialize(combined)));
+        tx.Commit();
     }
 
     public List<(MessageRow Row, bool Notify, List<MailRule> Rules)> DeferredRules(long? messageId = null, long afterMessageId = 0)

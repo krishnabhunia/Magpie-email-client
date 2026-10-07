@@ -241,6 +241,52 @@ public class IntegrationTests
     }
 
     [Fact]
+    public async Task Empty_Trash_delete_past_emails_and_restore_reach_the_server()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Hello", "first", "a1@vendor.test", date: DateTimeOffset.Now.AddDays(-3)));
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Again", "second", "a2@vendor.test", date: DateTimeOffset.Now.AddDays(-1)));
+        await Append(me, "INBOX", Msg("ravi@other.test", me, "Lunch", "third", "r1@other.test"));
+
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => Inbox(e).Count == 3, "3 inbox conversations");
+        var trash = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Trash);
+        async Task<int> ServerCount(string folder)
+        {
+            using var c = await Raw(me);
+            var f = folder == "INBOX" ? c.Inbox : await c.GetFolderAsync(folder);
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+
+        // DP1: every email from Anita goes to Trash, email by email.
+        var past = e.PastFrom("anita@vendor.test");
+        Assert.Equal(2, past.Count);
+        e.TrashEmails(past.Rows);
+        await WaitUntilAsync(async () => await ServerCount("Trash") == 2 && await ServerCount("INBOX") == 1, "Anita's emails in the server's Trash");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 2, "Trash listed on this PC");
+
+        // TB1: Restore puts one back in the Inbox (where it came from).
+        var one = e.Store.MessagesInFolder(trash.Id).Single(m => m.MessageId == "a1@vendor.test");
+        e.Restore(acc.Id, one.ThreadKey);
+        await WaitUntilAsync(async () => await ServerCount("INBOX") == 2 && await ServerCount("Trash") == 1, "restored on the server");
+
+        // TB1: Empty Trash — also what isn't listed here.
+        await Append(me, "Trash", Msg("old@x.test", me, "Old", "gone", "o1@x.test"));
+        e.EmptyFolder(acc.Id, FolderRole.Trash);
+        await WaitUntilAsync(async () => await ServerCount("Trash") == 0, "server Trash empty");
+        Assert.Equal(2, await ServerCount("INBOX"));
+    }
+
+    [Fact]
     public async Task Sync_threads_categories_and_server_roundtrips()
     {
         if (!ServersUp()) return;

@@ -62,7 +62,9 @@ public static class MailLocation
         RejectLinkedParents(from);
         RejectLinkedParents(to);
         if (!HasMail(from)) throw new InvalidOperationException("The current folder has no mail database to move.");
-        if (HasMail(to) && !replace) throw new InvalidOperationException("That folder already has Magpie mail.");
+        if (!replace && DbFiles.Append(MessagesFolder).Any(name =>
+            File.Exists(Path.Combine(to, name)) || Directory.Exists(Path.Combine(to, name))))
+            throw new InvalidOperationException("That folder already contains mail files or a messages folder. Choose another folder or explicitly replace its mail.");
         Directory.CreateDirectory(to);
         var staging = Path.Combine(to, ".magpie-move-" + Guid.NewGuid().ToString("N"));
         var backup = Path.Combine(to, ".magpie-move-backup-" + Guid.NewGuid().ToString("N"));

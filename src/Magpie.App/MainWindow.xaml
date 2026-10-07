@@ -438,6 +438,12 @@
                                 ToolTip="Take the auto-delete timer off all of these" />
                         <TextBlock Text="These go to Trash within 7 days (auto-delete rules). Pinned mail is always kept." Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
                     </DockPanel>
+                    <!-- Trash / Spam (design TB1): how many, and Empty -->
+                    <DockPanel Margin="16,0,14,8" Visibility="{Binding IsBinView, Converter={StaticResource BoolToVis}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Danger}" Content="{Binding EmptyBinLabel}" MinHeight="28" Padding="12,3"
+                                Command="{Binding EmptyBinCommand}" ToolTip="Delete everything here for good (asks first)" />
+                        <TextBlock Text="{Binding BinBarText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" />
+                    </DockPanel>
                     <!-- Set aside pile (design B7) -->
                     <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"
@@ -466,11 +472,22 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
 
-                            <!-- Bulk bar (design H3): tick avatars, then act on all of them at once; Undo while it waits -->
-                            <Border Grid.Row="0" Background="{DynamicResource Brush.TitleBar.Background}" Padding="12,6" Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                            <!-- Design SL1: the box above the list ticks all / none; Select ▾ ticks by filter -->
+                            <DockPanel Grid.Row="0" Margin="16,6,14,6" Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
+                                <CheckBox x:Name="HeaderCheck" IsThreeState="False" IsChecked="{Binding HeaderTick, Mode=OneWay}" Click="OnHeaderCheck" VerticalAlignment="Center"
+                                          ToolTip="Select all on screen / none (Ctrl+A, Esc)" AutomationProperties.Name="Select all" Margin="0,0,10,0" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="Select ▾" FontSize="12" MinHeight="26" Padding="8,2" Click="OnSelectMenu" VerticalAlignment="Center"
+                                        ToolTip="Select by unread, sender, date…" />
+                                <TextBlock Text="{Binding ListCountText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="10,0,0,0" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+
+                            <!-- Bulk bar (design H3, SL1): act on everything ticked; Undo while it waits -->
+                            <Border Grid.Row="1" Background="{DynamicResource Brush.TitleBar.Background}" Padding="12,6" Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
                                 <DockPanel>
                                     <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="✕" Foreground="#9AA1A8" MinHeight="24" Padding="6,0" ToolTip="Clear selection (Esc)" Click="OnBulkClear" />
                                     <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" FontWeight="SemiBold" MinHeight="24" Padding="8,0" Click="OnBulkUndo"
@@ -479,22 +496,42 @@
                                                Visibility="{Binding BulkPending, Converter={StaticResource BoolToVis}}" />
                                     <WrapPanel VerticalAlignment="Center" Visibility="{Binding BulkPending, Converter={StaticResource InvBoolToVis}}">
                                         <TextBlock Text="{Binding SelectionText}" Foreground="{DynamicResource Brush.TitleBar.Text}" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <Button Style="{StaticResource Button.Bulk}" Content="Archive" Tag="archive" Click="OnBulkAction" />
-                                        <Button Style="{StaticResource Button.Bulk}" Content="Delete" Tag="delete" Click="OnBulkAction" />
+                                        <!-- In Trash: Restore and Delete forever (design TB1); in Spam: Not spam -->
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Restore" Tag="restore" Click="OnBulkAction" Visibility="{Binding IsTrashView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Not spam" Tag="notspam" Click="OnBulkAction" Visibility="{Binding IsSpamView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Delete forever" Tag="deleteforever" Click="OnBulkAction" Visibility="{Binding IsBinView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Archive" Tag="archive" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Delete" Tag="delete" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
                                         <Button Style="{StaticResource Button.Bulk}" Content="Mark read" Tag="markread" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Mark unread" Tag="unread" Click="OnBulkAction" />
                                         <Button Style="{StaticResource Button.Bulk}" Content="Move ▾" Tag="move" Click="OnBulkAction" />
-                                        <Button Style="{StaticResource Button.Bulk}" Content="Tag ▾" Tag="tag" Click="OnBulkAction" />
-                                        <Button Style="{StaticResource Button.Bulk}" Content="Snooze ▾" Tag="snooze" Click="OnBulkAction" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Tag ▾" Tag="tag" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Snooze ▾" Tag="snooze" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Pin" Tag="pin" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Bulk}" Content="Spam" Tag="spam" Click="OnBulkAction" Visibility="{Binding IsNotBinView, Converter={StaticResource BoolToVis}}" />
                                     </WrapPanel>
                                 </DockPanel>
                             </Border>
 
-                            <ListBox Grid.Row="1" x:Name="ThreadList" ScrollViewer.ScrollChanged="OnThreadListScroll" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
+                            <!-- Design SL1 (F12): everything on screen is ticked but the view holds more -->
+                            <Border Grid.Row="2" Background="{DynamicResource Brush.Accent.Subtle}" Padding="16,6" Visibility="{Binding ShowSelectAllHint, Converter={StaticResource BoolToVis}}">
+                                <WrapPanel>
+                                    <TextBlock Text="{Binding SelectAllHintText}" FontSize="12.5" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource Button.Link}" Content="{Binding SelectAllLinkText}" FontSize="12.5" FontWeight="SemiBold" MinHeight="20" Padding="0"
+                                            Command="{Binding SelectAllInViewCommand}" />
+                                </WrapPanel>
+                            </Border>
+
+                            <ListBox Grid.Row="3" x:Name="ThreadList" ScrollViewer.ScrollChanged="OnThreadListScroll" Style="{StaticResource ListBox.Mail}" ItemsSource="{Binding Threads}" SelectedItem="{Binding Selected, Mode=TwoWay}" PreviewMouseLeftButtonUp="OnThreadListClick"
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">
                                         <Grid>
                                         <DockPanel>
+                                        <!-- Design SL1 (F0): a tick box on every row, always there; Shift+click ticks a range -->
+                                        <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsChecked, Mode=OneWay}" VerticalAlignment="Top" Margin="0,10,9,0" Focusable="False"
+                                                  PreviewMouseLeftButtonDown="OnRowCheck" AutomationProperties.Name="Select this conversation"
+                                                  Visibility="{Binding IsLocalDraft, Converter={StaticResource InvBoolToVis}}" />
                                         <!-- Avatar: click it to tick the conversation for a bulk action (design H3) -->
                                         <Grid DockPanel.Dock="Left" Width="34" Height="34" VerticalAlignment="Top" Margin="0,2,11,0" Background="Transparent" Cursor="Hand"
                                               PreviewMouseLeftButtonDown="OnAvatarClick" ToolTip="Select for a bulk action">
@@ -593,7 +630,7 @@
                             </ListBox>
 
                             <!-- Scheduled (send later) list -->
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding IsScheduledView, Converter={StaticResource BoolToVis}}">
+                            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsScheduledView, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl ItemsSource="{Binding Scheduled}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:ScheduledItem}">

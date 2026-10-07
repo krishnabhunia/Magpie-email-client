@@ -149,7 +149,14 @@ public static class SettingsBackup
             for (var index = 0; index < destinations.Length; index++)
                 if (existed[index]) File.Copy(destinations[index], destinations[index] + ".before-restore", true);
             // Retain a recovery journal until every file is installed, including across a process crash.
-            File.WriteAllText(Path.Combine(paths.Root, RestoreJournal), JsonSerializer.Serialize(existed));
+            var journal = Path.Combine(paths.Root, RestoreJournal);
+            var nextJournal = journal + ".next";
+            using (var stream = new FileStream(nextJournal, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(JsonSerializer.SerializeToUtf8Bytes(existed));
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(nextJournal, journal, true);
             for (var index = 0; index < destinations.Length; index++) File.Move(stages[index], destinations[index], true);
             File.Delete(Path.Combine(paths.Root, RestoreJournal));
             paths.RefreshMailRoot();
@@ -168,6 +175,7 @@ public static class SettingsBackup
         {
             foreach (var path in RestoreFiles(paths))
                 try { File.Delete(path + ".restore-next"); } catch { }
+            try { File.Delete(Path.Combine(paths.Root, RestoreJournal) + ".next"); } catch { }
         }
     }
 

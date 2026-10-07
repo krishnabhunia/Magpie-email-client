@@ -180,7 +180,8 @@ public sealed class Contact
     public string Display => string.IsNullOrWhiteSpace(Name) ? Address : $"{Name} <{Address}>";
 }
 
-public enum PendingOpKind { SetSeen, ClearSeen, SetFlagged, ClearFlagged, Move, Delete }
+/// <summary><see cref="EmptyFolder"/> (design TB1): every email of the folder is deleted for good on the server (Uid unused).</summary>
+public enum PendingOpKind { SetSeen, ClearSeen, SetFlagged, ClearFlagged, Move, Delete, EmptyFolder }
 
 /// <summary>Server change recorded while applying it locally first (offline-first).</summary>
 public sealed class PendingOp

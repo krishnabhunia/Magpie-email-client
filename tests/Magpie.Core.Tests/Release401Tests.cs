@@ -15,7 +15,7 @@ using Xunit;
 
 namespace Magpie.Core.Tests;
 
-public class Release301Tests
+public class Release401Tests
 {
     [Theory]
     [InlineData(false)]
@@ -63,6 +63,217 @@ public class Release301Tests
         AccountId = "A", CalendarId = "c", Title = "Original", Pending = PendingEventOp.Create,
         Start = DateTimeOffset.Now.AddHours(1), End = DateTimeOffset.Now.AddHours(2), AddMeet = true,
     };
+
+    [Theory]
+    [InlineData("messages", true)]
+    [InlineData("messages", false)]
+    [InlineData("mail.db-wal", false)]
+    [InlineData("mail.db-shm", false)]
+    [InlineData("mail.db", true)]
+    public void Mail_move_requires_explicit_replacement_of_reserved_destination_entries(string entry, bool directory)
+    {
+        using var dir = new TempDir();
+        var source = dir.File("source"); var target = dir.File("target");
+        Directory.CreateDirectory(source); Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(source, "mail.db"), "source");
+        var reserved = Path.Combine(target, entry);
+        if (directory) Directory.CreateDirectory(reserved);
+        var sentinel = directory ? Path.Combine(reserved, "unrelated.txt") : reserved;
+        File.WriteAllText(sentinel, "keep me");
+        Assert.Throws<InvalidOperationException>(() => MailLocation.Move(source, target, false));
+        Assert.Equal("keep me", File.ReadAllText(sentinel));
+        Assert.Equal("source", File.ReadAllText(Path.Combine(source, "mail.db")));
+        Assert.Single(Directory.EnumerateFileSystemEntries(target));
+    }
+
+    [Fact]
+    public async Task Targeted_header_rules_preserve_deferred_arrival_actions_and_notification()
+    {
+        using var dir = new TempDir();
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector());
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var row = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "arrival") }));
+        var bodyRule = new MailRule { Conditions = { new RuleCondition { Field = RuleField.Body, Value = "body match" } }, Actions = { new RuleAction { Kind = RuleActionKind.Pin } } };
+        var headerRule = new MailRule { Conditions = { new RuleCondition { Field = RuleField.Subject, Value = "Hello" } }, Actions = { new RuleAction { Kind = RuleActionKind.Tag, Target = "manual" } } };
+        var announcements = new List<MessageRow>();
+        engine.NewMail += rows => announcements.AddRange(rows);
+        engine.RunRules("A", new[] { row }, new[] { bodyRule }, new HashSet<long> { row.Id });
+        engine.RunRules("A", new[] { row }, new[] { headerRule });
+        Assert.True(Assert.Single(engine.Store.DeferredRules(row.Id)).Notify);
+        engine.Store.SaveBody(row.Id, new MessageBody { Text = "body match" });
+        await engine.ProcessDeferredRulesAsync(CancellationToken.None);
+        await engine.ProcessDeferredRulesAsync(CancellationToken.None);
+        Assert.True(engine.Store.GetMessage(row.Id)!.IsFlagged);
+        Assert.Contains("manual", engine.Store.GetMessage(row.Id)!.Tags);
+        Assert.Equal(row.Id, Assert.Single(announcements).Id);
+        Assert.Empty(engine.Store.DeferredRules(row.Id));
+    }
+
+    [Fact]
+    public async Task Another_body_rule_preserves_the_arrival_snapshot_and_executes_both_requests()
+    {
+        using var dir = new TempDir();
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector());
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var row = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "arrival") }));
+        var original = new MailRule { Conditions = { new RuleCondition { Field = RuleField.Body, Value = "original" } }, Actions = { new RuleAction { Kind = RuleActionKind.MarkRead } } };
+        var manual = new MailRule { Conditions = { new RuleCondition { Field = RuleField.Body, Value = "manual" } }, Actions = { new RuleAction { Kind = RuleActionKind.Pin } } };
+        engine.RunRules("A", new[] { row }, new[] { original }, new HashSet<long> { row.Id });
+        original.Conditions[0].Value = "changed after deferring";
+        engine.RunRules("A", new[] { row }, new[] { manual });
+        var queued = Assert.Single(engine.Store.DeferredRules(row.Id));
+        Assert.Equal(new[] { original.Id, manual.Id }, queued.Rules.Select(r => r.Id));
+        Assert.True(queued.Notify);
+        engine.Store.SaveBody(row.Id, new MessageBody { Text = "original manual" });
+        await engine.ProcessDeferredRulesAsync(CancellationToken.None);
+        Assert.True(engine.Store.GetMessage(row.Id)!.IsSeen);
+        Assert.True(engine.Store.GetMessage(row.Id)!.IsFlagged);
+    }
+
+    [Fact]
+    public async Task Shutdown_after_acceptance_keeps_follow_up_and_removes_local_draft()
+    {
+        using var dir = new TempDir();
+        using var cts = new CancellationTokenSource();
+        var sends = 0;
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => { sends++; cts.Cancel(); return Task.CompletedTask; });
+        var account = new Account { Id = "A", Email = "me@test.local", Enabled = false, ServerSavesSent = true };
+        engine.Config.Accounts.Add(account);
+        engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Drafts", Role = FolderRole.Drafts });
+        var sync = new AccountSync(account, engine.Store, engine.Connector, _ => false, _ => null);
+        var syncs = (System.Collections.Concurrent.ConcurrentDictionary<string, AccountSync>)typeof(MailEngine)
+            .GetField("_syncs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(engine)!;
+        syncs.TryAdd("A", sync);
+        var due = DateTimeOffset.Now.AddDays(1);
+        var id = engine.QueueSend(new Draft { AccountId = "A", To = "you@test.local", Subject = "Once", Html = "<p>Hello</p>" }, DateTimeOffset.Now.AddMinutes(-1), due);
+        var queued = Assert.Single(engine.Store.GetOutbox());
+        engine.Store.SaveLocalDraft(new LocalDraft { AccountId = "A", MessageId = queued.MessageId, Subject = "Stale local copy" });
+        await engine.ProcessOutboxAsync(cts.Token);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(1, sends);
+        Assert.Empty(engine.Store.GetLocalDrafts());
+        var reminder = Assert.Single(engine.Store.GetReminders());
+        Assert.Equal(queued.ThreadKey, reminder.ThreadKey);
+        Assert.Equal(due.ToUnixTimeMilliseconds(), reminder.Due.ToUnixTimeMilliseconds());
+        Assert.Equal(OutboxStatus.Sent, engine.Store.GetOutbox(includeDone: true).Single(x => x.Id == id).Status);
+    }
+
+    [Fact]
+    public void An_incomplete_unpublished_journal_does_not_block_startup()
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Path);
+        File.WriteAllText(paths.Settings, "{\"QuickReplies\":[\"Original\"]}");
+        File.WriteAllText(dir.File(SettingsBackup.RestoreJournal + ".next"), "[true,");
+        Assert.False(SettingsBackup.ApplyPending(paths, new FakeProtector()));
+        Assert.Contains("Original", File.ReadAllText(paths.Settings));
+        Assert.False(File.Exists(dir.File(SettingsBackup.RestoreJournal)));
+    }
+
+    [Fact]
+    public void A_journal_write_failure_keeps_all_original_files_and_allows_retry()
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Path); var protector = new FakeProtector();
+        File.WriteAllText(paths.Settings, "{\"QuickReplies\":[\"Original\"]}");
+        new SecretVault(paths.Secrets, protector).Set("old", "old-key");
+        SettingsBackup.StagePending(paths, new SettingsBackup.Contents { SettingsJson = "{\"QuickReplies\":[\"Restored\"]}" }, protector);
+        using (var locked = new FileStream(dir.File(SettingsBackup.RestoreJournal + ".next"), FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(SettingsBackup.ApplyPending(paths, protector));
+            Assert.Contains("Original", File.ReadAllText(paths.Settings));
+            Assert.Equal("old-key", new SecretVault(paths.Secrets, protector).Get("old"));
+            Assert.False(File.Exists(dir.File(SettingsBackup.RestoreJournal)));
+            Assert.True(File.Exists(dir.File(SettingsBackup.PendingFile)));
+        }
+        Assert.True(SettingsBackup.ApplyPending(paths, protector));
+        Assert.Contains("Restored", File.ReadAllText(paths.Settings));
+    }
+
+    [Theory]
+    [InlineData(0u, true)]
+    [InlineData(42u, true)]
+    [InlineData(43u, false)]
+    public void Empty_folder_replay_handles_its_zero_uid_and_validates_known_generation(uint generation, bool safe)
+    {
+        Assert.Equal(safe, AccountSync.CanReplay(new PendingOp { Kind = PendingOpKind.EmptyFolder, UidValidity = generation }, 42));
+        Assert.False(AccountSync.CanReplay(new PendingOp { Kind = PendingOpKind.Delete, UidValidity = 42 }, 42));
+    }
+
+    [Fact]
+    public void Deleted_server_summaries_do_not_reappear_as_visible_mail()
+    {
+        var summaries = new[]
+        {
+            new MailKit.MessageSummary(0) { UniqueId = new MailKit.UniqueId(1), Flags = MailKit.MessageFlags.Deleted },
+            new MailKit.MessageSummary(1) { UniqueId = new MailKit.UniqueId(2), Flags = MailKit.MessageFlags.Seen },
+            new MailKit.MessageSummary(2) { UniqueId = new MailKit.UniqueId(3), Flags = MailKit.MessageFlags.Deleted | MailKit.MessageFlags.Seen },
+        };
+        Assert.Equal(2u, Assert.Single(summaries, AccountSync.IsVisibleSummary).UniqueId.Id);
+    }
+
+    [Fact]
+    public void Schema_nine_upgrade_retains_trash_history_and_adds_reliability_columns()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, _) = Rows.NewStore(dir);
+        var message = Assert.Single(store.InsertMessages(new[] { Rows.Make("A", inbox, "trash") }));
+        store.RecordTrashed(new[] { message }, DateTimeOffset.Now);
+        var ev = Event(); store.SaveLocalEvent(ev);
+        SqliteConnection.ClearAllPools();
+        using (var db = new SqliteConnection("Data Source=" + dir.File("mail.db")))
+        {
+            db.Open(); using var cmd = db.CreateCommand();
+            cmd.CommandText = "ALTER TABLE pending_ops DROP COLUMN uidvalidity; ALTER TABLE cal_events DROP COLUMN revision; ALTER TABLE cal_events DROP COLUMN creation_id; DROP TABLE pending_rules; PRAGMA user_version=9;";
+            cmd.ExecuteNonQuery();
+        }
+        store = new MailStore(dir.File("mail.db"));
+        Assert.Equal(inbox, store.TrashOrigin("A", message.MessageId));
+        Assert.Equal(ev.Title, store.GetEvent(ev.Id)!.Title);
+        store.UpdateFolderState(inbox, 42, 100, 0);
+        store.AddPendingOp(new PendingOp { AccountId = "A", FolderId = inbox, Uid = 10, Kind = PendingOpKind.Delete });
+        Assert.True(AccountSync.CanReplay(Assert.Single(store.GetPendingOps("A")), 42));
+        using var check = new SqliteConnection("Data Source=" + dir.File("mail.db"));
+        check.Open(); using var version = check.CreateCommand(); version.CommandText = "PRAGMA user_version";
+        Assert.Equal(10L, (long)version.ExecuteScalar()!);
+    }
+
+    [Fact]
+    public void Original_beta_schema_nine_gains_trash_tables_without_losing_deferred_work()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, _) = Rows.NewStore(dir);
+        var message = Assert.Single(store.InsertMessages(new[] { Rows.Make("A", inbox, "pending") }));
+        var rule = new MailRule { Conditions = { new RuleCondition { Field = RuleField.Body, Value = "wait" } }, Actions = { new RuleAction { Kind = RuleActionKind.Pin } } };
+        store.DeferRules(message.Id, true, new[] { rule });
+        var ev = Event(); store.SaveLocalEvent(ev);
+        SqliteConnection.ClearAllPools();
+        using (var db = new SqliteConnection("Data Source=" + dir.File("mail.db")))
+        {
+            db.Open(); using var cmd = db.CreateCommand();
+            cmd.CommandText = "DROP TABLE trash_from; PRAGMA user_version=9;";
+            cmd.ExecuteNonQuery();
+        }
+        store = new MailStore(dir.File("mail.db"));
+        Assert.True(Assert.Single(store.DeferredRules(message.Id)).Notify);
+        Assert.Equal(ev.Revision, store.GetEvent(ev.Id)!.Revision);
+        store.RecordTrashed(new[] { message }, DateTimeOffset.Now);
+        Assert.Equal(inbox, store.TrashOrigin("A", message.MessageId));
+    }
+
+    [Fact]
+    public void Removing_account_also_removes_its_trash_history_without_affecting_other_accounts()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, _) = Rows.NewStore(dir);
+        var a = Rows.Make("A", inbox, "a"); var b = Rows.Make("B", inbox, "b");
+        store.RecordTrashed(new[] { a, b }, DateTimeOffset.Now);
+        store.DeleteAccount("A");
+        Assert.Null(store.TrashOrigin("A", a.MessageId));
+        Assert.Equal(inbox, store.TrashOrigin("B", b.MessageId));
+    }
 
     [Theory]
     [InlineData(false)]

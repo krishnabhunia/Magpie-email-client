@@ -32,7 +32,7 @@ public sealed partial class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 9;
+    public const int SchemaVersion = 10;
 
     public MailStore(string dbPath)
     {
@@ -157,6 +157,7 @@ public sealed partial class MailStore
               message_row INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
               notify INTEGER NOT NULL DEFAULT 0, rules TEXT NOT NULL);
             """);
+        MigrateTrash(c);      // design TB1 (MailStore.Trash.cs)
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }
@@ -237,7 +238,7 @@ public sealed partial class MailStore
         using var c = Open();
         using var tx = c.BeginTransaction();
         Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-        foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars" })
+        foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from" })
             Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
         tx.Commit();
     }
@@ -1415,6 +1416,13 @@ public sealed partial class MailStore
             ON CONFLICT(id) DO UPDATE SET pattern=$p, account_id=$a, otp=$o, amount=$n, unit=$u, paused=$z
             """, ("$id", rule.Id), ("$p", rule.Pattern), ("$a", rule.AccountId), ("$o", rule.Otp ? 1 : 0), ("$n", rule.Amount), ("$u", (int)rule.Unit),
             ("$z", rule.Paused ? 1 : 0), ("$c", rule.Created.ToUnixTimeMilliseconds()));
+    }
+
+    /// <summary>Emails timed by one rule now belong to another (two rules for one sender become one).</summary>
+    public void MoveDeleteTimers(string fromRuleId, string toRuleId)
+    {
+        using var c = Open();
+        Exec(c, "UPDATE messages SET delete_rule=$to WHERE delete_rule=$from", ("$to", toRuleId), ("$from", fromRuleId));
     }
 
     /// <summary>Removes a rule; <paramref name="clearTimers"/> also takes its timers off the emails that carry them.</summary>

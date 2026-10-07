@@ -41,6 +41,7 @@ public partial class AutoDeleteDialog : Window
         }
         AfterTime.IsChecked = !rule.Otp;
         Otp.IsChecked = rule.Otp;
+        Existing.IsChecked = !editing;   // design DP1 (D8): a new rule includes the emails already here, unless unticked
         var accounts = new List<Choice<string>> { new("", "All my accounts") }.Concat(_e.Accounts.Select(a => new Choice<string>(a.Id, a.Email))).ToList();
         AccountBox.ItemsSource = accounts;
         AccountBox.SelectedValue = accounts.Any(a => a.Value == rule.AccountId) ? rule.AccountId : "";
@@ -99,8 +100,8 @@ public partial class AutoDeleteDialog : Window
                 Existing.Content = n switch
                 {
                     0 => "No emails from this sender are here now",
-                    1 => "Also start the timer on the 1 email already here from this sender",
-                    _ => $"Also start the timer on the {n:#,0} emails already here from this sender",
+                    1 => "Also the 1 email already here from this sender (if it is past the time, it goes to Trash at once)",
+                    _ => $"Also the {n:#,0} emails already here from this sender (those past the time go to Trash at once)",
                 };
             });
         }, TaskScheduler.Default);
@@ -125,7 +126,7 @@ public partial class AutoDeleteDialog : Window
             _rule.Amount = r.Amount;
             _rule.Unit = r.Unit;
             var n = _e.SaveAutoDeleteRule(_rule, Existing.IsChecked == true);
-            if (n > 0) Log.Info($"auto-delete: timer started on {n} existing email(s)");
+            if (n > 0) { Log.Info($"auto-delete: timer started on {n} existing email(s)"); _e.RunDueDeletes(DateTimeOffset.Now); }
             DialogResult = true;
         }
         catch (ArgumentException ex) { PatternError.Text = ex.Message; PatternError.Visibility = Visibility.Visible; }

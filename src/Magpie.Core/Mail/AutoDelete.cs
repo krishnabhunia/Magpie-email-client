@@ -36,6 +36,29 @@ public static class AutoDelete
         (10, DeleteUnit.Years), (15, DeleteUnit.Years), (20, DeleteUnit.Years), (30, DeleteUnit.Years),
     };
 
+    /// <summary>Design DP1 (D4): "Delete this sender's emails older than…" — 1 week to 2 years.</summary>
+    public static readonly (string Label, Func<DateTimeOffset, DateTimeOffset> Cutoff)[] OlderThan =
+    {
+        ("1 week", n => n.AddDays(-7)), ("1 month", n => n.AddMonths(-1)), ("3 months", n => n.AddMonths(-3)),
+        ("6 months", n => n.AddMonths(-6)), ("1 year", n => n.AddYears(-1)), ("2 years", n => n.AddYears(-2)),
+    };
+
+    /// <summary>Emails already here that a delete would take (design DP1): copies of one email in two folders count once.</summary>
+    public sealed record PastEmails(IReadOnlyList<Models.MessageRow> Rows, int Count, DateTimeOffset? Oldest, DateTimeOffset? Newest)
+    {
+        public static PastEmails Of(IReadOnlyList<Models.MessageRow> rows)
+        {
+            var distinct = rows.GroupBy(m => m.MessageId.Length > 0 ? m.AccountId + "|" + m.MessageId : "#" + m.Id).Select(g => g.First()).ToList();
+            return new PastEmails(rows, distinct.Count, distinct.Count == 0 ? null : distinct.Min(m => m.Date), distinct.Count == 0 ? null : distinct.Max(m => m.Date));
+        }
+    }
+
+    /// <summary>The confirmation text of D2–D4: "Oldest: 3 March 2024 · Newest: 30 September 2026".</summary>
+    public static string DatesLine(PastEmails p) =>
+        p.Oldest is { } o && p.Newest is { } n
+            ? $"Oldest: {o.ToLocalTime().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture)} · Newest: {n.ToLocalTime().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture)}"
+            : "";
+
     /// <summary>"a@b.com" / "*@b.com" in lower case, or null when it isn't one of those.</summary>
     public static string? NormalisePattern(string? pattern)
     {

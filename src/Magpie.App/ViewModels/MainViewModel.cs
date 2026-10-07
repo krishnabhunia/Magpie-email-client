@@ -163,6 +163,7 @@ public sealed partial class ThreadItem : ObservableObject
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
     /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>
     public long? LocalDraftId { get; init; }
+    public bool IsLocalDraft => LocalDraftId != null;
     public string LocalBadge => LocalDraftId != null ? (LocalPending ? "On this PC · uploads when online" : "On this PC") : "";
     public bool LocalPending { get; init; }
     public string? SnoozeText { get; }
@@ -540,10 +541,11 @@ public partial class MainViewModel : ObservableObject
         SearchText = text;
     }
 
-    partial void OnCategoryChanged(Category? value) => ReloadList();
-    partial void OnUnreadOnlyChanged(bool value) => ReloadList();
+    partial void OnCategoryChanged(Category? value) { AllInView = false; ReloadList(); }
+    partial void OnUnreadOnlyChanged(bool value) { AllInView = false; ReloadList(); }
     partial void OnSearchTextChanged(string value)
     {
+        AllInView = false;
         OnPropertyChanged(nameof(ShowCategories));
         _searchDebounce.Run(ReloadList);
     }
@@ -575,9 +577,26 @@ public partial class MainViewModel : ObservableObject
         return ids.Where(own.Contains).ToList();
     }
 
-    private const int ListPageSize = 400;
+    /// <summary>Conversations loaded into the list at a time; Select all N in the folder (design SL1) reaches the rest.</summary>
+    public const int ListLimit = 400;
+
+    private ListQuery QueryFor(NavItem nav, SearchQuery? search, DateTimeOffset now, int limit) => new()
+    {
+        FolderIds = search != null && nav.Kind == NavKind.Inbox ? _e.AllMailFolderIds() : FolderIdsFor(nav),
+        Category = ShowCategories ? Category : null,
+        UnreadOnly = UnreadOnly,
+        FlaggedOnly = nav.Kind == NavKind.Pinned,
+        Snoozed = nav.Kind == NavKind.Snoozed,
+        SetAside = nav.Kind == NavKind.SetAside,
+        DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
+        Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
+        Search = search,
+        Limit = limit,
+    };
+
+    private const int ListPageSize = ListLimit;
     private int _listLimit = ListPageSize;
-    private (NavItem? Nav, Category? Category, bool Unread, string? Search) _listScope;
+    private (string? NavKey, Category? Category, bool Unread, string? Search) _listScope;
     private bool _hasMoreThreads;
     private bool _loadingMoreThreads;
 
@@ -593,7 +612,7 @@ public partial class MainViewModel : ObservableObject
     {
         var nav = Current;
         if (nav == null) return;
-        var scope = (nav, Category, UnreadOnly, SearchText);
+        var scope = (nav.Key, Category, UnreadOnly, SearchText);
         if (_listScope != scope) { _listScope = scope; _listLimit = ListPageSize; }
         _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
@@ -625,20 +644,7 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            var q = new ListQuery
-            {
-                FolderIds = search != null && nav.Kind == NavKind.Inbox ? _e.AllMailFolderIds() : FolderIdsFor(nav),
-                Category = ShowCategories ? Category : null,
-                UnreadOnly = UnreadOnly,
-                FlaggedOnly = nav.Kind == NavKind.Pinned,
-                Snoozed = nav.Kind == NavKind.Snoozed,
-                SetAside = nav.Kind == NavKind.SetAside,
-                DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
-                Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
-                Search = search,
-                Limit = _listLimit + 1,
-            };
-            rows = _e.Store.ListThreads(q, now);
+            rows = _e.Store.ListThreads(QueryFor(nav, search, now, _listLimit + 1), now);
             _hasMoreThreads = rows.Count > _listLimit;
             rows = rows.Take(_listLimit).ToList();
         }
@@ -688,7 +694,10 @@ public partial class MainViewModel : ObservableObject
             Selected = keepKey == null ? null : Threads.FirstOrDefault(t => t.Key == keepKey);
         }
         finally { _reloading = false; }
+        if (AllInView && nav.Kind is not (NavKind.FollowUp or NavKind.Scheduled))
+            foreach (var t in Threads) if (t.LocalDraftId == null) t.IsChecked = true;
         RefreshSelectionCount();
+        UpdateViewTotal(nav, search, now, rows.Count);
 
         EmptyText = Threads.Count > 0 ? "" : !HasAccounts ? "Add an account to get started." :
             search != null ? "No messages match your search." :
@@ -1214,30 +1223,185 @@ public partial class MainViewModel : ObservableObject
     public bool RowActionsAlways => _e.Config.Appearance.RowActions.Mode == RowActionsMode.Always;
     public bool RowActionsOnHover => _e.Config.Appearance.RowActions.Mode == RowActionsMode.OnHover;
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectionText))] private int _selectedCount;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectionText), nameof(HeaderTick), nameof(ShowSelectAllHint), nameof(SelectAllHintText))]
+    private int _selectedCount;
     public bool HasSelection => SelectedCount > 0 || _pendingBulk != null;
-    public string SelectionText => SelectedCount == 1 ? "1 selected" : $"{SelectedCount} selected";
+    public string SelectionText => AllInView ? $"All {ViewTotal:N0} selected" : SelectedCount == 1 ? "1 selected" : $"{SelectedCount:N0} selected";
 
-    public void ToggleCheck(ThreadItem item)
+    // ── Design SL1: a tick box on every row, the one above the list, Select ▾, Select all N ──
+
+    /// <summary>Every conversation of the view is ticked, also those not loaded into the list (F12).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SelectionText), nameof(ShowSelectAllHint))] private bool _allInView;
+    /// <summary>How many conversations the view holds (the list loads pages of <see cref="ListLimit"/>).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ListCountText), nameof(ShowSelectAllHint), nameof(SelectAllLinkText), nameof(SelectionText))] private int _viewTotal;
+    private ThreadItem? _rangeAnchor;
+    private int _totalGen;
+
+    private int SelectableCount => Threads.Count(t => t.LocalDraftId == null);
+    public string ListCountText => Current == null ? "" : $"{Current.Label} · {ViewTotal:N0}";
+    /// <summary>The box above the list: ticked, unticked or a dash (some ticked).</summary>
+    public bool? HeaderTick
+    {
+        get => Selection.HeaderState(SelectedCount, SelectableCount);
+        set => SelectBy(value == true ? SelectFilter.All : SelectFilter.None);
+    }
+    public bool ShowSelectAllHint => !AllInView && SelectedCount > 0 && SelectedCount == SelectableCount && ViewTotal > SelectableCount;
+    public string SelectAllHintText => Selection.AllOnScreenLine(SelectedCount, Current?.Label ?? "");
+    public string SelectAllLinkText => $"Select all {ViewTotal:N0} in {Current?.Label}";
+
+    /// <summary>Click on a row's tick box (or its picture): Shift ticks the range from the last one clicked.</summary>
+    public void ToggleCheck(ThreadItem item, bool range = false)
     {
         if (item.LocalDraftId != null) return;
-        item.IsChecked = !item.IsChecked;
+        AllInView = false;
+        var a = _rangeAnchor != null ? Threads.IndexOf(_rangeAnchor) : -1;
+        var b = Threads.IndexOf(item);
+        if (range && a >= 0 && b >= 0)
+        {
+            var tick = !item.IsChecked || a == b;
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++)
+                if (Threads[i].LocalDraftId == null) Threads[i].IsChecked = tick;
+        }
+        else item.IsChecked = !item.IsChecked;
+        _rangeAnchor = item;
         RefreshSelectionCount();
+    }
+
+    /// <summary>Select ▾ (F1–F11) and the box above the list.</summary>
+    public void SelectBy(SelectFilter filter, object? arg = null)
+    {
+        AllInView = false;
+        foreach (var t in Threads.Where(t => t.LocalDraftId == null))
+            t.IsChecked = Selection.Ticks(t.Row, filter, arg, t.IsChecked);
+        RefreshSelectionCount();
+    }
+
+    /// <summary>F12: tick every conversation of the view, not only those on screen.</summary>
+    [RelayCommand]
+    private void SelectAllInView()
+    {
+        SelectBy(SelectFilter.All);
+        AllInView = ViewTotal > SelectableCount;
     }
 
     public void RefreshSelectionCount()
     {
         SelectedCount = Threads.Count(t => t.IsChecked);
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(HeaderTick));
+        OnPropertyChanged(nameof(ShowSelectAllHint));
     }
 
     public void ClearSelection()
     {
+        AllInView = false;
         foreach (var t in Threads) t.IsChecked = false;
         RefreshSelectionCount();
     }
 
-    public List<ThreadItem> CheckedItems => Threads.Where(t => t.IsChecked && t.LocalDraftId == null).ToList();
+    /// <summary>The ticked conversations; with Select all N, every one of the view (loaded now).</summary>
+    public List<ThreadItem> CheckedItems
+    {
+        get
+        {
+            if (!AllInView || Current is not { } nav) return Threads.Where(t => t.IsChecked && t.LocalDraftId == null).ToList();
+            var now = DateTimeOffset.Now;
+            var search = string.IsNullOrWhiteSpace(SearchText) ? null : SearchQuery.Parse(SearchText);
+            var multi = _e.Accounts.Count > 1;
+            return _e.Store.ListThreads(QueryFor(nav, search, now, int.MaxValue), now).Select(r =>
+            {
+                var acc = _e.AccountById(r.AccountId);
+                return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "");
+            }).ToList();
+        }
+    }
+
+    /// <summary>How many conversations the view holds; counted in the background when the list is full.</summary>
+    private void UpdateViewTotal(NavItem nav, SearchQuery? search, DateTimeOffset now, int loaded)
+    {
+        var gen = ++_totalGen;
+        OnPropertyChanged(nameof(ListCountText));
+        UpdateBinBar();
+        if (loaded < ListLimit || nav.Kind is NavKind.FollowUp or NavKind.Scheduled) { ViewTotal = loaded; return; }
+        ViewTotal = loaded;
+        var q = QueryFor(nav, search, now, int.MaxValue);
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var n = _e.Store.ListThreads(q, now).Count;
+                Ui.Post(() => { if (gen == _totalGen) ViewTotal = n; });
+            }
+            catch (Exception ex) { Log.Warn("count view: " + ex.Message); }
+        });
+    }
+
+    // ── Design TB1: Trash and Spam ──
+
+    public bool IsTrashView => Current is { Kind: NavKind.Role or NavKind.Folder, Role: FolderRole.Trash };
+    public bool IsSpamView => Current is { Kind: NavKind.Role or NavKind.Folder, Role: FolderRole.Junk };
+    public bool IsBinView => IsTrashView || IsSpamView;
+    public bool IsNotBinView => !IsBinView;
+    public string EmptyBinLabel => IsSpamView ? "Empty Spam" : "Empty Trash";
+    [ObservableProperty] private string _binBarText = "";
+
+    private void UpdateBinBar()
+    {
+        OnPropertyChanged(nameof(IsTrashView));
+        OnPropertyChanged(nameof(IsSpamView));
+        OnPropertyChanged(nameof(IsBinView));
+        OnPropertyChanged(nameof(IsNotBinView));
+        OnPropertyChanged(nameof(EmptyBinLabel));
+        if (!IsBinView || Current == null) { BinBarText = ""; return; }
+        var gmail = BinAccounts().Any(a => _e.AccountById(a)?.Kind == AccountKind.Gmail);
+        var n = BinAccounts().Sum(a => _e.Folders(a).FirstOrDefault(f => f.Role == Current.Role) is { } f ? _e.Store.CountThreads(new[] { f.Id }, DateTimeOffset.Now).Total : 0);
+        BinBarText = $"{(IsSpamView ? "Spam" : "Trash")} · {n:N0} conversation{(n == 1 ? "" : "s")}" + (gmail ? " · Gmail deletes them for good after 30 days" : "");
+    }
+
+    private IEnumerable<string> BinAccounts() =>
+        Current is { Kind: NavKind.Folder, AccountId: { } id } ? new[] { id } : _e.Accounts.Select(a => a.Id);
+
+    /// <summary>T1 / T6: Empty Trash or Spam, one account at a time, after saying how many go for good.</summary>
+    [RelayCommand]
+    private void EmptyBin()
+    {
+        if (!IsBinView || Current == null) return;
+        var role = Current.Role;
+        var name = role == FolderRole.Junk ? "Spam" : "Trash";
+        var emptied = 0;
+        foreach (var accountId in BinAccounts().ToList())
+        {
+            var folder = _e.Folders(accountId).FirstOrDefault(f => f.Role == role);
+            if (folder == null) continue;
+            var n = _e.Store.CountThreads(new[] { folder.Id }, DateTimeOffset.Now).Total;
+            var email = _e.AccountById(accountId)?.Email ?? "";
+            var what = n == 0 ? $"Everything in {name} ({email}) on the server" : $"The {n:N0} conversation{(n == 1 ? "" : "s")} in {name} ({email})";
+            if (Views.ChoiceDialog.Ask(Ui.ActiveWindow, $"Empty {name}?",
+                    $"{what} {(n == 1 ? "is" : "are")} deleted for good, on this PC and on the server. This can't be undone.",
+                    n == 0 ? "Empty it" : $"Delete {n:N0} for good") != 0) continue;
+            emptied += _e.EmptyFolder(accountId, role);
+        }
+        if (Selected != null && IsBinView) { Selected = null; Reader.Clear(); }
+        ReloadList();
+    }
+
+    // ── Design DP1: delete the emails already here from a sender (with a few seconds to undo) ──
+
+    public void DeletePastLater(IReadOnlyList<MessageRow> rows, string text)
+    {
+        if (rows.Count == 0) return;
+        var cancelled = false;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (cancelled) return;
+            try { _e.TrashEmails(rows); ReloadList(); }
+            catch (Exception ex) { Log.Error("delete past emails", ex); Ui.Error("Delete", ex.Message); }
+        };
+        ShowActionToast(text, () => { cancelled = true; timer.Stop(); });
+        timer.Start();
+    }
 
     /// <summary>Runs an action on one conversation (a hover button) or on the ticked ones (the bulk bar).</summary>
     public async Task RunOnAsync(IReadOnlyList<ThreadItem> items, string id, object? arg = null)
@@ -1258,6 +1422,20 @@ public partial class MainViewModel : ObservableObject
                     foreach (var t in items) _e.SetRead(t.Row.AccountId, t.Row.ThreadKey, anyUnread);
                     break;
                 }
+                case "deleteforever":
+                    if (items.Count > 10 && Views.ChoiceDialog.Ask(Ui.ActiveWindow, "Delete for good?",
+                            $"The {items.Count:N0} conversations are deleted for good, on this PC and on the server. This can't be undone.",
+                            $"Delete {items.Count:N0} for good") != 0) return;
+                    StartPendingBulk(items, "deleteforever", null);
+                    return;
+                case "restore":
+                    foreach (var t in items) _e.Restore(t.Row.AccountId, t.Row.ThreadKey);
+                    if (Selected != null && items.Any(i => i.Key == Selected.Key)) { Selected = null; Reader.Clear(); }
+                    break;
+                case "notspam":
+                    foreach (var t in items) _e.NotSpam(t.Row.AccountId, t.Row.ThreadKey);
+                    if (Selected != null && items.Any(i => i.Key == Selected.Key)) { Selected = null; Reader.Clear(); }
+                    break;
                 case "markread": foreach (var t in items) _e.SetRead(t.Row.AccountId, t.Row.ThreadKey, true); break;
                 case "unread": foreach (var t in items) _e.MarkLatestUnread(t.Row.AccountId, t.Row.ThreadKey); break;
                 case "pin":
@@ -1330,6 +1508,7 @@ public partial class MainViewModel : ObservableObject
         var pb = new PendingBulk { Action = action, Folder = folder, Until = DateTimeOffset.Now.AddSeconds(secs), Items = items.ToList() };
         foreach (var t in items) pb.Keys.Add(t.Key);
         _pendingBulk = pb;
+        AllInView = false;
         foreach (var t in items) t.IsChecked = false;
         if (Selected != null && pb.Keys.Contains(Selected.Key)) { Selected = null; Reader.Clear(); }
         ReloadList();
@@ -1357,7 +1536,7 @@ public partial class MainViewModel : ObservableObject
             var n = pb.Items.Count;
             var what = pb.Action switch
             {
-                "archive" => "Archiving", "delete" => "Deleting", "spam" => "Moving to Spam", "move" => "Moving to " + (pb.Folder?.Name ?? "folder"), _ => pb.Action,
+                "archive" => "Archiving", "delete" => "Deleting", "deleteforever" => "Deleting for good", "spam" => "Moving to Spam", "move" => "Moving to " + (pb.Folder?.Name ?? "folder"), _ => pb.Action,
             };
             var left = Math.Max(1, (int)Math.Ceiling((pb.Until - DateTimeOffset.Now).TotalSeconds));
             BulkPendingText = $"{what} {n} conversation{(n == 1 ? "" : "s")} · {left} s";
@@ -1393,7 +1572,7 @@ public partial class MainViewModel : ObservableObject
                     switch (pb.Action)
                     {
                         case "archive": await _e.ArchiveAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
-                        case "delete": await _e.TrashAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
+                        case "delete": case "deleteforever": await _e.TrashAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
                         case "spam":
                         {
                             var junk = _e.Folders(t.Row.AccountId).FirstOrDefault(f => f.Role == FolderRole.Junk);

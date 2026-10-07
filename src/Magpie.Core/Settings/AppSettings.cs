@@ -373,6 +373,10 @@ public sealed class AppSettings
     public UpdateSettings Updates { get; set; } = new();
     /// <summary>Gatekeeper (design B7): new senders wait at the door; allowed / blocked addresses.</summary>
     public GatekeeperSettings Gatekeeper { get; set; } = new();
+    /// <summary>Design TB1 (T7): emails in Trash longer than this are deleted for good (0 = never; 7 or 30).</summary>
+    public int EmptyTrashAfterDays { get; set; }
+    /// <summary>Design DP1 (D7): a new auto-delete rule also starts on the emails already in the Inbox.</summary>
+    public bool AutoDeleteIncludePast { get; set; } = true;
     /// <summary>Rules / filters (design B5), run top to bottom on new Inbox mail.</summary>
     public List<Mail.MailRule> Rules { get; set; } = new();
 
@@ -422,6 +426,7 @@ public sealed class SettingsStore
     internal static void Normalise(AppSettings s)
     {
         s.Accounts ??= new();
+        s.EmptyTrashAfterDays = s.EmptyTrashAfterDays switch { <= 0 => 0, <= 7 => 7, _ => 30 };   // never, 7 or 30 days (design TB1)
         // Design SG1: an account with no signature yet gets the default one, once.
         foreach (var a in s.Accounts)
         {

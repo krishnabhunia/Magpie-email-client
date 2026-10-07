@@ -400,6 +400,8 @@ public sealed class AccountSync : IDisposable
     /// <summary>Returns rows newly added in this folder, and whether anything in it changed.</summary>
     private async Task<(List<MessageRow> added, bool changed)> SyncFolderAsync(ImapClient client, IMailFolder f, MailFolder local, bool full, CancellationToken ct)
     {
+        // Empty Trash / Spam waiting to reach the server (design TB1): don't list its emails again meanwhile.
+        if (_store.GetPendingOps(Account.Id).Any(o => o.Kind == PendingOpKind.EmptyFolder && o.FolderId == local.Id)) return (new List<MessageRow>(), false);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
@@ -436,13 +438,13 @@ public sealed class AccountSync : IDisposable
                 else
                 {
                     var since = Account.SyncDays > 0 ? DateTime.Now.AddDays(-Math.Max(7, Account.SyncDays)) : new DateTime(1970, 1, 2);
-                    var found = await f.SearchAsync(KitSearch.DeliveredAfter(since), ct);
+                    var found = await f.SearchAsync(KitSearch.DeliveredAfter(since).And(KitSearch.NotDeleted), ct);
                     var limit = local.Role == FolderRole.Inbox ? InitialInboxLimit : InitialFolderLimit;
                     newUids = found.OrderByDescending(u => u.Id).Take(limit).ToList();
                     if (newUids.Count == 0 && local.Role is FolderRole.Inbox or FolderRole.Sent)
                     {
                         // Quiet mailbox: still show the latest few.
-                        var allUids = await f.SearchAsync(KitSearch.All, ct);
+                        var allUids = await f.SearchAsync(KitSearch.NotDeleted, ct);
                         newUids = allUids.OrderByDescending(u => u.Id).Take(50).ToList();
                     }
                 }
@@ -455,7 +457,7 @@ public sealed class AccountSync : IDisposable
                 else
                 {
                     var range = new UniqueIdRange(new UniqueId(f.UidValidity, (uint)Math.Clamp(floor, 1, uint.MaxValue)), UniqueId.MaxValue);
-                    newUids = (await f.SearchAsync(KitSearch.Uids(range), ct)).Where(u => u.Id >= floor).ToList();
+                    newUids = (await f.SearchAsync(KitSearch.Uids(range).And(KitSearch.NotDeleted), ct)).Where(u => u.Id >= floor).ToList();
                 }
             }
             newUids = newUids.Where(u => !pendingRemovals.Contains((local.Id, u.Id))).ToList();
@@ -481,7 +483,7 @@ public sealed class AccountSync : IDisposable
             }
 
             // The whole list of UIDs on the server (for deletions and for older emails not listed yet).
-            var serverAll = (await f.SearchAsync(KitSearch.All, ct)).ToList();
+            var serverAll = (await f.SearchAsync(KitSearch.NotDeleted, ct)).ToList();
 
             // 2. Flag changes and 3. deletions on messages we already had
             if (map.Count > 0)
@@ -565,10 +567,10 @@ public sealed class AccountSync : IDisposable
             ct.ThrowIfCancellationRequested();
             try
             {
-                var rows = await FetchRowsAsync(client, f, local, batch, ct);
+                var returned = new HashSet<long>();
+                var rows = await FetchRowsAsync(client, f, local, batch, ct, returned);
                 var inserted = _store.InsertMessages(rows);
                 // A UID the server didn't return (expunged meanwhile) is not asked for again this session.
-                var returned = rows.Select(r => r.Uid).ToHashSet();
                 lock (_tried) foreach (var u in batch) if (!returned.Contains(u.Id)) _tried.Add((local.Id, u.Id));
                 backfilled += inserted.Count;
                 if (local.Role == FolderRole.Sent && inserted.Count > 0)
@@ -605,7 +607,7 @@ public sealed class AccountSync : IDisposable
         return f;
     }
 
-    private async Task<List<MessageRow>> FetchRowsAsync(ImapClient client, IMailFolder f, MailFolder local, IList<UniqueId> uids, CancellationToken ct)
+    private async Task<List<MessageRow>> FetchRowsAsync(ImapClient client, IMailFolder f, MailFolder local, IList<UniqueId> uids, CancellationToken ct, ISet<long>? returnedUids = null)
     {
         var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
                     | MessageSummaryItems.Size | MessageSummaryItems.BodyStructure | MessageSummaryItems.References | MessageSummaryItems.PreviewText;
@@ -613,10 +615,11 @@ public sealed class AccountSync : IDisposable
         if (gmail) items |= MessageSummaryItems.GMailThreadId;
         var req = new FetchRequest(items) { Headers = new HeaderSet(ExtraHeaders) };
         var summaries = await f.FetchAsync(uids, req, ct);
+        foreach (var summary in summaries) returnedUids?.Add(summary.UniqueId.Id);
         var rows = new List<MessageRow>();
         // Oldest first so replies can find their parents' thread keys within the same batch.
         _pendingBatchMerges.Clear();
-        foreach (var s in summaries.OrderBy(s => s.UniqueId.Id))
+        foreach (var s in summaries.Where(IsVisibleSummary).OrderBy(s => s.UniqueId.Id))
             rows.Add(ToRow(s, local, gmail));
         // A later row in this batch may have merged conversations that earlier rows were keyed under.
         for (int pass = 0; pass < 3 && _pendingBatchMerges.Count > 0; pass++)
@@ -628,6 +631,9 @@ public sealed class AccountSync : IDisposable
         }
         return rows;
     }
+
+    internal static bool IsVisibleSummary(IMessageSummary summary) =>
+        summary.Flags is not { } flags || !flags.HasFlag(KitFlags.Deleted);
 
     private readonly HashSet<long> _deferred = new();
     private readonly Dictionary<string, string> _batchKeys = new();
@@ -988,9 +994,17 @@ public sealed class AccountSync : IDisposable
                             _store.RemovePendingOp(op.Id);
                             continue;
                         }
-                        var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                         try
                         {
+                            if (op.Kind == PendingOpKind.EmptyFolder)
+                            {
+                                // Empty Trash / Spam (design TB1): everything there, also what isn't listed on this PC yet.
+                                await f.StoreAsync(UniqueIdRange.All, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+                                await f.ExpungeAsync(ct);
+                                _store.RemovePendingOp(op.Id);
+                                continue;
+                            }
+                            var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                             switch (op.Kind)
                             {
                                 case PendingOpKind.SetSeen: await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Seen) { Silent = true }, ct); break;
@@ -1037,7 +1051,10 @@ public sealed class AccountSync : IDisposable
         }, ct);
     }
 
-    internal static bool CanReplay(PendingOp op, uint uidValidity) => op.UidValidity != 0 && op.UidValidity == uidValidity;
+    internal static bool CanReplay(PendingOp op, uint uidValidity) =>
+        op.Kind == PendingOpKind.EmptyFolder
+            ? op.UidValidity == 0 || op.UidValidity == uidValidity
+            : op.Uid is > 0 and <= uint.MaxValue && op.UidValidity != 0 && op.UidValidity == uidValidity;
 
     /// <summary>Stores a copy of a sent message in the Sent folder (servers that don't do it themselves).</summary>
     public Task AppendToSentAsync(MimeMessage msg, CancellationToken ct) => AppendAsync(FolderRole.Sent, msg, KitFlags.Seen, ct);

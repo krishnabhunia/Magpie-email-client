@@ -183,6 +183,7 @@ public partial class ComposeWindow : Window
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
+        PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
     }
 
@@ -203,7 +204,7 @@ public partial class ComposeWindow : Window
                     if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
-                case "sel": _vm.SelectedText = (root.GetProperty("text").GetString() ?? "").Trim(); break;
+                case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
             }
