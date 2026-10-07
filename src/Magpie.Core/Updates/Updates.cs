@@ -67,8 +67,8 @@ public static class UpdateText
         if (ago < TimeSpan.FromMinutes(1)) return "checked just now";
         if (ago < TimeSpan.FromHours(1)) return $"checked {(int)ago.TotalMinutes} min ago";
         if (ago < TimeSpan.FromHours(36)) return $"checked {(int)ago.TotalHours} h ago";
-        var days = (int)Math.Round(ago.TotalDays);
-        return days <= 1 ? "checked yesterday" : $"checked {days} days ago";
+        if (ago < TimeSpan.FromHours(48)) return "checked yesterday";
+        return $"checked {(int)Math.Round(ago.TotalDays)} days ago";
     }
 
     /// <summary>

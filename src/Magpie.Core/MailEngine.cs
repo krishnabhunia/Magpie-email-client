@@ -767,7 +767,7 @@ public sealed class MailEngine : IDisposable
             var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
             var all = m.MessageId.Length > 0 ? Store.CopiesOf(m) : new List<MessageRow> { m };
             var left = false;
-            if (trash != null) Store.RecordTrashed(all.Where(r => r.FolderId != trash.Id), DateTimeOffset.Now);
+            if (trash != null) Store.RecordTrashed(all.Where(r => r.FolderId != trash.Id).OrderBy(r => r.Id == m.Id ? 1 : 0), DateTimeOffset.Now);   // the matched copy's folder is the one Restore uses
             foreach (var r in all)
             {
                 if (trash?.Id == r.FolderId) continue;
