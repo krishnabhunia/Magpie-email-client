@@ -175,8 +175,8 @@ public partial class AutoDeleteDialog : Window
         var count = _summary?.Older ?? 0;
         var text = AutoDelete.ButtonText(PastOn, FutureOn, count, _editing);
         OkButton.Content = text.Length > 0 ? text : "Create rule";
-        OkButton.Style = (Style)FindResource(PastOn ? "Button.Danger" : "Button.Primary");
-        OkButton.IsEnabled = text.Length > 0 && PatternText != null && (!PastOn || FutureOn || (_summary != null && count > 0));
+        OkButton.Style = (Style)FindResource(PastOn && count > 0 ? "Button.Danger" : "Button.Primary");
+        OkButton.IsEnabled = text.Length > 0 && PatternText != null;
     }
 
     /// <summary>Red under 48 h (and every OTP), amber under 30 days, grey later (design AD3).</summary>

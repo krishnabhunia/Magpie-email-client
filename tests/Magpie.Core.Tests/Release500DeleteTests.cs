@@ -207,6 +207,8 @@ public class Release500DeleteTests
         Assert.Equal("Create rule", AutoDelete.ButtonText(false, true, 0));
         Assert.Equal("Save rule", AutoDelete.ButtonText(false, true, 0, editing: true));
         Assert.Equal("", AutoDelete.ButtonText(false, false, 5));
+        Assert.Equal("", AutoDelete.ButtonText(true, false, 0));                                // nothing older than the kept period
+        Assert.Equal("Create rule", AutoDelete.ButtonText(true, true, 0));
 
         var oldest = new DateTimeOffset(2024, 3, 12, 9, 0, 0, TimeSpan.FromHours(5.5));
         Assert.Equal("delete the 212 older than 1 week now (oldest 12 Mar 2024). Keeps 28 from the last 1 week, pinned ones, Sent and Drafts.",

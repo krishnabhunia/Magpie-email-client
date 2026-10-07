@@ -208,8 +208,9 @@ public static class AutoDelete
     /// <summary>What one run did: the past emails to trash (after the undo wait), the rule (new or updated) and the timers set.</summary>
     public sealed record DeleteFromResult(PastEmails Past, AutoDeleteRule? Rule, bool RuleIsNew, int TimersSet);
 
-    /// <summary>The red button: "Delete 212 now" / "Create rule" / "Delete 212 now and keep deleting"; "" = nothing to do.</summary>
-    public static string ButtonText(bool past, bool future, int pastCount, bool editing = false) => (past, future) switch
+    /// <summary>The red button: "Delete 212 now" / "Create rule" / "Delete 212 now and keep deleting"; "" = nothing to do
+    /// (PAST with nothing older than the kept period counts as off).</summary>
+    public static string ButtonText(bool past, bool future, int pastCount, bool editing = false) => (past && pastCount > 0, future) switch
     {
         (true, true) => $"Delete {pastCount:#,0} now and keep deleting",
         (true, false) => $"Delete {pastCount:#,0} now",
