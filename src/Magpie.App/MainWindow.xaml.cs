@@ -16,6 +16,7 @@ namespace Magpie.App;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
+    public MainViewModel ViewModel => _vm;
     private readonly ReaderHover _hover;
     private readonly SubjectCard _subjectCard;
     private bool _webReady;
@@ -422,112 +423,73 @@ public partial class MainWindow : Window
         return menu;
     }
 
-    // ───────────────────────── auto-delete (designs AD1–AD3) ─────────────────────────
+    // ───────────────────────── delete emails from… (designs AD1–AD3, DP1, DX1) ─────────────────────────
 
-    /// <summary>The Delete ▾ menu (design AD1): delete now, or auto-delete this sender's / domain's future emails.</summary>
-    private ContextMenu AutoDeleteMenu(bool withDeleteNow)
+    /// <summary>The conversations a delete acts on: the ticked ones, else the one open in the reader.</summary>
+    private List<ThreadItem> ItemsForDelete() =>
+        _vm.SelectedCount > 0 ? _vm.CheckedItems : _vm.Selected is { LocalDraftId: null } one ? new List<ThreadItem> { one } : new List<ThreadItem>();
+
+    private void DeleteForever() => _ = _vm.DeleteForeverAsync(ItemsForDelete());
+
+    /// <summary>
+    /// The Delete ▾ menu (design DX1): Delete now · Delete forever…, then for the sender and for the whole domain the
+    /// "already here" and "now and later" picks that open the one dialog pre-filled, and the two quick rule picks.
+    /// </summary>
+    private ContextMenu DeleteMenu(bool withDeleteNow)
     {
         var r = _vm.Reader;
-        var e = AppServices.Engine;
         var menu = new ContextMenu();
-        if (withDeleteNow) menu.Items.Add(IconItem("Delete now", "delete", () => RunAction("delete", this), "Del"));
+        if (withDeleteNow)
+        {
+            menu.Items.Add(IconItem("Delete now", "delete", () => RunAction("delete", this), "Del"));
+            menu.Items.Add(IconItem("Delete forever…", "delete", DeleteForever, "Shift+Del"));
+        }
         var sender = r.SenderAddress?.Trim().ToLowerInvariant();
         if (sender is { Length: > 0 } && sender.Contains('@'))
         {
-            var who = HoverMenus.FirstName(r.Messages.LastOrDefault(m => m.FromAddress.Equals(sender, StringComparison.OrdinalIgnoreCase))?.FromName, sender);
-            var domain = AutoDelete.DomainPattern(sender);
-            // Design DP1: the emails already here from this sender (D2–D4).
             if (withDeleteNow) menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem { Header = "EMAILS ALREADY HERE", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
-            var fromSender = e.PastFrom(sender);
-            var fromDomain = e.PastFrom(domain);
-            menu.Items.Add(IconItem($"Delete all {fromSender.Count:N0} from {who}…", "delete", () => ConfirmDeletePast(fromSender, $"from {who}", sender)));
-            menu.Items.Add(IconItem($"Delete all {fromDomain.Count:N0} from anyone at {domain[2..]}…", "delete", () => ConfirmDeletePast(fromDomain, $"from anyone at {domain[2..]}", domain)));
-            var older = new MenuItem { Header = $"Delete {who}'s emails older than", Icon = new IconChip { Icon = "delete", Size = 18 } };
-            foreach (var (label, cutoff) in AutoDelete.OlderThan)
-            {
-                var cut = cutoff(DateTimeOffset.Now);
-                older.Items.Add(Item(label, () => ConfirmDeletePast(e.PastFrom(sender, cut), $"from {who} older than {label}", sender)));
-            }
-            menu.Items.Add(older);
-
+            var domain = AutoDelete.DomainPattern(sender);
+            AddDeleteFromItems(menu, sender, $"EMAILS FROM {sender.ToUpperInvariant()}", single: true);
+            AddDeleteFromItems(menu, domain, $"EMAILS FROM ANYONE AT {domain.ToUpperInvariant()}", single: false);
             menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem { Header = e.Config.AutoDeleteIncludePast ? "AUTO-DELETE (NEW AND PAST EMAILS)" : "AUTO-DELETE FUTURE EMAILS", IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
-            menu.Items.Add(AfterMenu($"From {sender} after…", sender));
-            menu.Items.Add(AfterMenu($"From anyone at {domain} after…", domain));
-            // D7: the rule also starts on the emails already in the Inbox (on by default).
-            var inInbox = e.ExistingFor(new AutoDeleteRule { Pattern = sender }).Count;
-            var include = Item($"Include the {inInbox:N0} email{(inInbox == 1 ? "" : "s")} already in the Inbox", () =>
-            {
-                e.Config.AutoDeleteIncludePast = !e.Config.AutoDeleteIncludePast;
-                e.Settings.Save();
-            }, isChecked: e.Config.AutoDeleteIncludePast);
-            include.ToolTip = "Those already past the time you pick go to Trash at once; the others when their time comes";
-            menu.Items.Add(include);
-            menu.Items.Add(IconItem("OTP delete — this sender's emails 24 h after they arrive", "clock",
-                () => CreateAutoDelete(new AutoDeleteRule { Pattern = sender, Otp = true })));
-            menu.Items.Add(Item("Choose sender and time…", () => EditAutoDelete(new AutoDeleteRule { Pattern = sender }, editing: false)));
         }
-        else if (!withDeleteNow) menu.Items.Add(new MenuItem { Header = "Auto-delete works on mail from other people", IsEnabled = false });
+        else if (!withDeleteNow) menu.Items.Add(new MenuItem { Header = "Works on emails from other people", IsEnabled = false });
         if (r.HasDeleteTimer) menu.Items.Add(Item("Keep this one (no auto-delete)", () => r.KeepFromAutoDeleteCommand.Execute(null)));
         menu.Items.Add(Item("Manage auto-delete rules", () => SettingsWindow.Open("Rules:AutoDelete")));
         return menu;
     }
 
-    /// <summary>Design DP1 (D2–D4): says how many and from when, then moves them to Trash after a few seconds to undo.</summary>
-    private void ConfirmDeletePast(AutoDelete.PastEmails past, string what, string pattern)
+    private static MenuItem SectionHeader(string text) => new() { Header = text, IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold };
+
+    /// <summary>One section of the menu: "Delete all N already here…", "Keep only the last week, now and later…"; for a
+    /// single address also "Delete after a set time… (rule only)" and "OTP delete — 24 h after arrival" (acts at once).</summary>
+    private void AddDeleteFromItems(ContextMenu menu, string pattern, string header, bool single)
     {
-        if (past.Count == 0) { Ui.Error("Delete", $"There are no emails {what} on this PC (pinned ones are kept)."); return; }
-        var many = past.Count == 1 ? "1 email" : $"{past.Count:N0} emails";
-        var message = $"They go to Trash (all accounts). Pinned emails are kept. You can undo for a few seconds, and restore them from Trash for 30 days.\n\n{AutoDelete.DatesLine(past)}";
-        if (ChoiceDialog.Ask(this, $"Delete {many} {what}?", message, $"Move {past.Count:N0} to Trash") != 0) return;
-        _vm.DeletePastLater(past.Rows, $"Moving {many} {what} to Trash");
+        var e = AppServices.Engine;
+        var n = e.PastFrom(pattern).Count;
+        menu.Items.Add(SectionHeader(header));
+        var all = IconItem($"Delete all {n:N0} already here…", "delete", () => OpenDeleteFrom(pattern, past: true, future: false, keepNothing: true));
+        all.IsEnabled = n > 0;
+        menu.Items.Add(all);
+        menu.Items.Add(IconItem("Keep only the last week, now and later…", "delete", () => OpenDeleteFrom(pattern, past: true, future: true)));
+        if (!single) return;
+        menu.Items.Add(IconItem("Delete after a set time…", "clock", () => OpenDeleteFrom(pattern, past: false, future: true), "(rule only)"));
+        menu.Items.Add(IconItem("OTP delete — 24 h after arrival", "clock", () => _vm.RunDeleteFrom(new AutoDelete.DeleteFromRequest
+        {
+            Pattern = pattern, Future = true, Otp = true, StartOnExisting = e.Config.AutoDeleteIncludePast,
+        })));
     }
 
-    private MenuItem AfterMenu(string header, string pattern)
-    {
-        var mi = new MenuItem { Header = header, Icon = new IconChip { Icon = "delete", Size = 18 } };
-        var now = DateTimeOffset.Now;
-        mi.Items.Add(new MenuItem { Header = "The date on the right is when an email arriving today would be deleted", IsEnabled = false, FontSize = 11 });
-        foreach (var group in AutoDelete.Choices.GroupBy(c => c.Unit))
-        {
-            mi.Items.Add(new MenuItem { Header = group.Key.ToString().ToUpperInvariant(), IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold });
-            foreach (var (amount, unit) in group)
-            {
-                var item = Item(AutoDelete.After(amount, unit), () => CreateAutoDelete(new AutoDeleteRule { Pattern = pattern, Amount = amount, Unit = unit }),
-                    AutoDelete.DeleteAt(new AutoDeleteRule { Amount = amount, Unit = unit }, now).ToLocalTime().ToString("d MMM yyyy"));
-                item.ToolTip = AutoDelete.NextArrivalLine(amount, unit, now);
-                mi.Items.Add(item);
-            }
-        }
-        return mi;
-    }
-
-    /// <summary>Picking a time creates the rule at once, with Undo · Edit in a toast (design AD1).</summary>
-    private void CreateAutoDelete(AutoDeleteRule rule)
-    {
-        try
-        {
-            var engine = AppServices.Engine;
-            var past = engine.Config.AutoDeleteIncludePast;
-            engine.SaveAutoDeleteRule(rule, startOnExisting: past);
-            var now = past ? engine.RunDueDeletes(DateTimeOffset.Now) : 0;   // design DP1 (D7): those already past their time
-            var what = rule.Otp ? "24 hours" : AutoDelete.After(rule.Amount, rule.Unit);
-            var text = (past ? $"{char.ToUpper(AutoDelete.Who(rule.Pattern)[0])}{AutoDelete.Who(rule.Pattern)[1..]}" : $"Future {AutoDelete.Who(rule.Pattern)}")
-                       + $" will be deleted {what} after they arrive" + (now > 0 ? $" · {now:N0} already past that went to Trash" : "");
-            _vm.ShowActionToast(text,
-                () => AppServices.Engine.RemoveAutoDeleteRule(rule.Id, clearTimers: true),
-                () => EditAutoDelete(rule, editing: true));
-        }
-        catch (Exception ex) { Log.Error("auto-delete rule", ex); Ui.Error("Auto-delete", ex.Message); }
-    }
+    /// <summary>Opens the "Delete emails from…" dialog pre-filled (design DX1-B1); the dialog runs the delete itself.</summary>
+    private void OpenDeleteFrom(string pattern, bool past, bool future, bool keepNothing = false) =>
+        AutoDeleteDialog.Show(this, new AutoDeleteRule { Pattern = pattern }, editing: false, past: past, future: future, keepNothing: keepNothing);
 
     private void EditAutoDelete(AutoDeleteRule rule, bool editing) => AutoDeleteDialog.Show(this, rule, editing);
 
     private void OnDeleteDropdown(object sender, RoutedEventArgs e)
     {
         if (!_vm.Reader.HasThread || sender is not FrameworkElement anchor) return;
-        ShowMenu(anchor, AutoDeleteMenu(withDeleteNow: true));
+        ShowMenu(anchor, DeleteMenu(withDeleteNow: true));
     }
 
     /// <summary>Reader bar "Change rule" (design AD3).</summary>
@@ -608,13 +570,15 @@ public partial class MainWindow : Window
         var ids = a.MenuFollowsToolbar ? a.Toolbar.Where(b => b.Visible).Select(b => b.Id).ToList() : Core.Settings.Appearance.ToolbarIds.Take(Core.Settings.Appearance.DefaultVisible).ToList();
         foreach (var id in ids.Where(id => id is not ("replyall" or "forward")))
             menu.Items.Add(ActionItem(ToolbarButtonVm.For(id, a.ButtonStyle), ThreadList));
-        var auto = new MenuItem { Header = "Auto-delete", Icon = new IconChip { Icon = "clock", Size = 18 } };
-        foreach (var item in AutoDeleteMenu(withDeleteNow: false).Items.OfType<object>().ToList())
+        // Design DX1: the same delete choices as Delete ▾.
+        menu.Items.Add(IconItem("Delete forever…", "delete", DeleteForever, "Shift+Del"));
+        var from = new MenuItem { Header = "Delete emails from…", Icon = new IconChip { Icon = "clock", Size = 18 } };
+        foreach (var item in DeleteMenu(withDeleteNow: false).Items.OfType<object>().ToList())
         {
             ((ContextMenu)((FrameworkElement)item).Parent).Items.Remove(item);
-            auto.Items.Add(item);
+            from.Items.Add(item);
         }
-        menu.Items.Add(auto);
+        menu.Items.Add(from);
         menu.Items.Add(new Separator());
         menu.Items.Add(IconItem("Reply", "reply", () => r.ReplyCommand.Execute(null), "R"));
         menu.Items.Add(IconItem("Reply all", "replyall", () => r.ReplyAllCommand.Execute(null), "A"));
@@ -700,7 +664,8 @@ public partial class MainWindow : Window
             case Key.J: _vm.MoveSelection(1); break;
             case Key.K: _vm.MoveSelection(-1); break;
             case Key.E when r.HasThread: r.ArchiveCommand.Execute(null); break;
-            case Key.Delete when r.HasThread: r.DeleteCommand.Execute(null); break;
+            // Design DX1-A: Shift+Delete deletes for good (asks first, skips Trash, no undo).
+            case Key.Delete when r.HasThread: if (shift) DeleteForever(); else r.DeleteCommand.Execute(null); break;
             case Key.R when r.HasThread: (Keyboard.Modifiers == ModifierKeys.Shift ? r.ReplyAllCommand : r.ReplyCommand).Execute(null); break;
             case Key.A when r.HasThread: r.ReplyAllCommand.Execute(null); break;
             case Key.F when r.HasThread: r.ForwardCommand.Execute(null); break;

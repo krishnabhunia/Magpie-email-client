@@ -211,13 +211,13 @@ public partial class SettingsViewModel
     [RelayCommand]
     private void NewAutoDelete()
     {
-        if (Views.AutoDeleteDialog.Show(Ui.ActiveWindow, new AutoDeleteRule(), editing: false) != null) LoadAutoDelete();
+        if (Views.AutoDeleteDialog.Show(Ui.ActiveWindow, new AutoDeleteRule(), editing: false)) LoadAutoDelete();
     }
 
     [RelayCommand]
     private void EditAutoDelete(AutoDeleteRow? row)
     {
-        if (row != null && Views.AutoDeleteDialog.Show(Ui.ActiveWindow, row.Rule, editing: true) != null) LoadAutoDelete();
+        if (row != null && Views.AutoDeleteDialog.Show(Ui.ActiveWindow, row.Rule, editing: true)) LoadAutoDelete();
     }
 
     [RelayCommand]
