@@ -621,7 +621,15 @@ public partial class MainWindow : Window
         menu.Items.Add(IconItem("Forward", "forward", () => r.ForwardCommand.Execute(null), "F"));
     }
 
-    public void AttachUpdates(UpdateService updates) => UpdatePill.DataContext = updates;
+    public void AttachUpdates(UpdateService updates) => UpdateHost.DataContext = updates;
+
+    /// <summary>Design UB1: right-click opens the flyout in every state; the tooltip's "checked 2 h ago" is refreshed on hover.</summary>
+    private void OnUpdateRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (UpdateHost.DataContext is UpdateService u) { u.OpenFlyout(); e.Handled = true; }
+    }
+
+    private void OnUpdateHover(object sender, MouseEventArgs e) => (UpdateHost.DataContext as UpdateService)?.RefreshTip();
 
     // List context menu
     private void OnArchive(object sender, RoutedEventArgs e) => _vm.Reader.ArchiveCommand.Execute(null);
