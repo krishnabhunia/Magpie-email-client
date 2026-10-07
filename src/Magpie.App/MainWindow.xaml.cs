@@ -595,6 +595,10 @@ public partial class MainWindow : Window
 
     private void OnUpdateHover(object sender, MouseEventArgs e) => (UpdateHost.DataContext as UpdateService)?.RefreshTip();
 
+    /// <summary>The flyout hangs under the button, right-aligned with it (the button sits at the window's right edge).</summary>
+    private CustomPopupPlacement[] PlaceUpdateFlyout(Size popupSize, Size targetSize, Point offset) =>
+        new[] { new CustomPopupPlacement(new Point(targetSize.Width - popupSize.Width + 8, targetSize.Height + 2), PopupPrimaryAxis.Horizontal) };
+
     // List context menu
     private void OnArchive(object sender, RoutedEventArgs e) => _vm.Reader.ArchiveCommand.Execute(null);
     private void OnDelete(object sender, RoutedEventArgs e)
@@ -650,7 +654,7 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
-        if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None && _vm.Selected?.LocalDraftId != null)
+        if (e.Key == Key.Delete && Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift && _vm.Selected?.LocalDraftId != null)   // Shift+Del on a draft kept here = Del
         {
             _vm.DeleteSelectedLocalDraft();
             e.Handled = true;

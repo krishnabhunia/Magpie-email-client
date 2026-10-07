@@ -118,7 +118,7 @@
                     <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
                         <Button x:Name="UpdateButton" Style="{StaticResource Button.Update}" Command="{Binding TitleBarClickCommand}" ToolTip="{Binding ButtonTip}"
                                 MouseRightButtonUp="OnUpdateRightClick" MouseEnter="OnUpdateHover" AutomationProperties.Name="{Binding ButtonText}" />
-                        <Popup x:Name="UpdateFlyout" PlacementTarget="{Binding ElementName=UpdateButton}" Placement="Bottom" HorizontalOffset="-8" VerticalOffset="2"
+                        <Popup x:Name="UpdateFlyout" PlacementTarget="{Binding ElementName=UpdateButton}" Placement="Custom" CustomPopupPlacementCallback="PlaceUpdateFlyout"
                                IsOpen="{Binding FlyoutOpen, Mode=TwoWay}" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
                             <Border Width="400" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="8">
                                 <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.18" /></Border.Effect>
@@ -706,7 +706,7 @@
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Undo (Ctrl+Z)" />
-                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Edit" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="{Binding EditText}" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.EditToastCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     Visibility="{Binding HasEdit, Converter={StaticResource BoolToVis}}" />
                                             <!-- Send now (design SN1): skip the rest of the wait -->

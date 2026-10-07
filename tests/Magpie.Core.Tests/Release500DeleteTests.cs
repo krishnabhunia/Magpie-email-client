@@ -211,10 +211,12 @@ public class Release500DeleteTests
         Assert.Equal("Create rule", AutoDelete.ButtonText(true, true, 0));
 
         var oldest = new DateTimeOffset(2024, 3, 12, 9, 0, 0, TimeSpan.FromHours(5.5));
-        Assert.Equal("delete the 212 older than 1 week now (oldest 12 Mar 2024). Keeps 28 from the last 1 week, pinned ones, Sent and Drafts.",
+        Assert.Equal("delete the 212 older than 1 week now (oldest 12 Mar 2024). Keeps 28 from the last week, pinned ones, Sent and Drafts.",
             AutoDelete.PastLine(new AutoDelete.PastSummary(240, 212, oldest), false, "1 week"));
         Assert.Equal("delete all 240 now (oldest 12 Mar 2024). Keeps pinned ones, Sent and Drafts.", AutoDelete.PastLine(new AutoDelete.PastSummary(240, 240, oldest), true, "1 week"));
-        Assert.Equal("none older than 1 month here now. Keeps 3 from the last 1 month, pinned ones, Sent and Drafts.", AutoDelete.PastLine(new AutoDelete.PastSummary(3, 0, null), false, "1 month"));
+        Assert.Equal("none older than 1 month here now. Keeps 3 from the last month, pinned ones, Sent and Drafts.", AutoDelete.PastLine(new AutoDelete.PastSummary(3, 0, null), false, "1 month"));
+        Assert.Equal("delete the 1 older than 3 days now. Keeps 0 from the last 3 days, pinned ones, Sent and Drafts.", AutoDelete.PastLine(new AutoDelete.PastSummary(1, 1, null), false, "3 days"));
+        Assert.Equal("delete all 2 now. Keeps pinned ones, Sent and Drafts.", AutoDelete.PastLine(new AutoDelete.PastSummary(2, 2, null), true, "1 week"));
         Assert.Equal("delete each one 1 week after it arrives (an auto-delete rule you can pause or remove in Settings → Rules).", AutoDelete.FutureLine("1 week"));
 
         Assert.Equal(new[] { "1 day", "3 days", "1 week", "2 weeks", "1 month", "3 months", "6 months", "1 year" }, AutoDelete.KeepChoices.Select(c => AutoDelete.KeepLabel(false, c.Amount, c.Unit)));
@@ -233,10 +235,94 @@ public class Release500DeleteTests
         var some = AutoDelete.PastEmails.Of(new[] { Rows.Make("A", 1, "x", messageId: "1@x"), Rows.Make("A", 1, "y", messageId: "2@x") });
         Assert.Equal("Deleting 2 emails from *@xyz.com · new ones go 1 week after they arrive", AutoDelete.ToastText("*@xyz.com", new AutoDelete.DeleteFromResult(some, rule, true, 0)));
         Assert.Equal("Deleting 2 emails from *@xyz.com", AutoDelete.ToastText("*@xyz.com", new AutoDelete.DeleteFromResult(some, null, false, 0)));
+        var one = AutoDelete.PastEmails.Of(new[] { Rows.Make("A", 1, "x", messageId: "1@x") });
+        Assert.Equal("Deleting 1 email from anita@xyz.com", AutoDelete.ToastText("anita@xyz.com", new AutoDelete.DeleteFromResult(one, null, false, 0)));
         Assert.Contains(HoverMenus.ForAddress("Anita Rao", "anita@xyz.com", isMe: false, hasCalendar: false, picturesTrusted: true), o => o.Id == "E10" && o.Label == "Delete emails from Anita…");
     }
 
+    [Fact]
+    public async Task Delete_forever_leaves_the_same_MessageId_in_another_account()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _, out _, out _);
+        var inboxB = e.Store.UpsertFolder(new MailFolder { AccountId = "B", Path = "INBOX", Name = "Inbox", Role = FolderRole.Inbox });
+        e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "t", messageId: "same@x"),
+            Rows.Make("B", inboxB, "t", messageId: "same@x"),     // the same email received in another account
+        });
+        Assert.Equal(1, await e.DeleteForeverAsync("A", new[] { "t" }, new[] { inbox }));
+        Assert.Empty(e.Store.MessagesInFolder(inbox));
+        Assert.Single(e.Store.MessagesInFolder(inboxB));
+        Assert.Empty(e.Store.GetPendingOps("B"));
+    }
+
+    [Fact]
+    public void A_rule_that_deletes_leaves_Sent_and_Drafts_copies()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out var allMail, out var trash, out var sent);
+        var drafts = e.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Drafts", Name = "Drafts", Role = FolderRole.Drafts });
+        e.Store.InsertMessages(new[]
+        {
+            Rows.Make("A", inbox, "n", from: "me@test.local", messageId: "note@x"),      // a note to myself
+            Rows.Make("A", sent, "n", from: "me@test.local", messageId: "note@x"),
+            Rows.Make("A", drafts, "n", from: "me@test.local", messageId: "note@x"),
+            Rows.Make("A", allMail, "n", from: "me@test.local", messageId: "note@x"),
+        });
+        e.Config.Rules.Add(new MailRule { Name = "Notes", Conditions = { new() { Field = RuleField.From, Op = RuleOp.Is, Value = "me@test.local" } }, Actions = { new() { Kind = RuleActionKind.Delete } } });
+        e.RunRules("A", e.Store.MessagesInFolder(inbox));
+        Assert.Empty(e.Store.MessagesInFolder(inbox));
+        Assert.Empty(e.Store.MessagesInFolder(allMail));
+        Assert.Single(e.Store.MessagesInFolder(sent));
+        Assert.Single(e.Store.MessagesInFolder(drafts));
+        Assert.Equal(2, e.Store.GetPendingOps("A").Count(o => o.Kind == PendingOpKind.Move && o.Arg == trash));
+    }
+
+    [Fact]
+    public void Editing_a_rule_into_an_existing_sender_merges_to_one_rule()
+    {
+        using var dir = new TempDir();
+        using var e = Engine(dir, out var inbox, out _, out _, out _, out _);
+        var now = DateTimeOffset.Now;
+        e.Store.InsertMessages(new[] { Rows.Make("A", inbox, "r", from: "ravi@xyz.com", date: now.AddDays(-1), messageId: "r@x") });
+        var anita = e.ApplyDeleteFrom(new AutoDelete.DeleteFromRequest { Pattern = "anita@xyz.com", Future = true, Amount = 7 }, now).Rule!;
+        var ravi = e.ApplyDeleteFrom(new AutoDelete.DeleteFromRequest { Pattern = "ravi@xyz.com", Future = true, Amount = 30 }, now).Rule!;
+        Assert.Equal(ravi.Id, Assert.Single(e.Store.DeleteTimers("A", "r")).Rule);
+        Assert.Equal(2, e.AutoDeleteRules().Count);
+
+        // Change Anita's rule to Ravi's address: one rule is left, with the edited time, and Ravi's timers follow it.
+        var merged = e.ApplyDeleteFrom(new AutoDelete.DeleteFromRequest { Pattern = "ravi@xyz.com", Future = true, Amount = 3, RuleId = anita.Id }, now);
+        Assert.False(merged.RuleIsNew);
+        var only = Assert.Single(e.AutoDeleteRules());
+        Assert.Equal(("ravi@xyz.com", 3), (only.Pattern, only.Amount));
+        Assert.Equal(only.Id, merged.Rule!.Id);
+        Assert.Equal(only.Id, Assert.Single(e.Store.DeleteTimers("A", "r")).Rule);
+    }
+
     // ───────────── UB1: the Update button's words ─────────────
+
+    [Theory]
+    [InlineData("en-US")] [InlineData("en-IN")] [InlineData("de-DE")] [InlineData("")]
+    public void Update_button_words_are_the_same_in_every_culture(string culture)
+    {
+        var before = (System.Globalization.CultureInfo.CurrentCulture, System.Globalization.CultureInfo.CurrentUICulture);
+        try
+        {
+            var c = culture.Length == 0 ? System.Globalization.CultureInfo.InvariantCulture : System.Globalization.CultureInfo.GetCultureInfo(culture);
+            System.Globalization.CultureInfo.CurrentCulture = c;
+            System.Globalization.CultureInfo.CurrentUICulture = c;
+            Assert.Equal("Downloading · 62 %", UpdateText.ButtonText("downloading", "4.1.0", 0.62));
+            Assert.Equal("Downloading · 0 %", UpdateText.ButtonText("downloading", "4.1.0", 0));
+            Assert.Equal("Update 4.1.0", UpdateText.ButtonText("available", "4.1.0", 0.5));
+            Assert.Equal("checked 2 h ago", UpdateText.CheckedAgo(DateTimeOffset.Now.AddHours(-2), DateTimeOffset.Now));
+        }
+        finally
+        {
+            (System.Globalization.CultureInfo.CurrentCulture, System.Globalization.CultureInfo.CurrentUICulture) = before;
+        }
+    }
+
 
     [Fact]
     public void Update_button_words_follow_the_state_and_say_when_it_last_checked()
@@ -254,7 +340,8 @@ public class Release500DeleteTests
         Assert.Equal("Update", UpdateText.ButtonText("error", "", 0));
         Assert.Equal("Checking…", UpdateText.ButtonText("checking", "", 0));
         Assert.Equal("Update 4.1.0", UpdateText.ButtonText("available", "4.1.0", 0));
-        Assert.Equal("Downloading · 62 %", UpdateText.ButtonText("downloading", "4.1.0", 0.62).Replace(" ", " "));
+        Assert.Equal("Downloading · 62 %", UpdateText.ButtonText("downloading", "4.1.0", 0.62));
+        Assert.Equal("100 %", UpdateText.Percent(1.2));
         Assert.Equal("Restart to update", UpdateText.ButtonText("ready", "4.1.0", 1));
 
         Assert.Equal("Magpie 4.0.2 is up to date · checked 2 h ago · click to check now", UpdateText.ButtonTip("uptodate", "4.0.2", "", now.AddHours(-2), now));

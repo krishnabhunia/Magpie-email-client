@@ -765,7 +765,9 @@ public sealed class MailEngine : IDisposable
             // Design DX1-A: every copy of the email goes to Trash (same Message-ID in any folder), so a Gmail email does
             // not linger in All Mail with only its Inbox label gone.
             var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
-            var all = m.MessageId.Length > 0 ? Store.CopiesOf(m) : new List<MessageRow> { m };
+            // Sent and Drafts are never auto-deleted (a self-addressed email keeps its Sent copy).
+            var keepRoles = folders.Where(f => f.Role is FolderRole.Sent or FolderRole.Drafts).Select(f => f.Id).ToHashSet();
+            var all = (m.MessageId.Length > 0 ? Store.CopiesOf(m) : new List<MessageRow> { m }).Where(r => r.Id == m.Id || !keepRoles.Contains(r.FolderId)).ToList();
             var left = false;
             if (trash != null) Store.RecordTrashed(all.Where(r => r.FolderId != trash.Id).OrderBy(r => r.Id == m.Id ? 1 : 0), DateTimeOffset.Now);   // the matched copy's folder is the one Restore uses
             foreach (var r in all)

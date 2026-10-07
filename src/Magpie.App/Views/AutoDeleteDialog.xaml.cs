@@ -157,10 +157,17 @@ public partial class AutoDeleteDialog : Window
         UpdateButton();
         Task.Run(() => _e.PastSummary(pattern, account, cut)).ContinueWith(t =>
         {
-            if (t.IsFaulted) { Log.Warn("delete from: count failed: " + t.Exception?.GetBaseException().Message); return; }
             Ui.Post(() =>
             {
                 if (gen != _refreshGen) return;
+                if (t.IsFaulted)
+                {
+                    Log.Warn("delete from: count failed: " + t.Exception?.GetBaseException().Message);
+                    _summary = new AutoDelete.PastSummary(0, 0, null);   // nothing is deleted on a count that failed; the rule still can be made
+                    PastLine.Text = "couldn't count the emails here — try again.";
+                    UpdateButton();
+                    return;
+                }
                 _summary = t.Result;
                 PatternHint.Text = "An address, or *@domain for everyone there. " + (t.Result.Total == 0 ? "No emails here from them." : $"{t.Result.Total:#,0} email{(t.Result.Total == 1 ? "" : "s")} here from them.");
                 PastLine.Text = otp ? "OTP rules only time new emails; pick a time to delete the ones already here." : AutoDelete.PastLine(t.Result, nothing, keep);
@@ -176,7 +183,8 @@ public partial class AutoDeleteDialog : Window
         var text = AutoDelete.ButtonText(PastOn, FutureOn, count, _editing);
         OkButton.Content = text.Length > 0 ? text : "Create rule";
         OkButton.Style = (Style)FindResource(PastOn && count > 0 ? "Button.Danger" : "Button.Primary");
-        OkButton.IsEnabled = text.Length > 0 && PatternText != null;
+        // Not while the count is still running: Enter must not delete a number the user has not seen.
+        OkButton.IsEnabled = text.Length > 0 && PatternText != null && !(PastOn && _summary == null);
     }
 
     /// <summary>Red under 48 h (and every OTP), amber under 30 days, grey later (design AD3).</summary>
@@ -190,10 +198,10 @@ public partial class AutoDeleteDialog : Window
     private void OnOk(object sender, RoutedEventArgs e)
     {
         var pattern = PatternText;
-        if (pattern == null || (!PastOn && !FutureOn)) return;
+        if (pattern == null || !OkButton.IsEnabled) return;
         var req = new AutoDelete.DeleteFromRequest
         {
-            Pattern = pattern, AccountId = AccountId, Past = PastOn, Future = FutureOn, KeepNothing = _nothing, Otp = _otp,
+            Pattern = pattern, AccountId = AccountId, Past = PastOn && _summary is { Older: > 0 }, Future = FutureOn, KeepNothing = _nothing, Otp = _otp,
             Amount = _choice.Amount, Unit = _choice.Unit, RuleId = _editing ? _rule.Id : null, StartOnExisting = _e.Config.AutoDeleteIncludePast,
         };
         try

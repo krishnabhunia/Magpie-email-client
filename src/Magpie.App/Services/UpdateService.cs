@@ -79,7 +79,7 @@ public sealed partial class UpdateService : ObservableObject
         UpdateState.UpToDate => "UP TO DATE",
         UpdateState.Checking => "CHECKING",
         UpdateState.Available => "NEW",
-        UpdateState.Downloading => $"{Progress:P0}",
+        UpdateState.Downloading => UpdateText.Percent(Progress),
         UpdateState.Ready => "READY",
         UpdateState.Error => "PROBLEM",
         _ => "",
@@ -164,8 +164,8 @@ public sealed partial class UpdateService : ObservableObject
     }
 
     /// <summary>
-    /// Left click on the title-bar button (design UB1): idle, up to date or a problem → check now, then show the flyout;
-    /// available or downloading → the flyout; ready → restart into the new version; checking → nothing.
+    /// Left click on the title-bar button (design UB1): idle or up to date → check now, then show the flyout; available,
+    /// downloading or a problem → the flyout (it has Try again); ready → restart into the new version; checking → nothing.
     /// </summary>
     [RelayCommand]
     private async Task TitleBarClick()
@@ -176,7 +176,7 @@ public sealed partial class UpdateService : ObservableObject
         {
             case UpdateState.Checking: return;
             case UpdateState.Ready: await RestartAsync(); return;
-            case UpdateState.Available or UpdateState.Downloading: OpenFlyout(); return;
+            case UpdateState.Available or UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
             default:
                 await CheckNowAsync();
                 OpenFlyout();

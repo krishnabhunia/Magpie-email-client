@@ -225,10 +225,13 @@ public static class AutoDelete
         if (keepNothing)
             return s.Total == 0 ? "none here now. Pinned ones, Sent and Drafts are never deleted."
                 : $"delete all {s.Total:#,0} now{oldest}. Keeps pinned ones, Sent and Drafts.";
-        var keeps = $"Keeps {s.Kept:#,0} from the last {keepLabel}, pinned ones, Sent and Drafts.";
+        var keeps = $"Keeps {s.Kept:#,0} from the last {LastLabel(keepLabel)}, pinned ones, Sent and Drafts.";
         return s.Older == 0 ? $"none older than {keepLabel} here now. {keeps}"
             : $"delete the {s.Older:#,0} older than {keepLabel} now{oldest}. {keeps}";
     }
+
+    /// <summary>"1 week" → "week" after "the last" ("the last week", "the last 3 days").</summary>
+    public static string LastLabel(string keepLabel) => keepLabel.StartsWith("1 ", StringComparison.Ordinal) ? keepLabel[2..] : keepLabel;
 
     /// <summary>The line after "Emails that arrive later —".</summary>
     public static string FutureLine(string keepLabel) =>

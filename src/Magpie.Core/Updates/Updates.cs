@@ -78,10 +78,13 @@ public static class UpdateText
     {
         "checking" => "Checking…",
         "available" => $"Update {newVersion}",
-        "downloading" => $"Downloading · {progress:P0}",
+        "downloading" => $"Downloading · {Percent(progress)}",
         "ready" => "Restart to update",
         _ => "Update",
     };
+
+    /// <summary>"62 %" — written by hand so it reads the same in every culture (en-IN / en-US would give "62%").</summary>
+    public static string Percent(double progress) => $"{(int)Math.Round(Math.Clamp(progress, 0, 1) * 100)} %";
 
     /// <summary>The tooltip: "Magpie 4.0.2 is up to date · checked 2 h ago · click to check now", or what the button does now.</summary>
     public static string ButtonTip(string state, string current, string newVersion, DateTimeOffset? lastCheck, DateTimeOffset now) => state switch

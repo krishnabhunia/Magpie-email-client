@@ -216,10 +216,12 @@ public partial class UndoToast : ObservableObject
     /// <summary>A toast for something other than a send (e.g. a new auto-delete rule): its own Undo, and optionally Edit.</summary>
     public Action? UndoAction { get; init; }
     public Action? EditAction { get; init; }
+    /// <summary>The Edit button's words ("Edit rule" for a delete-from run).</summary>
+    public string EditText { get; init; } = "Edit";
     public bool HasEdit => EditAction != null && !Done;
     public bool HasButtons => !Done;
     /// <summary>"Send now" only for a message in its undo window — not for one scheduled for later (that has its own button in Scheduled).</summary>
-    public bool CanSendNow => !Done && _showCountdown;
+    public bool CanSendNow => !Done && _showCountdown && OutboxId > 0;
 
     public UndoToast(long outboxId, string text, DateTimeOffset until, bool showCountdown)
     {
@@ -1059,8 +1061,8 @@ public partial class MainViewModel : ObservableObject
     /// A toast with its own Undo (and Edit). With <paramref name="outboxId"/> it is a send (e.g. an invite answer):
     /// countdown and Send now as for any message.
     /// </summary>
-    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0) =>
-        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0) { UndoAction = undo, EditAction = edit });
+    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0, bool countdown = false, string editText = "Edit") =>
+        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0 || countdown) { UndoAction = undo, EditAction = edit, EditText = editText });
 
     [RelayCommand]
     private void EditToast(UndoToast? toast)
@@ -1419,8 +1421,9 @@ public partial class MainViewModel : ObservableObject
             if (r.Rule is { } rule && r.RuleIsNew) _e.RemoveAutoDeleteRule(rule.Id, clearTimers: true);
             ReloadList();
         }
-        Action? edit = r.Rule is { } saved ? () => Views.AutoDeleteDialog.Show(Ui.ActiveWindow, saved, editing: true) : null;
-        ShowActionToast(AutoDelete.ToastText(pattern, r), Undo, edit);
+        // Edit rule: this run stops (nothing is deleted); the dialog's own run makes a new toast.
+        Action? edit = r.Rule is { } saved ? () => { cancelled = true; timer?.Stop(); Views.AutoDeleteDialog.Show(Ui.ActiveWindow, saved, editing: true); } : null;
+        ShowActionToast(AutoDelete.ToastText(pattern, r), Undo, edit, countdown: r.Past.Count > 0, editText: "Edit rule");
         timer?.Start();
         if (r.TimersSet > 0) ReloadList();
     }
@@ -1437,7 +1440,7 @@ public partial class MainViewModel : ObservableObject
         if (n == 0) { Ui.Error("Delete forever", "There is nothing here to delete."); return; }
         var many = n == 1 ? "1 email" : $"{n:N0} emails";
         if (Views.ChoiceDialog.Ask(Ui.ActiveWindow, $"Delete {many} for good?",
-                $"{(n == 1 ? "It" : "They")} will not go to Trash: every copy is removed from this PC and from the server. This can't be undone.",
+                $"{(n == 1 ? "It" : "They")} will not go to Trash: every copy is removed from this PC and from the server. This can't be undone. On Gmail, All Mail may still keep a copy.",
                 "Delete forever") != 0) return;
         if (Selected != null && items.Any(i => i.Key == Selected.Key)) SelectNeighbour();
         ClearSelection();
