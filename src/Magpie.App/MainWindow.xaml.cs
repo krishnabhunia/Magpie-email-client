@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         _deleteCard = new HoverCard(DeleteCardFor);
         _deleteCard.Attach(DeleteChip);
         DeleteChip.MouseLeftButtonUp += (_, e) => { e.Handled = true; _deleteCard.Show(DeleteChip); };
-        DeleteChip.KeyDown += (_, e) => { if (e.Key is Key.Enter or Key.Space or Key.Apps) { e.Handled = true; _deleteCard.Show(DeleteChip); } };
+        DeleteChip.KeyDown += (_, e) => { if (e.Key is Key.Enter or Key.Space or Key.Apps) { e.Handled = true; _deleteCard.Show(DeleteChip, focus: true); } };
         _vm.StatusBar.SignInRequested += id =>
         {
             if (AppServices.Engine.AccountById(id) is { } a) AddAccountWindow.ShowReauth(this, a);

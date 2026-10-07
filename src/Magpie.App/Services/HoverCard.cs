@@ -29,7 +29,14 @@ public sealed class HoverCard
         _closeTimer.Tick += (_, _) => { _closeTimer.Stop(); if (!_popup.IsMouseOver && _target?.IsMouseOver != true) Close(); };
         _popup.MouseEnter += (_, _) => _closeTimer.Stop();
         _popup.MouseLeave += (_, _) => _closeTimer.Start();
-        _popup.KeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
+        _popup.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            e.Handled = true;
+            var back = _target;
+            Close();
+            if (back is { Focusable: true }) back.Focus();
+        };
     }
 
     public bool IsOpen => _popup.IsOpen;
@@ -58,8 +65,9 @@ public sealed class HoverCard
     private static readonly DependencyProperty AttachedProperty =
         DependencyProperty.RegisterAttached("HoverCardAttached", typeof(HoverCard), typeof(HoverCard));
 
-    /// <summary>Opens at once (a click on the element, or the keyboard).</summary>
-    public void Show(FrameworkElement target)
+    /// <summary>Opens at once (a click on the element, or the keyboard: <paramref name="focus"/> moves into the card so
+    /// Tab and Esc work there).</summary>
+    public void Show(FrameworkElement target, bool focus = false)
     {
         _openTimer.Stop();
         if (_build(target) is not { } content) { Close(); return; }
@@ -74,6 +82,17 @@ public sealed class HoverCard
         _popup.PlacementTarget = target;
         _popup.Child = card;
         _popup.IsOpen = true;
+        if (focus && FirstButton(content) is { } first)
+            card.Dispatcher.BeginInvoke(() => first.Focus(), DispatcherPriority.Input);
+    }
+
+    private static Button? FirstButton(object node)
+    {
+        if (node is Button b) return b;
+        if (node is not DependencyObject d) return null;
+        foreach (var child in LogicalTreeHelper.GetChildren(d))
+            if (FirstButton(child) is { } found) return found;
+        return null;
     }
 
     public void Close()

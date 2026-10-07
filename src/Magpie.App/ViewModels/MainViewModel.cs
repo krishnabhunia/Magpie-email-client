@@ -377,6 +377,7 @@ public partial class MainViewModel : ObservableObject
     public bool HasAccounts => _e.Accounts.Count > 0;
 
     private string _deleteLook = AppServices.Engine.Config.Appearance.DeleteDates.ToString();
+    private readonly System.Windows.Threading.DispatcherTimer _deleteTick = new() { Interval = TimeSpan.FromMinutes(5) };
 
     public MainViewModel()
     {
@@ -409,6 +410,9 @@ public partial class MainViewModel : ObservableObject
         Reader.ThreadRemoved += () => SelectNeighbour();
         _e.Settings.Changed += () => Ui.Post(BuildToolbar);
         BuildToolbar();
+        // Design DD1: countdowns and rings on the rows move on while the list sits still (only when a row has a timer).
+        _deleteTick.Tick += (_, _) => { if (Threads.Any(t => t.DeleteAt != null)) _reload.Run(ReloadList); };
+        _deleteTick.Start();
         var w = _e.Config.Window;
         _sidebarWidth = w.SidebarWidth is >= WindowPlacement.SidebarMin and <= WindowPlacement.SidebarMax ? w.SidebarWidth : WindowPlacement.SidebarDefault;
         _sidebarRail = w.SidebarRail;

@@ -253,9 +253,9 @@ public partial class ThreadViewModel : ObservableObject
     private const int PageCacheSize = 24;
 
     private static string Fingerprint(string subject, List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
-        bool allow, bool dark, Dictionary<long, string> errors)
+        bool allow, bool dark, Dictionary<long, string> errors, string deletes)
     {
-        var sb = new System.Text.StringBuilder(subject).Append('|').Append(allow).Append('|').Append(dark)
+        var sb = new System.Text.StringBuilder(subject).Append('|').Append(allow).Append('|').Append(dark).Append('|').Append(deletes)
             .Append('|').Append(DateTime.Now.Ticks / (TimeSpan.TicksPerMinute * 10));   // relative times ("just now") stay fresh enough
         foreach (var r in rows)
         {
@@ -267,6 +267,16 @@ public partial class ThreadViewModel : ObservableObject
         return sb.ToString();
     }
 
+    /// <summary>Design DD1 (R3): what the page shows of the delete times, so a cached page is rebuilt when the option,
+    /// a timer or its rule changes.</summary>
+    private string DeleteState(string accountId, string threadKey)
+    {
+        if (_e.Config.Appearance.DeleteDates.Reader != "R3") return "";
+        var rules = _e.AutoDeleteRules().ToDictionary(r => r.Id);
+        return "R3" + string.Concat(_e.Store.DeleteTimers(accountId, threadKey).Select(t =>
+            $";{t.Id}:{t.At.ToUnixTimeSeconds()}:{t.Rule}:{(rules.TryGetValue(t.Rule, out var r) ? $"{r.Pattern}/{r.Amount}/{r.Unit}/{r.Otp}/{r.Paused}" : "-")}"));
+    }
+
     /// <summary>Builds the page off the UI thread (cleaning big newsletters can take a moment) and shows it
     /// only if the user is still on this conversation.</summary>
     private async Task RenderAsync(List<MessageRow> rows, Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies, CancellationToken ct)
@@ -276,7 +286,7 @@ public partial class ThreadViewModel : ObservableObject
         var allow = ImagesAllowed(rows);
         var dark = ThemeManager.IsDark;
         var key = AccountId + "\n" + ThreadKey;
-        var fp = Fingerprint(subject, rows, bodies, allow, dark, _loadErrors);
+        var fp = Fingerprint(subject, rows, bodies, allow, dark, _loadErrors, DeleteState(AccountId, ThreadKey));
         string url; int blocked;
         if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == fp)
         {
@@ -326,7 +336,7 @@ public partial class ThreadViewModel : ObservableObject
                     var allow = _e.Config.RemoteImages == RemoteImages.Always
                         || (_e.Config.RemoteImages == RemoteImages.Ask && rows.All(r => IsMine(r) || _e.Config.TrustedImageSenders.Contains(r.FromAddress, StringComparer.OrdinalIgnoreCase)));
                     var errors = new Dictionary<long, string>();
-                    return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors) };
+                    return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors, DeleteState(t.AccountId, t.ThreadKey)) };
                 }, ct);
                 if (prep == null) continue;
                 if (_pageCache.TryGetValue(key, out var hit) && hit.Fingerprint == prep.fp) continue;
@@ -493,7 +503,8 @@ public partial class ThreadViewModel : ObservableObject
         DeleteRuleText = DeleteDates.RuleLine(rule);
         DeleteBannerDate = DeleteDates.BannerDate(at);
         DeleteBannerLeft = " · " + DeleteDates.Left(at, now);
-        var share = DeleteDates.ShareLeft(DeleteDates.Start(rule, at, now), at, now);
+        var arrived = Messages.FirstOrDefault(m => m.Id == timers[0].Id)?.Date ?? now;   // a removed rule: the bar runs from arrival
+        var share = DeleteDates.ShareLeft(DeleteDates.Start(rule, at, arrived), at, now);
         DeleteBarLeft = new System.Windows.GridLength(share, System.Windows.GridUnitType.Star);
         DeleteBarGone = new System.Windows.GridLength(1 - share, System.Windows.GridUnitType.Star);
         DeleteChipText = DeleteDates.Chip(at, now);
