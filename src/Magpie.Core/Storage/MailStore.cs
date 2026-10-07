@@ -32,7 +32,7 @@ public sealed partial class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 8;
+    public const int SchemaVersion = 9;
 
     public MailStore(string dbPath)
     {
@@ -150,6 +150,7 @@ public sealed partial class MailStore
               amount INTEGER NOT NULL DEFAULT 7, unit INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
             """);
         MigrateCalendar(c);   // design B2 (MailStore.Calendar.cs)
+        MigrateTrash(c);      // design TB1 (MailStore.Trash.cs)
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }
@@ -1406,6 +1407,13 @@ public sealed partial class MailStore
             ON CONFLICT(id) DO UPDATE SET pattern=$p, account_id=$a, otp=$o, amount=$n, unit=$u, paused=$z
             """, ("$id", rule.Id), ("$p", rule.Pattern), ("$a", rule.AccountId), ("$o", rule.Otp ? 1 : 0), ("$n", rule.Amount), ("$u", (int)rule.Unit),
             ("$z", rule.Paused ? 1 : 0), ("$c", rule.Created.ToUnixTimeMilliseconds()));
+    }
+
+    /// <summary>Emails timed by one rule now belong to another (two rules for one sender become one).</summary>
+    public void MoveDeleteTimers(string fromRuleId, string toRuleId)
+    {
+        using var c = Open();
+        Exec(c, "UPDATE messages SET delete_rule=$to WHERE delete_rule=$from", ("$to", toRuleId), ("$from", fromRuleId));
     }
 
     /// <summary>Removes a rule; <paramref name="clearTimers"/> also takes its timers off the emails that carry them.</summary>

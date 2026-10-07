@@ -177,6 +177,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _smartInbox;
     [ObservableProperty] private bool _markReadOnOpen;
     [ObservableProperty] private RemoteImages _remoteImages;
+    /// <summary>Design TB1 (T7): empty Trash by itself after 0 (never), 7 or 30 days.</summary>
+    [ObservableProperty] private int _emptyTrashAfterDays;
     [ObservableProperty] private int _undoSendSeconds;
     [ObservableProperty] private int _syncIntervalMinutes;
     [ObservableProperty] private bool _closeToTray;
@@ -346,6 +348,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Smart inbox", "General", "People · Notifications · Newsletters tabs", "smart inbox people newsletters categories tabs", "RowSmartInbox"),
         ("Mark as read when opened", "General", "Otherwise conversations stay unread", "read unread mark open", "RowMarkRead"),
         ("Pictures from the internet", "General", "Block remote images to stop tracking", "images pictures photos tracking privacy remote load", "RowImages"),
+        ("Empty Trash by itself", "General", "Delete what has been in Trash for 7 or 30 days", "trash bin empty delete forever days auto clean", "RowEmptyTrash"),
         ("Undo send", "General", "How long you can take a message back after pressing Send", "undo send cancel recall seconds send now", "RowUndo"),
         ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
@@ -648,6 +651,7 @@ public partial class SettingsViewModel : ObservableObject
         _smartInbox = c.SmartInbox;
         _markReadOnOpen = c.MarkReadOnOpen;
         _remoteImages = c.RemoteImages;
+        _emptyTrashAfterDays = c.EmptyTrashAfterDays;
         _undoSendSeconds = c.UndoSendSeconds;
         _syncIntervalMinutes = c.SyncIntervalMinutes;
         _closeToTray = c.CloseToTray;
@@ -842,6 +846,7 @@ public partial class SettingsViewModel : ObservableObject
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
         c.RemoteImages = RemoteImages;
+        c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;
         c.SyncIntervalMinutes = SyncIntervalMinutes;
         c.CloseToTray = CloseToTray;

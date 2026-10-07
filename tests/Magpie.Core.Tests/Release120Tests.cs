@@ -549,7 +549,7 @@ public class Release120Tests
         Assert.Equal(0, e.Store.CountDeletingSoon(DateTimeOffset.Now.AddYears(1)));           // existing mail untouched by default
         Assert.Equal(2, e.SaveAutoDeleteRule(rule, startOnExisting: true));
         var t = e.Store.DeleteTimers("A", "a1").Single();
-        Assert.True(t.At > DateTimeOffset.Now.AddDays(6));                                     // counted from now, not from 2 years ago
+        Assert.True(t.At < DateTimeOffset.Now);                                                // design DP1 (D7): counted from arrival, so it is due at once
         Assert.Equal((2, t.At), (e.Store.AutoDeleteStats()[rule.Id].Waiting, e.Store.AutoDeleteStats()[rule.Id].Next!.Value));
 
         e.RemoveAutoDeleteRule(rule.Id, clearTimers: false);

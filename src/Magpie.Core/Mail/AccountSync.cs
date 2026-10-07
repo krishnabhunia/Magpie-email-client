@@ -400,6 +400,8 @@ public sealed class AccountSync : IDisposable
     /// <summary>Returns rows newly added in this folder, and whether anything in it changed.</summary>
     private async Task<(List<MessageRow> added, bool changed)> SyncFolderAsync(ImapClient client, IMailFolder f, MailFolder local, bool full, CancellationToken ct)
     {
+        // Empty Trash / Spam waiting to reach the server (design TB1): don't list its emails again meanwhile.
+        if (_store.GetPendingOps(Account.Id).Any(o => o.Kind == PendingOpKind.EmptyFolder && o.FolderId == local.Id)) return (new List<MessageRow>(), false);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
@@ -982,9 +984,17 @@ public sealed class AccountSync : IDisposable
                     foreach (var op in group)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                         try
                         {
+                            if (op.Kind == PendingOpKind.EmptyFolder)
+                            {
+                                // Empty Trash / Spam (design TB1): everything there, also what isn't listed on this PC yet.
+                                await f.StoreAsync(UniqueIdRange.All, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+                                await f.ExpungeAsync(ct);
+                                _store.RemovePendingOp(op.Id);
+                                continue;
+                            }
+                            var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                             switch (op.Kind)
                             {
                                 case PendingOpKind.SetSeen: await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Seen) { Silent = true }, ct); break;
