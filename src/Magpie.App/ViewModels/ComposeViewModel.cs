@@ -448,6 +448,9 @@ public partial class ComposeViewModel : ObservableObject
         var k = Enum.TryParse<RewriteKind>(kind, out var parsed) ? parsed : RewriteKind.Custom;
         if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(CustomRewrite)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
         var text = SelectedText;
+        if (EditorCommand == null) return;
+        try { await EditorCommand("captureRewrite", text); }
+        catch (Exception ex) { AiError = ex.Message; return; }
         await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, CustomRewrite, onToken, ct));
     }
 
@@ -481,9 +484,13 @@ public partial class ComposeViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(AiPreview) || EditorCommand == null) return;
         var mode = PreviewKind == "rewrite" ? "replaceSelection" : how == "replace" ? "replaceBody" : "insert";
-        await EditorCommand(mode, AiPreview);
-        MarkEdited();
-        DiscardPreview();
+        try
+        {
+            await EditorCommand(mode, AiPreview);
+            MarkEdited();
+            DiscardPreview();
+        }
+        catch (Exception ex) { AiError = ex.Message; }
     }
 
     [RelayCommand]

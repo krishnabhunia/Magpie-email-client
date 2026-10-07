@@ -84,7 +84,16 @@ public sealed class GoogleCalendarClient
     /// <summary>Adds an event; returns it as Google saved it (with its id and Meet link).</summary>
     public async Task<CalendarEvent?> InsertAsync(CalendarEvent e, string myEmail, CancellationToken ct)
     {
-        var root = await SendAsync(HttpMethod.Post, $"calendars/{Uri.EscapeDataString(e.CalendarId)}/events?conferenceDataVersion=1&sendUpdates=all", ToJson(e, TimeZoneId()), ct);
+        if (e.CreationId.Length == 0) throw new InvalidOperationException("Save the event on this PC before uploading it.");
+        var body = ToJson(e, TimeZoneId());
+        body["id"] = e.CreationId;
+        JsonElement root;
+        try { root = await SendAsync(HttpMethod.Post, $"calendars/{Uri.EscapeDataString(e.CalendarId)}/events?conferenceDataVersion=1&sendUpdates=all", body, ct); }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // The earlier insert succeeded, but its reply never reached this PC.
+            root = await SendAsync(HttpMethod.Get, $"calendars/{Uri.EscapeDataString(e.CalendarId)}/events/{Uri.EscapeDataString(e.CreationId)}", null, ct);
+        }
         return Parse(root, e.AccountId, e.CalendarId, myEmail);
     }
 
@@ -208,7 +217,7 @@ public sealed class GoogleCalendarClient
             {
                 ["createRequest"] = new JsonObject
                 {
-                    ["requestId"] = Guid.NewGuid().ToString("N"),
+                    ["requestId"] = e.CreationId.Length > 0 ? e.CreationId : e.EventId,
                     ["conferenceSolutionKey"] = new JsonObject { ["type"] = "hangoutsMeet" },
                 },
             };

@@ -594,10 +594,27 @@ public partial class MainViewModel : ObservableObject
         Limit = limit,
     };
 
+    private const int ListPageSize = ListLimit;
+    private int _listLimit = ListPageSize;
+    private (string? NavKey, Category? Category, bool Unread, string? Search) _listScope;
+    private bool _hasMoreThreads;
+    private bool _loadingMoreThreads;
+
+    public void LoadMoreThreads()
+    {
+        if (!_hasMoreThreads || _reloading || _loadingMoreThreads) return;
+        _loadingMoreThreads = true;
+        try { _listLimit += ListPageSize; ReloadList(); }
+        finally { _loadingMoreThreads = false; }
+    }
+
     public void ReloadList()
     {
         var nav = Current;
         if (nav == null) return;
+        var scope = (nav.Key, Category, UnreadOnly, SearchText);
+        if (_listScope != scope) { _listScope = scope; _listLimit = ListPageSize; }
+        _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
         var keepKey = Selected?.Key;
 
@@ -627,7 +644,9 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            rows = _e.Store.ListThreads(QueryFor(nav, search, now, ListLimit), now);
+            rows = _e.Store.ListThreads(QueryFor(nav, search, now, _listLimit + 1), now);
+            _hasMoreThreads = rows.Count > _listLimit;
+            rows = rows.Take(_listLimit).ToList();
         }
 
         // Conversations a bulk action is about to remove (design H3: Undo still possible) are not shown.
@@ -1213,7 +1232,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Every conversation of the view is ticked, also those not loaded into the list (F12).</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(SelectionText), nameof(ShowSelectAllHint))] private bool _allInView;
-    /// <summary>How many conversations the view holds (the list shows up to <see cref="ListLimit"/>).</summary>
+    /// <summary>How many conversations the view holds (the list loads pages of <see cref="ListLimit"/>).</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ListCountText), nameof(ShowSelectAllHint), nameof(SelectAllLinkText), nameof(SelectionText))] private int _viewTotal;
     private ThreadItem? _rangeAnchor;
     private int _totalGen;

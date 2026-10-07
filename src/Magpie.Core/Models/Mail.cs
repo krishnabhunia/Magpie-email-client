@@ -186,6 +186,7 @@ public enum PendingOpKind { SetSeen, ClearSeen, SetFlagged, ClearFlagged, Move, 
 /// <summary>Server change recorded while applying it locally first (offline-first).</summary>
 public sealed class PendingOp
 {
+    public uint UidValidity { get; set; }
     public long Id { get; set; }
     public string AccountId { get; set; } = "";
     public long FolderId { get; set; }
