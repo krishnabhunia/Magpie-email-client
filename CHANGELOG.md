@@ -7,6 +7,13 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 5.0.0 (7 Oct 2026)
+### New
+- **See when an email will be deleted.** An email with an auto-delete timer says when it goes, in three places, and you choose how in **Settings → Appearance → Deletion dates**:
+  - **Pointing at an email in the list**: a line in the date's tooltip, a small card with **Keep this one**, **Change rule** and **Delete now**, or the row's tag growing to the full date and rule.
+  - **On the row**: a countdown pill coloured by how soon (red under 48 hours, amber under 30 days, grey later), the deletion date in place of the arrival date, a red edge with a clock and the days left, or a small ring that empties.
+  - **In the reading pane**: a banner with the full date and time, the rule, **Keep this one** / **Change rule** and a bar of the time left; a chip next to the subject; or the time on each email of the conversation.
+
 ## 4.0.0 (1 Oct 2026)
 ### New
 - **Tick boxes on every email row**, always there: click (or Space) ticks one, Shift+click ticks a range. The box above the list ticks everything on screen or nothing; **Ctrl+A** ticks all, **Esc** clears.

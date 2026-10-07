@@ -175,7 +175,7 @@ public partial class ThreadViewModel : ObservableObject
             IsPinned = rows.Any(r => r.IsFlagged);
             IsSnoozed = rows.Any(r => r.SnoozeUntil > DateTimeOffset.Now && r.SnoozeUntil < MessageRow.GateMark);   // not set aside, not at the door
             IsSetAside = rows.Any(r => r.IsSetAside);
-            RefreshDeleteBar();
+            RefreshDeleteBar(redraw: false);
             TagsText = latest.Tags.Replace(",", " · ");
             CanUnsubscribe = rows.Any(r => r.ListUnsubscribe.Length > 0);
             var folders = _e.Folders(AccountId).ToDictionary(f => f.Id);
@@ -375,8 +375,16 @@ public partial class ThreadViewModel : ObservableObject
             AccountKind.Microsoft => "Outlook",
             _ => account?.ImapHost is { Length: > 0 } h ? h : "the server",
         };
+        // Design DD1 (R3): each email of the conversation shows its own delete time.
+        var now = DateTimeOffset.Now;
+        var timers = _e.Config.Appearance.DeleteDates.Reader == "R3" && rows.Count > 0
+            ? _e.Store.DeleteTimers(accountId, rows[0].ThreadKey).ToDictionary(t => t.Id) : new();
+        var rules = timers.Count > 0 ? _e.AutoDeleteRules().ToDictionary(x => x.Id) : new();
         return rows.Select((r, i) => new RenderMessage
         {
+            DeleteNote = timers.TryGetValue(r.Id, out var t) ? DeleteDates.MessageNote(t.At, now) : null,
+            DeleteUrgency = timers.TryGetValue(r.Id, out var t2) ? AutoDelete.Urgency(t2.At, now, rules.GetValueOrDefault(t2.Rule)?.Otp == true) : DeleteUrgency.Later,
+            DeleteTip = timers.TryGetValue(r.Id, out var t3) ? DeleteDates.BannerDate(t3.At) + "\n" + DeleteDates.RuleLine(rules.GetValueOrDefault(t3.Rule)) : "",
             Row = r,
             Body = bodies.TryGetValue(r.Id, out var b) ? b.body : null,
             InlineImages = bodies.TryGetValue(r.Id, out var b2) ? b2.images : new(),
@@ -450,18 +458,47 @@ public partial class ThreadViewModel : ObservableObject
     [ObservableProperty] private string _deleteBarText = "";
     [ObservableProperty] private string _deleteRuleText = "";
     public string DeleteRuleId { get; private set; } = "";
+    // Design DD1: R1 banner with a countdown bar, R2 chip next to the subject (R3 is on the page itself).
+    [ObservableProperty] private bool _showDeleteBanner;
+    [ObservableProperty] private bool _showDeleteChip;
+    [ObservableProperty] private string _deleteBannerDate = "";
+    [ObservableProperty] private string _deleteBannerLeft = "";
+    [ObservableProperty] private string _deleteChipText = "";
+    [ObservableProperty] private string _deleteCardTitle = "";
+    [ObservableProperty] private System.Windows.Media.Brush? _deleteChipBg;
+    [ObservableProperty] private System.Windows.Media.Brush? _deleteChipFg;
+    [ObservableProperty] private System.Windows.GridLength _deleteBarLeft = new(0, System.Windows.GridUnitType.Star);
+    [ObservableProperty] private System.Windows.GridLength _deleteBarGone = new(1, System.Windows.GridUnitType.Star);
+    private string _deleteShown = "";
 
-    public void RefreshDeleteBar()
+    /// <summary>The bar / chip for the open conversation. <paramref name="redraw"/>: under R3 the page is drawn again when the
+    /// times (or the option) changed, since each email shows its own there; a load passes false (it draws anyway).</summary>
+    public void RefreshDeleteBar(bool redraw = true)
     {
         var timers = HasThread ? _e.Store.DeleteTimers(AccountId, ThreadKey) : new();
+        var look = _e.Config.Appearance.DeleteDates;
         HasDeleteTimer = timers.Count > 0;
+        ShowDeleteBanner = HasDeleteTimer && look.Reader == "R1";
+        ShowDeleteChip = HasDeleteTimer && look.Reader == "R2";
+        var shown = look.Reader + (look.Reader == "R3" ? "|" + string.Join(",", timers.Select(t => t.Id + ":" + t.At.ToUnixTimeSeconds())) : "");
+        var changed = shown != _deleteShown;
+        _deleteShown = shown;
+        if (redraw && changed && HasThread) Redraw();
         if (!HasDeleteTimer) { DeleteBarText = DeleteRuleText = DeleteRuleId = ""; return; }
         var (_, at, ruleId) = timers[0];
+        var now = DateTimeOffset.Now;
         DeleteRuleId = ruleId;
-        DeleteBarText = AutoDelete.BarText(at, DateTimeOffset.Now);
+        DeleteBarText = AutoDelete.BarText(at, now);
         var rule = _e.AutoDeleteRules().FirstOrDefault(r => r.Id == ruleId);
-        DeleteRuleText = rule == null ? "Rule: removed (this email keeps its date)"
-            : $"Rule: {AutoDelete.Who(rule.Pattern)} · {AutoDelete.Describe(rule)}" + (rule.Paused ? " · paused" : "");
+        DeleteRuleText = DeleteDates.RuleLine(rule);
+        DeleteBannerDate = DeleteDates.BannerDate(at);
+        DeleteBannerLeft = " · " + DeleteDates.Left(at, now);
+        var share = DeleteDates.ShareLeft(DeleteDates.Start(rule, at, now), at, now);
+        DeleteBarLeft = new System.Windows.GridLength(share, System.Windows.GridUnitType.Star);
+        DeleteBarGone = new System.Windows.GridLength(1 - share, System.Windows.GridUnitType.Star);
+        DeleteChipText = DeleteDates.Chip(at, now);
+        DeleteCardTitle = DeleteDates.CardTitle(at, now);
+        (DeleteChipBg, DeleteChipFg) = Views.AutoDeleteDialog.TagColours(AutoDelete.Urgency(at, now, rule?.Otp == true));
     }
 
     /// <summary>"Keep this one": the timer comes off this conversation only (pinning keeps it too).</summary>

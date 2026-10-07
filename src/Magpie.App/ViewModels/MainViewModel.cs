@@ -97,14 +97,31 @@ public sealed partial class ThreadItem : ObservableObject
         Tags = m.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
         TagChips = Tags.Select(TagChip.For).ToList();
         // Auto-delete tag (design AD3): red under 48 h (and every OTP), amber under 30 days, grey later; pinned = kept.
+        DateTip = m.Date.LocalDateTime.ToString("dddd d MMMM yyyy, HH:mm");
         if (row.DeleteAt is { } at && !row.Flagged)
         {
             var rule = DeleteRules.GetValueOrDefault(row.DeleteRule);
             var otp = rule?.Otp == true;
-            DeleteTag = AutoDelete.TagText(at, now, otp);
+            var look = Look;
+            DeleteRuleId = row.DeleteRule;
+            DeleteAt = at;
             (DeleteTagBg, DeleteTagFg) = Views.AutoDeleteDialog.TagColours(AutoDelete.Urgency(at, now, otp));
-            DeleteTagTip = (rule == null ? "Its rule was removed" : $"Rule: {AutoDelete.Who(rule.Pattern)} · {AutoDelete.Describe(rule)}")
-                           + $"\nMoves to Trash {at.ToLocalTime():d MMM yyyy, HH:mm}";
+            DeleteTagTip = DeleteDates.RuleLine(rule) + $"\nMoves to Trash {at.ToLocalTime():d MMM yyyy, HH:mm}";
+            // Design DD1, on the row: L1 countdown pill; L2 the date becomes the delete date; L3 red edge + clock; L4 ring.
+            DeleteTag = DeleteDates.Left(at, now);
+            DeleteTagLong = DeleteDates.LongTag(at, now, rule);
+            ShowPill = look.List == "L1";
+            GrowPill = look.Hover == "H3";
+            ShowDeleteDay = look.List == "L2";
+            DeleteDay = DeleteDates.Day(at, now);
+            ShowEdge = look.List == "L3";
+            ShowRing = look.List == "L4";
+            DeleteShort = DeleteDates.Short(at, now);
+            if (ShowRing) RingGeometry = Ring(DeleteDates.ShareLeft(DeleteDates.Start(rule, at, m.Date), at, now));
+            // Pointing at the row: H1 adds the date and rule to the date's tooltip; H2 opens a card (MainWindow).
+            if (look.Hover == "H1") DateTip = DeleteDates.Tooltip(m.Date, at, now, rule);
+            DeleteCardTitle = DeleteDates.CardTitle(at, now);
+            DeleteCardRule = DeleteDates.RuleLine(rule);
         }
         // Coloured initials (design C1): the other person's, stable per address.
         var who = mine ? FirstRecipient(m.To) : m.Sender;
@@ -138,12 +155,49 @@ public sealed partial class ThreadItem : ObservableObject
 
     /// <summary>Auto-delete rules by id, for the row tags' colours and hover text (refreshed when the list reloads).</summary>
     public static Dictionary<string, AutoDeleteRule> DeleteRules { get; set; } = new();
+    /// <summary>Design DD1: the option chosen in Settings → Appearance → Deletion dates (refreshed when the list reloads).</summary>
+    public static DeleteDateLook Look { get; set; } = new();
     public string DeleteTag { get; } = "";
     public System.Windows.Media.Brush? DeleteTagBg { get; }
     public System.Windows.Media.Brush? DeleteTagFg { get; }
     public string DeleteTagTip { get; } = "";
     public bool HasDeleteTag => DeleteTag.Length > 0;
-    public bool HasTagLine => TagChips.Count > 0 || HasDeleteTag;
+    public DateTimeOffset? DeleteAt { get; }
+    public string DeleteRuleId { get; } = "";
+    /// <summary>L1: the countdown pill on the tag line.</summary>
+    public bool ShowPill { get; }
+    /// <summary>H3: the pill shows the full date and rule while the mouse is on the row (and appears then under L2–L4).</summary>
+    public bool GrowPill { get; }
+    public string DeleteTagLong { get; } = "";
+    /// <summary>L2: the date spot shows the delete day; the arrival date moves to the subject line.</summary>
+    public bool ShowDeleteDay { get; }
+    public string DeleteDay { get; } = "";
+    /// <summary>L3: red strip on the row's left edge, a clock after the sender, the time left under the date.</summary>
+    public bool ShowEdge { get; }
+    /// <summary>L4: a ring that empties, next to the sender.</summary>
+    public bool ShowRing { get; }
+    public System.Windows.Media.Geometry? RingGeometry { get; }
+    public string DeleteShort { get; } = "";
+    /// <summary>H2: the card's two lines.</summary>
+    public string DeleteCardTitle { get; } = "";
+    public string DeleteCardRule { get; } = "";
+    public bool HasTagLine => TagChips.Count > 0 || ShowPill || (GrowPill && HasDeleteTag);
+    public string DateSlotText => ShowDeleteDay ? DeleteDay : DateText;
+
+    /// <summary>L4: the filled part of a 14 px ring, clockwise from 12 o'clock, for the share of time left.</summary>
+    private static System.Windows.Media.Geometry? Ring(double share)
+    {
+        if (share <= 0.001) return null;
+        const double c = 7, r = 5.5;
+        if (share >= 0.999) return new System.Windows.Media.EllipseGeometry(new System.Windows.Point(c, c), r, r);
+        var a = share * 2 * Math.PI;
+        var end = new System.Windows.Point(c + r * Math.Sin(a), c - r * Math.Cos(a));
+        var fig = new System.Windows.Media.PathFigure { StartPoint = new System.Windows.Point(c, c - r), IsClosed = false };
+        fig.Segments.Add(new System.Windows.Media.ArcSegment(end, new System.Windows.Size(r, r), 0, share > 0.5, System.Windows.Media.SweepDirection.Clockwise, true));
+        var g = new System.Windows.Media.PathGeometry(new[] { fig });
+        g.Freeze();
+        return g;
+    }
 
     private static string FirstRecipient(string to)
     {
@@ -155,8 +209,8 @@ public sealed partial class ThreadItem : ObservableObject
     public string Subject => string.IsNullOrWhiteSpace(Row.Latest.Subject) ? "(no subject)" : Row.Latest.Subject;
     public string Preview => Row.Latest.Preview;
     public string DateText { get; }
-    /// <summary>Design RB4: the full date, on hover (the row buttons take the date's place).</summary>
-    public string DateTip => Row.Latest.Date.LocalDateTime.ToString("dddd d MMMM yyyy, HH:mm");
+    /// <summary>Design RB4: the full date, on hover (the row buttons take the date's place); DD1 H1 adds the delete date.</summary>
+    public string DateTip { get; }
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
     public bool HasAttachments => Row.HasAttachments;
@@ -322,6 +376,8 @@ public partial class MainViewModel : ObservableObject
     }
     public bool HasAccounts => _e.Accounts.Count > 0;
 
+    private string _deleteLook = AppServices.Engine.Config.Appearance.DeleteDates.ToString();
+
     public MainViewModel()
     {
         if (!_e.Config.SmartInbox) _category = null;
@@ -338,6 +394,9 @@ public partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowCategories));
             Reader.RefreshAiVisibility();
             BuildNav();
+            // Design DD1: another option for the deletion dates shows at once.
+            var look = _e.Config.Appearance.DeleteDates.ToString();
+            if (look != _deleteLook) { _deleteLook = look; _reload.Run(ReloadList); Reader.RefreshDeleteBar(); }
         });
         ThemeManager.Changed += () => { BuildNav(); _reload.Run(ReloadList); Reader.Redraw(); };
         _e.GateChanged += () => Ui.Post(RefreshGate);
@@ -634,6 +693,7 @@ public partial class MainViewModel : ObservableObject
         if (_pendingBulk != null) rows = rows.Where(r => !_pendingBulk.Keys.Contains(r.AccountId + "|" + r.ThreadKey)).ToList();
         var multi = _e.Accounts.Count > 1;
         ThreadItem.DeleteRules = _e.AutoDeleteRules().ToDictionary(r => r.Id);
+        ThreadItem.Look = _e.Config.Appearance.DeleteDates;
         var checkedKeys = Threads.Where(t => t.IsChecked).Select(t => t.Key).ToHashSet();
         var items = rows.Select(r =>
         {
