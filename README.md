@@ -3,7 +3,7 @@
 A Windows email client that combines the power features of **eM Client** with the calm, smart inbox of **Spark** —
 local-first, with optional AI you control from one Settings page.
 
-**Version 4.0.1** · C# / .NET 8 / WPF · installer or single-file `Magpie.exe` from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) · updates itself from GitHub
+**Version 4.0.2** · C# / .NET 8 / WPF · installer or single-file `Magpie.exe` from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) · updates itself from GitHub
 
 ## Features
 

@@ -149,7 +149,12 @@ public sealed class AccountSync : IDisposable
         _ui = new ImapLease(ct => _connector.OpenImapAsync(Account, ct));
     }
 
-    public void UpdateAccount(Account a) => Account = a;
+    public void UpdateAccount(Account a)
+    {
+        Account = a;
+        _windowPending = true;
+        Poke(); // A larger download window starts now, rather than waiting for the next five-minute check.
+    }
 
     public void Start()
     {
@@ -786,6 +791,7 @@ public sealed class AccountSync : IDisposable
     /// </summary>
     private async Task FetchBodiesAsync(ImapClient client, MailFolder folder, List<MessageRow> rows, CancellationToken ct)
     {
+        rows = rows.Where(r => _store.GetBody(r.Id) is not { } body || MimeText.NeedsDownload(body)).ToList();
         if (rows.Count == 0) return;
         var f = await client.GetFolderAsync(folder.Path, ct);
         await f.OpenAsync(FolderAccess.ReadOnly, ct);
@@ -899,8 +905,22 @@ public sealed class AccountSync : IDisposable
     /// on the reading connection — whole when attachments come with emails (or it is small), else just its text and
     /// pictures (a 20 MB attachment isn't downloaded to show a few lines). Returns the saved body.
     /// </summary>
+    private readonly Caching.SharedWork<long, MessageBody?> _bodyDownloads = new();
+
     public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+        var saved = _store.GetBody(row.Id);
+        if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
+        // Changing selection cancels that reader's wait, not a shared download that should finish saving to disk.
+        return await _bodyDownloads.RunAsync(row.Id,
+            () => FetchBodyCoreAsync(row, _cts?.Token ?? CancellationToken.None), ct);
+    }
+
+    private async Task<MessageBody?> FetchBodyCoreAsync(MessageRow row, CancellationToken ct)
+    {
+        var saved = _store.GetBody(row.Id);
+        if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
         if (await LocalMimeAsync(row, ct) is { } local)
         {
             SaveBody(row, local, writeFile: false);

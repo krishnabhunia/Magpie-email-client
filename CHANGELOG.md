@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 4.0.2 (7 Oct 2026)
+### Fixed
+- Opening saved emails uses this PC first. Switching between recently opened conversations reuses their text, prepared pages and rendered views without showing a loading page again.
+- The 90-day download window keeps filling in the background. Switching selection keeps shared downloads saving to disk, and changing the download window starts the new work at once.
+- Reader memory stays bounded, changed messages and image permissions refresh correctly, and modern calendar attachments no longer trigger unnecessary full-message reads.
+
 ## 4.0.1 (7 Oct 2026)
 ### Fixed
 - Existing files in a chosen mail folder stay intact unless replacement is explicitly chosen. Interrupted backup writes no longer block startup.

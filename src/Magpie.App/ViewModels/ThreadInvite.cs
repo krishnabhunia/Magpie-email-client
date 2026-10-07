@@ -49,7 +49,7 @@ public partial class ThreadViewModel
             var body = bodies.TryGetValue(r.Id, out var b) ? b.body : null;
             var ics = body?.Calendar ?? "";
             // Bodies saved before 1.2.0 don't keep the invite: read it from the saved message when it came as a file.
-            if (ics.Length == 0 && body?.Attachments.Any(a => a.ContentType.Contains("calendar", StringComparison.OrdinalIgnoreCase)
+            if (ics.Length == 0 && body is { ImagesComplete: false } && body.Attachments.Any(a => a.ContentType.Contains("calendar", StringComparison.OrdinalIgnoreCase)
                     || a.FileName.EndsWith(".ics", StringComparison.OrdinalIgnoreCase)) == true)
             {
                 try

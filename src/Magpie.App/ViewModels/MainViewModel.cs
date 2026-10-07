@@ -921,7 +921,7 @@ public partial class MainViewModel : ObservableObject
         }
         // Q38: the next three conversations and the one above get ready while this one is read.
         var i = Threads.IndexOf(value);
-        Reader.Neighbours = new[] { i + 1, i + 2, i + 3, i - 1 }
+        Reader.Neighbours = new[] { i + 1, i - 1, i + 2, i - 2, i + 3, i - 3, i + 4, i + 5 }
             .Where(j => j >= 0 && j < Threads.Count && Threads[j].LocalDraftId == null)
             .Select(j => Threads[j].Row).ToList();
         Reader.Show(value.Row, this);
