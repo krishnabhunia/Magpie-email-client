@@ -336,6 +336,50 @@ public sealed class MailEngine : IDisposable
     public void MoveTo(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, MailFolder dest) =>
         MoveCopies(accountId, threadKey, fromFolders.Where(f => f != dest.Id).ToList(), dest);
 
+    // ───────────────────────── delete for good (design DX1-A: Shift+Delete, "Delete forever…") ─────────────────────────
+
+    /// <summary>
+    /// The emails that <see cref="DeleteForeverAsync"/> would remove: those of the conversations in <paramref name="inFolders"/>
+    /// (the folders of the current view), and every other copy of each of them (same Message-ID in any folder of the account).
+    /// </summary>
+    public List<MessageRow> CopiesToDeleteForever(string accountId, IEnumerable<string> threadKeys, IReadOnlyCollection<long> inFolders)
+    {
+        var seen = new HashSet<long>();
+        var list = new List<MessageRow>();
+        foreach (var key in threadKeys.Distinct())
+            foreach (var m in Store.GetThreadCopies(accountId, key).Where(m => inFolders.Contains(m.FolderId)))
+                foreach (var copy in Store.CopiesOf(m))
+                    if (seen.Add(copy.Id)) list.Add(copy);
+        return list;
+    }
+
+    /// <summary>How many emails (copies of one counted once) a delete for good would take — the number in the question.</summary>
+    public int CountDeleteForever(string accountId, IEnumerable<string> threadKeys, IReadOnlyCollection<long> inFolders) =>
+        AutoDelete.PastEmails.Of(CopiesToDeleteForever(accountId, threadKeys, inFolders)).Count;
+
+    /// <summary>
+    /// Deletes for good, skipping Trash (design DX1-A): every copy of each email goes (\Deleted + expunge on the server, queued),
+    /// the rows leave this PC at once, and there is no undo. Pinned emails go too — the user confirmed this one by hand.
+    /// Returns how many emails (copies of one counted once) were deleted.
+    /// </summary>
+    public Task<int> DeleteForeverAsync(string accountId, IEnumerable<string> threadKeys, IReadOnlyCollection<long> inFolders)
+    {
+        var copies = CopiesToDeleteForever(accountId, threadKeys, inFolders);
+        if (copies.Count == 0) return Task.FromResult(0);
+        var touched = new HashSet<long>();
+        foreach (var m in copies)
+        {
+            Queue(m, PendingOpKind.Delete);
+            Store.DeleteRow(m.Id);
+            touched.Add(m.FolderId);
+        }
+        Store.ForgetTrashed(accountId, copies.Select(m => m.MessageId));
+        var n = AutoDelete.PastEmails.Of(copies).Count;
+        Log.Info($"deleted for good: {n} email(s) ({copies.Count} copies) in {AccountById(accountId)?.Email ?? accountId}, skipping Trash");
+        Touched(accountId, touched);
+        return Task.FromResult(n);
+    }
+
     // ───────────────────────── Trash and Spam (design TB1) ─────────────────────────
 
     private DateTimeOffset _lastAutoEmpty = DateTimeOffset.MinValue;
@@ -718,13 +762,22 @@ public sealed class MailEngine : IDisposable
         }
         if (rule.Actions.Any(a => a.Kind == RuleActionKind.Delete))
         {
+            // Design DX1-A: every copy of the email goes to Trash (same Message-ID in any folder), so a Gmail email does
+            // not linger in All Mail with only its Inbox label gone.
             var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
-            if (trash?.Id == m.FolderId) return false;
-            if (trash == null) Queue(m, PendingOpKind.Delete); else Queue(m, PendingOpKind.Move, trash.Id);
-            Store.DeleteRow(m.Id);
-            touched.Add(m.FolderId);
-            quiet.Add(m.Id);
-            return true;
+            var all = m.MessageId.Length > 0 ? Store.CopiesOf(m) : new List<MessageRow> { m };
+            var left = false;
+            if (trash != null) Store.RecordTrashed(all.Where(r => r.FolderId != trash.Id), DateTimeOffset.Now);
+            foreach (var r in all)
+            {
+                if (trash?.Id == r.FolderId) continue;
+                if (trash == null) Queue(r, PendingOpKind.Delete); else Queue(r, PendingOpKind.Move, trash.Id);
+                Store.DeleteRow(r.Id);
+                touched.Add(r.FolderId);
+                if (r.Id == m.Id) left = true;
+            }
+            if (left) quiet.Add(m.Id);
+            return left;
         }
         var move = rule.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.MoveToFolder && a.Target.Trim().Length > 0);
         if (move != null)
@@ -801,15 +854,73 @@ public sealed class MailEngine : IDisposable
 
     // ───────────────────────── emails already here (design DP1) ─────────────────────────
 
-    /// <summary>D2–D4: the emails already here from an address or "*@domain", in every account and folder except Trash,
-    /// Spam, Sent and Drafts; pinned ones are kept. <paramref name="olderThan"/> keeps only those that arrived before it.</summary>
-    public AutoDelete.PastEmails PastFrom(string pattern, DateTimeOffset? olderThan = null)
+    /// <summary>D2–D4: the emails already here from an address or "*@domain", in every folder except Trash, Spam, Sent and
+    /// Drafts; pinned ones are kept. <paramref name="olderThan"/> keeps only those that arrived before it;
+    /// <paramref name="accountId"/> "" (or null) = every account (design DX1).</summary>
+    public AutoDelete.PastEmails PastFrom(string pattern, DateTimeOffset? olderThan = null, string? accountId = null)
     {
         var p = AutoDelete.NormalisePattern(pattern);
         if (p == null) return AutoDelete.PastEmails.Of(Array.Empty<MessageRow>());
-        var folders = Store.GetFolders().Where(f => f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Sent or FolderRole.Drafts)).Select(f => f.Id).ToList();
-        var rows = Store.MessagesFrom(folders, p).Where(m => !m.IsFlagged && (olderThan == null || m.Date < olderThan)).ToList();
+        var rows = Store.MessagesFrom(PastFolders(accountId), p).Where(m => !m.IsFlagged && (olderThan == null || m.Date < olderThan)).ToList();
         return AutoDelete.PastEmails.Of(rows);
+    }
+
+    /// <summary>The folders a "delete emails from…" covers: everything except Trash, Spam, Sent and Drafts (design DX1).</summary>
+    private List<long> PastFolders(string? accountId) =>
+        Store.GetFolders(string.IsNullOrEmpty(accountId) ? null : accountId)
+            .Where(f => (string.IsNullOrEmpty(accountId) || f.AccountId == accountId) && f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Sent or FolderRole.Drafts))
+            .Select(f => f.Id).ToList();
+
+    /// <summary>The counts the "Delete emails from…" dialog shows (design DX1-B1): all the emails already here from the
+    /// sender, how many of them are older than <paramref name="olderThan"/> (all, when null) and the oldest of those.</summary>
+    public AutoDelete.PastSummary PastSummary(string pattern, string? accountId, DateTimeOffset? olderThan)
+    {
+        var all = PastFrom(pattern, null, accountId);
+        if (olderThan == null) return new AutoDelete.PastSummary(all.Count, all.Count, all.Oldest);
+        var older = AutoDelete.PastEmails.Of(all.Rows.Where(m => m.Date < olderThan).ToList());
+        return new AutoDelete.PastSummary(all.Count, older.Count, older.Oldest);
+    }
+
+    /// <summary>
+    /// One run of the "Delete emails from…" dialog (design DX1-B1). PAST: the emails older than the kept period are listed
+    /// in the result for the caller to trash after its undo wait (<see cref="TrashEmails"/>). FUTURE: the one rule for the
+    /// sender and account is created or updated, and the emails already here that are not yet past the time get their
+    /// timer (counted from arrival) — in every folder PAST covers, not the Inbox only. Those already past the time are left
+    /// alone unless PAST is on: that tick is the only thing that deletes now.
+    /// </summary>
+    public AutoDelete.DeleteFromResult ApplyDeleteFrom(AutoDelete.DeleteFromRequest req, DateTimeOffset now)
+    {
+        var pattern = AutoDelete.NormalisePattern(req.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
+        var accountId = req.AccountId ?? "";
+        var cut = req.KeepNothing ? (DateTimeOffset?)null : AutoDelete.KeepSince(req.Otp, req.Amount, req.Unit, now);
+        var past = req.Past ? PastFrom(pattern, cut, accountId) : AutoDelete.PastEmails.Of(Array.Empty<MessageRow>());
+        AutoDeleteRule? rule = null;
+        var isNew = false;
+        var timers = 0;
+        if (req.Future && !req.KeepNothing)
+        {
+            var rules = Store.GetAutoDeleteRules();
+            var existing = rules.FirstOrDefault(r => r.Id == req.RuleId) ?? rules.FirstOrDefault(r => r.Pattern == pattern && r.AccountId == accountId);
+            rule = new AutoDeleteRule
+            {
+                Id = existing?.Id ?? Guid.NewGuid().ToString("N"), Pattern = pattern, AccountId = accountId, Otp = req.Otp,
+                Amount = Math.Clamp(req.Amount, 1, 100), Unit = req.Unit, Paused = existing?.Paused ?? false, Created = existing?.Created ?? now,
+            };
+            isNew = existing == null;
+            SaveAutoDeleteRule(rule, startOnExisting: false);
+            if (!rule.Paused && (req.Past || req.StartOnExisting))
+            {
+                var r = rule;
+                timers = Store.SetDeleteTimers(ExistingFor(r).Select(m => (m.Id, AutoDelete.DeleteAt(r, m.Date < now ? m.Date : now)))
+                    .Where(t => t.Item2 > now), r.Id);
+                if (timers > 0) AutoDeleteTouched(accountId.Length == 0 ? null : accountId);
+            }
+        }
+        var what = req.KeepNothing ? "all" : "older than " + AutoDelete.KeepLabel(req.Otp, req.Amount, req.Unit);
+        Log.Info($"delete emails from {pattern}" + (accountId.Length > 0 ? $" ({AccountById(accountId)?.Email ?? accountId})" : "") + ": "
+                 + (req.Past ? $"{past.Count} {what} to Trash" : "none now")
+                 + (rule != null ? $"; rule {(isNew ? "created" : "updated")} ({AutoDelete.Describe(rule)}), {timers} already here timed" : "; no rule"));
+        return new AutoDelete.DeleteFromResult(past, rule, isNew, timers);
     }
 
     /// <summary>Moves these emails (one by one, not whole conversations) to Trash; in accounts without Trash they are deleted.</summary>
@@ -836,13 +947,14 @@ public sealed class MailEngine : IDisposable
         return rows.Count;
     }
 
-    /// <summary>Emails already in the Inbox (not pinned) that a rule would put a timer on.</summary>
+    /// <summary>Emails already here (not pinned) that a rule would put a timer on: the same folders as <see cref="PastFrom"/>
+    /// — everything except Trash, Spam, Sent and Drafts (design DX1; the Inbox only before 5.0.0).</summary>
     public List<MessageRow> ExistingFor(AutoDeleteRule rule)
     {
         var pattern = AutoDelete.NormalisePattern(rule.Pattern);
         if (pattern == null) return new();
         return Accounts.Where(a => AutoDelete.AppliesToAccount(rule, a.Id))
-            .SelectMany(a => Store.MessagesFrom(FolderIds(FolderRole.Inbox, a.Id), pattern))
+            .SelectMany(a => Store.MessagesFrom(PastFolders(a.Id), pattern))
             .Where(m => !m.IsFlagged).ToList();
     }
 
@@ -924,7 +1036,7 @@ public sealed class MailEngine : IDisposable
         foreach (var a in Accounts.Where(a => accountId == null || a.Id == accountId))
         {
             var cs = new ChangeSet { AccountId = a.Id };
-            foreach (var f in FolderIds(FolderRole.Inbox, a.Id)) cs.FolderIds.Add(f);
+            foreach (var f in PastFolders(a.Id)) cs.FolderIds.Add(f);   // a timer can sit in any folder a rule covers (design DX1)
             Changed?.Invoke(cs);
         }
         AutoDeleteChanged?.Invoke();

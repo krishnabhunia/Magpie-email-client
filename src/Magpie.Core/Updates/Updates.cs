@@ -56,6 +56,45 @@ public sealed class AppVersion : IComparable<AppVersion>
     public override int GetHashCode() => HashCode.Combine(Major, Minor, Patch, Pre);
 }
 
+/// <summary>The words on the title-bar Update button (design UB1); kept here so they can be tested without WPF.</summary>
+public static class UpdateText
+{
+    /// <summary>"just now", "5 min ago", "2 h ago", "yesterday", "3 days ago" — or "not checked yet".</summary>
+    public static string CheckedAgo(DateTimeOffset? lastCheck, DateTimeOffset now)
+    {
+        if (lastCheck is not { } last) return "not checked yet";
+        var ago = now - last;
+        if (ago < TimeSpan.FromMinutes(1)) return "checked just now";
+        if (ago < TimeSpan.FromHours(1)) return $"checked {(int)ago.TotalMinutes} min ago";
+        if (ago < TimeSpan.FromHours(36)) return $"checked {(int)ago.TotalHours} h ago";
+        var days = (int)Math.Round(ago.TotalDays);
+        return days <= 1 ? "checked yesterday" : $"checked {days} days ago";
+    }
+
+    /// <summary>
+    /// The button: state is "idle", "checking", "uptodate", "available", "downloading", "ready" or "error".
+    /// </summary>
+    public static string ButtonText(string state, string newVersion, double progress) => state switch
+    {
+        "checking" => "Checking…",
+        "available" => $"Update {newVersion}",
+        "downloading" => $"Downloading · {progress:P0}",
+        "ready" => "Restart to update",
+        _ => "Update",
+    };
+
+    /// <summary>The tooltip: "Magpie 4.0.2 is up to date · checked 2 h ago · click to check now", or what the button does now.</summary>
+    public static string ButtonTip(string state, string current, string newVersion, DateTimeOffset? lastCheck, DateTimeOffset now) => state switch
+    {
+        "checking" => "Looking for a newer version on GitHub…",
+        "available" => $"Magpie {newVersion} is available · click to see what's new",
+        "downloading" => $"Downloading Magpie {newVersion} · click for details",
+        "ready" => $"Magpie {newVersion} is ready · click to restart into it",
+        "error" => "The last check didn't work · click to try again",
+        _ => $"Magpie {current} is up to date · {CheckedAgo(lastCheck, now)} · click to check now",
+    };
+}
+
 /// <summary>One GitHub release that carries Magpie.exe and its SHA-256 file.</summary>
 public sealed class ReleaseInfo
 {

@@ -151,4 +151,105 @@ public static class AutoDelete
     /// <summary>"Next email arriving today would be deleted on …" (the AD1 submenu).</summary>
     public static string NextArrivalLine(int amount, DeleteUnit unit, DateTimeOffset now) =>
         "Next email arriving today would be deleted on " + DeleteAt(new AutoDeleteRule { Amount = amount, Unit = unit }, now).ToLocalTime().ToString("d MMM yyyy");
+
+    // ───────────────────────── "Delete emails from…" (design DX1-B1) ─────────────────────────
+
+    /// <summary>The KEEP THE LAST chips shown first; "More…" reveals the rest of <see cref="Choices"/>.</summary>
+    public static readonly (int Amount, DeleteUnit Unit)[] KeepChoices =
+    {
+        (1, DeleteUnit.Days), (3, DeleteUnit.Days), (7, DeleteUnit.Days), (14, DeleteUnit.Days),
+        (1, DeleteUnit.Months), (3, DeleteUnit.Months), (6, DeleteUnit.Months), (12, DeleteUnit.Months),
+    };
+
+    /// <summary>"1 week" / "2 weeks" / "1 year" / "3 days" / "24 hours" (OTP): the period as a chip reads it.</summary>
+    public static string KeepLabel(bool otp, int amount, DeleteUnit unit) => otp ? "24 hours" : (amount, unit) switch
+    {
+        (7, DeleteUnit.Days) => "1 week",
+        (14, DeleteUnit.Days) => "2 weeks",
+        (12, DeleteUnit.Months) => "1 year",
+        _ => After(amount, unit),
+    };
+
+    /// <summary>Emails that arrived before this are "older than the kept period" (the mirror of <see cref="DeleteAt"/>).</summary>
+    public static DateTimeOffset KeepSince(bool otp, int amount, DeleteUnit unit, DateTimeOffset now) => otp ? now.AddHours(-24) : unit switch
+    {
+        DeleteUnit.Months => now.AddMonths(-amount),
+        DeleteUnit.Years => now.AddYears(-amount),
+        _ => now.AddDays(-amount),
+    };
+
+    /// <summary>The counts under "Emails already here": all from the sender, those older than the kept period, the oldest of those.</summary>
+    public sealed record PastSummary(int Total, int Older, DateTimeOffset? Oldest)
+    {
+        public int Kept => Math.Max(0, Total - Older);
+    }
+
+    /// <summary>What the dialog asks for in one run.</summary>
+    public sealed class DeleteFromRequest
+    {
+        public string Pattern { get; set; } = "";
+        /// <summary>"" = all accounts.</summary>
+        public string AccountId { get; set; } = "";
+        /// <summary>"Emails already here": those older than the kept period go to Trash (after the undo wait).</summary>
+        public bool Past { get; set; }
+        /// <summary>"Emails that arrive later": an auto-delete rule.</summary>
+        public bool Future { get; set; }
+        /// <summary>KEEP THE LAST = Nothing: every past email goes; no rule.</summary>
+        public bool KeepNothing { get; set; }
+        public bool Otp { get; set; }
+        public int Amount { get; set; } = 7;
+        public DeleteUnit Unit { get; set; } = DeleteUnit.Days;
+        /// <summary>The rule being changed, when editing one.</summary>
+        public string? RuleId { get; set; }
+        /// <summary>With FUTURE and PAST off: whether the emails already here (not yet past the time) get the timer — AppSettings.AutoDeleteIncludePast.</summary>
+        public bool StartOnExisting { get; set; } = true;
+    }
+
+    /// <summary>What one run did: the past emails to trash (after the undo wait), the rule (new or updated) and the timers set.</summary>
+    public sealed record DeleteFromResult(PastEmails Past, AutoDeleteRule? Rule, bool RuleIsNew, int TimersSet);
+
+    /// <summary>The red button: "Delete 212 now" / "Create rule" / "Delete 212 now and keep deleting"; "" = nothing to do.</summary>
+    public static string ButtonText(bool past, bool future, int pastCount, bool editing = false) => (past, future) switch
+    {
+        (true, true) => $"Delete {pastCount:#,0} now and keep deleting",
+        (true, false) => $"Delete {pastCount:#,0} now",
+        (false, true) => editing ? "Save rule" : "Create rule",
+        _ => "",
+    };
+
+    /// <summary>The line after "Emails already here —".</summary>
+    public static string PastLine(PastSummary s, bool keepNothing, string keepLabel)
+    {
+        var oldest = s.Oldest is { } o ? $" (oldest {o.ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)})" : "";
+        if (keepNothing)
+            return s.Total == 0 ? "none here now. Pinned ones, Sent and Drafts are never deleted."
+                : $"delete all {s.Total:#,0} now{oldest}. Keeps pinned ones, Sent and Drafts.";
+        var keeps = $"Keeps {s.Kept:#,0} from the last {keepLabel}, pinned ones, Sent and Drafts.";
+        return s.Older == 0 ? $"none older than {keepLabel} here now. {keeps}"
+            : $"delete the {s.Older:#,0} older than {keepLabel} now{oldest}. {keeps}";
+    }
+
+    /// <summary>The line after "Emails that arrive later —".</summary>
+    public static string FutureLine(string keepLabel) =>
+        $"delete each one {keepLabel} after it arrives (an auto-delete rule you can pause or remove in Settings → Rules).";
+
+    /// <summary>"Next email from X arriving today 14:30 would be deleted on 14 Oct 2026, 14:30" (the tag is shown next to it).</summary>
+    public static string PreviewLine(string pattern, AutoDeleteRule rule, DateTimeOffset now)
+    {
+        var at = DeleteAt(rule, now).ToLocalTime();
+        var who = pattern.Length > 0 ? pattern : "this sender";
+        return $"Next email from {who} arriving today {now.ToLocalTime():HH:mm} would be deleted on {at.ToString("d MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture)} and carry the tag";
+    }
+
+    /// <summary>The toast after a run: "Deleting 212 emails from *@xyz.com" / "Emails from x will be deleted 1 week after they arrive".</summary>
+    public static string ToastText(string pattern, DeleteFromResult r)
+    {
+        var later = r.Rule == null ? "" : $"new ones go {KeepLabel(r.Rule.Otp, r.Rule.Amount, r.Rule.Unit)} after they arrive";
+        if (r.Past.Count > 0)
+            return $"Deleting {r.Past.Count:#,0} email{(r.Past.Count == 1 ? "" : "s")} from {pattern}" + (later.Length > 0 ? " · " + later : "");
+        if (r.Rule == null) return $"No emails from {pattern} to delete";
+        var w = Who(pattern);
+        return char.ToUpperInvariant(w[0]) + w[1..] + $" will be deleted {KeepLabel(r.Rule.Otp, r.Rule.Amount, r.Rule.Unit)} after they arrive"
+               + (r.TimersSet > 0 ? $" · {r.TimersSet:#,0} already here timed" : "");
+    }
 }
