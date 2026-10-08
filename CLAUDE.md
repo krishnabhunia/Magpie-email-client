@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **6.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **7.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -74,6 +74,7 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
+| Local productivity (Q70) | `docs/PRODUCTIVITY-WORKSPACE.md`; `MailStore.Productivity.cs` (saved views, reminder transitions), `CommandPaletteWindow.cs`, `InboxViewDialog.cs`, MainWindow/MainViewModel productivity partials; schema v11 with independent table-presence check |
 | Main window | `src/Magpie.App/MainWindow.xaml(.cs)`, `ViewModels/MainViewModel.cs` (nav, list, counts, toasts, sidebar, hover card, row actions, bulk bar), `ViewModels/ThreadViewModel.cs` (reader) |
 | Settings UI | `src/Magpie.App/Views/SettingsWindow.xaml(.cs)`, `ViewModels/SettingsViewModel.cs` (incl. search index `Index[]`, About Me) |
 | Compose | `src/Magpie.App/Views/ComposeWindow.xaml(.cs)`, `ViewModels/ComposeViewModel.cs`, `src/Magpie.Core/Mail/Composer.cs` |

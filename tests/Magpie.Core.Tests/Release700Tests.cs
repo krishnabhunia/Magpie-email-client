@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Magpie.Core.Tests;
 
-public sealed class ProductivityTests
+public sealed class Release700Tests
 {
     [Fact]
     public void Saved_views_survive_reopen_and_edit_preserves_identity()
@@ -126,6 +126,18 @@ public sealed class ProductivityTests
         var result = store.ListThreads(new ListQuery { FolderIds = new[] { inbox }, Search = SearchQuery.Parse(view.Query + " is:unread"), Limit = 1 }, now);
         Assert.Equal("wanted", Assert.Single(result).ThreadKey);
         Assert.Empty(store.ListThreads(new ListQuery { FolderIds = Array.Empty<long>(), Search = SearchQuery.Parse(view.Query) }, now));
+    }
+
+    [Fact]
+    public void Reminder_search_keeps_account_scope_and_includes_snoozed_threads()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, _) = Rows.NewStore(dir);
+        store.InsertMessages(new[] { Rows.Make("A", inbox, "invoice", subject: "Invoice") });
+        store.SetSnooze("A", "invoice", new[] { inbox }, DateTimeOffset.Now.AddDays(1));
+        Assert.True(store.ThreadMatchesSearch("A", "invoice", SearchQuery.Parse("subject:invoice")));
+        Assert.False(store.ThreadMatchesSearch("B", "invoice", SearchQuery.Parse("subject:invoice")));
+        Assert.False(store.ThreadMatchesSearch("A", "invoice", SearchQuery.Parse("subject:lunch")));
     }
 
     [Fact]

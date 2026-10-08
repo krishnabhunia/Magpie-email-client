@@ -69,6 +69,18 @@ public sealed partial class MailStore
         Exec(c, "DELETE FROM inbox_views WHERE id=$id", ("$id", id));
     }
 
+    /// <summary>Search a reminder's account/thread without excluding snoozed conversations.</summary>
+    public bool ThreadMatchesSearch(string accountId, string threadKey, SearchQuery query)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var predicate = query.ToSql(cmd, "m");
+        cmd.CommandText = $"SELECT EXISTS(SELECT 1 FROM messages m WHERE m.account_id=$a AND m.thread_key=$t AND {predicate})";
+        cmd.Parameters.AddWithValue("$a", accountId);
+        cmd.Parameters.AddWithValue("$t", threadKey);
+        return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
+    }
+
     /// <summary>Resolve replies before the deadline and claim due reminders once. No network calls.</summary>
     public (List<Reminder> Due, int Completed) AdvanceReminders(DateTimeOffset now, IReadOnlyCollection<string> myAddresses)
     {

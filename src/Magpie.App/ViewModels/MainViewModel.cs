@@ -561,6 +561,7 @@ public partial class MainViewModel : ObservableObject
             _current = restore;
             restore.IsSelected = true;
             OnPropertyChanged(nameof(Current));
+            ListTitle = restore.Label;
             ReloadList();
         }
         else
@@ -644,6 +645,8 @@ public partial class MainViewModel : ObservableObject
             // Not Gmail's All Mail / Starred / Important: "moving" a copy out of those would unstar or un-archive the email.
             NavKind.Pinned or NavKind.Tag or NavKind.FollowUp or NavKind.RemindersDue => _e.Folders(accountId)
                 .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important)).Select(f => f.Id).ToList(),
+            NavKind.SavedView when Current.SavedView?.InboxOnly == false => _e.Folders(accountId)
+                .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important)).Select(f => f.Id).ToList(),
             _ => FolderIdsFor(Current),
         };
         var own = _e.Folders(accountId).Select(f => f.Id).ToHashSet();
@@ -686,7 +689,7 @@ public partial class MainViewModel : ObservableObject
     {
         var nav = Current;
         if (nav == null) return;
-        var scope = (nav.Key, Category, UnreadOnly, SearchText);
+        var scope = (nav.Key, Category, UnreadOnly, nav.SavedView is { } view ? view.Query + "\n" + SearchText : SearchText);
         if (_listScope != scope) { _listScope = scope; _listLimit = ListPageSize; }
         _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
@@ -709,6 +712,7 @@ public partial class MainViewModel : ObservableObject
             rows = new List<ThreadRow>();
             foreach (var r in nav.Kind == NavKind.RemindersDue ? _e.DueReminders() : _e.DueReminders().Concat(_e.WaitingReminders()))
             {
+                if (search != null && !_e.Store.ThreadMatchesSearch(r.AccountId, r.ThreadKey, search)) continue;
                 var t = _e.Store.GetThread(r.AccountId, r.ThreadKey);
                 if (t.Count == 0) continue;
                 var latest = t.Last();

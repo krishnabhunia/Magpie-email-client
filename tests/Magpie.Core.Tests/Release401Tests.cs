@@ -237,7 +237,7 @@ public class Release401Tests
         Assert.True(AccountSync.CanReplay(Assert.Single(store.GetPendingOps("A")), 42));
         using var check = new SqliteConnection("Data Source=" + dir.File("mail.db"));
         check.Open(); using var version = check.CreateCommand(); version.CommandText = "PRAGMA user_version";
-        Assert.Equal(10L, (long)version.ExecuteScalar()!);
+        Assert.Equal((long)MailStore.SchemaVersion, (long)version.ExecuteScalar()!);
     }
 
     [Fact]

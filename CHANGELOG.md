@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 7.0.0 (8 Oct 2026)
 ### New
 - **Commands (Ctrl+K)** in the title bar: find actions, folders, saved views, reminders and drafting without leaving the keyboard. Unavailable actions explain what is needed.
 - **Important (pinned) and Other inbox**, plus saved inbox views and searches by sender, exact domain, recipient, subject or local label, with an account scope. Views stay on this PC.

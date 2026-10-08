@@ -55,10 +55,9 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 49 | Bug: menus show a vertical cut line (submenus in the Windows look) | (fix) | Built (4.0.0) — not yet tried on Windows | — |
 | 50 | Update button at the top-right of the title bar (always visible; replaces the green pill) | UB1 (HTML) | Approved 7 Oct 2026 — UB1-a · Built — not yet tried on Windows | [#59](https://github.com/krishnabhunia/Magpie-email-client/issues/59) |
 | 51 | Delete three ways: Shift+Del forever · past emails from a sender/domain keeping the last N · future auto-delete, one dialog | DX1 (HTML) | Approved 7 Oct 2026 — DX1-A + DX1-B1 · Built — not yet tried on Windows | [#60](https://github.com/krishnabhunia/Magpie-email-client/issues/60) |
+| 70 | Superhuman-inspired local productivity workspace | [Workspace design](PRODUCTIVITY-WORKSPACE.md) | Approved 8 Oct 2026 · Implemented in feature PR; Windows Actions validation and device smoke test pending | [#83](https://github.com/krishnabhunia/Magpie-email-client/issues/83) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
-
-| 70 | Superhuman-inspired local productivity workspace | [Workspace design](PRODUCTIVITY-WORKSPACE.md) | Approved 8 Oct 2026 · Implemented in feature PR; Windows Actions validation and device smoke test pending | [#83](https://github.com/krishnabhunia/Magpie-email-client/issues/83) |
 
 ## Smoke test first (1.1.1 + 1.1.2 have not been tried on the laptop)
 
