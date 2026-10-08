@@ -50,7 +50,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 44 | Bin / Trash: Empty Trash, move to folder, more options | TB1 (HTML) | Approved 1 Oct 2026 · Built (4.0.0) — server side tested against Dovecot; not yet tried on Windows | [#51](https://github.com/krishnabhunia/Magpie-email-client/issues/51) |
 | 45 | Delete options that include past emails | DP1 (HTML) | Approved 1 Oct 2026 · Built (4.0.0) — not yet tried on Windows | [#52](https://github.com/krishnabhunia/Magpie-email-client/issues/52) |
 | 46 | Checkboxes on email rows + select by filter | SL1 (HTML) | Approved 1 Oct 2026 · Built (4.0.0) — not yet tried on Windows | [#53](https://github.com/krishnabhunia/Magpie-email-client/issues/53) |
-| 47 | Show when an auto-deleted email will be deleted: on hover, on its row, in the reading pane | DD1 (HTML) | Design shown 1 Oct 2026 — waiting for approval | [#55](https://github.com/krishnabhunia/Magpie-email-client/issues/55) |
+| 47 | Show when an auto-deleted email will be deleted: on hover, on its row, in the reading pane | DD1 (HTML) | All 10 options built as a trial (Settings → Appearance → Deletion dates) so Krishna can try each in the test version, 7 Oct 2026 — waiting for his pick | [#55](https://github.com/krishnabhunia/Magpie-email-client/issues/55) |
 | 48 | Bug: the same auto-delete rule can be added twice | (fix) | Built (4.0.0) — one rule per sender, doubles merged at start | [#55](https://github.com/krishnabhunia/Magpie-email-client/issues/55) |
 | 49 | Bug: menus show a vertical cut line (submenus in the Windows look) | (fix) | Built (4.0.0) — not yet tried on Windows | — |
 

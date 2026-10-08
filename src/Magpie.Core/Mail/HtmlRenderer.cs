@@ -17,6 +17,12 @@ public sealed class RenderMessage
     public string LoadingText { get; init; } = "Downloading this message…";
     /// <summary>Why the body couldn't be downloaded; the page then offers "Try again".</summary>
     public string? LoadError { get; init; }
+    /// <summary>Design DD1 (R3): "deletes in 3 days" on this email's header, when it has an auto-delete timer.</summary>
+    public string? DeleteNote { get; init; }
+    /// <summary>How close that is (red / amber / grey, as the list's tag).</summary>
+    public DeleteUrgency DeleteUrgency { get; init; }
+    /// <summary>Shown when pointing at the note: the full date and the rule.</summary>
+    public string DeleteTip { get; init; } = "";
 }
 
 public sealed class RenderResult
@@ -175,6 +181,8 @@ public static class HtmlRenderer
             <style>
             """);
         sb.Append($":root{{--teal:{p.Accent};--ink:{p.Ink};--muted:{p.Muted};--line:{p.Line};--bg:{p.Soft};--page:{p.Page};--border:{p.Border};--btn:{p.Button};--link:{p.Link};--avbg:{p.AvBg};--avfg:{p.AvFg};--mebg:{p.MeBg};--mefg:{p.MeFg}}}\n");
+        sb.Append(dark ? ":root{--ddsoon:#F28B82;--ddsoonbg:rgba(224,100,90,.16);--ddweeks:#F0B35A;--ddweeksbg:rgba(240,179,90,.14)}\n"
+                       : ":root{--ddsoon:#B3261E;--ddsoonbg:#FBE9E7;--ddweeks:#9A5B00;--ddweeksbg:#FDF1DC}\n");
         sb.Append($"html{{scrollbar-color:{p.Scroll} {p.Page}}}\n");
         sb.Append("""
             html,body{margin:0;padding:0;background:var(--page);color:var(--ink);font:13.5px/1.55 'IBM Plex Sans','Segoe UI',system-ui,sans-serif}
@@ -221,6 +229,8 @@ public static class HtmlRenderer
             .hm .hm-sep{height:1px;background:var(--line);margin:4px 0}
             .hm .hm-note{border-top:1px solid var(--line);margin-top:4px;padding:7px 14px 3px;color:var(--teal);font-size:12px}
             .hm .hm-note[hidden]{display:none}
+            .dd{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9px;font-size:11.5px;font-weight:600;white-space:nowrap;vertical-align:1px}
+            .dd.soon{color:var(--ddsoon);background:var(--ddsoonbg)}.dd.weeks{color:var(--ddweeks);background:var(--ddweeksbg)}.dd.later{color:var(--muted);background:var(--bg)}
             .unread .name::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:6px;vertical-align:1px}
             </style>
             <script>
@@ -318,7 +328,13 @@ public static class HtmlRenderer
             sb.Append("</div>");
             sb.Append($"<div class=\"snip\">{Esc(row.Preview)}</div>");
             sb.Append("</div>");
-            sb.Append($"<div class=\"date\">{Esc(FriendlyDate(row.Date, now))}</div>");
+            sb.Append($"<div class=\"date\">{Esc(FriendlyDate(row.Date, now))}");
+            if (!string.IsNullOrEmpty(m.DeleteNote))
+            {
+                var level = m.DeleteUrgency switch { DeleteUrgency.Soon => "soon", DeleteUrgency.Weeks => "weeks", _ => "later" };
+                sb.Append($"<span class=\"dd {level}\" title=\"{Esc(m.DeleteTip)}\">🗑 {Esc(m.DeleteNote)}</span>");
+            }
+            sb.Append("</div>");
             sb.Append("<div class=\"acts\" onclick=\"event.stopPropagation()\">");
             sb.Append($"<button onclick=\"post({{t:'reply',id:{row.Id}}})\">Reply</button>");
             sb.Append($"<button onclick=\"post({{t:'replyall',id:{row.Id}}})\">Reply all</button>");

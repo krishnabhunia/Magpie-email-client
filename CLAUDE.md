@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **4.0.2** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **5.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -31,7 +31,7 @@ Current release: **4.0.2** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 281 unit tests
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 288 unit tests
 build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -69,6 +69,7 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Calendar (B2, Q7) | `src/Magpie.Core/Calendar/` — `GoogleCalendar.cs` (Calendar API v3 client, errors → plain messages), `CalendarService.cs` (poll 5 min + `Poke`, local-first save/delete/respond, pending ops pushed next round), `CalendarLayout.cs` (ranges, titles, overlap columns); `MailStore.Calendar.cs` (`cal_calendars`, `cal_events`, `TakeDueEventReminders`); `ViewModels/CalendarViewModel.cs`, `Views/CalendarView.xaml`, `Views/EventWindow.xaml`; Google sign-in asks for calendar + contacts scopes (`OAuth.GrantedScopes`) |
 | Hover cards (HM1) | `src/Magpie.Core/Mail/HoverMenus.cs` (which lines each card shows, ids E1–E11 / S1–S9 / A1–A9), page script + `hm-a` / `hm-f` targets in `HtmlRenderer`, `Services/ReaderHover.cs` (address + file cards, runs the ids), `Services/SubjectCard.cs` (WPF popup), `Views/ThreadWindow.cs` (S3), `Views/PreviewWindow.cs` (A5); search `with:` / `file:` in `SearchQuery` |
 | Trash / Spam, delete past, selection (TB1, DP1, SL1) | `MailEngine.EmptyFolder` (pending op `EmptyFolder`, sync skips that folder until it reached the server), `Restore` (`MailStore.Trash.cs` remembers the folder), `NotSpam`, `AutoEmptyTrash` (`EmptyTrashAfterDays`); `PastFrom` / `TrashEmails` + `AutoDelete.PastEmails`; `Mail/Selection.cs` (Select ▾ filters); `MainViewModel` `SelectBy`, `AllInView` / `ViewTotal` (Select all N), `IsBinView`, `EmptyBin`, `DeletePastLater`; one auto-delete rule per sender (`MergeDuplicateAutoDeleteRules`) |
+| Deletion dates (DD1) | `Core/Mail/DeleteDates.cs` (texts), `Appearance.DeleteDates` (`DeleteDateLook`: Hover H1–H3, List L1–L4, Reader R1–R3; trial switch in Settings → Appearance), `ThreadItem` (row: pill / day / edge / ring, H1 tooltip), `Services/HoverCard.cs` (H2 row card, R2 chip card in `MainWindow`), `ThreadViewModel.RefreshDeleteBar` (R1 banner, R2 chip), `RenderMessage.DeleteNote` (R3) |
 | Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
