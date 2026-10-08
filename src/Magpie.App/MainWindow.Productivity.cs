@@ -7,6 +7,7 @@ using Magpie.App.ViewModels;
 using Magpie.App.Views;
 using Magpie.Core.Ai;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 
 namespace Magpie.App;
 
@@ -48,7 +49,7 @@ public partial class MainWindow
         Add("Find attachments", "Search mail with attachments on this PC.", "", "search filter chip files", () => _vm.SearchEverywhere("has:attachment"));
         Add("Find pinned mail", "Search pinned mail on this PC.", "", "search important filter chip", () => _vm.SearchEverywhere("is:pinned"));
         Add("Find this sender", "Search locally across mail folders for the sender of the open message.", "", "from search",
-            () => _vm.SearchEverywhere("from:\"" + _vm.Reader.SenderAddress.Replace("\"", "") + "\""), MailSelected, selectedReason);
+            () => _vm.SearchEverywhere("from:\"" + (_vm.Reader.SenderAddress ?? "").Replace("\"", "") + "\""), MailSelected, selectedReason);
         Add("Clear search", "Remove the current query.", "Esc in search", "reset filter", () => _vm.SearchText = "");
         Add("New inbox view", "Save a sender, domain, recipient, subject or label query on this PC.", "", "split inbox custom organize",
             () => EditWorkspaceView(null, ""));
