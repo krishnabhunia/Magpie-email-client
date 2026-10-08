@@ -271,7 +271,7 @@ public partial class StatusBarViewModel : ObservableObject
         if (AppServices.Updates is { } up)
         {
             if (up.State == UpdateState.Downloading)
-                segs.Add(Seg("upd", $"Downloading update {up.NewVersion} · {up.Progress:P0}", "update", progress: up.Progress));
+                segs.Add(Seg("upd", $"Downloading update {up.NewVersion} · {Magpie.Core.Updates.UpdateText.Percent(up.Progress)}", "update", progress: up.Progress));
             else if (up.State == UpdateState.Ready)
                 segs.Add(Seg("upd", $"Update {up.NewVersion} ready", "update", link: "Restart now", cmd: up.PrimaryCommand));
         }

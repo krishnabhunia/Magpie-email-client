@@ -44,34 +44,42 @@ public sealed partial class UpdateService : ObservableObject
         return AppVersion.TryParse(info) ?? AppVersion.TryParse(typeof(UpdateService).Assembly.GetName().Version?.ToString(3)) ?? AppVersion.TryParse("0.0.0")!;
     }
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowPill), nameof(PillText), nameof(PrimaryText), nameof(ShowProgress), nameof(ShowNotes), nameof(ShowLaterSkip), nameof(IsBusy), nameof(Badge))]
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ButtonText), nameof(ButtonTip), nameof(PrimaryText), nameof(ShowPrimary), nameof(ShowProgress), nameof(ShowNotes), nameof(ShowLaterSkip),
+        nameof(IsBusy), nameof(Badge), nameof(IsIdleLike), nameof(IsChecking), nameof(IsAvailable), nameof(IsDownloading), nameof(IsReady), nameof(IsError))]
     private UpdateState _state = UpdateState.Idle;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(PillText), nameof(Badge))] private double _progress;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ButtonText), nameof(Badge))] private double _progress;
     [ObservableProperty] private string _title = "";
     [ObservableProperty] private string _detail = "";
     [ObservableProperty] private string _notes = "";
     [ObservableProperty] private string _lastChecked = "";
+    /// <summary>The flyout under the title-bar button (design UB1).</summary>
+    [ObservableProperty] private bool _flyoutOpen;
+    private DateTimeOffset _flyoutClosedAt = DateTimeOffset.MinValue;
 
     public string CurrentText => "Magpie " + Current;
     public string NewVersion => _release?.Version.ToString() ?? "";
-    public bool ShowPill => State is UpdateState.Available or UpdateState.Downloading or UpdateState.Ready;
     public bool ShowProgress => State == UpdateState.Downloading;
     public bool ShowNotes => State is UpdateState.Available or UpdateState.Ready && Notes.Length > 0;
     public bool ShowLaterSkip => State is UpdateState.Available or UpdateState.Ready;
     public bool IsBusy => State is UpdateState.Checking or UpdateState.Downloading;
-    public string PillText => State switch
-    {
-        UpdateState.Available => $"Update {NewVersion} available",
-        UpdateState.Downloading => $"Downloading {NewVersion} · {Progress:P0}",
-        UpdateState.Ready => _installed ? $"Magpie {NewVersion} installed — restart" : $"Update {NewVersion} ready — restart",
-        _ => "",
-    };
+    /// <summary>While downloading the flyout shows Cancel instead of the main button.</summary>
+    public bool ShowPrimary => State != UpdateState.Downloading;
+    // The title-bar button's looks (design UB1): one DataTrigger per state in Button.Update.
+    public bool IsIdleLike => State is UpdateState.Idle or UpdateState.UpToDate;
+    public bool IsChecking => State == UpdateState.Checking;
+    public bool IsAvailable => State == UpdateState.Available;
+    public bool IsDownloading => State == UpdateState.Downloading;
+    public bool IsReady => State == UpdateState.Ready;
+    public bool IsError => State == UpdateState.Error;
+    private string StateKey => State.ToString().ToLowerInvariant();
+    public string ButtonText => UpdateText.ButtonText(StateKey, NewVersion, Progress);
+    public string ButtonTip => UpdateText.ButtonTip(StateKey, Current.ToString(), NewVersion, AppServices.Engine.Config.Updates.LastCheck, DateTimeOffset.Now);
     public string Badge => State switch
     {
         UpdateState.UpToDate => "UP TO DATE",
         UpdateState.Checking => "CHECKING",
         UpdateState.Available => "NEW",
-        UpdateState.Downloading => $"{Progress:P0}",
+        UpdateState.Downloading => UpdateText.Percent(Progress),
         UpdateState.Ready => "READY",
         UpdateState.Error => "PROBLEM",
         _ => "",
@@ -82,16 +90,46 @@ public sealed partial class UpdateService : ObservableObject
         UpdateState.Available => "Download and install",
         UpdateState.Downloading => "Downloading…",
         UpdateState.Ready => "Restart now",
+        UpdateState.UpToDate => "Check again",
+        UpdateState.Error => "Try again",
         _ => "Check for updates",
     };
     public string PageUrl => _release?.PageUrl ?? UpdateClient.ReleasesPage;
+
+    /// <summary>The two switches of Settings → Updates, also in the flyout; saved at once, the way the Settings page saves them.</summary>
+    public bool AutoUpdate
+    {
+        get => AppServices.Engine.Config.Updates.AutoUpdate ?? true;
+        set
+        {
+            var c = AppServices.Engine.Config;
+            if ((c.Updates.AutoUpdate ?? true) == value) return;
+            c.Updates.AutoUpdate = value;
+            c.Updates.AutoCheck = c.Updates.AutoDownload = value;
+            AppServices.Engine.Settings.Save(notify: false);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IncludePrerelease
+    {
+        get => AppServices.Engine.Config.Updates.IncludePrerelease;
+        set
+        {
+            var c = AppServices.Engine.Config;
+            if (c.Updates.IncludePrerelease == value) return;
+            c.Updates.IncludePrerelease = value;
+            AppServices.Engine.Settings.Save(notify: false);
+            OnPropertyChanged();
+        }
+    }
 
     public void Start()
     {
         var cfg = AppServices.Engine.Config.Updates;
         LastChecked = cfg.LastCheck is { } lc ? "Last checked " + lc.LocalDateTime.ToString("d MMM, HH:mm") : "Not checked yet";
         Idle("Magpie " + Current, "Check GitHub for a newer version.");
-        _timer.Tick += (_, _) => _ = AutoCheckAsync();
+        _timer.Tick += (_, _) => { OnPropertyChanged(nameof(ButtonTip)); _ = AutoCheckAsync(); };
         _timer.Start();
         // First automatic check shortly after start, when mail has had its turn.
         var first = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
@@ -125,12 +163,56 @@ public sealed partial class UpdateService : ObservableObject
         }
     }
 
-    /// <summary>Title-bar pill: download if needed, restart when ready, otherwise open Settings → Updates.</summary>
+    /// <summary>
+    /// Left click on the title-bar button (design UB1): idle or up to date → check now, then show the flyout; available,
+    /// downloading or a problem → the flyout (it has Try again); ready → restart into the new version; checking → nothing.
+    /// </summary>
     [RelayCommand]
-    private async Task Pill()
+    private async Task TitleBarClick()
     {
-        if (State == UpdateState.Ready) await RestartAsync();
-        else Views.SettingsWindow.Open("Updates");
+        // The click that closed the flyout (StaysOpen=False) must not open it again at once.
+        if (DateTimeOffset.Now - _flyoutClosedAt < TimeSpan.FromMilliseconds(400)) return;
+        switch (State)
+        {
+            case UpdateState.Checking: return;
+            case UpdateState.Ready: await RestartAsync(); return;
+            case UpdateState.Available or UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
+            default:
+                await CheckNowAsync();
+                OpenFlyout();
+                return;
+        }
+    }
+
+    /// <summary>A check the user asked for: ignores the once-a-day throttle and "Later", works with Auto update off, records the time.</summary>
+    public async Task CheckNowAsync()
+    {
+        if (IsBusy) return;
+        await CheckAsync(automatic: false);
+    }
+
+    /// <summary>Right-click, or a left click in the states that show it.</summary>
+    public void OpenFlyout()
+    {
+        OnPropertyChanged(nameof(AutoUpdate));
+        OnPropertyChanged(nameof(IncludePrerelease));
+        OnPropertyChanged(nameof(ButtonTip));
+        FlyoutOpen = true;
+    }
+
+    partial void OnFlyoutOpenChanged(bool value)
+    {
+        if (!value) _flyoutClosedAt = DateTimeOffset.Now;
+    }
+
+    /// <summary>The tooltip says how long ago the last check was; refreshed when the mouse arrives.</summary>
+    public void RefreshTip() => OnPropertyChanged(nameof(ButtonTip));
+
+    /// <summary>Cancel in the flyout while downloading: the partial file stays for a later retry; the update is still offered.</summary>
+    [RelayCommand]
+    private void CancelDownload()
+    {
+        if (State == UpdateState.Downloading) _cts?.Cancel();
     }
 
     [RelayCommand]
@@ -168,7 +250,7 @@ public sealed partial class UpdateService : ObservableObject
             LastChecked = "Last checked " + DateTime.Now.ToString("d MMM, HH:mm");
             if (rel == null)
             {
-                Title = $"Magpie {Current} is the latest version";
+                Title = $"Magpie {Current} is up to date";
                 Detail = "Checked GitHub just now.";
                 State = UpdateState.UpToDate;
                 return;
@@ -178,10 +260,11 @@ public sealed partial class UpdateService : ObservableObject
             OnPropertyChanged(nameof(NewVersion));
             Notes = TrimNotes(rel.Notes);
             Title = $"Magpie {rel.Version} is available";
-            Detail = (rel.Published is { } p ? "Released " + p.LocalDateTime.ToString("d MMM yyyy") : "New release") + (rel.ExeSize > 0 ? $" · {rel.ExeSize / 1048576.0:0} MB" : "");
+            Detail = $"You have {Current}" + (rel.Published is { } p ? " · released " + p.LocalDateTime.ToString("d MMM yyyy") : "") + (rel.ExeSize > 0 ? $" · {rel.ExeSize / 1048576.0:0} MB" : "");
             State = UpdateState.Available;
             Log.Info($"update available: {rel.Version}");
-            if (cfg.AutoUpdate == true) await DownloadAsync();
+            // Not awaited: the download runs on while the caller (the title-bar button, Settings) shows "available" at once.
+            if (cfg.AutoUpdate == true) _ = DownloadAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -250,7 +333,7 @@ public sealed partial class UpdateService : ObservableObject
             Log.Info($"update {Current} → {NewVersion} installed in the background; runs from the next start");
             Title = $"Magpie {NewVersion} is installed";
             Detail = "It starts the next time you open Magpie. Restart now to use it straight away.";
-            OnPropertyChanged(nameof(PillText));
+            OnPropertyChanged(nameof(ButtonText));
         }
         catch (Exception ex)
         {

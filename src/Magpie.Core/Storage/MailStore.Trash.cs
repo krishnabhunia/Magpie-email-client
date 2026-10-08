@@ -69,6 +69,29 @@ public sealed partial class MailStore
         return list;
     }
 
+    /// <summary>Every local copy of one email (the same Message-ID in any folder of the account — Gmail labels, All Mail).
+    /// A row without a Message-ID is only itself (design DX1).</summary>
+    public List<MessageRow> CopiesOf(MessageRow m)
+    {
+        var list = new List<MessageRow>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        if (m.MessageId.Length == 0)
+        {
+            cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.id=$id";
+            cmd.Parameters.AddWithValue("$id", m.Id);
+        }
+        else
+        {
+            cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.account_id=$a AND m.message_id=$m";
+            cmd.Parameters.AddWithValue("$a", m.AccountId);
+            cmd.Parameters.AddWithValue("$m", m.MessageId);
+        }
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(ReadMsg(r));
+        return list;
+    }
+
     /// <summary>Every email of a folder (no limit, snoozed ones too).</summary>
     public List<MessageRow> MessagesInFolder(long folderId)
     {

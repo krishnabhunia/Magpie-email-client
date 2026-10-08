@@ -270,10 +270,12 @@ public partial class UndoToast : ObservableObject
     /// <summary>A toast for something other than a send (e.g. a new auto-delete rule): its own Undo, and optionally Edit.</summary>
     public Action? UndoAction { get; init; }
     public Action? EditAction { get; init; }
+    /// <summary>The Edit button's words ("Edit rule" for a delete-from run).</summary>
+    public string EditText { get; init; } = "Edit";
     public bool HasEdit => EditAction != null && !Done;
     public bool HasButtons => !Done;
     /// <summary>"Send now" only for a message in its undo window — not for one scheduled for later (that has its own button in Scheduled).</summary>
-    public bool CanSendNow => !Done && _showCountdown;
+    public bool CanSendNow => !Done && _showCountdown && OutboxId > 0;
 
     public UndoToast(long outboxId, string text, DateTimeOffset until, bool showCountdown)
     {
@@ -1123,8 +1125,8 @@ public partial class MainViewModel : ObservableObject
     /// A toast with its own Undo (and Edit). With <paramref name="outboxId"/> it is a send (e.g. an invite answer):
     /// countdown and Send now as for any message.
     /// </summary>
-    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0) =>
-        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0) { UndoAction = undo, EditAction = edit });
+    public void ShowActionToast(string text, Action undo, Action? edit = null, int seconds = 8, long outboxId = 0, bool countdown = false, string editText = "Edit") =>
+        AddToast(new UndoToast(outboxId, text, DateTimeOffset.Now.AddSeconds(seconds), showCountdown: outboxId > 0 || countdown) { UndoAction = undo, EditAction = edit, EditText = editText });
 
     [RelayCommand]
     private void EditToast(UndoToast? toast)
@@ -1449,22 +1451,70 @@ public partial class MainViewModel : ObservableObject
         ReloadList();
     }
 
-    // ── Design DP1: delete the emails already here from a sender (with a few seconds to undo) ──
+    // ── Design DX1-B1: one run of "Delete emails from…" (past emails with a few seconds to undo, the rule at once) ──
 
-    public void DeletePastLater(IReadOnlyList<MessageRow> rows, string text)
+    /// <summary>
+    /// Runs what the dialog (or a quick menu pick) asked for: the rule exists at once; the emails already here go to Trash
+    /// after 8 s. The toast's Undo stops that delete and removes a rule this run created (not one that was already there);
+    /// Edit rule opens the dialog on the rule.
+    /// </summary>
+    public void RunDeleteFrom(AutoDelete.DeleteFromRequest req)
     {
-        if (rows.Count == 0) return;
+        AutoDelete.DeleteFromResult r;
+        try { r = _e.ApplyDeleteFrom(req, DateTimeOffset.Now); }
+        catch (Exception ex) { Log.Error("delete emails from", ex); Ui.Error("Delete", ex.Message); return; }
+        var pattern = AutoDelete.NormalisePattern(req.Pattern) ?? req.Pattern;
         var cancelled = false;
-        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-        timer.Tick += (_, _) =>
+        System.Windows.Threading.DispatcherTimer? timer = null;
+        if (r.Past.Count > 0)
         {
-            timer.Stop();
-            if (cancelled) return;
-            try { _e.TrashEmails(rows); ReloadList(); }
-            catch (Exception ex) { Log.Error("delete past emails", ex); Ui.Error("Delete", ex.Message); }
-        };
-        ShowActionToast(text, () => { cancelled = true; timer.Stop(); });
-        timer.Start();
+            var rows = r.Past.Rows;
+            timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                if (cancelled) return;
+                try { _e.TrashEmails(rows); ReloadList(); }
+                catch (Exception ex) { Log.Error("delete past emails", ex); Ui.Error("Delete", ex.Message); }
+            };
+        }
+        void Undo()
+        {
+            cancelled = true;
+            timer?.Stop();
+            if (r.Rule is { } rule && r.RuleIsNew) _e.RemoveAutoDeleteRule(rule.Id, clearTimers: true);
+            ReloadList();
+        }
+        // Edit rule: this run stops (nothing is deleted); the dialog's own run makes a new toast.
+        Action? edit = r.Rule is { } saved ? () => { cancelled = true; timer?.Stop(); Views.AutoDeleteDialog.Show(Ui.ActiveWindow, saved, editing: true); } : null;
+        ShowActionToast(AutoDelete.ToastText(pattern, r), Undo, edit, countdown: r.Past.Count > 0, editText: "Edit rule");
+        timer?.Start();
+        if (r.TimersSet > 0) ReloadList();
+    }
+
+    // ── Design DX1-A: delete for good, skipping Trash (Shift+Delete, "Delete forever…") ──
+
+    /// <summary>Asks once ("Delete 3 emails for good?"), then removes every copy on this PC and on the server. No undo.</summary>
+    public async Task DeleteForeverAsync(IReadOnlyList<ThreadItem> items)
+    {
+        if (items.Count == 0) return;
+        var groups = items.GroupBy(i => i.Row.AccountId)
+            .Select(g => (AccountId: g.Key, Keys: g.Select(i => i.Row.ThreadKey).Distinct().ToList(), Folders: ActionFoldersFor(g.Key))).ToList();
+        var n = groups.Sum(g => _e.CountDeleteForever(g.AccountId, g.Keys, g.Folders));
+        if (n == 0) { Ui.Error("Delete forever", "There is nothing here to delete."); return; }
+        var many = n == 1 ? "1 email" : $"{n:N0} emails";
+        if (Views.ChoiceDialog.Ask(Ui.ActiveWindow, $"Delete {many} for good?",
+                $"{(n == 1 ? "It" : "They")} will not go to Trash: every copy is removed from this PC and from the server. This can't be undone. On Gmail, All Mail may still keep a copy.",
+                "Delete forever") != 0) return;
+        if (Selected != null && items.Any(i => i.Key == Selected.Key)) SelectNeighbour();
+        ClearSelection();
+        try
+        {
+            foreach (var g in groups)
+                await Task.Run(() => _e.DeleteForeverAsync(g.AccountId, g.Keys, g.Folders));
+        }
+        catch (Exception ex) { Log.Error("delete forever", ex); Ui.Error("Delete forever", ex.Message); }
+        ReloadList();
     }
 
     /// <summary>Runs an action on one conversation (a hover button) or on the ticked ones (the bulk bar).</summary>
@@ -1487,10 +1537,7 @@ public partial class MainViewModel : ObservableObject
                     break;
                 }
                 case "deleteforever":
-                    if (items.Count > 10 && Views.ChoiceDialog.Ask(Ui.ActiveWindow, "Delete for good?",
-                            $"The {items.Count:N0} conversations are deleted for good, on this PC and on the server. This can't be undone.",
-                            $"Delete {items.Count:N0} for good") != 0) return;
-                    StartPendingBulk(items, "deleteforever", null);
+                    await DeleteForeverAsync(items);   // design DX1-A: asks once, every copy goes, no undo
                     return;
                 case "restore":
                     foreach (var t in items) _e.Restore(t.Row.AccountId, t.Row.ThreadKey);
@@ -1600,7 +1647,7 @@ public partial class MainViewModel : ObservableObject
             var n = pb.Items.Count;
             var what = pb.Action switch
             {
-                "archive" => "Archiving", "delete" => "Deleting", "deleteforever" => "Deleting for good", "spam" => "Moving to Spam", "move" => "Moving to " + (pb.Folder?.Name ?? "folder"), _ => pb.Action,
+                "archive" => "Archiving", "delete" => "Deleting", "spam" => "Moving to Spam", "move" => "Moving to " + (pb.Folder?.Name ?? "folder"), _ => pb.Action,
             };
             var left = Math.Max(1, (int)Math.Ceiling((pb.Until - DateTimeOffset.Now).TotalSeconds));
             BulkPendingText = $"{what} {n} conversation{(n == 1 ? "" : "s")} · {left} s";
@@ -1636,7 +1683,7 @@ public partial class MainViewModel : ObservableObject
                     switch (pb.Action)
                     {
                         case "archive": await _e.ArchiveAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
-                        case "delete": case "deleteforever": await _e.TrashAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
+                        case "delete": await _e.TrashAsync(t.Row.AccountId, t.Row.ThreadKey, folders); break;
                         case "spam":
                         {
                             var junk = _e.Folders(t.Row.AccountId).FirstOrDefault(f => f.Role == FolderRole.Junk);

@@ -266,12 +266,14 @@
         </Setter>
     </Style>
 
-    <!-- Title-bar "Update ready" pill (design U1) -->
-    <Style x:Key="Button.UpdatePill" TargetType="Button">
-        <Setter Property="Height" Value="30" />
-        <Setter Property="Padding" Value="12,0" />
-        <Setter Property="Background" Value="{DynamicResource Brush.UpdatePill.Background}" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.UpdatePill.Text}" />
+    <!-- Title-bar Update button (design UB1): one round button whose colour and words follow the update state.
+         DataContext is UpdateService: IsIdleLike / IsChecking / IsAvailable / IsDownloading / IsReady / IsError, ButtonText, Progress. -->
+    <Style x:Key="Button.Update" TargetType="Button">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Padding" Value="11,0,12,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Update.Border}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Update.Text}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Cursor" Value="Hand" />
@@ -280,13 +282,76 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="15" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter VerticalAlignment="Center" />
-                    </Border>
+                    <Grid>
+                        <!-- Downloading: the green fill grows with the download behind the words -->
+                        <ProgressBar x:Name="Fill" Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="28" BorderThickness="0" Visibility="Collapsed"
+                                     Background="Transparent" Foreground="{DynamicResource Brush.Update.Fill}">
+                            <ProgressBar.Template>
+                                <ControlTemplate TargetType="ProgressBar">
+                                    <Grid ClipToBounds="True">
+                                        <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="14" />
+                                        <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="14" HorizontalAlignment="Left" />
+                                    </Grid>
+                                </ControlTemplate>
+                            </ProgressBar.Template>
+                        </ProgressBar>
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="14"
+                                Padding="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Name="Glyph" Text="&#xE74A;" FontFamily="{StaticResource Font.Icons}" FontSize="11" VerticalAlignment="Center" Margin="0,1,6,0" RenderTransformOrigin="0.5,0.5">
+                                    <TextBlock.RenderTransform><RotateTransform x:Name="Spin" Angle="0" /></TextBlock.RenderTransform>
+                                </TextBlock>
+                                <TextBlock Text="{Binding ButtonText}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <!-- Available: the badge dot -->
+                        <Ellipse x:Name="Dot" Width="10" Height="10" Fill="{DynamicResource Brush.Update.Dot}" Stroke="{DynamicResource Brush.TitleBar.Background}" StrokeThickness="2"
+                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0" Visibility="Collapsed" />
+                    </Grid>
                     <ControlTemplate.Triggers>
+                        <!-- Hover first: a state trigger below wins its own colours, so this shows only while idle -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.UpdatePill.Hover}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Update.Hover}" />
+                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{DynamicResource Brush.TitleBar.Text}" />
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.92" />
                         </Trigger>
+                        <DataTrigger Binding="{Binding IsChecking}" Value="True">
+                            <Setter TargetName="Glyph" Property="Text" Value="&#xE72C;" />
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard x:Name="SpinStory">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="Spin" Storyboard.TargetProperty="Angle" From="0" To="360" Duration="0:0:1" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="SpinStory" />
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsAvailable}" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Update.Available.Background}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Update.Available.Background}" />
+                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{DynamicResource Brush.Update.Available.Text}" />
+                            <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsDownloading}" Value="True">
+                            <Setter TargetName="Glyph" Property="Text" Value="&#xE896;" />
+                            <Setter TargetName="Fill" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Update.Available.Background}" />
+                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{DynamicResource Brush.TitleBar.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsReady}" Value="True">
+                            <Setter TargetName="Glyph" Property="Text" Value="&#xE777;" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Update.Ready.Background}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Update.Ready.Background}" />
+                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{DynamicResource Brush.Update.Ready.Text}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsError}" Value="True">
+                            <Setter TargetName="Glyph" Property="Text" Value="&#xE7BA;" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.Update.Error.Background}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Update.Error.Background}" />
+                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{DynamicResource Brush.Update.Error.Text}" />
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

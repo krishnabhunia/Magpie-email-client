@@ -31,7 +31,7 @@ public static class HoverMenus
         if (hasCalendar) list.Add(new("E7", $"New event with {who}"));
         if (!picturesTrusted) list.Add(new("E8", $"Always show pictures from {who}"));
         list.Add(new("E9", $"Make a rule for {who}'s emails…"));
-        list.Add(new("E10", $"Auto-delete {who}'s emails after…"));
+        list.Add(new("E10", $"Delete emails from {who}…"));
         list.Add(new("E11", "Block (send to Spam)"));
         return list;
     }

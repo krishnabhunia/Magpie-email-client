@@ -110,18 +110,44 @@
         <Border Grid.Row="0" Background="{DynamicResource Brush.TitleBar.Background}">
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
-                    <!-- Update from GitHub (design U1): only while an update is available, downloading or ready -->
-                    <Button x:Name="UpdatePill" Style="{StaticResource Button.UpdatePill}" Margin="0,0,8,0" Command="{Binding PillCommand}"
-                            Visibility="{Binding ShowPill, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" ToolTip="Magpie update from GitHub">
-                        <StackPanel Orientation="Horizontal">
-                            <svc:IconChip Icon="update" Size="14" Plain="True" Stroke="{DynamicResource Brush.UpdatePill.Text}" Margin="0,0,7,0" />
-                            <TextBlock Text="{Binding PillText}" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
                     <!-- Design B2: mail / calendar -->
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
+                    <!-- Update button (design UB1): always there; its colour and words follow UpdateService.State. DataContext = UpdateService (AttachUpdates). -->
+                    <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
+                        <Button x:Name="UpdateButton" Style="{StaticResource Button.Update}" Command="{Binding TitleBarClickCommand}" ToolTip="{Binding ButtonTip}"
+                                MouseRightButtonUp="OnUpdateRightClick" MouseEnter="OnUpdateHover" AutomationProperties.Name="{Binding ButtonText}" />
+                        <Popup x:Name="UpdateFlyout" PlacementTarget="{Binding ElementName=UpdateButton}" Placement="Custom" CustomPopupPlacementCallback="PlaceUpdateFlyout"
+                               IsOpen="{Binding FlyoutOpen, Mode=TwoWay}" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                            <Border Width="400" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="8">
+                                <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.18" /></Border.Effect>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14.5" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Detail}" Style="{StaticResource Text.Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="6" Margin="0,10,0,0" Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
+                                    <Border Background="{DynamicResource Brush.Window.Background}" CornerRadius="8" Padding="12,8" Margin="0,10,0,0" Visibility="{Binding ShowNotes, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding Notes}" TextWrapping="Wrap" FontSize="12.5" LineHeight="18" MaxHeight="220" TextTrimming="CharacterEllipsis" />
+                                    </Border>
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Style="{StaticResource Button.Primary}" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" Margin="0,0,8,4"
+                                                IsEnabled="{Binding IsChecking, Converter={StaticResource InvBool}}" Visibility="{Binding ShowPrimary, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Cancel" FontWeight="Normal" Command="{Binding CancelDownloadCommand}" Margin="0,0,8,4"
+                                                Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Later" FontWeight="Normal" Command="{Binding LaterCommand}" Margin="0,0,8,4"
+                                                Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Secondary}" Content="Skip this version" FontWeight="Normal" Command="{Binding SkipCommand}" Margin="0,0,0,4"
+                                                Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
+                                    </WrapPanel>
+                                    <DockPanel Margin="0,12,0,0" LastChildFill="False">
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Release notes" FontSize="12" Padding="0" MinHeight="20" Command="{Binding OpenReleasePageCommand}" />
+                                        <CheckBox Content="Auto update" IsChecked="{Binding AutoUpdate, Mode=TwoWay}" VerticalAlignment="Center" ToolTip="Checks at start and then once a day; downloads and installs in the background" />
+                                        <CheckBox Content="Include test versions" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" VerticalAlignment="Center" Margin="14,0,0,0" ToolTip="Pre-releases made for a pull request" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
                     <Border Width="1" Margin="4,12" Background="{DynamicResource Brush.TitleBar.Hover}" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE921;" Click="OnMinimize" ToolTip="Minimize" />
                     <Button x:Name="MaxRestoreButton" Style="{StaticResource Button.TitleBar}" Content="&#xE922;" Click="OnMaximizeRestore" ToolTip="Maximize" />
@@ -753,7 +779,7 @@
                                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Undo" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.UndoSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     Visibility="{Binding HasButtons, Converter={StaticResource BoolToVis}}" ToolTip="Undo (Ctrl+Z)" />
-                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Edit" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="{Binding EditText}" Foreground="#9FE3EC" MinHeight="24" Padding="8,2"
                                                     Command="{Binding DataContext.EditToastCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     Visibility="{Binding HasEdit, Converter={StaticResource BoolToVis}}" />
                                             <!-- Send now (design SN1): skip the rest of the wait -->

@@ -247,4 +247,6 @@ public static class AppServices
     public static TrayIcon? Tray { get; set; }
     public static UpdateService? Updates { get; set; }
     public static App Current => (App)Application.Current;
+    /// <summary>The main window's view model (toasts, list), for dialogs opened from Settings or a hover card.</summary>
+    public static ViewModels.MainViewModel? Main => (Application.Current?.MainWindow as MainWindow)?.ViewModel;
 }

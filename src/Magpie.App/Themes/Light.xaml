@@ -51,10 +51,18 @@
     <SolidColorBrush x:Key="Brush.Warning" Color="#8A5300" />
     <SolidColorBrush x:Key="Brush.Warning.Subtle" Color="#FDF1DC" />
     <SolidColorBrush x:Key="Brush.Info.Subtle" Color="#E6F0F2" />
-    <!-- 1.1.0: update pill in the title bar (design U1) -->
-    <SolidColorBrush x:Key="Brush.UpdatePill.Background" Color="#22C55E" />
-    <SolidColorBrush x:Key="Brush.UpdatePill.Hover" Color="#4ADE80" />
-    <SolidColorBrush x:Key="Brush.UpdatePill.Text" Color="#06290F" />
+    <!-- 5.0.0: the Update button in the title bar (design UB1) — it sits on the dark bar in both themes -->
+    <SolidColorBrush x:Key="Brush.Update.Border" Color="#5A6470" />
+    <SolidColorBrush x:Key="Brush.Update.Text" Color="#D8D5CE" />
+    <SolidColorBrush x:Key="Brush.Update.Hover" Color="#2A3036" />
+    <SolidColorBrush x:Key="Brush.Update.Available.Background" Color="#22C55E" />
+    <SolidColorBrush x:Key="Brush.Update.Available.Text" Color="#06290F" />
+    <SolidColorBrush x:Key="Brush.Update.Ready.Background" Color="#15803D" />
+    <SolidColorBrush x:Key="Brush.Update.Ready.Text" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Brush.Update.Error.Background" Color="#D99A22" />
+    <SolidColorBrush x:Key="Brush.Update.Error.Text" Color="#2A1B00" />
+    <SolidColorBrush x:Key="Brush.Update.Fill" Color="#9922C55E" />
+    <SolidColorBrush x:Key="Brush.Update.Dot" Color="#4ADE80" />
     <SolidColorBrush x:Key="Brush.Badge.Local.Background" Color="#FCEBD2" />
     <SolidColorBrush x:Key="Brush.Badge.Local.Text" Color="#8A4A00" />
 

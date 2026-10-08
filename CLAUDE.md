@@ -2,7 +2,7 @@
 
 Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **5.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **6.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -31,7 +31,7 @@ Current release: **5.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 288 unit tests
+dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 365 unit tests
 build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -49,7 +49,7 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 2. In the same PR run `python build/release_prep.py apply --date YYYY-MM-DD` (today, India time): it works the number out (last release + the biggest kind) and sets `Directory.Build.props` (version, release date), `installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI fails a PR that changes the program without a new version (`needs-version`), and `check` fails if anything is missing or the number breaks the rule.
 3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges.
 4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes), removes its test versions and closes the issues listed in the section's `<!-- closes: #n … -->` (GitHub's "Closes #n" in the PR body doesn't close them here — always fill that comment). Tags are created by CI — never push tags.
-5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar pill; SHA-256 checked, rollback on failure).
+5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar Update button; SHA-256 checked, rollback on failure).
 6. PRs that only touch docs, CI, tests or build scripts need no version and release nothing.
 
 ## Where things are
@@ -60,7 +60,7 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Store | `src/Magpie.Core/Storage/MailStore.cs` — schema v4; `ListThreads` dedupes copies across folders (Gmail All Mail); counts; `GetFolderDetails` (hover card) |
 | Engine | `src/Magpie.Core/MailEngine.cs` — local-first actions (archive/trash/move/read/pin/snooze/tags/reminders), outbox (undo send, send later, `SendNow`), drafts on this PC |
 | Settings | `src/Magpie.Core/Settings/AppSettings.cs` — `Appearance` (toolbar, counts, colourful, `FolderHover`, `RowActions`), `WindowPlacement` (sidebar width/rail), `UpdateSettings`; always `Normalise()` new blocks |
-| Updates | `src/Magpie.Core/Updates/Updates.cs`, `src/Magpie.App/Services/UpdateService.cs` |
+| Updates (U1, UB1) | `src/Magpie.Core/Updates/Updates.cs` (`UpdateClient`, `SelfUpdate`, `UpdateText` = the button's words), `src/Magpie.App/Services/UpdateService.cs` (`State`, `CheckNowAsync` ignores the daily throttle, `TitleBarClickCommand`, `OpenFlyout` / `FlyoutOpen`, `CancelDownloadCommand`, `AutoUpdate` / `IncludePrerelease` save at once); the title-bar button is `Button.Update` in `Styles/Magpie.xaml` (DataTriggers on `IsChecking` / `IsAvailable` / …, `Brush.Update.*` in both themes) and the flyout is the `UpdateFlyout` Popup in `MainWindow.xaml` (`UpdateHost.DataContext` = the service) |
 | Backup (EX1) | `src/Magpie.Core/Settings/SettingsBackup.cs` (lock/unlock, staged restore applied at start), `src/Magpie.App/Services/BackupUi.cs`, `Views/PasswordDialog.cs` |
 | Mail folder (DL1) | `AppPaths.MailRoot` (+ `mail-folder.txt`), `src/Magpie.Core/Storage/MailLocation.cs` (move), `src/Magpie.App/Services/MailFolderStartup.cs` (move at start, drive missing) |
 | AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
@@ -68,7 +68,8 @@ python build/xaml_check.py --dps build/app-types.json   # static XAML check (WPF
 | Reader (RL1, Q38/Q39) | `ThreadViewModel.Show` switches the pane at once; `LoadAsync` renders from the store first; `MessageBody.Images` + `ImagesComplete` (schema v7); `MimeText.NeedsDownload` / `MissingPictures`; `MailEngine.FetchBodyAsync` (text-only on open); page cache + `WarmNeighboursAsync` |
 | Calendar (B2, Q7) | `src/Magpie.Core/Calendar/` — `GoogleCalendar.cs` (Calendar API v3 client, errors → plain messages), `CalendarService.cs` (poll 5 min + `Poke`, local-first save/delete/respond, pending ops pushed next round), `CalendarLayout.cs` (ranges, titles, overlap columns); `MailStore.Calendar.cs` (`cal_calendars`, `cal_events`, `TakeDueEventReminders`); `ViewModels/CalendarViewModel.cs`, `Views/CalendarView.xaml`, `Views/EventWindow.xaml`; Google sign-in asks for calendar + contacts scopes (`OAuth.GrantedScopes`) |
 | Hover cards (HM1) | `src/Magpie.Core/Mail/HoverMenus.cs` (which lines each card shows, ids E1–E11 / S1–S9 / A1–A9), page script + `hm-a` / `hm-f` targets in `HtmlRenderer`, `Services/ReaderHover.cs` (address + file cards, runs the ids), `Services/SubjectCard.cs` (WPF popup), `Views/ThreadWindow.cs` (S3), `Views/PreviewWindow.cs` (A5); search `with:` / `file:` in `SearchQuery` |
-| Trash / Spam, delete past, selection (TB1, DP1, SL1) | `MailEngine.EmptyFolder` (pending op `EmptyFolder`, sync skips that folder until it reached the server), `Restore` (`MailStore.Trash.cs` remembers the folder), `NotSpam`, `AutoEmptyTrash` (`EmptyTrashAfterDays`); `PastFrom` / `TrashEmails` + `AutoDelete.PastEmails`; `Mail/Selection.cs` (Select ▾ filters); `MainViewModel` `SelectBy`, `AllInView` / `ViewTotal` (Select all N), `IsBinView`, `EmptyBin`, `DeletePastLater`; one auto-delete rule per sender (`MergeDuplicateAutoDeleteRules`) |
+| Trash / Spam, selection (TB1, SL1) | `MailEngine.EmptyFolder` (pending op `EmptyFolder`, sync skips that folder until it reached the server), `Restore` (`MailStore.Trash.cs` remembers the folder), `NotSpam`, `AutoEmptyTrash` (`EmptyTrashAfterDays`); `Mail/Selection.cs` (Select ▾ filters); `MainViewModel` `SelectBy`, `AllInView` / `ViewTotal` (Select all N), `IsBinView`, `EmptyBin` |
+| Delete three ways (DX1; was AD1–AD4 + DP1) | Direct: `MailEngine.DeleteForeverAsync` / `CountDeleteForever` (every copy by Message-ID via `MailStore.CopiesOf`, pending op `Delete`, no undo), `MainViewModel.DeleteForeverAsync` (asks once; Shift+Del, Delete ▾, right-click, Trash/Spam bulk bar). Past + future: `MailEngine.ApplyDeleteFrom(DeleteFromRequest)` → `DeleteFromResult` (past rows for the caller to trash after the undo wait, the one rule per sender + account, timers on the not-yet-due existing mail in every folder `PastFrom` covers — `ExistingFor`), `PastSummary` (dialog counts), `PastFrom(pattern, olderThan, accountId)`, `TrashEmails`; `AutoDelete.KeepChoices` / `KeepLabel` / `KeepSince` / `ButtonText` / `PastLine` / `FutureLine` / `ToastText`; `MainViewModel.RunDeleteFrom` (toast: Undo also removes a rule the run created, Edit rule); `Views/AutoDeleteDialog` (the "Delete emails from…" dialog — file kept its AD2 name; `Show(owner, rule, editing, past, future, keepNothing)`); `MainWindow.DeleteMenu` / `AddDeleteFromItems`; a rule's Delete action trashes every copy (`ApplyRule`); one rule per sender (`MergeDuplicateAutoDeleteRules`); only setting `AutoDeleteIncludePast` (FUTURE-only runs: do the not-yet-due existing emails get the timer) |
 | Deletion dates (DD1) | `Core/Mail/DeleteDates.cs` (texts), `Appearance.DeleteDates` (`DeleteDateLook`: Hover H1–H3, List L1–L4, Reader R1–R3; trial switch in Settings → Appearance), `ThreadItem` (row: pill / day / edge / ring, H1 tooltip), `Services/HoverCard.cs` (H2 row card, R2 chip card in `MainWindow`), `ThreadViewModel.RefreshDeleteBar` (R1 banner, R2 chip), `RenderMessage.DeleteNote` (R3) |
 | Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
