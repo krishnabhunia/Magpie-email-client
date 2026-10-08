@@ -110,6 +110,7 @@
         <Border Grid.Row="0" Background="{DynamicResource Brush.TitleBar.Background}">
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button Style="{StaticResource Button.TitleBar}" Content="&#xE721;" Click="OnCommands" ToolTip="Commands (Ctrl+K)" AutomationProperties.Name="Commands" />
                     <!-- Design B2: mail / calendar -->
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
@@ -450,6 +451,12 @@
                              PreviewKeyDown="OnSearchKey" />
 
                     <StackPanel Grid.Row="2">
+                    <WrapPanel Margin="14,0,14,6">
+                        <Button Style="{StaticResource Button.Chip}" Content="Attachments" Tag="has:attachment" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add an attachment filter to this local search" />
+                        <Button Style="{StaticResource Button.Chip}" Content="Pinned" Tag="is:pinned" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add a pinned filter to this local search" />
+                        <Button Style="{StaticResource Button.Chip}" Content="Save view…" Click="OnSaveSearch" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Save an inbox view or search on this PC" />
+                    </WrapPanel>
+                    <TextBlock Text="Search on this PC · bodies become searchable as they download" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="16,0,14,8" />
                     <!-- Gatekeeper (design B7): new senders wait at the door -->
                     <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="8" Margin="14,0,14,8" Padding="12,7"
                             Visibility="{Binding ShowGateBanner, Converter={StaticResource BoolToVis}}">

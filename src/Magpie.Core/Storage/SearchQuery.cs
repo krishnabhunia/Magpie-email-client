@@ -19,6 +19,10 @@ public sealed class SearchQuery
     public List<string> With { get; } = new();
     /// <summary>file: — an attachment's name contains this (emails whose text is on this PC; design HM1, A9).</summary>
     public List<string> File { get; } = new();
+    /// <summary>Exact sender domain; domain:example.com does not match subdomains.</summary>
+    public List<string> Domain { get; } = new();
+    /// <summary>Exact local label, with case-insensitive comparison.</summary>
+    public List<string> Labels { get; } = new();
     public bool HasAttachment { get; private set; }
     public bool Unread { get; private set; }
     public bool Pinned { get; private set; }
@@ -26,7 +30,7 @@ public sealed class SearchQuery
     public DateTimeOffset? After { get; private set; }
 
     public bool IsEmpty => Terms.Count == 0 && Phrases.Count == 0 && From.Count == 0 && To.Count == 0 && Subject.Count == 0 && With.Count == 0 && File.Count == 0
-                           && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
+                           && Domain.Count == 0 && Labels.Count == 0 && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
 
     public static SearchQuery Parse(string? text)
     {
@@ -48,6 +52,9 @@ public sealed class SearchQuery
                     case "subject": q.Subject.Add(val); continue;
                     case "with": q.With.Add(val); continue;
                     case "file": q.File.Add(val); continue;
+                    case "domain": q.Domain.Add(val.TrimStart('@').ToLowerInvariant()); continue;
+                    case "label":
+                    case "tag": q.Labels.Add(val); continue;
                     case "has" when val.StartsWith("attach", StringComparison.OrdinalIgnoreCase): q.HasAttachment = true; continue;
                     case "is" when val.Equals("unread", StringComparison.OrdinalIgnoreCase): q.Unread = true; continue;
                     case "is" when val is "pinned" or "flagged" or "starred": q.Pinned = true; continue;
@@ -145,6 +152,18 @@ public sealed class SearchQuery
         {
             cmd.Parameters.AddWithValue($"$sq_n{i}", Like(f));
             preds.Add($"EXISTS (SELECT 1 FROM bodies b, json_each(b.attachments) j WHERE b.message_row={m}.id AND json_extract(j.value,'$.FileName') LIKE $sq_n{i} ESCAPE '\\')");
+            i++;
+        }
+        foreach (var domain in Domain)
+        {
+            cmd.Parameters.AddWithValue($"$sq_domain{i}", domain);
+            preds.Add($"instr({m}.from_addr,'@')>0 AND lower(substr({m}.from_addr,instr({m}.from_addr,'@')+1))=$sq_domain{i}");
+            i++;
+        }
+        foreach (var label in Labels)
+        {
+            cmd.Parameters.AddWithValue($"$sq_label{i}", "," + label.ToLowerInvariant() + ",");
+            preds.Add($"instr(','||lower({m}.tags)||',',$sq_label{i})>0");
             i++;
         }
         if (HasAttachment) preds.Add($"{m}.has_attach=1");

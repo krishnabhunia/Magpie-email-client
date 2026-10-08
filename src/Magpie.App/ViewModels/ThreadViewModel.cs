@@ -342,7 +342,9 @@ public partial class ThreadViewModel : ObservableObject
         try
         {
             var dark = ThemeManager.IsDark;
-            foreach (var t in Neighbours.Take(8))
+            var context = PageContext;
+            var neighbours = Neighbours.Take(8).ToArray();
+            foreach (var t in neighbours)
             {
                 ct.ThrowIfCancellationRequested();
                 var key = t.AccountId + "\n" + t.ThreadKey;
@@ -360,6 +362,8 @@ public partial class ThreadViewModel : ObservableObject
                     var errors = new Dictionary<long, string>();
                     return new { rows, bodies, subject, allow, errors, fp = Fingerprint(subject, rows, bodies, allow, dark, errors, t.AccountId, DeleteState(t.AccountId, t.ThreadKey)) };
                 }, ct);
+                ct.ThrowIfCancellationRequested();
+                if (context != PageContext) return;
                 if (prep == null) continue;
                 if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);

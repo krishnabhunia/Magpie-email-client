@@ -10,7 +10,7 @@ using Magpie.Core.Storage;
 
 namespace Magpie.App.ViewModels;
 
-public enum NavKind { Inbox, Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, Role, Folder, Tag }
+public enum NavKind { Inbox, Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, Role, Folder, Tag, Important, Other, SavedView, RemindersDue }
 
 public partial class NavItem : ObservableObject
 {
@@ -21,6 +21,7 @@ public partial class NavItem : ObservableObject
     public long FolderId { get; init; }
     public string? AccountId { get; init; }
     public string? TagName { get; init; }
+    public InboxView? SavedView { get; init; }
     public string TagColor { get; init; } = "#14606E";
     public int Depth { get; init; }
     public System.Windows.Thickness Indent => new(Depth * 14, 0, 0, 0);
@@ -482,6 +483,12 @@ public partial class MainViewModel : ObservableObject
         var oldAccountUnread = AccountNodes.ToDictionary(n => n.Account.Id, n => n.UnreadText);
         Smart.Clear();
         Smart.Add(new NavItem { Kind = NavKind.Inbox, Label = "Inbox", Glyph = "", IconKey = "inbox" });
+        Smart.Add(new NavItem { Kind = NavKind.Important, Label = "Important (pinned)", Glyph = "", IconKey = "pin" });
+        Smart.Add(new NavItem { Kind = NavKind.Other, Label = "Other inbox", Glyph = "", IconKey = "inbox" });
+        foreach (var view in _e.Store.GetInboxViews())
+            Smart.Add(new NavItem { Kind = NavKind.SavedView, Label = view.Name, FolderId = view.Id,
+                AccountId = view.AccountId, SavedView = view, Glyph = "", IconKey = "folder" });
+        Smart.Add(new NavItem { Kind = NavKind.RemindersDue, Label = "Reminders due", Glyph = "", IconKey = "followup" });
         Smart.Add(new NavItem { Kind = NavKind.Pinned, Label = "Pinned", Glyph = "", IconKey = "pin" });
         Smart.Add(new NavItem { Kind = NavKind.Snoozed, Label = "Snoozed", Glyph = "", IconKey = "snooze" });
         Smart.Add(new NavItem { Kind = NavKind.SetAside, Label = "Set aside", Glyph = "", IconKey = "setaside" });
@@ -619,7 +626,8 @@ public partial class MainViewModel : ObservableObject
 
     private List<long> FolderIdsFor(NavItem nav) => nav.Kind switch
     {
-        NavKind.Inbox => _e.FolderIds(FolderRole.Inbox),
+        NavKind.Inbox or NavKind.Important or NavKind.Other => _e.FolderIds(FolderRole.Inbox),
+        NavKind.SavedView => SavedViewFolders(nav),
         NavKind.Snoozed or NavKind.SetAside or NavKind.DeletingSoon => _e.FolderIds(FolderRole.Inbox),
         NavKind.Pinned or NavKind.Tag => _e.AllMailFolderIds(),
         NavKind.Role => _e.FolderIds(nav.Role),
@@ -634,7 +642,7 @@ public partial class MainViewModel : ObservableObject
         var ids = Current.Kind switch
         {
             // Not Gmail's All Mail / Starred / Important: "moving" a copy out of those would unstar or un-archive the email.
-            NavKind.Pinned or NavKind.Tag or NavKind.FollowUp => _e.Folders(accountId)
+            NavKind.Pinned or NavKind.Tag or NavKind.FollowUp or NavKind.RemindersDue => _e.Folders(accountId)
                 .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important)).Select(f => f.Id).ToList(),
             _ => FolderIdsFor(Current),
         };
@@ -650,12 +658,13 @@ public partial class MainViewModel : ObservableObject
         FolderIds = search != null && nav.Kind == NavKind.Inbox ? _e.AllMailFolderIds() : FolderIdsFor(nav),
         Category = ShowCategories ? Category : null,
         UnreadOnly = UnreadOnly,
-        FlaggedOnly = nav.Kind == NavKind.Pinned,
+        FlaggedOnly = nav.Kind is NavKind.Pinned or NavKind.Important,
+        UnflaggedOnly = nav.Kind == NavKind.Other,
         Snoozed = nav.Kind == NavKind.Snoozed,
         SetAside = nav.Kind == NavKind.SetAside,
         DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
         Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
-        Search = search,
+        Search = nav.SavedView is { } view ? SearchQuery.Parse(view.Query + " " + SearchText) : search,
         Limit = limit,
     };
 
@@ -695,10 +704,10 @@ public partial class MainViewModel : ObservableObject
 
         List<ThreadRow> rows;
         var search = string.IsNullOrWhiteSpace(SearchText) ? null : SearchQuery.Parse(SearchText);
-        if (nav.Kind == NavKind.FollowUp)
+        if (nav.Kind is NavKind.FollowUp or NavKind.RemindersDue)
         {
             rows = new List<ThreadRow>();
-            foreach (var r in _e.DueReminders().Concat(_e.WaitingReminders()))
+            foreach (var r in nav.Kind == NavKind.RemindersDue ? _e.DueReminders() : _e.DueReminders().Concat(_e.WaitingReminders()))
             {
                 var t = _e.Store.GetThread(r.AccountId, r.ThreadKey);
                 if (t.Count == 0) continue;

@@ -1,0 +1,45 @@
+name: Prepare productivity validation
+on:
+  pull_request:
+    branches: [ main ]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.event.pull_request.head.ref == 'codex/productivity-local-first-20261008' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Generate release metadata with the repository script
+        shell: python
+        run: |
+          import sys, json, pathlib, datetime
+          sys.path.insert(0, 'build')
+          import release_prep
+          if release_prep.pending():
+              version = release_prep.apply(datetime.date(2026, 10, 8))
+          else:
+              version = release_prep.current()
+          release_prep.check(version)
+          for name in ['Directory.Build.props', 'installer/Magpie.iss', 'CHANGELOG.md', 'CLAUDE.md']:
+              print('MAGPIE_RELEASE_FILE=' + json.dumps({'path':name,'content':pathlib.Path(name).read_text(encoding='utf-8')}, ensure_ascii=True))
+      - name: Release script tests
+        run: python build/test_release_prep.py
+      - name: Core tests
+        run: dotnet test tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --filter "Category!=Integration"
+      - name: Build WPF app
+        run: dotnet build src/Magpie.App/Magpie.App.csproj -c Release
+      - name: XAML and assembly reference checks
+        shell: pwsh
+        run: |
+          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
+          if ($LASTEXITCODE -ne 0) { throw "DpDump failed" }
+          python build/xaml_check.py --dps build/app-types.json
+          if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
+          dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Assembly check failed" }

@@ -12,6 +12,7 @@ public sealed class ListQuery
     public Category? Category { get; init; }
     public bool UnreadOnly { get; init; }
     public bool FlaggedOnly { get; init; }
+    public bool UnflaggedOnly { get; init; }
     /// <summary>True: only snoozed conversations. False: hide snoozed ones (normal inbox).</summary>
     public bool Snoozed { get; init; }
     /// <summary>The Set aside pile (design B7).</summary>
@@ -32,7 +33,7 @@ public sealed partial class MailStore
 {
     private readonly string _cs;
     /// <summary>Bump when tables are added; every statement in Migrate is idempotent (IF NOT EXISTS).</summary>
-    public const int SchemaVersion = 10;
+    public const int SchemaVersion = 11;
 
     public MailStore(string dbPath)
     {
@@ -44,6 +45,7 @@ public sealed partial class MailStore
             Pooling = true,
         }.ToString();
         Migrate();
+        EnsureProductivitySchema();
     }
 
     private SqliteConnection Open()
@@ -471,6 +473,7 @@ public sealed partial class MailStore
         var having = new List<string>();
         if (q.UnreadOnly) having.Add("unread > 0");
         if (q.FlaggedOnly) having.Add("flagged > 0");
+        if (q.UnflaggedOnly) having.Add("flagged = 0");
         var outer = new List<string> { "rn=1" };
         if (q.Category is { } cat) { outer.Add("category=$cat"); cmd.Parameters.AddWithValue("$cat", (int)cat); }
         if (having.Count > 0) outer.AddRange(having);
