@@ -175,6 +175,8 @@ public sealed class Appearance
     public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
     public FolderHoverSettings FolderHover { get; set; } = new();
     public RowActionsSettings RowActions { get; set; } = new();
+    /// <summary>Design DD1: how an email's auto-delete date shows (pointing at a row, on the row, in the reading pane).</summary>
+    public DeleteDateLook DeleteDates { get; set; } = new();
 
     public static List<ToolbarButton> DefaultToolbar() =>
         ToolbarIds.Select((id, i) => new ToolbarButton { Id = id, Visible = i < DefaultVisible }).ToList();
@@ -189,6 +191,7 @@ public sealed class Appearance
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
         (FolderHover ??= new()).Normalise();
         (RowActions ??= new()).Normalise();
+        (DeleteDates ??= new()).Normalise();
         if (!Enum.IsDefined(Theme)) Theme = ThemeMode.MatchWindows;
     }
 
@@ -196,8 +199,38 @@ public sealed class Appearance
     {
         Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
-        FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(),
+        FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(), DeleteDates = DeleteDates.Clone(),
     };
+}
+
+/// <summary>
+/// Design DD1: which option shows an email's auto-delete date — pointing at a row (H1 tooltip, H2 card, H3 the tag grows),
+/// on the row (L1 countdown pill, L2 the date becomes the delete date, L3 red edge + clock, L4 ring) and in the reading pane
+/// (R1 banner with a countdown bar, R2 chip next to the subject, R3 on each email of the conversation).
+/// </summary>
+public sealed class DeleteDateLook
+{
+    public static readonly string[] HoverIds = { "H1", "H2", "H3" };
+    public static readonly string[] ListIds = { "L1", "L2", "L3", "L4" };
+    public static readonly string[] ReaderIds = { "R1", "R2", "R3" };
+
+    public string Hover { get; set; } = "H1";
+    public string List { get; set; } = "L1";
+    public string Reader { get; set; } = "R1";
+
+    public void Normalise()
+    {
+        Hover = Pick(Hover, HoverIds);
+        List = Pick(List, ListIds);
+        Reader = Pick(Reader, ReaderIds);
+    }
+
+    private static string Pick(string? id, string[] ids) =>
+        ids.FirstOrDefault(x => x.Equals((id ?? "").Trim(), StringComparison.OrdinalIgnoreCase)) ?? ids[0];
+
+    public DeleteDateLook Clone() => new() { Hover = Hover, List = List, Reader = Reader };
+
+    public override string ToString() => $"{Hover}, {List}, {Reader}";
 }
 
 /// <summary>Updates from GitHub Releases (design U1).</summary>

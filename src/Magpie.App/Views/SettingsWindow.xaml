@@ -1328,6 +1328,35 @@
                                 </Grid>
                             </StackPanel>
                         </Border>
+
+                        <!-- Deletion dates (design DD1, trial: every option can be tried here) -->
+                        <TextBlock Text="DELETION DATES" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowDeleteDates" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                           Text="How an email with an auto-delete timer shows when it will be deleted. Pick an option for each place, press Apply, and look at an email from a sender with an auto-delete rule." />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="Pointing at an email" VerticalAlignment="Center" Margin="0,0,16,8" />
+                                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding DeleteHoverChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                              SelectedValue="{Binding DeleteHover, Mode=TwoWay}" Margin="0,0,0,8" AutomationProperties.Name="Pointing at an email" />
+                                    <TextBlock Grid.Row="1" Text="On the row in the list" VerticalAlignment="Center" Margin="0,0,16,8" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding DeleteListChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                              SelectedValue="{Binding DeleteList, Mode=TwoWay}" Margin="0,0,0,8" AutomationProperties.Name="On the row in the list" />
+                                    <TextBlock Grid.Row="2" Text="In the reading pane" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                    <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding DeleteReaderChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                              SelectedValue="{Binding DeleteReader, Mode=TwoWay}" AutomationProperties.Name="In the reading pane" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <!-- ═══════════ Updates (design U1) ═══════════ -->

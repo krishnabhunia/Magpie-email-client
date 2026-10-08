@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 5.0.0 (7 Oct 2026)
+## 6.0.0 (8 Oct 2026)
 ### New
 - **Update button in the title bar**, always there (Calendar · Sync · Settings · **Update**): grey when Magpie is up to date (hover shows when it last checked), green "Update 4.1.0" with a dot when a newer version is out, a filling bar while it downloads, "Restart to update" when it is ready, amber when the last check didn't work. Click to check now (even with Auto update off) and see what's new, with Download and install · Later · Skip this version, Cancel while downloading, the Auto update and test-versions switches and the release notes; right-click opens that at any time. It replaces the green pill.
 - **Shift+Delete deletes for good**, from any folder: it asks once ("Delete 3 emails for good?"), skips Trash and removes every copy from this PC and the server — no undo (on Gmail, All Mail may still keep a copy). Also "Delete forever…" in Delete ▾ and the right-click menu; the Trash and Spam "Delete forever" asks the same way.
@@ -16,6 +16,13 @@
 - **A new auto-delete rule times the emails already here in every folder** (not only the Inbox) — those not yet past the time; the ones already past it are deleted only when "Emails already here" is ticked. The "older than ▸" submenu and the "Include the N emails already in the Inbox" toggle are gone: the dialog's tick replaces them.
 - **A rule's Delete action moves every copy** of the email to Trash (Gmail: the All Mail copy too), not only the copy that matched.
 <!-- closes: #59 #60 -->
+
+## 5.0.0 (7 Oct 2026)
+### New
+- **See when an email will be deleted.** An email with an auto-delete timer says when it goes, in three places, and you choose how in **Settings → Appearance → Deletion dates**:
+  - **Pointing at an email in the list**: a line in the date's tooltip, a small card with **Keep this one**, **Change rule** and **Delete now**, or the row's tag growing to the full date and rule.
+  - **On the row**: a countdown pill coloured by how soon (red under 48 hours, amber under 30 days, grey later), the deletion date in place of the arrival date, a red edge with a clock and the days left, or a small ring that empties.
+  - **In the reading pane**: a banner with the full date and time, the rule, **Keep this one** / **Change rule** and a bar of the time left; a chip next to the subject; or the time on each email of the conversation.
 
 ## 4.0.2 (7 Oct 2026)
 ### Fixed

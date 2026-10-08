@@ -92,6 +92,7 @@ public partial class SettingsViewModel
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
+            DeleteDates = new DeleteDateLook { Hover = DeleteHover, List = DeleteList, Reader = DeleteReader },
         };
         c.Appearance.Normalise();
         c.Updates.AutoUpdate = AutoUpdate;

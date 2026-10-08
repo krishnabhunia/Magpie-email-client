@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     public MainViewModel ViewModel => _vm;
     private readonly ReaderHover _hover;
     private readonly SubjectCard _subjectCard;
+    /// <summary>Design DD1: H2 (pointing at a row with a timer) and R2 (the chip next to the subject).</summary>
+    private readonly HoverCard _deleteCard;
     private bool _webReady;
     private readonly ReaderPresenter _presenter = new();
 
@@ -32,6 +34,10 @@ public partial class MainWindow : Window
         // Design HM1: hover cards on addresses, files (in the page) and the subject.
         _hover = new ReaderHover(this, _vm, _vm.Reader, js => _webReady ? Web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
         _subjectCard = new SubjectCard(SubjectText, () => _hover.SubjectContent(ownWindow: false), (id, anchor) => _hover.RunSubject(id, anchor, _subjectCard!));
+        _deleteCard = new HoverCard(DeleteCardFor);
+        _deleteCard.Attach(DeleteChip);
+        DeleteChip.MouseLeftButtonUp += (_, e) => { e.Handled = true; _deleteCard.Show(DeleteChip); };
+        DeleteChip.KeyDown += (_, e) => { if (e.Key is Key.Enter or Key.Space or Key.Apps) { e.Handled = true; _deleteCard.Show(DeleteChip, focus: true); } };
         _vm.StatusBar.SignInRequested += id =>
         {
             if (AppServices.Engine.AccountById(id) is { } a) AddAccountWindow.ShowReauth(this, a);
@@ -46,7 +52,62 @@ public partial class MainWindow : Window
         ThemeManager.Changed += () => Web.DefaultBackgroundColor = ThemeManager.WebBackground;
         Loaded += async (_, _) => await InitWebAsync();
         Closing += OnClosing;
-        Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); };
+        Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); _deleteCard.Close(); };
+        LocationChanged += (_, _) => _deleteCard.Close();
+    }
+
+    // ───────────────────────── deletion dates (design DD1, H2 + R2) ─────────────────────────
+
+    /// <summary>Every row can open the H2 card; it shows only for rows with a timer while H2 is the chosen option.</summary>
+    private void OnRowLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement row) _deleteCard.Attach(row);
+    }
+
+    private UIElement? DeleteCardFor(FrameworkElement target)
+    {
+        var e = AppServices.Engine;
+        if (ReferenceEquals(target, DeleteChip))
+        {
+            var r = _vm.Reader;
+            if (!r.HasDeleteTimer || !r.HasThread) return null;
+            return DeleteCardContent(r.DeleteCardTitle, r.DeleteRuleText, r.DeleteRuleId, () => r.KeepFromAutoDeleteCommand.Execute(null), deleteNow: null);
+        }
+        if (e.Config.Appearance.DeleteDates.Hover != "H2" || target.DataContext is not ThreadItem { DeleteAt: not null } item || item.MenuOpen) return null;
+        return DeleteCardContent(item.DeleteCardTitle, item.DeleteCardRule, item.DeleteRuleId,
+            () => e.KeepFromAutoDelete(item.Row.AccountId, item.Row.ThreadKey),
+            () => _ = RunOnItemsAsync(new[] { item }, "delete", target));
+    }
+
+    private UIElement DeleteCardContent(string title, string rule, string ruleId, Action keep, Action? deleteNow)
+    {
+        var panel = new StackPanel();
+        var head = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        head.SetResourceReference(TextBlock.ForegroundProperty, "Brush.Danger");
+        var sub = new TextBlock { Text = rule, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 10) };
+        sub.SetResourceReference(TextBlock.ForegroundProperty, "Brush.Text.Secondary");
+        panel.Children.Add(head);
+        panel.Children.Add(sub);
+        var buttons = new WrapPanel();
+        Button Make(string text, string style, Action run, string tip)
+        {
+            var b = new Button { Content = text, FontSize = 12, MinHeight = 26, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 4), ToolTip = tip };
+            b.SetResourceReference(StyleProperty, style);
+            b.Click += (_, _) => { _deleteCard.Close(); run(); };
+            buttons.Children.Add(b);
+            return b;
+        }
+        Make("Keep this one", "Button.Primary", keep, "Take the timer off this email (pinning it keeps it too)");
+        Make("Change rule", "Button.Secondary", () =>
+        {
+            var r = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == ruleId);
+            if (r != null) EditAutoDelete(r, editing: true);
+            else Ui.Error("Auto-delete", "That rule was removed; this email keeps the date it was given. Use Keep this one to stop it.");
+        }, "Change the time or the sender of this rule");
+        if (deleteNow != null)
+            Make("Delete now", "Button.Secondary", deleteNow, "Move it to Trash now").SetResourceReference(ForegroundProperty, "Brush.Danger");
+        panel.Children.Add(buttons);
+        return panel;
     }
 
     // ───────────────────────── sidebar width (design H1) ─────────────────────────

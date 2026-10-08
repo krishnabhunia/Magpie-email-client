@@ -6,7 +6,7 @@ using Xunit;
 namespace Magpie.Core.Tests;
 
 /// <summary>5.0.0: delete three ways (design DX1) and the words on the title-bar Update button (design UB1).</summary>
-public class Release500DeleteTests
+public class Release600Tests
 {
     private static MailEngine Engine(TempDir dir, out long inbox, out long receipts, out long allMail, out long trash, out long sent)
     {

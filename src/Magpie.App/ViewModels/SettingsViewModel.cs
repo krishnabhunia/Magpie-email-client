@@ -362,6 +362,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Folder numbers", "Toolbar", "Unread / total · Unread only · Off", "counts numbers unread total badge folder", "RowLook"),
         ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
         ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
+        ("Deletion dates", "Toolbar", "How an email with an auto-delete timer shows when it will be deleted", "deletion delete date auto-delete timer countdown when deleted expire pill ring banner chip", "RowDeleteDates"),
         ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
         ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
         ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
@@ -452,6 +453,24 @@ public partial class SettingsViewModel : ObservableObject
         new(RowActionsMode.OnHover, "On hover"), new(RowActionsMode.Always, "Always"), new(RowActionsMode.Never, "Never"),
     };
     public int[] ConfirmChoices { get; } = { 0, 5, 10, 20, 50 };
+
+    // ── Deletion dates (design DD1) ──
+    [ObservableProperty] private string _deleteHover = "H1";
+    [ObservableProperty] private string _deleteList = "L1";
+    [ObservableProperty] private string _deleteReader = "R1";
+    public List<Choice<string>> DeleteHoverChoices { get; } = new()
+    {
+        new("H1", "H1 · A line in the date's tooltip"), new("H2", "H2 · A small card with Keep / Change rule / Delete now"), new("H3", "H3 · The row's tag grows to the full date and rule"),
+    };
+    public List<Choice<string>> DeleteListChoices { get; } = new()
+    {
+        new("L1", "L1 · Countdown pill, coloured by how soon"), new("L2", "L2 · The date becomes the deletion date"),
+        new("L3", "L3 · Red edge, clock and days left"), new("L4", "L4 · A ring that empties"),
+    };
+    public List<Choice<string>> DeleteReaderChoices { get; } = new()
+    {
+        new("R1", "R1 · Banner with a countdown bar"), new("R2", "R2 · A chip next to the subject"), new("R3", "R3 · On each email of the conversation"),
+    };
     [ObservableProperty] private string _rowLimitNote = "";
 
     private void LoadRowActions(RowActionsSettings r)
@@ -602,6 +621,9 @@ public partial class SettingsViewModel : ObservableObject
         RowMode = d.RowActions.Mode;
         ConfirmDeleteOver = d.RowActions.ConfirmDeleteOver;
         LoadRowActions(d.RowActions);
+        DeleteHover = d.DeleteDates.Hover;
+        DeleteList = d.DeleteDates.List;
+        DeleteReader = d.DeleteDates.Reader;
     }
 
     // ── Updates (design U1): the live state comes from the update service; the switches save with the rest ──
@@ -693,6 +715,9 @@ public partial class SettingsViewModel : ObservableObject
         _rowMode = ap.RowActions.Mode;
         _confirmDeleteOver = ap.RowActions.ConfirmDeleteOver;
         LoadRowActions(ap.RowActions);
+        _deleteHover = ap.DeleteDates.Hover;
+        _deleteList = ap.DeleteDates.List;
+        _deleteReader = ap.DeleteDates.Reader;
         _autoUpdate = c.Updates.AutoUpdate ?? true;
         _includePrerelease = c.Updates.IncludePrerelease;
         foreach (var a in Accounts)
@@ -877,6 +902,7 @@ public partial class SettingsViewModel : ObservableObject
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
+            DeleteDates = new DeleteDateLook { Hover = DeleteHover, List = DeleteList, Reader = DeleteReader },
         };
         c.Appearance.Normalise();
         c.Updates.AutoUpdate = AutoUpdate;

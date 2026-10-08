@@ -552,7 +552,10 @@
                                      Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:ThreadItem}">
-                                        <Grid>
+                                        <Grid Loaded="OnRowLoaded">
+                                        <!-- Design DD1 (L3): a red strip on the left edge of every email that will be deleted -->
+                                        <Border Width="4" HorizontalAlignment="Left" Margin="-16,-10,0,-10" Background="{DynamicResource Brush.Danger}"
+                                                Visibility="{Binding ShowEdge, Converter={StaticResource BoolToVis}}" />
                                         <DockPanel>
                                         <!-- Design SL1 (F0): a tick box on every row, always there; Shift+click ticks a range -->
                                         <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsChecked, Mode=OneWay}" VerticalAlignment="Top" Margin="0,10,9,0" Focusable="False"
@@ -581,8 +584,17 @@
                                                 <!-- Design RB4 (approved 30 Sep 2026): the chosen buttons take the date's place on the first line, the same
                                                      spot on every row; one size, even gaps, ⋯ last. On hover (or always / never, Settings → Appearance). -->
                                                 <Grid DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center">
-                                                    <TextBlock Style="{StaticResource RowDate}" Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}"
-                                                               HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip="{Binding DateTip}" />
+                                                    <Border Visibility="{Binding ShowDeleteDay, Converter={StaticResource InvBoolToVis}}" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <TextBlock Style="{StaticResource RowDate}" Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                                   HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip="{Binding DateTip}" />
+                                                    </Border>
+                                                    <!-- Design DD1 (L2): the date becomes the delete date; the arrival date moves under it -->
+                                                    <Border Visibility="{Binding ShowDeleteDay, Converter={StaticResource BoolToVis}}" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <TextBlock Style="{StaticResource RowDate}" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}"
+                                                                   HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip="{Binding DateTip}">
+                                                            <Run Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="10.5" /><Run Text=" " /><Run Text="{Binding DeleteDay, Mode=OneWay}" />
+                                                        </TextBlock>
+                                                    </Border>
                                                     <Border Style="{StaticResource RowBar}" Background="Transparent" Margin="0,-5,-4,-5" ToolTip="{Binding DateTip}">
                                                         <StackPanel Orientation="Horizontal">
                                                             <ItemsControl ItemsSource="{Binding DataContext.RowActionButtons, RelativeSource={RelativeSource AncestorType=Window}}" Focusable="False">
@@ -608,10 +620,28 @@
                                                              Visibility="{Binding ShowAccountDot, Converter={StaticResource BoolToVis}}" />
                                                     <TextBlock Text="{Binding Sender}" FontSize="13.5" FontWeight="{Binding IsUnread, Converter={StaticResource BoldIfTrue}}" TextTrimming="CharacterEllipsis" MaxWidth="260" VerticalAlignment="Center" />
                                                     <TextBlock Text="{Binding CountText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                                    <!-- Design DD1 (L3): a small clock after the sender -->
+                                                    <TextBlock Text="&#xE823;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Danger}" Margin="7,0,0,0" VerticalAlignment="Center"
+                                                               ToolTip="{Binding DeleteTagTip}" Visibility="{Binding ShowEdge, Converter={StaticResource BoolToVis}}" />
+                                                    <!-- Design DD1 (L4): a ring that empties as the time runs out -->
+                                                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding DeleteTagTip}"
+                                                                Visibility="{Binding ShowRing, Converter={StaticResource BoolToVis}}">
+                                                        <Grid Width="14" Height="14" VerticalAlignment="Center">
+                                                            <Path Stroke="{DynamicResource Brush.Control.Border}" StrokeThickness="2.5">
+                                                                <Path.Data><EllipseGeometry Center="7,7" RadiusX="5.5" RadiusY="5.5" /></Path.Data>
+                                                            </Path>
+                                                            <Path Data="{Binding RingGeometry}" Stroke="{Binding DeleteTagFg}" StrokeThickness="2.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding DeleteShort}" FontSize="11.5" FontWeight="SemiBold" Foreground="{Binding DeleteTagFg}" Margin="4,0,0,0" VerticalAlignment="Center" />
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </DockPanel>
                                             <DockPanel Grid.Row="1" Margin="0,2,0,0">
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                               ToolTip="Arrived" Visibility="{Binding ShowDeleteDay, Converter={StaticResource BoolToVis}}" />
+                                                    <TextBlock Text="{Binding DeleteShort}" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                               ToolTip="{Binding DeleteTagTip}" Visibility="{Binding ShowEdge, Converter={StaticResource BoolToVis}}" />
                                                     <Border Background="{DynamicResource Brush.Badge.Local.Background}" CornerRadius="9" Padding="7,1" Margin="6,0,0,0" VerticalAlignment="Center"
                                                             Visibility="{Binding LocalBadge, Converter={StaticResource BoolToVis}}">
                                                         <TextBlock Text="{Binding LocalBadge}" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Badge.Local.Text}" />
@@ -625,9 +655,52 @@
                                             </DockPanel>
                                             <TextBlock Grid.Row="2" Text="{Binding Preview}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
                                             <WrapPanel Grid.Row="3" Margin="0,4,0,0" Visibility="{Binding HasTagLine, Converter={StaticResource BoolToVis}}">
-                                                <Border CornerRadius="4" Background="{Binding DeleteTagBg}" Margin="0,0,6,0" Padding="6,1" ToolTip="{Binding DeleteTagTip}"
-                                                        Visibility="{Binding HasDeleteTag, Converter={StaticResource BoolToVis}}">
-                                                    <TextBlock Text="{Binding DeleteTag}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding DeleteTagFg}" />
+                                                <!-- Design DD1: L1 countdown pill (red < 48 h, amber < 30 days, grey later); H3 grows it to the full date and rule
+                                                     while the mouse is on the row (and shows it then under L2–L4) -->
+                                                <Border CornerRadius="9" Background="{Binding DeleteTagBg}" Margin="0,0,6,0" Padding="7,1" ToolTip="{Binding DeleteTagTip}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ShowPill}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding GrowPill}" Value="True" />
+                                                                        <Condition Binding="{Binding ShowPill}" Value="False" />
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Hidden" />
+                                                                </MultiDataTrigger>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding GrowPill}" Value="True" />
+                                                                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </MultiDataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="10" Foreground="{Binding DeleteTagFg}" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{Binding DeleteTagFg}" VerticalAlignment="Center">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Text" Value="{Binding DeleteTag}" />
+                                                                    <Style.Triggers>
+                                                                        <MultiDataTrigger>
+                                                                            <MultiDataTrigger.Conditions>
+                                                                                <Condition Binding="{Binding GrowPill}" Value="True" />
+                                                                                <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                                                                            </MultiDataTrigger.Conditions>
+                                                                            <Setter Property="Text" Value="{Binding DeleteTagLong}" />
+                                                                        </MultiDataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                    </StackPanel>
                                                 </Border>
                                                 <ItemsControl ItemsSource="{Binding TagChips}">
                                                     <ItemsControl.ItemsPanel>
@@ -801,6 +874,14 @@
                                 Foreground="{DynamicResource Brush.Accent.Text}" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE718;" Command="{Binding TogglePinCommand}" ToolTip="Pin (P)"
                                 Visibility="{Binding IsPinned, Converter={StaticResource InvBoolToVis}}" />
+                        <!-- Design DD1 (R2): a chip next to the subject; pointing at it (or a click) shows the rule with Keep / Change rule -->
+                        <Border x:Name="DeleteChip" DockPanel.Dock="Right" CornerRadius="10" Padding="8,2" Margin="10,5,6,0" VerticalAlignment="Top" Background="{Binding DeleteChipBg}"
+                                Cursor="Hand" Focusable="True" AutomationProperties.Name="{Binding DeleteChipText}" Visibility="{Binding ShowDeleteChip, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{Binding DeleteChipFg}" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding DeleteChipText}" FontSize="12" FontWeight="SemiBold" Foreground="{Binding DeleteChipFg}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
                         <!-- Design HM1: resting the mouse here (or right-click / Menu key) opens the subject card -->
                         <TextBlock x:Name="SubjectText" Text="{Binding Subject}" Style="{StaticResource Text.Serif}" FontSize="19" TextWrapping="Wrap" TextTrimming="None"
                                    Focusable="True" AutomationProperties.Name="Subject — press the Menu key for actions" />
@@ -893,20 +974,33 @@
                         </StackPanel>
                     </DockPanel>
                 </Border>
-                <!-- Auto-delete timer (design AD3) -->
-                <Border Background="{DynamicResource Brush.Danger.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
-                        Visibility="{Binding HasDeleteTimer, Converter={StaticResource BoolToVis}}">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Style="{StaticResource Button.Link}" Content="Keep this one" FontSize="12" FontWeight="SemiBold" MinHeight="22" Padding="6,0" Command="{Binding KeepFromAutoDeleteCommand}"
-                                    ToolTip="Take the timer off this email (pinning it keeps it too)" />
-                            <Button Style="{StaticResource Button.Link}" Content="Change rule" FontSize="12" MinHeight="22" Padding="6,0" Click="OnChangeDeleteRule" />
-                        </StackPanel>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="{Binding DeleteBarText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding DeleteRuleText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </DockPanel>
+                <!-- Auto-delete timer: design DD1 (R1) — full date and time, the rule, Keep / Change rule and a bar of the time left -->
+                <Border Background="{DynamicResource Brush.Danger.Subtle}" CornerRadius="6" Padding="12,8,12,8" Margin="24,0,24,8"
+                        Visibility="{Binding ShowDeleteBanner, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Style="{StaticResource Button.Primary}" Content="Keep this one" FontSize="12" MinHeight="26" Padding="10,2" Margin="8,0,6,0" Command="{Binding KeepFromAutoDeleteCommand}"
+                                        ToolTip="Take the timer off this email (pinning it keeps it too)" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Change rule" FontSize="12" MinHeight="26" Padding="10,2" Click="OnChangeDeleteRule" />
+                            </StackPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="14" Foreground="{DynamicResource Brush.Danger}" Margin="0,2,10,0" VerticalAlignment="Top" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock FontSize="12.5" Foreground="{DynamicResource Brush.Danger}" TextWrapping="Wrap">
+                                    <Run Text="{Binding DeleteBannerDate, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="{Binding DeleteBannerLeft, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding DeleteRuleText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DockPanel>
+                        <Grid Height="4" Margin="0,8,0,0" ToolTip="Time left before it moves to Trash">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="{Binding DeleteBarLeft}" />
+                                <ColumnDefinition Width="{Binding DeleteBarGone}" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.ColumnSpan="2" CornerRadius="2" Background="{DynamicResource Brush.Control.Border}" />
+                            <Border Grid.Column="0" CornerRadius="2" Background="{DynamicResource Brush.Danger}" />
+                        </Grid>
+                    </StackPanel>
                 </Border>
                 <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,6" Margin="24,0,24,8"
                         Visibility="{Binding BlockedImages, Converter={StaticResource BoolToVis}}">
