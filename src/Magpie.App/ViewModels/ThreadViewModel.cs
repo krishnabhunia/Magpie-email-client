@@ -369,6 +369,7 @@ public partial class ThreadViewModel : ObservableObject
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
                 var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay), ct);
                 ct.ThrowIfCancellationRequested();
+                if (context != PageContext) return;
                 PutPage(key, prep.fp, result.Html, result.BlockedImages);
             }
         }

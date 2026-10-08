@@ -10,6 +10,7 @@ using Magpie.App.ViewModels;
 using Magpie.App.Views;
 using Magpie.Core;
 using Magpie.Core.Models;
+using Magpie.Core.Mail;
 using Magpie.Core.Security;
 
 namespace ProductivitySmoke;
@@ -24,7 +25,9 @@ internal static class Program
         try
         {
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            using var engine = new MailEngine(new AppPaths(root), new TestProtector(), new RejectHttp());
+            var http = new RejectHttp();
+            using var engine = new MailEngine(new AppPaths(root), new TestProtector(), http);
+            engine.Config.MarkReadOnOpen = false;
             AppServices.Engine = engine;
             engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@example.test" });
             var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Name = "Inbox", Role = FolderRole.Inbox });
@@ -59,6 +62,8 @@ internal static class Program
             var id = vm.Current!.FolderId;
             vm.SaveWorkspaceView("Removed scope", "domain:example.test", "missing", true, id);
             Assert(vm.Threads.Count == 0, "Removed account does not broaden saved view");
+            CheckCachedReader(vm, engine, inbox);
+            Assert(http.Requests == 0, "Local workspace and cached reader made no HTTP calls");
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();
@@ -76,6 +81,48 @@ internal static class Program
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    private static void CheckCachedReader(MainViewModel vm, MailEngine engine, long inbox)
+    {
+        var threads = engine.Store.ListThreads(new Magpie.Core.Storage.ListQuery { FolderIds = new[] { inbox } }, DateTimeOffset.Now);
+        var first = threads.First(t => t.ThreadKey == "one");
+        var second = threads.First(t => t.ThreadKey == "two");
+        ReaderPage? page = null;
+        var loading = 0;
+        vm.Reader.PageReady += value => page = value;
+        vm.Reader.Loading += _ => loading++;
+        vm.Reader.Neighbours = Array.Empty<ThreadRow>();
+        var bucket = DateTimeOffset.Now.ToUnixTimeSeconds() / 600;
+        vm.Reader.Show(first, vm);
+        PumpUntil(() => page?.Key == "A\none");
+        var firstHtml = page!.Html;
+        vm.Reader.Show(second, vm);
+        PumpUntil(() => page?.Key == "A\ntwo");
+        var beforeReturn = loading;
+        vm.Reader.Show(first, vm);
+        if (bucket == DateTimeOffset.Now.ToUnixTimeSeconds() / 600)
+        {
+            Assert(page?.Key == "A\none", "Returning to prepared conversation publishes its page immediately");
+            Assert(ReferenceEquals(firstHtml, page!.Html), "Returning reuses the prepared HTML instead of sanitizing again");
+            Assert(loading == beforeReturn, "Returning to cached mail shows no loading placeholder");
+        }
+        else PumpUntil(() => page?.Key == "A\none"); // natural relative-date bucket invalidation
+
+    }
+
+    private static void PumpUntil(Func<bool> done)
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        while (!done() && timer.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            var frame = new DispatcherFrame();
+            var tick = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(10) };
+            tick.Tick += (_, _) => { tick.Stop(); frame.Continue = false; };
+            tick.Start();
+            Dispatcher.PushFrame(frame);
+        }
+        Assert(done(), "Reader finished rendering within the smoke-test deadline");
     }
 
     private static void CheckPalette(Window owner, string output, string theme)
@@ -171,7 +218,11 @@ internal static class Program
 
     private sealed class RejectHttp : HttpMessageHandler
     {
+        public int Requests { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => throw new InvalidOperationException("The productivity smoke test must not make network requests.");
+        {
+            Requests++;
+            throw new InvalidOperationException("The productivity smoke test must not make network requests.");
+        }
     }
 }
