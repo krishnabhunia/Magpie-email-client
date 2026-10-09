@@ -24,6 +24,7 @@ internal static class Program
         var root = Path.Combine(Path.GetTempPath(), "magpie-productivity-" + Guid.NewGuid().ToString("N"));
         try
         {
+            Application.ResourceAssembly = typeof(MainWindow).Assembly;
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             var http = new RejectHttp();
             using var engine = new MailEngine(new AppPaths(root), new TestProtector(), http);

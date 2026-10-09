@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 7.0.1 (9 Oct 2026)
 ### Fixed
 - Magpie opens again after updating to 7.0.0: the Attachments, Pinned and Save view search buttons now use the right style. Windows checks also construct the full main window in light and dark themes.
 <!-- closes: #88 -->
