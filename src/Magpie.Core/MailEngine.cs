@@ -1555,21 +1555,17 @@ public sealed class MailEngine : IDisposable
 
     private void CheckReminders()
     {
-        var mine = MyAddresses;
-        foreach (var r in Store.GetReminders(ReminderState.Waiting).Where(r => r.Due <= DateTimeOffset.Now))
+        var now = DateTimeOffset.Now;
+        var result = Store.AdvanceReminders(now, MyAddresses);
+        foreach (var r in result.Due)
         {
-            if (!r.Always && Store.HasReplyAfter(r.AccountId, r.ThreadKey, r.After, mine))
-            {
-                Store.SetReminderState(r.Id, ReminderState.Done);
-                continue;
-            }
-            Store.SetReminderState(r.Id, ReminderState.Due);
-            Store.BumpThread(r.AccountId, r.ThreadKey, DateTimeOffset.Now);
+            Store.BumpThread(r.AccountId, r.ThreadKey, now);
             ReminderDue?.Invoke(r);
             var cs = new ChangeSet { AccountId = r.AccountId };
             foreach (var f in FolderIds(FolderRole.Inbox, r.AccountId)) cs.FolderIds.Add(f);
             Changed?.Invoke(cs);
         }
+        if (result.Completed > 0) Changed?.Invoke(new ChangeSet());
     }
 
     public List<Reminder> DueReminders() => Store.GetReminders(ReminderState.Due);

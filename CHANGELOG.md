@@ -7,6 +7,19 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 7.0.0 (8 Oct 2026)
+### New
+- **Commands (Ctrl+K)** in the title bar: find actions, folders, saved views, reminders and drafting without leaving the keyboard. Unavailable actions explain what is needed.
+- **Important (pinned) and Other inbox**, plus saved inbox views and searches by sender, exact domain, recipient, subject or local label, with an account scope. Views stay on this PC.
+- **Local search filters** for attachments and pinned mail, a Save view button and a reminder that body search covers downloaded email.
+- **Reminders due** shows reminders ready to act on; Draft with AI opens the existing preview-and-insert assistant without generating or sending automatically.
+### Changed
+- Ctrl+Shift+A in Compose opens or closes the enabled AI panel.
+### Fixed
+- No-reply reminders clear when a synced reply is detected, even before their deadline; replies in another account and your own messages leave them active.
+- Mail letter shortcuts leave text/password fields, editable controls and the reader alone while typing. Obsolete neighbour preparation stops before expensive rendering.
+<!-- closes: #83 -->
+
 ## 6.0.0 (8 Oct 2026)
 ### New
 - **Update button in the title bar**, always there (Calendar · Sync · Settings · **Update**): grey when Magpie is up to date (hover shows when it last checked), green "Update 4.1.0" with a dot when a newer version is out, a filling bar while it downloads, "Restart to update" when it is ready, amber when the last check didn't work. Click to check now (even with Auto update off) and see what's new, with Download and install · Later · Skip this version, Cancel while downloading, the Auto update and test-versions switches and the release notes; right-click opens that at any time. It replaces the green pill.

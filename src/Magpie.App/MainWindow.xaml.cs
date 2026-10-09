@@ -677,6 +677,7 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control) { OpenCommands(); e.Handled = true; return; }
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         // Sidebar (design H1): Ctrl+Shift+← / → narrower / wider, Ctrl+Shift+B show / hide.
@@ -685,10 +686,10 @@ public partial class MainWindow : Window
         if (ctrl && shift && e.Key == Key.B) { _vm.ToggleSidebarHidden(); e.Handled = true; return; }
         // Send now / Undo on the newest waiting message (design SN1).
         if (ctrl && shift && e.Key == Key.Enter && _vm.Toasts.Any(t => t.CanSendNow)) { _vm.SendNowCommand.Execute(null); e.Handled = true; return; }
-        if (ctrl && !shift && e.Key == Key.Z && Keyboard.FocusedElement is not TextBox && _vm.Toasts.Any(t => !t.Done)) { _vm.UndoSendCommand.Execute(null); e.Handled = true; return; }
-        if (e.Key == Key.Escape && Keyboard.FocusedElement is not TextBox && _vm.SelectedCount > 0) { _vm.ClearSelection(); e.Handled = true; return; }
+        if (ctrl && !shift && e.Key == Key.Z && !IsMailEditing() && _vm.Toasts.Any(t => !t.Done)) { _vm.UndoSendCommand.Execute(null); e.Handled = true; return; }
+        if (e.Key == Key.Escape && !IsMailEditing() && _vm.SelectedCount > 0) { _vm.ClearSelection(); e.Handled = true; return; }
         // Design SL1: Ctrl+A ticks everything in the list, Space ticks the conversation picked in it.
-        if (ctrl && !shift && e.Key == Key.A && Keyboard.FocusedElement is not TextBox && !_vm.IsCalendarView && ThreadList.IsKeyboardFocusWithin)
+        if (ctrl && !shift && e.Key == Key.A && !IsMailEditing() && !_vm.IsCalendarView && ThreadList.IsKeyboardFocusWithin)
         { _vm.SelectBy(SelectFilter.All); e.Handled = true; return; }
         if (e.Key == Key.Space && Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift && ThreadList.IsKeyboardFocusWithin && _vm.Selected is { } picked)
         { _vm.ToggleCheck(picked, shift); e.Handled = true; return; }
@@ -698,7 +699,7 @@ public partial class MainWindow : Window
         // Design B2: Ctrl+1 mail, Ctrl+2 calendar.
         if (ctrl && e.Key is Key.D1 or Key.NumPad1) { _vm.IsCalendarView = false; e.Handled = true; return; }
         if (ctrl && e.Key is Key.D2 or Key.NumPad2) { _vm.IsCalendarView = true; e.Handled = true; return; }
-        if (Keyboard.FocusedElement is TextBox) return;
+        if (IsMailEditing()) return;
         if (_vm.IsCalendarView) return;   // the mail keys don't act on the hidden list
         // Sidebar headings and accounts (design Q2): ← closes, → opens the focused one.
         if (e.Key is Key.Left or Key.Right && Keyboard.FocusedElement is ToggleButton section && section.Style is { } st

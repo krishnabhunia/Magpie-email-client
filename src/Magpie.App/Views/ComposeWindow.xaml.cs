@@ -49,6 +49,18 @@ public partial class ComposeWindow : Window
 
     public static void OpenDraft(Draft d) => Show(d, null);
 
+    /// <summary>Open a draft assistant without generating or sending anything.</summary>
+    public static void OpenAiDraft()
+    {
+        var account = AppServices.Engine.Accounts.FirstOrDefault(a => a.Enabled);
+        if (account == null) return;
+        var window = new ComposeWindow(new Draft { AccountId = account.Id, Mode = ComposeMode.New }, null);
+        if (!window._vm.ShowDraftAi) { window._vm.Detach(); return; }
+        window._vm.AiPanelOpen = true;
+        window.Show();
+        window.Activate();
+    }
+
     /// <summary>Design HM1 (A6): a new email carrying only this one file of <paramref name="original"/>.</summary>
     public static async void OpenForwardOnly(MessageRow original, int attachmentIndex)
     {
@@ -137,7 +149,9 @@ public partial class ComposeWindow : Window
         };
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
+            if (e.Key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && _vm.ShowAiRail)
+            { e.Handled = true; _vm.ToggleAiPanelCommand.Execute(null); }
+            else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
         if (Application.Current.MainWindow is { IsVisible: true } main)
