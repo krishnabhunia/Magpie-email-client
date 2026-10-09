@@ -115,8 +115,18 @@
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
-                    <!-- Update button (design UB1): always there; its colour and words follow UpdateService.State. DataContext = UpdateService (AttachUpdates). -->
+                    <!-- Only a newer GitHub release shows this action; Settings keeps manual update checking available. -->
                     <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsUpdateVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
                         <Button x:Name="UpdateButton" Style="{StaticResource Button.Update}" Command="{Binding TitleBarClickCommand}" ToolTip="{Binding ButtonTip}"
                                 MouseRightButtonUp="OnUpdateRightClick" MouseEnter="OnUpdateHover" AutomationProperties.Name="{Binding ButtonText}" />
                         <Popup x:Name="UpdateFlyout" PlacementTarget="{Binding ElementName=UpdateButton}" Placement="Custom" CustomPopupPlacementCallback="PlaceUpdateFlyout"

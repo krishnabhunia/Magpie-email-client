@@ -7,6 +7,11 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 7.1.0 (9 Oct 2026)
+### Changed
+- The top-right update button appears only after GitHub finds a newer version and reads “Update to vx.y.z”. It keeps that version while downloading and when ready; check manually in Settings → Updates.
+<!-- closes: #90 -->
+
 ## 7.0.1 (9 Oct 2026)
 ### Fixed
 - Magpie opens again after updating to 7.0.0: the Attachments, Pinned and Save view search buttons now use the right style. Windows checks also construct the full main window in light and dark themes.

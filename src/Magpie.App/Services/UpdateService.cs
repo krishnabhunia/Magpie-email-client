@@ -45,7 +45,7 @@ public sealed partial class UpdateService : ObservableObject
     }
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ButtonText), nameof(ButtonTip), nameof(PrimaryText), nameof(ShowPrimary), nameof(ShowProgress), nameof(ShowNotes), nameof(ShowLaterSkip),
-        nameof(IsBusy), nameof(Badge), nameof(IsIdleLike), nameof(IsChecking), nameof(IsAvailable), nameof(IsDownloading), nameof(IsReady), nameof(IsError))]
+        nameof(IsUpdateVisible), nameof(IsBusy), nameof(Badge), nameof(IsIdleLike), nameof(IsChecking), nameof(IsAvailable), nameof(IsDownloading), nameof(IsReady), nameof(IsError))]
     private UpdateState _state = UpdateState.Idle;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ButtonText), nameof(Badge))] private double _progress;
     [ObservableProperty] private string _title = "";
@@ -72,7 +72,15 @@ public sealed partial class UpdateService : ObservableObject
     public bool IsReady => State == UpdateState.Ready;
     public bool IsError => State == UpdateState.Error;
     private string StateKey => State.ToString().ToLowerInvariant();
-    public string ButtonText => UpdateText.ButtonText(StateKey, NewVersion, Progress);
+    /// <summary>Only a newer release confirmed by GitHub earns a title-bar action.</summary>
+    public bool IsUpdateVisible => _release != null && _release.Version.CompareTo(Current) > 0
+        && State is UpdateState.Available or UpdateState.Downloading or UpdateState.Ready or UpdateState.Error;
+    public string ButtonText => NewVersion.Length > 0 ? $"Update to v{NewVersion}" : "";
+
+    partial void OnStateChanged(UpdateState value)
+    {
+        if (!IsUpdateVisible) FlyoutOpen = false;
+    }
     public string ButtonTip => UpdateText.ButtonTip(StateKey, Current.ToString(), NewVersion, AppServices.Engine.Config.Updates.LastCheck, DateTimeOffset.Now);
     public string Badge => State switch
     {
@@ -240,6 +248,11 @@ public sealed partial class UpdateService : ObservableObject
         var cfg = engine.Config.Updates;
         _cts = new CancellationTokenSource();
         State = UpdateState.Checking;
+        // A fresh check must not retain a stale offer if GitHub reports no update or fails.
+        _release = null;
+        OnPropertyChanged(nameof(NewVersion));
+        OnPropertyChanged(nameof(ButtonText));
+        OnPropertyChanged(nameof(IsUpdateVisible));
         Title = "Looking for a newer version on GitHub…";
         Detail = "This takes a second.";
         try
