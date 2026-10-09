@@ -7,6 +7,11 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## Next version (not released yet)
+### Fixed
+- Magpie opens again after updating to 7.0.0: the Attachments, Pinned and Save view search buttons now use the right style. Windows checks also construct the full main window in light and dark themes.
+<!-- closes: #88 -->
+
 ## 7.0.0 (8 Oct 2026)
 ### New
 - **Commands (Ctrl+K)** in the title bar: find actions, folders, saved views, reminders and drafting without leaving the keyboard. Unavailable actions explain what is needed.

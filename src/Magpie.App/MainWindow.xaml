@@ -452,9 +452,9 @@
 
                     <StackPanel Grid.Row="2">
                     <WrapPanel Margin="14,0,14,6">
-                        <Button Style="{StaticResource Button.Chip}" Content="Attachments" Tag="has:attachment" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add an attachment filter to this local search" />
-                        <Button Style="{StaticResource Button.Chip}" Content="Pinned" Tag="is:pinned" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add a pinned filter to this local search" />
-                        <Button Style="{StaticResource Button.Chip}" Content="Save view…" Click="OnSaveSearch" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Save an inbox view or search on this PC" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Attachments" Tag="has:attachment" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add an attachment filter to this local search" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Pinned" Tag="is:pinned" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add a pinned filter to this local search" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Save view…" Click="OnSaveSearch" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Save an inbox view or search on this PC" />
                     </WrapPanel>
                     <TextBlock Text="Search on this PC · bodies become searchable as they download" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="16,0,14,8" />
                     <!-- Gatekeeper (design B7): new senders wait at the door -->

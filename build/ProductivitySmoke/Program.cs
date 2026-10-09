@@ -44,13 +44,23 @@ internal static class Program
             owner.Show();
             var output = args.Length > 0 ? args[0] : Path.Combine(root, "captures");
             Directory.CreateDirectory(output);
+            var expectStartupFailure = args.Contains("--expect-startup-style-failure");
             foreach (var theme in new[] { "Light", "Dark" })
             {
                 app.Resources.MergedDictionaries.Clear();
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Magpie;component/Themes/" + theme + ".xaml") });
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Magpie;component/Styles/Magpie.xaml") });
+                CheckMainWindow(expectStartupFailure);
+                if (expectStartupFailure) continue;
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
+            }
+            if (expectStartupFailure)
+            {
+                owner.Close();
+                Console.WriteLine("STARTUP_STYLE_REGRESSION_REPRODUCED assertions=" + _assertions);
+                app.Shutdown();
+                return 0;
             }
             var vm = new MainViewModel();
             vm.OpenWorkspaceView(vm.Smart.First(n => n.Kind == NavKind.Important));
@@ -81,6 +91,26 @@ internal static class Program
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    private static void CheckMainWindow(bool expectStartupFailure)
+    {
+        Exception? failure = null;
+        MainWindow? window = null;
+        try { window = new MainWindow(); }
+        catch (Exception ex) { failure = ex; }
+        if (expectStartupFailure)
+        {
+            Assert(failure is System.Windows.Markup.XamlParseException
+                && failure.GetBaseException().Message.Contains("ToggleButton", StringComparison.Ordinal),
+                "The old style fails when the real main window is constructed");
+            return;
+        }
+        if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
+        Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
+        Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
+        // Do not show or close this unstarted window: Loaded starts WebView2 and Closing exits the real App.
+        // Construction detects startup XAML/Style failures without touching user data.
     }
 
     private static void CheckCachedReader(MainViewModel vm, MailEngine engine, long inbox)
