@@ -8,6 +8,9 @@ using System.Windows.Threading;
 using Magpie.App;
 using Magpie.App.ViewModels;
 using Magpie.App.Views;
+using Magpie.App.Services;
+using Magpie.Core.Updates;
+using System.Reflection;
 using Magpie.Core;
 using Magpie.Core.Models;
 using Magpie.Core.Mail;
@@ -109,8 +112,60 @@ internal static class Program
         if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
         Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
         Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
+        CheckUpdateButton(window!);
         // Do not show or close this unstarted window: Loaded starts WebView2 and Closing exits the real App.
         // Construction detects startup XAML/Style failures without touching user data.
+    }
+
+
+    private static void CheckUpdateButton(MainWindow window)
+    {
+        var host = (Grid)window.FindName("UpdateHost");
+        var button = (Button)window.FindName("UpdateButton");
+        Assert(host.Visibility == Visibility.Collapsed, "Update host is collapsed before service attachment");
+        var service = new UpdateService();
+        window.AttachUpdates(service);
+        var releaseField = typeof(UpdateService).GetField("_release", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        void Check(UpdateState state, bool shown)
+        {
+            service.State = state;
+            host.GetBindingExpression(FrameworkElement.DataContextProperty)?.UpdateTarget();
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert(service.IsUpdateVisible == shown && host.Visibility == (shown ? Visibility.Visible : Visibility.Collapsed),
+                "Title-bar update visibility follows " + state);
+            if (shown)
+            {
+                button.ApplyTemplate();
+                Assert(service.ButtonText == "Update to v" + service.NewVersion, "Update label includes the offered version");
+                Assert(System.Windows.Automation.AutomationProperties.GetName(button) == service.ButtonText,
+                    "Accessible update name tracks the version");
+                Assert(Descendants(button).OfType<TextBlock>().Any(t => t.Text == service.ButtonText),
+                    "Rendered update label tracks the version");
+            }
+        }
+        foreach (var state in Enum.GetValues<UpdateState>()) Check(state, false);
+        var newer = AppVersion.TryParse((int.Parse(UpdateService.Current.ToString().Split('.')[0]) + 1) + ".0.0")!;
+        releaseField.SetValue(service, new ReleaseInfo { Version = newer });
+        Check(UpdateState.Available, true);
+        service.Progress = 0.42;
+        Check(UpdateState.Downloading, true);
+        Check(UpdateState.Ready, true);
+        Check(UpdateState.Error, true); // A failed download still has a confirmed newer release.
+        service.OpenFlyout();
+        Check(UpdateState.Checking, false);
+        Assert(!service.FlyoutOpen, "Hiding an offer closes its flyout");
+        Check(UpdateState.UpToDate, false);
+        Check(UpdateState.Idle, false);
+        releaseField.SetValue(service, new ReleaseInfo { Version = UpdateService.Current });
+        Check(UpdateState.Available, false);
+        releaseField.SetValue(service, new ReleaseInfo { Version = AppVersion.TryParse(newer + "-beta.123")! });
+        Check(UpdateState.Downloading, true);
+        Check(UpdateState.Ready, true);
+        service.LaterCommand.Execute(null);
+        Assert(host.Visibility == Visibility.Collapsed, "Later hides the title-bar offer");
+        Check(UpdateState.Available, true);
+        service.SkipCommand.Execute(null);
+        Assert(host.Visibility == Visibility.Collapsed, "Skip hides the title-bar offer");
     }
 
     private static void CheckCachedReader(MainViewModel vm, MailEngine engine, long inbox)
