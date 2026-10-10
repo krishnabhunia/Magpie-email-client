@@ -303,6 +303,18 @@
                                     <TextBlock Grid.Column="1" Text="Calendar" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" />
                                 </Grid>
                             </RadioButton>
+                            <!-- Design B4: contacts, under the calendar -->
+                            <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsContactsView, Mode=OneWay}" Command="{Binding ShowContactsCommand}"
+                                         ToolTip="Contacts (Ctrl+3)" AutomationProperties.Name="Contacts">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="34" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <svc:IconChip Icon="contacts" Size="24" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Column="1" Text="Contacts" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" />
+                                </Grid>
+                            </RadioButton>
                             <Border Style="{StaticResource Divider}" Margin="14,8" Visibility="{Binding SidebarRail, Converter={StaticResource BoolToVis}}" />
                             <Grid Style="{StaticResource WideOnly}">
                                 <ToggleButton Style="{StaticResource Toggle.SectionHeader}" IsChecked="{Binding AccountsOpen, Mode=TwoWay}"
@@ -439,7 +451,7 @@
 
             <!-- ─── Message list ─── -->
             <Border Grid.Column="2" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0"
-                    Visibility="{Binding IsCalendarView, Converter={StaticResource InvBoolToVis}}">
+                    Visibility="{Binding IsMailView, Converter={StaticResource BoolToVis}}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -817,15 +829,19 @@
             </Border>
 
             <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" ResizeBehavior="PreviousAndNext" ShowsPreview="False" DragCompleted="OnSplitterDragged"
-                          Visibility="{Binding IsCalendarView, Converter={StaticResource InvBoolToVis}}" />
+                          Visibility="{Binding IsMailView, Converter={StaticResource BoolToVis}}" />
 
             <!-- ─── Calendar (design B2): in place of the list and the reading pane ─── -->
             <views:CalendarView Grid.Column="2" Grid.ColumnSpan="3" DataContext="{Binding Cal}"
                                 Visibility="{Binding DataContext.IsCalendarView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
 
+            <!-- ─── Contacts (design B4): also in place of the list and the reading pane ─── -->
+            <views:ContactsView Grid.Column="2" Grid.ColumnSpan="3" DataContext="{Binding People}"
+                                Visibility="{Binding DataContext.IsContactsView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+
             <!-- ─── Reading pane ─── -->
             <Grid Grid.Column="4" Background="{DynamicResource Brush.Card.Background}" DataContext="{Binding Reader}"
-                  Visibility="{Binding DataContext.IsCalendarView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvBoolToVis}}">
+                  Visibility="{Binding DataContext.IsMailView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />

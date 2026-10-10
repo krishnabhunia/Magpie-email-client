@@ -12,7 +12,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 6 | Dark theme (Match Windows / Light / Dark) | B1 | Built — not yet tried on Windows | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
 | 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Built (3.0.0) — not yet tried on Windows; each Google account must sign in again once (calendar scope) | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Built — not yet tried on Windows. Calendar is now built (#7); still to do: an answer in the email also shown in Magpie's calendar right away, "Open in Calendar", clash line from the calendar | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
-| 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | Approved — needs People API | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
+| 9 | Contacts (Google Contacts) + recipient auto-complete | B4 | People API on (Krishna, 10 Oct 2026) · Built — not yet tried on Windows | [#5](https://github.com/krishnabhunia/Magpie-email-client/issues/5) |
 | 10 | Rules / filters | B5 | Built — not yet tried on Windows | [#6](https://github.com/krishnabhunia/Magpie-email-client/issues/6) |
 | 11 | Signatures per account + quick replies | B6 | Built — not yet tried on Windows | [#7](https://github.com/krishnabhunia/Magpie-email-client/issues/7) |
 | 12 | Gatekeeper + Set aside (key L) | B7 | Built — not yet tried on Windows; set aside / gate are kept on this PC (not synced to phone) | [#8](https://github.com/krishnabhunia/Magpie-email-client/issues/8) |

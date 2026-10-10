@@ -12,10 +12,10 @@ public sealed record HoverOption(string Id, string Label);
 public static class HoverMenus
 {
     /// <summary>
-    /// Email address card. For your own address only E1–E5. E6 (Add to contacts) waits for the Contacts page;
+    /// Email address card. For your own address only E1–E5. E6 "Add to contacts" (or "Show in Contacts" when saved) needs a Google account;
     /// E7 only when a Google calendar can be written to; E8 only while that sender's pictures still need asking.
     /// </summary>
-    public static IReadOnlyList<HoverOption> ForAddress(string name, string address, bool isMe, bool hasCalendar, bool picturesTrusted, bool hasContacts = false)
+    public static IReadOnlyList<HoverOption> ForAddress(string name, string address, bool isMe, bool hasCalendar, bool picturesTrusted, bool hasContacts = false, bool savedContact = false)
     {
         var who = FirstName(name, address);
         var list = new List<HoverOption>
@@ -27,7 +27,7 @@ public static class HoverMenus
             new("E5", isMe ? "All emails with you" : $"All emails with {who}"),
         };
         if (isMe) return list;
-        if (hasContacts) list.Add(new("E6", "Add to contacts"));
+        if (hasContacts) list.Add(new("E6", savedContact ? "Show in Contacts" : "Add to contacts"));
         if (hasCalendar) list.Add(new("E7", $"New event with {who}"));
         if (!picturesTrusted) list.Add(new("E8", $"Always show pictures from {who}"));
         list.Add(new("E9", $"Make a rule for {who}'s emails…"));

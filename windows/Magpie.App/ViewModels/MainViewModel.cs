@@ -364,8 +364,36 @@ public partial class MainViewModel : ObservableObject
     partial void OnIsCalendarViewChanged(bool value)
     {
         OnPropertyChanged(nameof(Cal));
-        if (value) Cal.Refresh();
+        if (value) { IsContactsView = false; Cal.Refresh(); }
         ListTitle = value ? "Calendar" : Current?.Label ?? "";
+        OnPropertyChanged(nameof(IsMailView));
+    }
+
+    // ───────────────────────── contacts (design B4) ─────────────────────────
+
+    private ContactsViewModel? _people;
+    /// <summary>The Contacts page (made the first time it is opened).</summary>
+    public ContactsViewModel People => _people ??= new ContactsViewModel();
+    /// <summary>Contacts, like the calendar, replaces the list and the reading pane.</summary>
+    [ObservableProperty] private bool _isContactsView;
+    /// <summary>The mail list and reading pane are showing (neither Calendar nor Contacts).</summary>
+    public bool IsMailView => !IsCalendarView && !IsContactsView;
+
+    partial void OnIsContactsViewChanged(bool value)
+    {
+        OnPropertyChanged(nameof(People));
+        if (value) { IsCalendarView = false; People.Refresh(); }
+        ListTitle = value ? "Contacts" : IsCalendarView ? "Calendar" : Current?.Label ?? "";
+        OnPropertyChanged(nameof(IsMailView));
+    }
+
+    [RelayCommand] private void ShowContacts() => IsContactsView = true;
+
+    /// <summary>The Contacts page with this person chosen (address card, Add to contacts).</summary>
+    public void OpenContact(string address)
+    {
+        IsContactsView = true;
+        People.SelectAddress(address);
     }
 
     [RelayCommand] private void ShowCalendar() => IsCalendarView = true;
@@ -601,6 +629,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (item == null) return;
         IsCalendarView = false;
+        IsContactsView = false;
         if (item == Current) { ReloadList(); return; }
         Current = item;
     }
@@ -609,6 +638,7 @@ public partial class MainViewModel : ObservableObject
     public void SearchEverywhere(string text)
     {
         IsCalendarView = false;
+        IsContactsView = false;
         var inbox = Smart.FirstOrDefault(n => n.Kind == NavKind.Inbox);
         if (inbox != null && Current != inbox) Current = inbox;
         SearchText = text;

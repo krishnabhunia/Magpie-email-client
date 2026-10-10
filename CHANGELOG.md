@@ -7,6 +7,15 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## Next version (not released yet)
+### New
+- **Contacts.** A new **Contacts** page in the sidebar (Ctrl+3) shows the contacts saved in your Google accounts, plus the people you've written to (marked **Recent**). Search by name, email, company or phone, and switch between **All**, **Frequent** and **Groups**. Each person shows their emails, work, phone, groups, notes, and your **conversations**, **attachments** and **events** with them, with **New message** and **New event** buttons.
+- **Add and edit contacts** from Magpie: **New contact**, **Edit**, **Add to contacts** for someone you wrote to, or **Add to contacts** on the card that opens when you point at an email address. Changes are saved on this PC at once and reach Google in the background.
+- **Better suggestions while typing a recipient**: saved contacts and people you've mailed, the ones you write to most first. Unsaved people are marked **Recent**.
+- Saved contacts count as known senders, so the Gatekeeper lets them straight in.
+- **Before it works:** the Google People API must be turned on in the Google Cloud project Magpie signs in with (APIs & Services → Library → Google People API), and each Google account signs in again once so Magpie may read and save its contacts — the Contacts page says so and offers **Sign in again**. Until then the page lists only the people you wrote to (Recent). Windows only for now; the Mac keeps its suggestions from people seen in mail.
+<!-- closes: #5 -->
+
 ## 8.1.0 (22 Oct 2026)
 ### Changed
 - **Pick the AI model from a list.** Settings → AI asks your provider (Anthropic, OpenAI, Ollama or any OpenAI-compatible server) which models your key can use and shows them newest first, with "New" on anything added since Magpie last looked, so a new Claude appears by itself. You can still type a model id. The API key now sits above the model; the endpoint is under "Server (advanced)". A creativity (temperature) slider per connection.
