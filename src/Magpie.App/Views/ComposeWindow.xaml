@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
+        xmlns:models="clr-namespace:Magpie.Core.Models;assembly=Magpie.Core"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:ComposeViewModel}"
@@ -95,11 +96,18 @@
                         <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="320">
                             <ListBox x:Name="SuggestList" Style="{StaticResource ListBox.Flat}" MaxHeight="240" MouseUp="OnSuggestionClick" PreviewKeyDown="OnSuggestKey">
                                 <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" />
-                                            <TextBlock Text="{Binding Address}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                        </StackPanel>
+                                    <!-- Design B4: saved contacts and people you wrote to ("Recent"), most written-to first -->
+                                    <DataTemplate DataType="{x:Type models:ContactSuggestion}">
+                                        <DockPanel>
+                                            <Border DockPanel.Dock="Right" CornerRadius="8" Padding="6,0" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                    Background="{DynamicResource Brush.Badge.Local.Background}" Visibility="{Binding Tag, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="{Binding Tag}" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Badge.Local.Text}" />
+                                            </Border>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Address}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DockPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
