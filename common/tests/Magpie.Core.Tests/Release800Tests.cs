@@ -382,4 +382,20 @@ public class Release800Tests
         var msg = Magpie.Core.Mail.Connector.Friendly(new MailKit.Security.SslHandshakeException("x"));
         Assert.StartsWith("Secure connection failed. Check the port", msg);
     }
+
+    [Fact]
+    public void Certificates_soft_fail_only_on_unknown_revocation()
+    {
+        using var key = System.Security.Cryptography.RSA.Create(2048);
+        var req = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=imap.example.test", key,
+            System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+        using var chain = new System.Security.Cryptography.X509Certificates.X509Chain();
+        chain.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
+        chain.Build(cert);   // self-signed: untrusted root
+        Assert.True(Magpie.Core.Mail.Connector.ValidateCertificate(this, cert, chain, System.Net.Security.SslPolicyErrors.None));
+        Assert.False(Magpie.Core.Mail.Connector.ValidateCertificate(this, cert, chain, System.Net.Security.SslPolicyErrors.RemoteCertificateNameMismatch));
+        Assert.False(Magpie.Core.Mail.Connector.ValidateCertificate(this, cert, chain, System.Net.Security.SslPolicyErrors.RemoteCertificateChainErrors));
+        Assert.False(Magpie.Core.Mail.Connector.ValidateCertificate(this, cert, null, System.Net.Security.SslPolicyErrors.RemoteCertificateChainErrors));
+    }
 }

@@ -15,6 +15,7 @@
 - **Opening it the first time**: Magpie for Mac isn't signed with an Apple Developer ID (by choice), so macOS asks the first time. Right-click Magpie in Applications → Open → Open (or System Settings → Privacy & Security → Open Anyway). After that it opens normally, and updates don't ask again.
 - Still on Windows only for now: calendar, rules, auto-delete, Gatekeeper, snooze / set aside / reminders, tags, AI, hover cards, settings backup and the other Settings pages.
 ### Fixed
+- **Gmail works on the Mac.** The Mac's own check can't find out whether Google's new certificates were revoked, so every Gmail connection failed with "Secure connection failed". Magpie now accepts a valid certificate whose revocation status can't be found out (as browsers do); a wrong, expired, untrusted or revoked certificate is still refused.
 - **A refused secure connection now says why** (Windows and Mac): when a mail server's certificate isn't trusted, the account check names who issued it, and says that a company network, VPN or antivirus that inspects secure connections can cause this. The details also go to the log.
 
 ## 7.2.0 (10 Oct 2026)

@@ -6,6 +6,8 @@ using Magpie.Core.Auth;
 using Magpie.Core.Models;
 using Magpie.Core.Security;
 using MimeKit;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Magpie.Core.Mail;
 
@@ -30,7 +32,7 @@ public sealed class Connector
 
     public async Task<ImapClient> OpenImapAsync(Account a, CancellationToken ct, string? passwordOverride = null)
     {
-        var client = new ImapClient { Timeout = 60_000 };
+        var client = new ImapClient { Timeout = 60_000, ServerCertificateValidationCallback = ValidateCertificate };
         try
         {
             await client.ConnectAsync(a.ImapHost, a.ImapPort, Map(a.ImapSecurity), ct);
@@ -50,7 +52,7 @@ public sealed class Connector
 
     public async Task<SmtpClient> OpenSmtpAsync(Account a, CancellationToken ct, string? passwordOverride = null)
     {
-        var client = new SmtpClient { Timeout = 90_000 };
+        var client = new SmtpClient { Timeout = 90_000, ServerCertificateValidationCallback = ValidateCertificate };
         try
         {
             await client.ConnectAsync(a.SmtpHost, a.SmtpPort, Map(a.SmtpSecurity), ct);
@@ -134,6 +136,33 @@ public sealed class Connector
             await smtp.DisconnectAsync(true, quit.Token);
         }
         catch (Exception ex) { Log.Warn("SMTP disconnect after send: " + ex.Message); }
+    }
+
+    /// <summary>The server certificate check. A valid certificate whose revocation status could not be found out is
+    /// accepted, as browsers do ("soft fail"): on a Mac the system check can't read the CRL-only certificates Google
+    /// now issues (WR2), so every Gmail connection failed. Anything else — wrong name, untrusted or expired chain, a
+    /// certificate reported as revoked — is still refused.</summary>
+    public static bool ValidateCertificate(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
+    {
+        if (errors == SslPolicyErrors.None) return true;
+        const X509ChainStatusFlags unknownRevocation = X509ChainStatusFlags.RevocationStatusUnknown | X509ChainStatusFlags.OfflineRevocation;
+        var only = errors == SslPolicyErrors.RemoteCertificateChainErrors && chain != null && OnlyUnknownRevocation(chain, unknownRevocation);
+        if (only) return true;
+        var flags = chain == null ? "" : string.Join(", ", chain.ChainElements.Cast<X509ChainElement>()
+            .Select(e => $"{e.Certificate.GetNameInfo(X509NameType.SimpleName, false)}: {string.Join("+", e.ChainElementStatus.Select(x => x.Status))}"));
+        Log.Warn($"Refused the certificate of {certificate?.Subject}: {errors}; {flags}");
+        return false;
+    }
+
+    internal static bool OnlyUnknownRevocation(X509Chain chain, X509ChainStatusFlags allowed)
+    {
+        if (chain.ChainStatus.Length == 0 && chain.ChainElements.Count == 0) return false;
+        foreach (var st in chain.ChainStatus)
+            if ((st.Status & ~allowed) != 0) return false;
+        foreach (var e in chain.ChainElements)
+            foreach (var st in e.ChainElementStatus)
+                if ((st.Status & ~allowed) != 0) return false;
+        return true;
     }
 
     /// <summary>A failed TLS handshake: without a server certificate the port / security setting is the likely cause;
