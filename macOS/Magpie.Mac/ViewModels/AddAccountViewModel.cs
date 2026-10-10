@@ -82,6 +82,9 @@ public sealed partial class AddAccountViewModel : ObservableObject
             _imapHost = reauth.ImapHost; _imapPort = reauth.ImapPort; _imapSecurity = Sec(reauth.ImapSecurity);
             _smtpHost = reauth.SmtpHost; _smtpPort = reauth.SmtpPort; _smtpSecurity = Sec(reauth.SmtpSecurity);
             _userName = reauth.UserName;
+            // Signing in again keeps the server settings the account has (they may be custom): no lookup unless the
+            // account type is changed.
+            _lastLookup = reauth.Email + _choice?.Value;
         }
     }
 
@@ -121,6 +124,9 @@ public sealed partial class AddAccountViewModel : ObservableObject
 
     [RelayCommand] private void ToggleAdvanced() => ShowAdvanced = !ShowAdvanced;
     [RelayCommand] private void UseAppPasswordInstead() => UseAppPassword = true;
+
+    /// <summary>For the headless tests: whether <see cref="FillServersAsync"/> would look the servers up now.</summary>
+    internal bool WouldLookUpServers => Email.Trim().Contains('@') && _lastLookup != Email.Trim() + Choice?.Value;
 
     /// <summary>Fills the server settings from the presets or autoconfig once the address is complete.</summary>
     public async Task FillServersAsync()
@@ -199,7 +205,9 @@ public sealed partial class AddAccountViewModel : ObservableObject
         try
         {
             var password = Password;
-            var err = await Task.Run(() => E.Connector.TestAsync(a, password, _cts.Token));
+            var ct = _cts.Token;
+            var err = await Task.Run(() => E.Connector.TestAsync(a, password, ct), ct);
+            if (ct.IsCancellationRequested) throw new OperationCanceledException(ct);
             if (err != null) { Error = err; ShowAdvanced = true; return; }
             if (IsReauth) E.UpdateAccount(a, password);
             else E.AddAccount(a, password, null);
@@ -240,8 +248,13 @@ public sealed partial class AddAccountViewModel : ObservableObject
             var a = BuildAccount(AuthMethod.OAuth2);
             Status = "Checking the mailbox…";
             E.OAuth.Remember(a.Id, tokens);
-            var err = await Task.Run(() => E.Connector.TestAsync(a, null, CancellationToken.None));
-            if (err != null) { Error = err; return; }
+            var ct = _cts.Token;
+            string? err;
+            try { err = await Task.Run(() => E.Connector.TestAsync(a, null, ct), ct); }
+            catch { if (!IsReauth) E.OAuth.Forget(a.Id); throw; }
+            // Cancelled (or the window closed) while the mailbox was checked: nothing is added or changed.
+            if (ct.IsCancellationRequested) { if (!IsReauth) E.OAuth.Forget(a.Id); throw new OperationCanceledException(ct); }
+            if (err != null) { if (!IsReauth) E.OAuth.Forget(a.Id); Error = err; return; }
             if (IsReauth) E.UpdateAccount(a, null, tokens);
             else E.AddAccount(a, null, tokens);
             Done?.Invoke();

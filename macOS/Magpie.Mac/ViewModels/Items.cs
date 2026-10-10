@@ -70,6 +70,11 @@ public sealed class ThreadItem
     public string AccountColor { get; }
     public IBrush AccountBrush => SidebarItem.Brush(AccountColor);
     public bool ShowAccountDot { get; }
+    /// <summary>A draft kept on this Mac (saved while offline): opens in a compose window, not the reading pane.</summary>
+    public long? LocalDraftId { get; init; }
+    public bool LocalPending { get; init; }
+    public bool IsLocalDraft => LocalDraftId != null;
+    public string LocalBadge => LocalDraftId == null ? "" : LocalPending ? "On this Mac · uploads when online" : "On this Mac";
 
     public ThreadItem(ThreadRow row, string myEmail, string accountColor, bool showAccountDot, DateTimeOffset now)
     {

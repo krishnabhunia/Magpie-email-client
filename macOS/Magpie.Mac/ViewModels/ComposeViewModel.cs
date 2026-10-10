@@ -30,7 +30,24 @@ public sealed partial class ComposeViewModel : ObservableObject
 
     public ObservableCollection<Account> Accounts { get; } = new();
     public ObservableCollection<AttachmentItem> Attachments { get; } = new();
-    public List<TimePreset> SendLaterChoices { get; } = TimePresets.For(DateTime.Now, sendLater: true);
+    /// <summary>Send later choices, worked out from the clock each time the menu opens (a window can stay open for hours).</summary>
+    public static List<TimePreset> SendLaterChoices(DateTime now) => TimePresets.For(now, sendLater: true);
+
+    /// <summary>⌘K in the editor: only web and mail links can be put in a message. Null = not allowed.</summary>
+    public static string? AllowedLink(string? text)
+    {
+        var t = (text ?? "").Trim();
+        if (t.Length == 0) return null;
+        if (!t.Contains(':') && !t.Contains(' '))
+        {
+            if (t.Contains('@')) t = "mailto:" + t;                 // "anita@example.com"
+            else if (t.Contains('.')) t = "https://" + t;           // "example.com"
+        }
+        return Uri.TryCreate(t, UriKind.Absolute, out var u) && u.Scheme is "http" or "https" or "mailto" ? u.AbsoluteUri : null;
+    }
+
+    /// <summary>The draft on this Mac this window is editing, if any.</summary>
+    public long? LocalDraftId => _draft.LocalDraftId;
 
     /// <summary>Set by the view: the editor's HTML.</summary>
     public Func<Task<string>>? GetHtml { get; set; }
@@ -69,7 +86,9 @@ public sealed partial class ComposeViewModel : ObservableObject
             html = "<p><br></p>" + Composer.SignatureHtml(From, reply: false);
         InitialHtml = html;
         // A message taken back by Undo exists nowhere else: closing asks before it is thrown away.
-        Dirty = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null;
+        Dirty = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null && draft.LocalDraftId == null;
+        // While this window edits a draft kept on this Mac, the background upload leaves it alone.
+        if (draft.LocalDraftId is { } local) E.ClaimLocalDraft(local);
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasAttachments));
     }
 
@@ -199,7 +218,8 @@ public sealed partial class ComposeViewModel : ObservableObject
             Log.Info("draft kept on this Mac (server save failed: " + ex.Message + ")");
             try
             {
-                await Task.Run(() => E.SaveLocalDraft(d, pendingUpload: true));
+                var id = await Task.Run(() => E.SaveLocalDraft(d, pendingUpload: true));
+                if (id != 0) E.ClaimLocalDraft(id);
                 Status = "Offline · saved on this Mac " + DateTime.Now.ToString("HH:mm");
             }
             catch (Exception ex2)
@@ -212,6 +232,12 @@ public sealed partial class ComposeViewModel : ObservableObject
         }
         Dirty = false;
         return true;
+    }
+
+    /// <summary>The window closed: a draft kept on this Mac may upload by itself again.</summary>
+    public void Detach()
+    {
+        if (_draft.LocalDraftId is { } local) E.ReleaseLocalDraft(local);
     }
 
     /// <summary>Closing with unsaved changes: Keep as draft, Discard, or Cancel (false = stay open).</summary>

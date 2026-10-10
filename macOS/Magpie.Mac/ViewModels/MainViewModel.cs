@@ -169,39 +169,67 @@ public sealed partial class MainViewModel : ObservableObject
         _ => new List<long>(),
     };
 
-    /// <summary>The folders Archive / Delete take the conversation out of, for the current view.</summary>
+    /// <summary>
+    /// The folders Archive / Delete take the conversation out of: the folders the list was read from. A search in
+    /// All inboxes reads every folder, so its actions reach the copies wherever they are — except Sent and Drafts
+    /// (moving those would take your own messages away) and Gmail's All Mail / Starred / Important views.
+    /// </summary>
     public List<long> ActionFolders(string accountId)
     {
         if (Current == null) return new();
-        var own = E.Folders(accountId).Select(f => f.Id).ToHashSet();
+        var folders = E.Folders(accountId);
+        var own = folders.Select(f => f.Id).ToHashSet();
+        if (Current.Kind == SidebarKind.AllInboxes && !string.IsNullOrWhiteSpace(SearchText))
+            return folders.Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important))
+                .Select(f => f.Id).ToList();
         return FolderIdsFor(Current, searching: false).Where(own.Contains).ToList();
     }
 
+    private int _listLimit = ListLimit;
+    private string _listScope = "";
+    [ObservableProperty] private bool _hasMore;
+
     partial void OnSearchTextChanged(string value) => _search.Run(ReloadList);
+
+    /// <summary>"Load more": the next <see cref="ListLimit"/> conversations of this view.</summary>
+    [RelayCommand]
+    private void LoadMore()
+    {
+        if (!HasMore) return;
+        _listLimit += ListLimit;
+        ReloadList();
+    }
 
     public void ReloadList()
     {
         var nav = Current;
         if (nav == null || !nav.IsSelectable) return;
+        var scope = nav.Key + "\n" + SearchText;
+        if (scope != _listScope) { _listScope = scope; _listLimit = ListLimit; }
         var now = DateTimeOffset.Now;
         var keep = Selected?.Key;
         var search = string.IsNullOrWhiteSpace(SearchText) ? null : SearchQuery.Parse(SearchText);
         List<ThreadRow> rows;
         try
         {
-            rows = E.Store.ListThreads(new ListQuery { FolderIds = FolderIdsFor(nav, search != null), Search = search, Limit = ListLimit }, now);
+            rows = E.Store.ListThreads(new ListQuery { FolderIds = FolderIdsFor(nav, search != null), Search = search, Limit = _listLimit + 1 }, now);
         }
         catch (Exception ex)
         {
             Log.Warn("list: " + ex.Message);
             rows = new();
         }
+        HasMore = rows.Count > _listLimit;
+        if (HasMore) rows = rows.Take(_listLimit).ToList();
         var multi = E.Accounts.Count > 1;
         var items = rows.Select(r =>
         {
             var acc = E.AccountById(r.AccountId);
             return new ThreadItem(r, acc?.Email ?? "", acc?.Color ?? "#14606E", multi, now);
         }).ToList();
+        // Drafts kept on this Mac (saved while offline) come first in that account's Drafts, marked "On this Mac".
+        if (nav.Kind == SidebarKind.Folder && nav.Role == FolderRole.Drafts && search == null)
+            items.InsertRange(0, LocalDraftItems(nav.AccountId, multi, now));
         _reloading = true;
         try
         {
@@ -215,14 +243,40 @@ public sealed partial class MainViewModel : ObservableObject
             search != null ? "No messages match your search." :
             nav.Kind == SidebarKind.AllInboxes ? "Inbox zero. Nice." :
             E.StillListing(FolderIdsFor(nav, false)) ? "Getting this folder's emails from the server…" : "No conversations here.";
-        if (Selected != null) Reader.RefreshIfShowing(Selected.Row);
+        if (Selected != null) { if (!Selected.IsLocalDraft) Reader.RefreshIfShowing(Selected.Row); }
+        else if (keep != null && Reader.HasThread) Reader.Clear();   // the open conversation left this view
+    }
+
+    private IEnumerable<ThreadItem> LocalDraftItems(string accountId, bool multi, DateTimeOffset now)
+    {
+        var acc = E.AccountById(accountId);
+        foreach (var l in E.LocalDrafts().Where(l => l.AccountId == accountId).OrderByDescending(l => l.Updated))
+        {
+            var row = new ThreadRow
+            {
+                AccountId = l.AccountId, ThreadKey = "local:" + l.Id, Count = 1,
+                Latest = new MessageRow
+                {
+                    AccountId = l.AccountId, FromAddress = acc?.Email ?? "", To = l.ToText, Subject = l.Subject,
+                    Preview = l.Preview, Date = l.Updated.ToLocalTime(), SortDate = l.Updated, Flags = MessageFlags.Seen,
+                },
+            };
+            yield return new ThreadItem(row, acc?.Email ?? "", acc?.Color ?? "#14606E", multi, now) { LocalDraftId = l.Id, LocalPending = l.PendingUpload };
+        }
     }
 
     partial void OnSelectedChanged(ThreadItem? value)
     {
         if (_reloading) return;
         if (value == null) { if (Reader.HasThread) Reader.Clear(); return; }
+        if (value.LocalDraftId is { } id) { Reader.ShowLocalDraft(id, value.Subject, value.LocalBadge); return; }
         Reader.Show(value.Row, ActionFolders);
+    }
+
+    /// <summary>Return or a double-click on a draft: open it in a compose window.</summary>
+    public void OpenSelectedDraft()
+    {
+        if (Selected != null && (Selected.IsLocalDraft || Reader.IsDraft)) Reader.EditDraftCommand.Execute(null);
     }
 
     /// <summary>After Archive / Delete: the next conversation in the list opens.</summary>

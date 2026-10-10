@@ -40,6 +40,7 @@ public partial class MainWindow : Window
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         };
         ThreadList.KeyDown += OnListKey;
+        ThreadList.DoubleTapped += (_, _) => ViewModel.OpenSelectedDraft();   // a draft opens in a compose window
     }
 
     /// <summary>The updater starts after the window: its button appears once it exists.</summary>
@@ -61,6 +62,12 @@ public partial class MainWindow : Window
     /// <summary>⌫ or Delete on the list moves the conversation to Trash (⌘⌫ works everywhere through the Message menu).</summary>
     private void OnListKey(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && ViewModel.Reader.IsAnyDraft)
+        {
+            ViewModel.OpenSelectedDraft();
+            e.Handled = true;
+            return;
+        }
         if (e.Key is Key.Back or Key.Delete && e.KeyModifiers == KeyModifiers.None && ViewModel.Reader.HasThread)
         {
             ViewModel.Reader.DeleteCommand.Execute(null);

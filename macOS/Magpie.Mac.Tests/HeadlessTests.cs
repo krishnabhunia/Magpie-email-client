@@ -46,20 +46,30 @@ public static class TestEngine
         e.Settings.Save();
         var inbox = e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "INBOX", Name = "Inbox", Role = FolderRole.Inbox });
         e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Sent", Name = "Sent", Role = FolderRole.Sent });
-        e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Projects", Name = "Projects", Role = FolderRole.Other });
+        var projects = e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Projects", Name = "Projects", Role = FolderRole.Other });
+        var drafts = e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Drafts", Name = "Drafts", Role = FolderRole.Drafts });
+        var trash = e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Trash", Name = "Trash", Role = FolderRole.Trash });
+        var bulk = e.Store.UpsertFolder(new MailFolder { AccountId = AccountId, Path = "Bulk", Name = "Bulk", Role = FolderRole.Other });
         var now = DateTimeOffset.Now;
         e.Store.InsertMessages(new[]
         {
             Row(inbox, "t1", "anita@x.com", "Lunch on Friday?", now.AddMinutes(-5), MessageFlags.None),
             Row(inbox, "t2", "ravi@y.com", "Invoice 42", now.AddHours(-3), MessageFlags.Seen | MessageFlags.Flagged),
+            Row(projects, "p1", "lee@z.com", "Roadmap notes", now.AddDays(-1), MessageFlags.Seen),
+            Row(drafts, "d1", "me@example.com", "Draft plan", now.AddHours(-1), MessageFlags.Seen | MessageFlags.Draft),
+            Row(trash, "x1", "shop@w.com", "Old receipt", now.AddDays(-2), MessageFlags.Seen),
         });
+        e.Store.InsertMessages(Enumerable.Range(0, 405).Select(n => Row(bulk, "b" + n, "list@news.com", "Bulk " + n, now.AddMinutes(-n), MessageFlags.Seen)));
+        e.SaveLocalDraft(new Draft { AccountId = AccountId, To = "anita@x.com", Subject = "Written offline", Html = "<p>Hi</p>" }, pendingUpload: true);
         AppServices.Engine = e;
         return e;
     }
 
+    private static long _uid = 1;
+
     private static MessageRow Row(long folder, string thread, string from, string subject, DateTimeOffset date, MessageFlags flags) => new()
     {
-        AccountId = AccountId, FolderId = folder, Uid = Math.Abs(thread.GetHashCode()) % 100000 + 1, ThreadKey = thread,
+        AccountId = AccountId, FolderId = folder, Uid = Interlocked.Increment(ref _uid), ThreadKey = thread,
         FromAddress = from, FromName = from.Split('@')[0], Subject = subject, Date = date, SortDate = date, Flags = flags,
         MessageId = Guid.NewGuid().ToString("N") + "@x.com", Preview = "Preview of " + subject, To = "me@example.com",
     };
@@ -91,7 +101,8 @@ public class HeadlessTests
         Assert.Equal(SidebarKind.AllInboxes, vm.Sidebar[0].Kind);
         Assert.Contains(vm.Sidebar, s => s.IsHeader && s.Label == "me@example.com");
         var labels = vm.Sidebar.Where(s => s.Kind == SidebarKind.Folder).Select(s => s.Label).ToList();
-        Assert.Equal(new[] { "Inbox", "Sent", "Projects" }, labels);
+        Assert.Equal("Inbox", labels[0]);
+        Assert.Equal(new[] { "Bulk", "Drafts", "Inbox", "Projects", "Sent", "Trash" }, labels.OrderBy(l => l));
         Assert.Equal("All inboxes", vm.ListTitle);
         Assert.Equal(new[] { "Lunch on Friday?", "Invoice 42" }, vm.Threads.Select(t => t.Subject));
         Assert.True(vm.Threads[0].IsUnread);
@@ -183,6 +194,144 @@ public class HeadlessTests
         Assert.False(Shell.IsWebLink("javascript:alert(1)", out _));
         Assert.False(Shell.IsWebLink("smb://server/share", out _));
         Assert.False(Shell.IsWebLink(null, out _));
+    }
+
+    private static MainViewModel ViewOf(string folder)
+    {
+        var vm = new MainViewModel();
+        vm.Current = vm.Sidebar.First(x => x.Kind == SidebarKind.Folder && x.Label == folder);
+        return vm;
+    }
+
+    private static async Task Until(Func<bool> done)
+    {
+        for (var i = 0; i < 250 && !done(); i++)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            await Task.Delay(20);
+        }
+        Assert.True(done());
+    }
+
+    [AvaloniaFact]
+    public void Drafts_kept_on_this_Mac_are_listed_first_and_open_as_drafts()
+    {
+        TestEngine.Ensure();
+        var vm = ViewOf("Drafts");
+        Assert.True(vm.Threads[0].IsLocalDraft);
+        Assert.Equal("Written offline", vm.Threads[0].Subject);
+        Assert.Equal("On this Mac · uploads when online", vm.Threads[0].LocalBadge);
+        Assert.Contains(vm.Threads, t => t.Subject == "Draft plan" && !t.IsLocalDraft);
+        vm.Selected = vm.Threads[0];
+        Assert.True(vm.Reader.HasThread);
+        Assert.True(vm.Reader.IsAnyDraft);
+        Assert.False(vm.Reader.ShowMessageActions);
+        Assert.NotNull(AppServices.Engine.OpenLocalDraft(vm.Reader.LocalDraftId!.Value));   // what Edit draft opens
+    }
+
+    [AvaloniaFact]
+    public async Task A_server_draft_shows_Edit_draft_instead_of_reply()
+    {
+        TestEngine.Ensure();
+        var vm = ViewOf("Drafts");
+        vm.Selected = vm.Threads.First(t => t.Subject == "Draft plan");
+        await Until(() => vm.Reader.IsDraft);
+        Assert.True(vm.Reader.IsAnyDraft);
+        Assert.False(vm.Reader.ShowMessageActions);
+        Assert.Equal("Delete", vm.Reader.DeleteText);
+    }
+
+    [AvaloniaFact]
+    public async Task In_Trash_Delete_says_Delete_forever_and_elsewhere_it_moves_to_Trash()
+    {
+        TestEngine.Ensure();
+        var vm = ViewOf("Trash");
+        vm.Selected = vm.Threads.First(t => t.Subject == "Old receipt");
+        await Until(() => vm.Reader.DeletesForever);
+        Assert.Equal("Delete forever", vm.Reader.DeleteText);
+        var inbox = new MainViewModel();
+        inbox.Selected = inbox.Threads.First(t => t.Subject == "Invoice 42");
+        await Until(() => inbox.Reader.Subject == "Invoice 42");
+        Assert.False(inbox.Reader.DeletesForever);
+        Assert.Equal("Delete", inbox.Reader.DeleteText);
+    }
+
+    [AvaloniaFact]
+    public void A_search_in_All_inboxes_acts_on_the_folders_it_searched()
+    {
+        var e = TestEngine.Ensure();
+        var folders = e.Folders(TestEngine.AccountId).ToDictionary(f => f.Name, f => f.Id);
+        var vm = new MainViewModel();
+        Assert.Equal(new[] { folders["Inbox"] }, vm.ActionFolders(TestEngine.AccountId));
+        vm.SearchText = "roadmap";
+        vm.ReloadList();
+        Assert.Equal(new[] { "Roadmap notes" }, vm.Threads.Select(t => t.Subject));
+        var scope = vm.ActionFolders(TestEngine.AccountId);
+        Assert.Contains(folders["Projects"], scope);
+        Assert.Contains(folders["Inbox"], scope);
+        Assert.DoesNotContain(folders["Sent"], scope);
+        Assert.DoesNotContain(folders["Drafts"], scope);
+    }
+
+    [AvaloniaFact]
+    public void Long_folders_load_400_at_a_time()
+    {
+        TestEngine.Ensure();
+        var vm = ViewOf("Bulk");
+        Assert.Equal(MainViewModel.ListLimit, vm.Threads.Count);
+        Assert.True(vm.HasMore);
+        vm.LoadMoreCommand.Execute(null);
+        Assert.Equal(405, vm.Threads.Count);
+        Assert.False(vm.HasMore);
+        vm.Current = vm.Sidebar.First(x => x.Label == "Inbox");    // a new view starts at 400 again
+        vm.Current = vm.Sidebar.First(x => x.Kind == SidebarKind.Folder && x.Label == "Bulk");
+        Assert.Equal(MainViewModel.ListLimit, vm.Threads.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task When_the_open_conversation_leaves_the_list_the_reader_is_cleared()
+    {
+        TestEngine.Ensure();
+        var vm = ViewOf("Projects");
+        vm.Selected = vm.Threads.Single();
+        await Until(() => vm.Reader.Subject == "Roadmap notes");
+        vm.SearchText = "nothing-matches-this";
+        vm.ReloadList();
+        Assert.Null(vm.Selected);
+        Assert.False(vm.Reader.HasThread);
+    }
+
+    [AvaloniaFact]
+    public void Signing_in_again_keeps_custom_servers_until_the_type_changes()
+    {
+        TestEngine.Ensure();
+        var acc = new Account { Id = "re1", Email = "me@corp.example", Kind = AccountKind.Imap, ImapHost = "mail.internal.example", ImapPort = 1993, SmtpHost = "out.internal.example" };
+        var vm = new AddAccountViewModel(acc);
+        Assert.False(vm.WouldLookUpServers);
+        Assert.Equal("mail.internal.example", vm.ImapHost);
+        Assert.Equal(1993, vm.ImapPort);
+        vm.Choice = vm.Choices.First(c => c.Value == AccountChoice.Google);
+        Assert.Equal(AccountKind.Gmail, vm.EffectiveKind);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/x", "https://example.com/x")]
+    [InlineData("example.com", "https://example.com/")]
+    [InlineData("mailto:anita@x.com", "mailto:anita@x.com")]
+    [InlineData("anita@x.com", "mailto:anita@x.com")]
+    [InlineData("javascript:alert(1)", null)]
+    [InlineData("file:///etc/passwd", null)]
+    [InlineData("", null)]
+    public void Links_in_a_message_can_only_be_web_or_mail(string text, string? expected) =>
+        Assert.Equal(expected, ComposeViewModel.AllowedLink(text));
+
+    [Fact]
+    public void Send_later_choices_follow_the_clock()
+    {
+        var morning = ComposeViewModel.SendLaterChoices(new DateTime(2026, 10, 12, 9, 0, 0));
+        var night = ComposeViewModel.SendLaterChoices(new DateTime(2026, 10, 12, 22, 0, 0));
+        Assert.Contains(morning, p => p.Label == "Later today");
+        Assert.DoesNotContain(night, p => p.Label == "Later today");
     }
 
     [Fact]

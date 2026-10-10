@@ -42,6 +42,16 @@ public sealed partial class ReaderViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ReadText))] private bool _isRead = true;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowImagesBar), nameof(ImagesText))] private int _blockedImages;
 
+    /// <summary>The open conversation is a draft on the server (its newest email is in Drafts): Edit draft opens it.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsAnyDraft), nameof(ShowMessageActions))] private bool _isDraft;
+    /// <summary>A draft kept on this Mac (saved while offline), shown instead of a conversation.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsAnyDraft), nameof(ShowMessageActions))] private long? _localDraftId;
+    /// <summary>Deleting here removes the emails for good (they are in Trash or Spam): the button says so and asks first.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(DeleteText))] private bool _deletesForever;
+
+    public bool IsAnyDraft => IsDraft || LocalDraftId != null;
+    public bool ShowMessageActions => !IsAnyDraft;
+    public string DeleteText => DeletesForever ? "Delete forever" : "Delete";
     public string PinText => IsPinned ? "Unpin" : "Pin";
     public string ReadText => IsRead ? "Mark unread" : "Mark read";
     public bool ShowImagesBar => HasThread && BlockedImages > 0;
@@ -57,6 +67,8 @@ public sealed partial class ReaderViewModel : ObservableObject
         _cts.Cancel();
         _cts = new CancellationTokenSource();
         HasThread = false;
+        IsDraft = DeletesForever = false;
+        LocalDraftId = null;
         AccountId = ThreadKey = "";
         Messages = new();
         Subject = Meta = "";
@@ -81,8 +93,27 @@ public sealed partial class ReaderViewModel : ObservableObject
         if (!same) _imagesAllowedOnce = false;
         AccountId = row.AccountId;
         ThreadKey = row.ThreadKey;
+        LocalDraftId = null;
         HasThread = true;
         Reload(markRead: true);
+    }
+
+    /// <summary>A draft kept on this Mac: no page to read (it opens in a compose window), a note and Edit draft.</summary>
+    public void ShowLocalDraft(long id, string subject, string badge)
+    {
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        AccountId = "";
+        ThreadKey = "local:" + id;
+        Messages = new();
+        IsDraft = DeletesForever = false;
+        LocalDraftId = id;
+        HasThread = true;
+        Subject = subject;
+        Meta = badge;
+        BlockedImages = 0;
+        PageReady?.Invoke(new ReaderPage("placeholder", "", HtmlRenderer.Placeholder("Draft kept on this Mac",
+            "It was saved here while the server couldn't be reached. Choose Edit draft to keep writing; it uploads to Drafts by itself once you're online.", Dark), 0, Retain: false));
     }
 
     /// <summary>After list reloads: draw again if the open conversation changed (a new reply, flags).</summary>
@@ -114,6 +145,11 @@ public sealed partial class ReaderViewModel : ObservableObject
             Meta = $"{rows.Count} message{(rows.Count == 1 ? "" : "s")} · {string.Join(", ", people)}";
             IsPinned = rows.Any(r => r.IsFlagged);
             IsRead = rows.All(r => r.IsSeen);
+            var folders = E.Folders(AccountId).ToDictionary(f => f.Id);
+            IsDraft = folders.TryGetValue(latest.FolderId, out var lf) && lf.Role == FolderRole.Drafts;
+            var scope = _actionFolders(AccountId);
+            DeletesForever = E.Store.GetThreadCopies(AccountId, ThreadKey)
+                .Any(m => scope.Contains(m.FolderId) && folders.TryGetValue(m.FolderId, out var f) && f.Role is FolderRole.Trash or FolderRole.Junk);
 
             // 1. What is on this Mac already.
             var bodies = await Task.Run(() =>
@@ -264,7 +300,51 @@ public sealed partial class ReaderViewModel : ObservableObject
     }
 
     [RelayCommand] private Task Archive() => Act(() => E.ArchiveAsync(AccountId, ThreadKey, _actionFolders(AccountId)), true);
-    [RelayCommand] private Task Delete() => Act(() => E.TrashAsync(AccountId, ThreadKey, _actionFolders(AccountId)), true);
+    /// <summary>Delete (⌘⌫, ⌫ in the list): to Trash; in Trash or Spam it removes the emails for good, so it asks first
+    /// (Cancel is the default). A draft kept on this Mac is deleted from this Mac after asking.</summary>
+    [RelayCommand]
+    private async Task Delete()
+    {
+        if (!HasThread) return;
+        if (LocalDraftId is { } local)
+        {
+            if (Views.ComposeWindow.ActivateLocal(local)) return;   // its window decides
+            if (!await Dialogs.ConfirmDanger("Delete draft", "Delete this draft saved on this Mac? It hasn't reached the server, so it can't be restored.", "Delete")) return;
+            E.DeleteLocalDraft(local);
+            ThreadRemoved?.Invoke();
+            return;
+        }
+        var folders = _actionFolders(AccountId);
+        if (DeletesForever && !await Dialogs.ConfirmDanger("Delete forever",
+                $"Delete “{Subject}” for good? It is in Trash or Spam, so it is removed from this Mac and the server. This can't be undone.", "Delete forever"))
+            return;
+        await Act(() => E.TrashAsync(AccountId, ThreadKey, folders), true);
+    }
+
+    /// <summary>Edit draft: a server draft is read from its message (MIME) into a compose window, which replaces it when
+    /// saved or sent; a draft kept on this Mac opens (or comes to the front if it is open already).</summary>
+    [RelayCommand]
+    private async Task EditDraft()
+    {
+        if (LocalDraftId is { } local)
+        {
+            if (Views.ComposeWindow.ActivateLocal(local)) return;
+            if (E.OpenLocalDraft(local) is { } ld) Views.ComposeWindow.OpenDraft(ld);
+            else AppServices.Main?.ReloadList();   // sent or uploaded meanwhile
+            return;
+        }
+        var row = Messages.LastOrDefault();
+        if (row == null || !IsDraft) return;
+        try
+        {
+            var (_, mime) = await E.LoadAsync(row, true, CancellationToken.None);
+            if (mime == null) return;
+            var d = Composer.FromMime(mime, AccountId, ThreadKey);
+            d.SourceDraftRow = row.Id;
+            Views.ComposeWindow.OpenDraft(d);
+        }
+        catch (Exception ex) { await Dialogs.Error("Edit draft", Connector.Friendly(ex)); }
+    }
 
     [RelayCommand]
     private void TogglePin()

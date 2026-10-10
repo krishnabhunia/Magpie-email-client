@@ -70,7 +70,7 @@
       <GridSplitter Grid.Column="1" Background="{DynamicResource Magpie.Line}" ResizeDirection="Columns" />
 
       <!-- Message list with search (⌘F). -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*">
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto">
         <TextBlock Grid.Row="0" Text="{Binding ListTitle}" Classes="heading" Margin="14,12,14,6" TextTrimming="CharacterEllipsis" />
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="12,0,12,8">
           <TextBox Name="SearchBox" Grid.Column="0" Text="{Binding SearchText}" PlaceholderText="Search (from:, to:, subject:, has:attachment …)" />
@@ -88,7 +88,7 @@
             </ListBox.Styles>
             <ListBox.ItemTemplate>
               <DataTemplate DataType="vm:ThreadItem">
-                <Grid ColumnDefinitions="14,*,Auto" RowDefinitions="Auto,Auto,Auto">
+                <Grid ColumnDefinitions="14,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
                   <Ellipse Grid.Row="0" Grid.Column="0" Width="7" Height="7" HorizontalAlignment="Left" VerticalAlignment="Center"
                            Fill="{DynamicResource Magpie.Accent}" IsVisible="{Binding IsUnread}" />
                   <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Sender}" TextTrimming="CharacterEllipsis" Classes.unread="{Binding IsUnread}" />
@@ -104,6 +104,8 @@
                   </Grid>
                   <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Preview}" Classes="muted" FontSize="12.5"
                              TextTrimming="CharacterEllipsis" MaxLines="1" />
+                  <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding LocalBadge}" FontSize="11.5" FontWeight="SemiBold"
+                             Foreground="{DynamicResource Magpie.Accent}" IsVisible="{Binding IsLocalDraft}" />
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -130,6 +132,8 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </Panel>
+        <Button Grid.Row="3" Classes="link" Content="Load more" Command="{Binding LoadMoreCommand}" IsVisible="{Binding HasMore}"
+                HorizontalAlignment="Center" Margin="0,4,0,6" ToolTip.Tip="Show the next 400 conversations of this view" />
       </Grid>
       <GridSplitter Grid.Column="3" Background="{DynamicResource Magpie.Line}" ResizeDirection="Columns" />
 
@@ -141,13 +145,15 @@
             <SelectableTextBlock Text="{Binding Reader.Subject}" Classes="heading" TextWrapping="Wrap" />
             <TextBlock Text="{Binding Reader.Meta}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" />
             <WrapPanel Orientation="Horizontal">
-              <Button Classes="tool" Content="Reply" Command="{Binding Reader.ReplyCommand}" Margin="0,0,6,4" ToolTip.Tip="Reply (⌘R)" />
-              <Button Classes="tool" Content="Reply all" Command="{Binding Reader.ReplyAllCommand}" Margin="0,0,6,4" ToolTip.Tip="Reply all (⇧⌘R)" />
-              <Button Classes="tool" Content="Forward" Command="{Binding Reader.ForwardCommand}" Margin="0,0,14,4" ToolTip.Tip="Forward (⇧⌘F)" />
-              <Button Classes="tool" Content="Archive" Command="{Binding Reader.ArchiveCommand}" Margin="0,0,6,4" ToolTip.Tip="Archive (⌃⌘A)" />
-              <Button Classes="tool" Content="Delete" Command="{Binding Reader.DeleteCommand}" Margin="0,0,14,4" ToolTip.Tip="Move to Trash (⌘⌫, or ⌫ in the list)" />
-              <Button Classes="tool" Content="{Binding Reader.ReadText}" Command="{Binding Reader.ToggleReadCommand}" Margin="0,0,6,4" ToolTip.Tip="⇧⌘U" />
-              <Button Classes="tool" Content="{Binding Reader.PinText}" Command="{Binding Reader.TogglePinCommand}" Margin="0,0,6,4" ToolTip.Tip="⇧⌘L" />
+              <Button Classes="accent" Content="Edit draft" Command="{Binding Reader.EditDraftCommand}" Margin="0,0,14,4"
+                      IsVisible="{Binding Reader.IsAnyDraft}" ToolTip.Tip="Open this draft in a compose window (or press Return in the list)" />
+              <Button Classes="tool" Content="Reply" Command="{Binding Reader.ReplyCommand}" Margin="0,0,6,4" ToolTip.Tip="Reply (⌘R)" IsVisible="{Binding Reader.ShowMessageActions}" />
+              <Button Classes="tool" Content="Reply all" Command="{Binding Reader.ReplyAllCommand}" Margin="0,0,6,4" ToolTip.Tip="Reply all (⇧⌘R)" IsVisible="{Binding Reader.ShowMessageActions}" />
+              <Button Classes="tool" Content="Forward" Command="{Binding Reader.ForwardCommand}" Margin="0,0,14,4" ToolTip.Tip="Forward (⇧⌘F)" IsVisible="{Binding Reader.ShowMessageActions}" />
+              <Button Classes="tool" Content="Archive" Command="{Binding Reader.ArchiveCommand}" Margin="0,0,6,4" ToolTip.Tip="Archive (⌃⌘A)" IsVisible="{Binding Reader.ShowMessageActions}" />
+              <Button Classes="tool" Content="{Binding Reader.DeleteText}" Command="{Binding Reader.DeleteCommand}" Margin="0,0,14,4" ToolTip.Tip="⌘⌫, or ⌫ in the list. In Trash and Spam it deletes for good (it asks first)." />
+              <Button Classes="tool" Content="{Binding Reader.ReadText}" Command="{Binding Reader.ToggleReadCommand}" Margin="0,0,6,4" ToolTip.Tip="⇧⌘U" IsVisible="{Binding Reader.ShowMessageActions}" />
+              <Button Classes="tool" Content="{Binding Reader.PinText}" Command="{Binding Reader.TogglePinCommand}" Margin="0,0,6,4" ToolTip.Tip="⇧⌘L" IsVisible="{Binding Reader.ShowMessageActions}" />
             </WrapPanel>
           </StackPanel>
         </Border>

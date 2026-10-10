@@ -93,13 +93,8 @@ public partial class ComposeWindow : Window
         }
 
         var later = new MenuFlyout();
-        foreach (var p in _vm.SendLaterChoices)
-        {
-            var item = new MenuItem { Header = $"{p.Label} · {TimePresets.Describe(p.When, DateTime.Now)}" };
-            var preset = p;
-            item.Click += (_, _) => _vm.SendLaterCommand.Execute(preset);
-            later.Items.Add(item);
-        }
+        later.Opening += (_, _) => FillSendLater(later);
+        FillSendLater(later);
         SendLaterButton.Flyout = later;
         AttachButton.Click += async (_, _) => await _vm.AddAttachmentsAsync(await Dialogs.PickFiles(this, "Attach files", many: true));
 
@@ -112,6 +107,47 @@ public partial class ComposeWindow : Window
     }
 
     public bool HasUnsavedContent => _vm.Dirty;
+
+    /// <summary>Send later: the choices from the clock now, every time the menu opens.</summary>
+    private void FillSendLater(MenuFlyout menu)
+    {
+        menu.Items.Clear();
+        var now = DateTime.Now;
+        foreach (var p in ComposeViewModel.SendLaterChoices(now))
+        {
+            var item = new MenuItem { Header = $"{p.Label} · {TimePresets.Describe(p.When, now)}" };
+            var preset = p;
+            item.Click += (_, _) => _vm.SendLaterCommand.Execute(preset);
+            menu.Items.Add(item);
+        }
+    }
+
+    /// <summary>Brings forward the window already editing this draft kept on this Mac. False when none is open.</summary>
+    public static bool ActivateLocal(long localDraftId)
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime is not Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime life) return false;
+        var w = life.Windows.OfType<ComposeWindow>().FirstOrDefault(c => c._vm.LocalDraftId == localDraftId);
+        if (w == null) return false;
+        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+        w.Activate();
+        return true;
+    }
+
+    /// <summary>⌘K in the editor: ask for the address (web or mail only); empty removes the link.</summary>
+    private async Task AskLinkAsync()
+    {
+        if (!_editorReady) return;
+        var text = await Dialogs.Prompt("Insert link", "Web or email address (leave empty to remove the link)", "https://", this);
+        if (text == null) return;
+        if (text.Trim().Length == 0 || text.Trim() == "https://") { await _editor.RunAsync("fmt('unlink')"); return; }
+        if (ComposeViewModel.AllowedLink(text) is not { } url)
+        {
+            await Dialogs.Error("Insert link", "That doesn't look like a web or email address (https://… or mailto:…).", this);
+            return;
+        }
+        await _editor.RunAsync($"fmt('createLink', {JsonSerializer.Serialize(url)})");
+        _vm.Dirty = true;
+    }
 
     private async void OnEditorMessage(string json)
     {
@@ -128,6 +164,7 @@ public partial class ComposeWindow : Window
                     break;
                 case "dirty": _vm.Dirty = true; break;
                 case "send": await _vm.SendAsync(null); break;
+                case "link": await AskLinkAsync(); break;
             }
         }
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
@@ -171,6 +208,7 @@ public partial class ComposeWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         App.ThemeChanged -= OnThemeChanged;
+        _vm.Detach();
         _editor.DisposeView();
         base.OnClosed(e);
     }
