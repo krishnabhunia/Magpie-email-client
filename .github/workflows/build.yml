@@ -237,6 +237,7 @@ jobs:
         continue-on-error: true
         working-directory: macOS
         run: |
+          set -o pipefail   # without it tee would hide the exit code (GitHub's default bash has no pipefail)
           dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release 2>&1 | tee mac-tests.log || {
             echo "::error title=Mac headless tests failed::$(grep -E '\[FAIL\]|Failed |Assert|error |Expected|Actual' mac-tests.log | head -n 60 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
             exit 1
@@ -245,6 +246,7 @@ jobs:
       # macOS/build/build.sh <version> builds the app and writes macOS/out/Magpie_<version>.dmg (see macOS/README.md).
       - name: Build Magpie for Mac
         run: |
+          set -o pipefail
           bash macOS/build/build.sh "$VERSION" 2>&1 | tee mac-build.log || {
             echo "::error title=build.sh failed::$(tail -n 50 mac-build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
             exit 1
