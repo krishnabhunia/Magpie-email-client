@@ -1,8 +1,8 @@
 # Magpie Mail — notes for Claude Code
 
-Windows email client (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5).
+Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **7.2.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **8.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -33,12 +33,13 @@ Current release: **7.2.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 365 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 413 unit tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
 
 - **Cloud (Linux) sessions:** `global.json` needs SDK ≥ 8.0.400 *with* the WindowsDesktop SDK. Ubuntu's `dotnet-sdk-8.0` lacks it and builds.dotnet.microsoft.com is blocked; the Microsoft SDK layer of the `mcr.microsoft.com/dotnet/sdk:8.0-noble` image works (extract `usr/share/dotnet` to e.g. `/opt/msdotnet`, put it first on `PATH`, then `windows/build/publish.sh` steps run). You can build, test and XAML-check there, but not run the app.
+- **Magpie for Mac** (`macOS/`, see `macOS/README.md`): needs the **.NET 10 SDK** and must be built from `macOS/` (its `global.json` picks SDK 10; the root one pins 8.0.400 for Windows and must stay). `cd macOS && dotnet build Magpie.Mac.sln -c Release` (0 warnings, `TreatWarningsAsErrors`), `dotnet test Magpie.Mac.Tests` (headless Avalonia), `bash macOS/build/build.sh <version>` (→ `macOS/out/Magpie_<version>.dmg` on a Mac; on Linux it stops after `Magpie.app`). Cloud sessions: SDK 10 comes from the `mcr.microsoft.com/dotnet/sdk:10.0-noble` image's layers (extract `usr/share/dotnet` to e.g. `/opt/dotnet10`, put it first on `PATH` only for Mac work — Windows checks need the SDK 8 one). Nobody has run the Mac app yet: say so for Mac UI work until Krishna has tried it. Keep the Mac project out of `Magpie.sln` (the Windows runner has SDK 8 only).
 - **Missing-assembly check is mandatory too:** `dotnet run --project windows/build/DpDump -c Release -- --check-refs windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64` — the 1.2.0 Settings crash (WebView2CompositionControl needs `Microsoft.Windows.SDK.NET`) only showed on Windows. The app targets `net8.0-windows10.0.19041.0` for that reason; don't drop the Windows version from the TFM.
 - **XAML check is mandatory.** WPF crashes at run time on XAML mistakes; `windows/build/xaml_check.py` catches Setter/Trigger/StaticResource/typo errors statically (`windows/build/README-checks.md`). 0 problems or don't ship.
 - The 6 integration tests (`Category=Integration`) need Dovecot + a test SMTP on Linux (`common/scripts/test-servers/start.sh`); they self-skip on Windows. Don't try to make them run on the laptop. In a cloud session `apt-get install -y dovecot-imapd` + `pip install aiosmtpd` works; run start.sh in the background (it doesn't return while the SMTP server runs).
@@ -62,7 +63,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Store | `common/src/Magpie.Core/Storage/MailStore.cs` — schema v4; `ListThreads` dedupes copies across folders (Gmail All Mail); counts; `GetFolderDetails` (hover card) |
 | Engine | `common/src/Magpie.Core/MailEngine.cs` — local-first actions (archive/trash/move/read/pin/snooze/tags/reminders), outbox (undo send, send later, `SendNow`), drafts on this PC |
 | Settings | `common/src/Magpie.Core/Settings/AppSettings.cs` — `Appearance` (toolbar, counts, colourful, `FolderHover`, `RowActions`), `WindowPlacement` (sidebar width/rail), `UpdateSettings`; always `Normalise()` new blocks |
-| Updates (U1, UB1) | `common/src/Magpie.Core/Updates/Updates.cs` (`UpdateClient`, `SelfUpdate`, `UpdateText` = the button's words), `windows/Magpie.App/Services/UpdateService.cs` (`State`, `CheckNowAsync` ignores the daily throttle, `TitleBarClickCommand`, `OpenFlyout` / `FlyoutOpen`, `CancelDownloadCommand`, `AutoUpdate` / `IncludePrerelease` save at once); the title-bar button is `Button.Update` in `Styles/Magpie.xaml` (DataTriggers on `IsChecking` / `IsAvailable` / …, `Brush.Update.*` in both themes) and the flyout is the `UpdateFlyout` Popup in `MainWindow.xaml` (`UpdateHost.DataContext` = the service) |
+| Updates (U1, UB1) | `common/src/Magpie.Core/Updates/Updates.cs` (`UpdateClient` — takes an `UpdateAsset`: `WindowsExe` = Magpie.exe, the default, or `MacDmg` = `Magpie_<v>.dmg`; `SelfUpdate`, `UpdateText` = the button's words), `Updates/UpdatePolicy.cs` (`UpdatePolicy` = when to check / offer / download, `MacBundle` = the Mac .app swap with `Magpie.previous.app`), `windows/Magpie.App/Services/UpdateService.cs` (`State`, `CheckNowAsync` ignores the daily throttle, `TitleBarClickCommand`, `OpenFlyout` / `FlyoutOpen`, `CancelDownloadCommand`, `AutoUpdate` / `IncludePrerelease` save at once); the title-bar button is `Button.Update` in `Styles/Magpie.xaml` (DataTriggers on `IsChecking` / `IsAvailable` / …, `Brush.Update.*` in both themes) and the flyout is the `UpdateFlyout` Popup in `MainWindow.xaml` (`UpdateHost.DataContext` = the service) |
 | Backup (EX1) | `common/src/Magpie.Core/Settings/SettingsBackup.cs` (lock/unlock, staged restore applied at start), `windows/Magpie.App/Services/BackupUi.cs`, `Views/PasswordDialog.cs` |
 | Mail folder (DL1) | `AppPaths.MailRoot` (+ `mail-folder.txt`), `common/src/Magpie.Core/Storage/MailLocation.cs` (move), `windows/Magpie.App/Services/MailFolderStartup.cs` (move at start, drive missing) |
 | AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
@@ -81,6 +82,9 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Settings UI | `windows/Magpie.App/Views/SettingsWindow.xaml(.cs)`, `ViewModels/SettingsViewModel.cs` (incl. search index `Index[]`, About Me) |
 | Compose | `windows/Magpie.App/Views/ComposeWindow.xaml(.cs)`, `ViewModels/ComposeViewModel.cs`, `common/src/Magpie.Core/Mail/Composer.cs` |
 | Look | `windows/Magpie.App/Themes/Light.xaml` (every brush key — a Dark.xaml must define the same set; `theme-parity` check), `Styles/Magpie.xaml`, `Styles/Controls.xaml`, `Services/Icons.cs` (icon set with light + dark colour pairs, `Icons.Dark`) |
+| Mac app (8.0.0, PX1 B) | `macOS/Magpie.Mac/` — `App.axaml.cs` (start-up: `KeychainProtector` + `MacKeychainStore`, quit: compose windows first, `InstallOnQuit`), `MainWindow.axaml(.cs)` + `ViewModels/MainViewModel.cs` (top bar with version + "Update to vx.y.z", sidebar, list, search, toasts), `ViewModels/ReaderViewModel.cs` + `Services/ReaderPresenter.cs` + `Services/WebSurface.cs` (Core reader shell in WKWebView), `Views/ComposeWindow` (Core `EditorPage.ForMac`), `Views/AddAccountWindow`, `Views/SettingsWindow`, `Services/MacUpdateService.cs` + `MacInstaller.cs` (hdiutil/ditto/relaunch), `Services/MacMenus.cs` (menu bar) + `EditCommands.cs`; `macOS/build/build.sh` + `Info.plist`; `macOS/Magpie.Mac.Tests` (headless) |
+| Mac data / secrets | `AppPaths.For(…, macHome)` → `~/Library/Application Support/Magpie` + `~/Library/Caches/Magpie`; `Security/KeychainProtector.cs` (AES-256-GCM, key in the login Keychain via `/usr/bin/security`, `IKeyStore` for tests) |
+| Shared pages | `common/src/Magpie.Core/Mail/EditorPage.cs` (compose editor for both apps; moved from `windows/…/Services` in 8.0.0), `ReaderShell.PresentScript`, `Auth/GoogleClientFile.cs` |
 | Tests | `common/tests/Magpie.Core.Tests` — one `Release<ver>Tests.cs` per release; `TestUtil.cs` has `Rows.Make` / `Rows.NewStore` |
 
 ## Conventions

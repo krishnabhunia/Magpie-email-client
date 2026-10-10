@@ -7,6 +7,14 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 8.0.0 (10 Oct 2026)
+### New
+- **Magpie for Mac** (Apple Silicon: M1 and newer, macOS 12 or later). Download `Magpie_<version>.dmg` (in the release, or in `macOS/` of `Magpie_<version>.zip`), open it and drag Magpie to Applications. It reads and sends your mail with the same engine as Windows: your accounts and folders with unread counts in the sidebar, the message list with search, conversations shown by the Mac's own web view (links open in your browser; pictures from the internet follow Ask / Always, with Show pictures), Reply, Reply all, Forward, Archive, Delete, Mark read / unread and Pin, and a compose window with suggestions from your contacts, attachments, Send later and a few seconds to Undo.
+- **Accounts on the Mac**: email and password for any IMAP mailbox (server settings found by themselves), or Sign in with Google / Microsoft in your browser (the same client IDs as on Windows: Settings → Accounts → Sign-in apps, or Import Google client JSON…). Passwords and sign-ins are encrypted with a key kept in your Keychain; mail and settings stay in ~/Library/Application Support/Magpie.
+- **The Mac app updates itself** like the Windows one: it checks GitHub at every start, shows "Update to vx.y.z" at the top right only when there is a newer version (click: it downloads, checks the SHA-256, installs and restarts), and with Auto update on it checks daily and installs a downloaded version when you quit. The version is shown next to the name in the main window.
+- **Opening it the first time**: Magpie for Mac isn't signed with an Apple Developer ID (by choice), so macOS asks the first time. Right-click Magpie in Applications → Open → Open (or System Settings → Privacy & Security → Open Anyway). After that it opens normally, and updates don't ask again.
+- Still on Windows only for now: calendar, rules, auto-delete, Gatekeeper, snooze / set aside / reminders, tags, AI, hover cards, settings backup and the other Settings pages.
+
 ## 7.2.0 (10 Oct 2026)
 ### Changed
 - **New download layout.** Each build is now one file, `Magpie_<version>.zip`, holding `portable/Magpie_<version>.exe` (run from anywhere; its data stays next to it), `windows-x64/Magpie_<version>.exe` (the installer), and soon `macOS/Magpie_<version>.dmg`. The old `installer/` and `portable/` folders and `portable.txt` are gone; an older portable copy with `portable.txt` keeps working.
