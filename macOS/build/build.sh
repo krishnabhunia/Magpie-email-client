@@ -81,7 +81,12 @@ DMG_SRC="$OUT/dmg"
 mkdir -p "$DMG_SRC"
 ditto "$APP" "$DMG_SRC/Magpie.app"
 ln -s /Applications "$DMG_SRC/Applications"
-hdiutil create -volname "Magpie $VERSION" -srcfolder "$DMG_SRC" -ov -format UDZO "$OUT/Magpie_$VERSION.dmg"
+# hdiutil on CI runners now and then fails with "Resource busy": try up to three times.
+for attempt in 1 2 3; do
+  if hdiutil create -volname "Magpie $VERSION" -srcfolder "$DMG_SRC" -ov -format UDZO "$OUT/Magpie_$VERSION.dmg"; then break; fi
+  if [ "$attempt" = 3 ]; then echo "error: hdiutil create failed three times" >&2; exit 1; fi
+  echo "hdiutil create failed (try $attempt), retrying in 5 s…"; sleep 5
+done
 hdiutil verify "$OUT/Magpie_$VERSION.dmg"
 rm -rf "$DMG_SRC" "$ICONSET"
 ls -la "$OUT/Magpie_$VERSION.dmg"
