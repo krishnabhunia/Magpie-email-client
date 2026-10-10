@@ -3,7 +3,7 @@ name: Build Magpie
 # One workflow for Windows, macOS and Android (Krishna's GitHub Skills rule, workflows.md):
 #   version  → works out x.y.z (or x.y.z-beta.N for a PR) and which platforms have code
 #   windows  → tests, XAML checks, Magpie.exe + installer           (windows/, common/)
-#   macos    → Magpie_<v>.dmg via macOS/build/build.sh              (skipped while macOS/ has no app)
+#   macos    → headless Mac tests, Magpie_<v>.dmg via macOS/build/build.sh (skipped while macOS/ has no app)
 #   android  → Magpie_<v>.apk via android/build.sh                  (skipped while android/ has no app)
 #   package  → ONE artifact "Magpie_<v>" (downloads as Magpie_<v>.zip) holding portable/, windows-x64/, macOS/,
 #              Android/ with one Magpie_<v> file each; the GitHub release (main) or test version (PR).
@@ -213,10 +213,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up .NET 8
+      # Magpie for Mac is .NET 10 (Avalonia 12 + the WKWebView control); Magpie.Core stays .NET 8. macOS/global.json
+      # picks SDK 10 for everything built from macOS/.
+      - name: Set up .NET 8 and 10
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # Headless checks of the Mac windows (no display): version label, Update button rule, sidebar, list, menus.
+      - name: Mac app tests (headless)
+        working-directory: macOS
+        run: dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release
 
       # macOS/build/build.sh <version> builds the app and writes macOS/out/Magpie_<version>.dmg (see macOS/README.md).
       - name: Build Magpie for Mac

@@ -9,3 +9,6 @@ TestResults/
 
 # Python bytecode (build scripts)
 __pycache__/
+
+# Magpie for Mac build output (macOS/build/build.sh)
+macOS/out/

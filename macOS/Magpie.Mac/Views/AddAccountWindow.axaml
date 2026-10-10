@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Magpie.Mac.ViewModels"
+        x:Class="Magpie.Mac.Views.AddAccountWindow"
+        x:DataType="vm:AddAccountViewModel"
+        Title="{Binding Heading}"
+        Width="520" SizeToContent="Height" CanResize="False" CanMinimize="False" CanMaximize="False"
+        WindowStartupLocation="CenterOwner"
+        Icon="avares://Magpie/Assets/magpie.png"
+        Background="{DynamicResource Magpie.Pane}">
+  <ScrollViewer MaxHeight="760">
+    <StackPanel Margin="24,20" Spacing="10">
+      <TextBlock Text="{Binding Heading}" Classes="heading" FontSize="20" />
+      <TextBlock Text="{Binding SubHeading}" Classes="muted" TextWrapping="Wrap" />
+
+      <TextBlock Text="Email address" Margin="0,8,0,0" />
+      <TextBox Name="EmailBox" Text="{Binding Email}" PlaceholderText="you@example.com" IsEnabled="{Binding !IsReauth}" />
+      <TextBlock Text="Your name (optional)" />
+      <TextBox Text="{Binding DisplayName}" PlaceholderText="Shown to the people you write to" />
+      <TextBlock Text="Account type" />
+      <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Choice}" HorizontalAlignment="Stretch" />
+
+      <!-- Google / Microsoft: sign in in the browser. -->
+      <StackPanel Spacing="6" IsVisible="{Binding ShowGoogle}" Margin="0,6,0,0">
+        <Button Classes="accent" Content="Sign in with Google" Command="{Binding SignInCommand}" IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" Padding="16,6" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding !GoogleReady}"
+                   Text="Google sign-in needs your Google client ID first: Magpie → Settings… → Accounts → Sign-in apps." />
+        <Button Classes="link" Content="Use an app password instead" Command="{Binding UseAppPasswordInsteadCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+      <StackPanel Spacing="6" IsVisible="{Binding ShowMicrosoft}" Margin="0,6,0,0">
+        <Button Classes="accent" Content="Sign in with Microsoft" Command="{Binding SignInCommand}" IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" Padding="16,6" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding !MicrosoftReady}"
+                   Text="Microsoft sign-in needs your Microsoft client ID first: Magpie → Settings… → Accounts → Sign-in apps." />
+      </StackPanel>
+
+      <!-- IMAP / app password. -->
+      <StackPanel Spacing="6" IsVisible="{Binding ShowPassword}" Margin="0,6,0,0">
+        <TextBlock Text="{Binding PasswordLabel}" TextWrapping="Wrap" />
+        <TextBox Text="{Binding Password}" PasswordChar="•" />
+        <Button Classes="link" Content="Server settings…" Command="{Binding ToggleAdvancedCommand}" HorizontalAlignment="Left" />
+        <Grid ColumnDefinitions="110,*,80,140" RowDefinitions="Auto,Auto,Auto" IsVisible="{Binding ShowAdvanced}">
+          <TextBlock Grid.Row="0" Text="Incoming (IMAP)" VerticalAlignment="Center" FontSize="12" />
+          <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ImapHost}" Margin="0,0,6,6" />
+          <TextBox Grid.Row="0" Grid.Column="2" Text="{Binding ImapPort}" Margin="0,0,6,6" />
+          <ComboBox Grid.Row="0" Grid.Column="3" ItemsSource="{Binding SecurityChoices}" SelectedItem="{Binding ImapSecurity}" HorizontalAlignment="Stretch" Margin="0,0,0,6" />
+          <TextBlock Grid.Row="1" Text="Outgoing (SMTP)" VerticalAlignment="Center" FontSize="12" />
+          <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SmtpHost}" Margin="0,0,6,6" />
+          <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding SmtpPort}" Margin="0,0,6,6" />
+          <ComboBox Grid.Row="1" Grid.Column="3" ItemsSource="{Binding SecurityChoices}" SelectedItem="{Binding SmtpSecurity}" HorizontalAlignment="Stretch" Margin="0,0,0,6" />
+          <TextBlock Grid.Row="2" Text="User name" VerticalAlignment="Center" FontSize="12" />
+          <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding UserName}" />
+        </Grid>
+        <Button Classes="accent" Content="{Binding AddButtonText}" Command="{Binding AddWithPasswordCommand}"
+                IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" Padding="16,6" Margin="0,6,0,0" />
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding Busy}">
+        <ProgressBar IsIndeterminate="True" Width="120" VerticalAlignment="Center" />
+        <Button Classes="link" Content="Cancel" Command="{Binding CancelCommand}" />
+      </StackPanel>
+      <TextBlock Text="{Binding Status}" Classes="muted" TextWrapping="Wrap" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <TextBlock Text="{Binding Error}" Classes="error" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+  </ScrollViewer>
+</Window>

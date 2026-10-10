@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Magpie.app/Contents/Info.plist — macOS/build/build.sh fills in the @…@ values. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Magpie</string>
+  <key>CFBundleDisplayName</key>
+  <string>Magpie</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.krishnabhunia.magpie</string>
+  <key>CFBundleExecutable</key>
+  <string>Magpie</string>
+  <key>CFBundleIconFile</key>
+  <string>Magpie.icns</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@SHORT_VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@BUNDLE_VERSION@</string>
+  <key>CFBundleGetInfoString</key>
+  <string>Magpie @VERSION@</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>© 2026 Krishna Bhunia</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+  </array>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <!-- Pictures in emails may come over plain http: let the reading pane (WKWebView) load them when allowed. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
