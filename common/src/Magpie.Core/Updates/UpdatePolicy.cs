@@ -62,13 +62,16 @@ public static class MacBundle
     /// Magpie isn't running from a bundle (e.g. <c>dotnet run</c>).</summary>
     public static string? FindBundle(string? processPath)
     {
+        // Mac paths always use "/"; plain string work keeps this the same on every OS (and in the Windows CI tests).
         if (string.IsNullOrEmpty(processPath)) return null;
-        var macOs = Path.GetDirectoryName(processPath);
-        var contents = macOs == null ? null : Path.GetDirectoryName(macOs);
-        var app = contents == null ? null : Path.GetDirectoryName(contents);
+        static string? Up(string? p) { var i = p?.LastIndexOf('/') ?? -1; return i > 0 ? p![..i] : null; }
+        static string Name(string p) => p[(p.LastIndexOf('/') + 1)..];
+        var macOs = Up(processPath);
+        var contents = Up(macOs);
+        var app = Up(contents);
         if (macOs == null || contents == null || app == null) return null;
-        if (!string.Equals(Path.GetFileName(macOs), "MacOS", StringComparison.Ordinal)
-            || !string.Equals(Path.GetFileName(contents), "Contents", StringComparison.Ordinal)
+        if (!string.Equals(Name(macOs), "MacOS", StringComparison.Ordinal)
+            || !string.Equals(Name(contents), "Contents", StringComparison.Ordinal)
             || !app.EndsWith(".app", StringComparison.OrdinalIgnoreCase)) return null;
         return app;
     }

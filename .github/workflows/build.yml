@@ -130,8 +130,16 @@ jobs:
       - name: Restore
         run: dotnet restore Magpie.sln
 
+      # On failure the failing lines also become one error annotation (readable from the run page and the API).
       - name: Unit tests (integration tests need a local IMAP server and are skipped here)
-        run: dotnet test common/tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --no-restore --filter "Category!=Integration"
+        shell: pwsh
+        run: |
+          dotnet test common/tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --no-restore --filter "Category!=Integration" 2>&1 | Tee-Object -FilePath unit-tests.log
+          if ($LASTEXITCODE -ne 0) {
+            $lines = Select-String -Path unit-tests.log -Pattern '\[FAIL\]|Failed |Assert\.|error |Expected|Actual' | Select-Object -First 60 | ForEach-Object { $_.Line.Trim() }
+            Write-Output ("::error title=Unit tests failed::" + (($lines -join "`n") -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'))
+            exit 1
+          }
 
       - name: Build app
         run: dotnet build windows/Magpie.App/Magpie.App.csproj -c Release --no-restore -p:Version=${{ env.VERSION }}
@@ -228,11 +236,19 @@ jobs:
       - name: Mac app tests (headless)
         continue-on-error: true
         working-directory: macOS
-        run: dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release
+        run: |
+          dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release 2>&1 | tee mac-tests.log || {
+            echo "::error title=Mac headless tests failed::$(grep -E '\[FAIL\]|Failed |Assert|error |Expected|Actual' mac-tests.log | head -n 60 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
 
       # macOS/build/build.sh <version> builds the app and writes macOS/out/Magpie_<version>.dmg (see macOS/README.md).
       - name: Build Magpie for Mac
-        run: bash macOS/build/build.sh "$VERSION"
+        run: |
+          bash macOS/build/build.sh "$VERSION" 2>&1 | tee mac-build.log || {
+            echo "::error title=build.sh failed::$(tail -n 50 mac-build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
 
       - name: Hand the Mac build to the package job
         uses: actions/upload-artifact@v7
