@@ -1,5 +1,13 @@
 name: Build Magpie
 
+# One workflow for Windows, macOS and Android (Krishna's GitHub Skills rule, workflows.md):
+#   version  → works out x.y.z (or x.y.z-beta.N for a PR) and which platforms have code
+#   windows  → tests, XAML checks, Magpie.exe + installer           (windows/, common/)
+#   macos    → headless Mac tests, Magpie_<v>.dmg via macOS/build/build.sh (skipped while macOS/ has no app)
+#   android  → Magpie_<v>.apk via android/build.sh                  (skipped while android/ has no app)
+#   package  → ONE artifact "Magpie_<v>" (downloads as Magpie_<v>.zip) holding portable/, windows-x64/, macOS/,
+#              Android/ with one Magpie_<v> file each; the GitHub release (main) or test version (PR).
+
 on:
   push:
     branches: [ main ]
@@ -12,17 +20,102 @@ permissions:
   contents: write
   pull-requests: read   # the PR's changed files, for the version rule (design VB1)
   issues: write         # close the [Q..] issues a release ships
+  actions: write        # remove the per-platform working artifacts, so the run shows only Magpie_<v>.zip
 
 # One release job at a time, so a push to main and a tag push can't race to create the same release.
 concurrency:
   group: magpie-build-${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || github.ref }}
   cancel-in-progress: false
 
+env:
+  PYTHONUTF8: "1"
+
 jobs:
-  build:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      base: ${{ steps.ver.outputs.base }}
+      numeric: ${{ steps.ver.outputs.numeric }}
+      released: ${{ steps.ver.outputs.released }}
+      beta: ${{ steps.ver.outputs.beta }}
+      artifact: ${{ steps.ver.outputs.artifact }}
+      has_mac: ${{ steps.platforms.outputs.has_mac }}
+      has_android: ${{ steps.platforms.outputs.has_android }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While it is open, its CI
+      # publishes a test version <version>-beta.<run number> (pre-release, tried through Settings → Updates →
+      # "Include test versions"); merging it publishes <version> to everyone.
+      - name: Read version
+        id: ver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IS_OWN_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
+          $num = python common/scripts/release_prep.py numeric $v
+          if ($LASTEXITCODE -ne 0) { throw "Version '$v' in Directory.Build.props isn't x.y.z" }
+          # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
+          $assets = gh release view "v$v" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
+          # Every file the release step uploads must be there, so a release whose upload stopped half-way is finished
+          # by the next run instead of being taken as complete.
+          $expected = @('Magpie.exe', "Magpie-Setup-$v.exe", "Magpie_$v.zip")
+          if ((Test-Path macOS/build/build.sh) -and (Get-ChildItem macOS/Magpie.Mac/*.csproj -ErrorAction SilentlyContinue)) { $expected += "Magpie_$v.dmg" }
+          if (Test-Path android/build.sh) { $expected += "Magpie_$v.apk" }
+          $expected += $expected | ForEach-Object { "$_.sha256" }
+          $missing = @($expected | Where-Object { $assets -notcontains $_ })
+          $released = ($LASTEXITCODE -eq 0) -and ($missing.Count -eq 0)
+          if (($LASTEXITCODE -eq 0) -and $missing.Count -gt 0) { Write-Host "Release v$v is missing: $($missing -join ', ')" }
+          $global:LASTEXITCODE = 0
+          $beta = ($env:IS_OWN_PR -eq "true") -and -not $released
+          $full = if ($beta) { "$v-beta.${{ github.run_number }}" } else { $v }
+          "version=$full" >> $env:GITHUB_OUTPUT
+          "artifact=$(python common/scripts/release_prep.py artifact-name $full)" >> $env:GITHUB_OUTPUT
+          "base=$v" >> $env:GITHUB_OUTPUT
+          "numeric=$num" >> $env:GITHUB_OUTPUT
+          "released=$($released.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $full · released: $released · test version: $beta"
+
+      # "Any code not found in the main source can be skipped": a platform builds once its folder holds an app.
+      - name: Which platforms have code
+        id: platforms
+        shell: bash
+        run: |
+          if compgen -G "macOS/Magpie.Mac/*.csproj" > /dev/null && [ -f macOS/build/build.sh ]; then echo "has_mac=true" >> "$GITHUB_OUTPUT"; else echo "has_mac=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f android/build.sh ]; then echo "has_android=true" >> "$GITHUB_OUTPUT"; else echo "has_android=false" >> "$GITHUB_OUTPUT"; fi
+          echo "folders: $(ls -d docs windows macOS android common 2>/dev/null | tr '\n' ' ')"
+
+      - name: Release script tests
+        run: python common/scripts/test_release_prep.py
+
+      # Design VB1: every change to the program gets a new version number x.y.z, worked out from its CHANGELOG lines
+      # (New -> x, Changed -> y, Fixed -> z). A PR that changes the app code, the installer or the build files but keeps
+      # a version that is already released fails here. Docs, CI, scripts and tests alone need none.
+      - name: A change to Magpie gets a new version
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)'
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't list the files this PR changes" }
+          $files | python common/scripts/release_prep.py needs-version --released ${{ steps.ver.outputs.released }}
+          if ($LASTEXITCODE -ne 0) { throw "This PR changes Magpie without a new version (see the line above)" }
+
+      # A new version must be ready to go out: CHANGELOG section dated, installer version matching.
+      - name: New version is ready to release
+        if: steps.ver.outputs.released != 'true'
+        run: python common/scripts/release_prep.py check ${{ steps.ver.outputs.base }}
+
+  windows:
+    needs: version
     runs-on: windows-latest
     env:
-      PYTHONUTF8: "1"
+      VERSION: ${{ needs.version.outputs.version }}
       # Optional Authenticode signing – skipped while these secrets are empty.
       SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
       SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
@@ -34,79 +127,54 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Design E1 (same as evict-uninstaller): a PR that sets a new <Version> in Directory.Build.props is the release.
-      # While it is open, its CI publishes a test version <version>-beta.<run number> (pre-release, tried through
-      # Settings → Updates → "Include test versions"); merging it publishes <version> to everyone.
-      - name: Read version
-        id: ver
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IS_OWN_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        run: |
-          $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
-          $num = python build/release_prep.py numeric $v
-          if ($LASTEXITCODE -ne 0) { throw "Version '$v' in Directory.Build.props isn't x.y.z" }
-          # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
-          $assets = gh release view "v$v" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
-          $released = ($LASTEXITCODE -eq 0) -and ($assets -contains 'Magpie.exe') -and ($assets -contains 'Magpie.exe.sha256')
-          $global:LASTEXITCODE = 0
-          $beta = ($env:IS_OWN_PR -eq "true") -and -not $released
-          if ($beta) { "version=$v-beta.${{ github.run_number }}" >> $env:GITHUB_OUTPUT } else { "version=$v" >> $env:GITHUB_OUTPUT }
-          "base=$v" >> $env:GITHUB_OUTPUT
-          "numeric=$num" >> $env:GITHUB_OUTPUT
-          "released=$($released.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          Write-Host "Version $v · released: $released · test version: $beta"
-
-      - name: Release script tests
-        run: python build/test_release_prep.py
-
-      # Design VB1 (Krishna, 30 Sep 2026): every change to the program gets a new version number x.y.z, worked out
-      # from its CHANGELOG lines (New -> x, Changed -> y, Fixed -> z). A PR that changes src/, the installer or the
-      # build files but keeps a version that is already released fails here. Docs, CI and tests alone need none.
-      - name: A change to Magpie gets a new version
-        if: github.event_name == 'pull_request'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $files = gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)'
-          if ($LASTEXITCODE -ne 0) { throw "Couldn't list the files this PR changes" }
-          $files | python build/release_prep.py needs-version --released ${{ steps.ver.outputs.released }}
-          if ($LASTEXITCODE -ne 0) { throw "This PR changes Magpie without a new version (see the line above)" }
-
-      # A new version must be ready to go out: CHANGELOG section dated, installer version matching.
-      - name: New version is ready to release
-        if: steps.ver.outputs.released != 'true'
-        run: python build/release_prep.py check ${{ steps.ver.outputs.base }}
-
       - name: Restore
         run: dotnet restore Magpie.sln
 
+      # On failure the failing lines also become one error annotation (readable from the run page and the API).
       - name: Unit tests (integration tests need a local IMAP server and are skipped here)
-        run: dotnet test tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --no-restore --filter "Category!=Integration"
-
-      - name: Build app
-        run: dotnet build src/Magpie.App/Magpie.App.csproj -c Release --no-restore -p:Version=${{ steps.ver.outputs.version }}
-
-      - name: XAML static checks (blocking)
-        env:
-          PYTHONUTF8: "1"
         shell: pwsh
         run: |
-          dotnet run --project build/DpDump -c Release -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
-          python build/xaml_check.py --dps build/app-types.json
+          dotnet test common/tests/Magpie.Core.Tests/Magpie.Core.Tests.csproj -c Release --no-restore --filter "Category!=Integration" 2>&1 | Tee-Object -FilePath unit-tests.log
+          if ($LASTEXITCODE -ne 0) {
+            $lines = Select-String -Path unit-tests.log -Pattern '\[FAIL\]|Failed |Assert\.|error |Expected|Actual' | Select-Object -First 60 | ForEach-Object { $_.Line.Trim() }
+            Write-Output ("::error title=Unit tests failed::" + (($lines -join "`n") -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'))
+            exit 1
+          }
+
+      - name: Build app
+        run: dotnet build windows/Magpie.App/Magpie.App.csproj -c Release --no-restore -p:Version=${{ env.VERSION }}
+
+      - name: XAML static checks (blocking)
+        shell: pwsh
+        run: |
+          dotnet run --project windows/build/DpDump -c Release -- windows/build/app-types.json windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
+          python windows/build/xaml_check.py --dps windows/build/app-types.json
           if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
 
       - name: Every referenced assembly is in the build (blocking)
         shell: pwsh
         run: |
-          dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
+          dotnet run --project windows/build/DpDump -c Release -- --check-refs windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
           if ($LASTEXITCODE -ne 0) { throw "A referenced assembly is missing from the build: the app would crash on Windows" }
 
+      # The native light/dark UI smoke (was its own workflow; folded in so there is one workflow).
+      - name: Windows UI smoke (light and dark)
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 10
+        run: dotnet run --project windows/build/ProductivitySmoke/ProductivitySmoke.csproj -c Release -- smoke-captures
+
+      # Only when the smoke fails (no Magpie zip is made then): the captures that show what broke.
+      - name: UI smoke captures (failed runs only)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-captures-${{ github.sha }}
+          path: smoke-captures/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Publish single-file EXE
-        run: dotnet publish src/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ steps.ver.outputs.version }}
+        run: dotnet publish windows/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ env.VERSION }}
 
       - name: Sign Magpie.exe (optional)
         if: env.SIGN_PFX_BASE64 != ''
@@ -122,89 +190,226 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
-          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" "/DMyAppNumericVersion=${{ steps.ver.outputs.numeric }}" "/DSourceDir=$PWD\publish" installer\Magpie.iss
+          & $iscc "/DMyAppVersion=${{ env.VERSION }}" "/DMyAppNumericVersion=${{ needs.version.outputs.numeric }}" "/DSourceDir=$PWD\publish" windows\installer\Magpie.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
       - name: Checksums
         shell: pwsh
         run: |
           (Get-FileHash publish/Magpie.exe -Algorithm SHA256).Hash | Out-File publish/Magpie.exe.sha256 -Encoding ascii
-          Get-ChildItem installer\Output\*.exe | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash | Out-File "$($_.FullName).sha256" -Encoding ascii }
+          Get-ChildItem windows\installer\Output\*.exe | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash | Out-File "$($_.FullName).sha256" -Encoding ascii }
 
-      # Design Z1: Magpie-<version>.zip holds exactly two folders — installer\ (setup EXE) and portable\
-      # (Magpie.exe + portable.txt, so its data stays in MagpieData next to it). The script refuses anything else.
-      - name: Release zip (installer + portable)
-        run: python build/release_prep.py zip ${{ steps.ver.outputs.version }} --setup installer/Output --exe publish --out release
-
-      # The CI download follows the same rule as the release zip: only installer\ and portable\ inside.
-      - name: Unpack the zip for the CI download
-        shell: pwsh
-        run: |
-          Expand-Archive release/Magpie-${{ steps.ver.outputs.version }}.zip -DestinationPath ci-download
-          python build/release_prep.py check-folders ci-download
-
-      - name: Upload artifact
+      # A working artifact for the package job, removed again there (the run keeps only Magpie_<v>.zip).
+      - name: Hand the Windows build to the package job
         uses: actions/upload-artifact@v7
         with:
-          name: Magpie-${{ steps.ver.outputs.version }}-${{ github.sha }}
-          path: ci-download/
+          name: build-windows
+          path: |
+            publish/Magpie.exe
+            publish/Magpie.exe.sha256
+            windows/installer/Output/*.exe
+            windows/installer/Output/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  macos:
+    needs: version
+    if: needs.version.outputs.has_mac == 'true'
+    runs-on: macos-latest   # Apple Silicon (arm64)
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Magpie for Mac is .NET 10 (Avalonia 12 + the WKWebView control); Magpie.Core stays .NET 8. macOS/global.json
+      # picks SDK 10 for everything built from macOS/.
+      - name: Set up .NET 8 and 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # Headless checks of the Mac windows (no display): version label, Update button rule, sidebar, list, menus.
+      # Not yet run on a macOS runner before 8.0.0: a failure here shows in the log but can't hold back the build and
+      # release (build.sh below still has to pass).
+      - name: Mac app tests (headless)
+        continue-on-error: true
+        working-directory: macOS
+        run: |
+          set -o pipefail   # without it tee would hide the exit code (GitHub's default bash has no pipefail)
+          dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release 2>&1 | tee mac-tests.log || {
+            echo "::error title=Mac headless tests failed::$(grep -E '\[FAIL\]|Failed |Assert|error |Expected|Actual' mac-tests.log | head -n 60 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
+
+      # macOS/build/build.sh <version> builds the app and writes macOS/out/Magpie_<version>.dmg (see macOS/README.md).
+      - name: Build Magpie for Mac
+        run: |
+          set -o pipefail
+          bash macOS/build/build.sh "$VERSION" 2>&1 | tee mac-build.log || {
+            echo "::error title=build.sh failed::$(tail -n 50 mac-build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
+
+      - name: Hand the Mac build to the package job
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-macos
+          path: macOS/out/*.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  android:
+    needs: version
+    if: needs.version.outputs.has_android == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # android/build.sh <version> writes android/out/Magpie_<version>.apk (see android/README.md).
+      - name: Build Magpie for Android
+        run: bash android/build.sh "$VERSION"
+
+      - name: Hand the Android build to the package job
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-android
+          path: android/out/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    needs: [ version, windows, macos, android ]
+    # Windows must have built; macOS and Android may be skipped (no code yet) but not failed.
+    if: >-
+      always() && needs.windows.result == 'success'
+      && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+      && (needs.android.result == 'success' || needs.android.result == 'skipped')
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BASE: ${{ needs.version.outputs.base }}
+      ARTIFACT: ${{ needs.version.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect the platform builds
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-*
+          path: dl
+
+      # Magpie_<v>.zip: portable/Magpie_<v>.exe, windows-x64/Magpie_<v>.exe (installer), macOS/Magpie_<v>.dmg,
+      # Android/Magpie_<v>.apk — one file per folder (Krishna's workflow rule). The script refuses anything else.
+      - name: Release zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dl -type f | sort
+          # Found by name, so it doesn't matter how download-artifact laid the folders out.
+          exe=$(find dl -type f -name Magpie.exe | head -1)
+          setup=$(find dl -type f -name 'Magpie-Setup-*.exe' | head -1)
+          [ -n "$exe" ] && [ -n "$setup" ] || { echo "::error::Windows build files missing"; exit 1; }
+          args=(zip "$VERSION" --setup "$(dirname "$setup")" --exe "$(dirname "$exe")" --out release)
+          dmg=$(find dl -type f -name '*.dmg' | head -1); [ -n "$dmg" ] && args+=(--dmg "$dmg")
+          apk=$(find dl -type f -name '*.apk' | head -1); [ -n "$apk" ] && args+=(--apk "$apk")
+          python common/scripts/release_prep.py "${args[@]}"
+          mkdir -p dist
+          (cd dist && unzip -q "../release/$ARTIFACT.zip")
+          python common/scripts/release_prep.py check-folders dist
+          find dist -type f | sort
+          { echo "EXE_DIR=$(dirname "$exe")"; echo "SETUP_DIR=$(dirname "$setup")"; } >> "$GITHUB_ENV"
+
+      # The single file in the run's Artifacts box: Magpie_<v> (GitHub hands it out as Magpie_<v>.zip).
+      - name: Upload Magpie_${{ needs.version.outputs.version }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.version.outputs.artifact }}
+          path: dist/
           if-no-files-found: error
 
-      # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet
-      # publishes one — tag v<version>, EXE, installer, the installer + portable zip and checksums, notes from CHANGELOG.md.
+      - name: Remove the working artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate --jq '.artifacts[] | select(.name | startswith("build-")) | .id'); do
+            # A PR from a fork gets a read-only token: then the working artifacts just stay (they expire after a day).
+            if gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"; then echo "removed artifact $id"; else echo "::warning::could not remove working artifact $id (read-only token?)"; fi
+          done
+
+      # The release keeps the bare Magpie.exe (+ .sha256): every installed copy's updater downloads that file.
+      - name: Release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p files
+          cp "$EXE_DIR/Magpie.exe" "$EXE_DIR/Magpie.exe.sha256" files/
+          cp "$SETUP_DIR"/Magpie-Setup-*.exe "$SETUP_DIR"/Magpie-Setup-*.exe.sha256 files/
+          cp "release/$ARTIFACT.zip" "release/$ARTIFACT.zip.sha256" files/
+          while IFS= read -r f; do
+            cp "$f" files/
+            sha256sum "$f" | cut -d' ' -f1 | tr a-f A-F > "files/$(basename "$f").sha256"
+          done < <(find dl -type f \( -name '*.dmg' -o -name '*.apk' \))
+          ls -la files
+
+      # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet publishes one —
+      # tag v<version>, EXE, installer, the zip, the Mac disk image and checksums, notes from CHANGELOG.md.
       # Magpie's built-in updater reads the newest release, so "push a new version" = "ship it".
       - name: Is this version released yet?
         id: rel
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: pwsh
         run: |
-          if ("${{ steps.ver.outputs.released }}" -eq "true") {
-            "needed=false" >> $env:GITHUB_OUTPUT; Write-Host "v${{ steps.ver.outputs.version }} already released"
+          if ("${{ needs.version.outputs.released }}" -eq "true") {
+            "needed=false" >> $env:GITHUB_OUTPUT; Write-Host "v$env:VERSION already released"
           } else {
-            "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "v${{ steps.ver.outputs.version }} will be released (or its files completed)"
+            "needed=true" >> $env:GITHUB_OUTPUT; Write-Host "v$env:VERSION will be released (or its files completed)"
           }
           # Release notes = this version's section of CHANGELOG.md (written as UTF-8 by the script)
-          python build/release_prep.py notes ${{ steps.ver.outputs.version }} --out release-notes.md
-          if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no section for ${{ steps.ver.outputs.version }}" }
+          python common/scripts/release_prep.py notes $env:VERSION --out release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no section for $env:VERSION" }
 
       - name: Publish GitHub Release
         if: steps.rel.outputs.needed == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
+          tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Magpie ${{ steps.ver.outputs.version }}
+          name: Magpie ${{ needs.version.outputs.version }}
           body_path: release-notes.md
-          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
-          make_latest: ${{ !contains(steps.ver.outputs.version, '-') }}
-          files: |
-            publish/Magpie.exe
-            publish/Magpie.exe.sha256
-            installer/Output/*.exe
-            installer/Output/*.sha256
-            release/Magpie-*.zip
-            release/Magpie-*.zip.sha256
+          prerelease: ${{ contains(needs.version.outputs.version, '-') }}
+          make_latest: ${{ !contains(needs.version.outputs.version, '-') }}
+          files: files/*
 
       # The test versions of a release are no longer needed once it is out.
       - name: Remove this version's test builds
-        if: steps.rel.outputs.needed == 'true' && !contains(steps.ver.outputs.version, '-')
+        if: steps.rel.outputs.needed == 'true' && !contains(needs.version.outputs.version, '-')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' | Where-Object { $_ -like "v${{ steps.ver.outputs.version }}-beta.*" }
+          $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' | Where-Object { $_ -like "v$($env:VERSION)-beta.*" }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }
 
       # The [Q..] issues a release ships are listed in its CHANGELOG section (<!-- closes: #n … -->): closed here with
       # a link to the release, as GitHub's "Closes #n" in the PR doesn't close them in this repository. Never fails the release.
       - name: Close the issues this release ships
-        if: steps.rel.outputs.needed == 'true' && !contains(steps.ver.outputs.version, '-')
+        if: steps.rel.outputs.needed == 'true' && !contains(needs.version.outputs.version, '-')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          $ids = (python build/release_prep.py closes $v) -split ' ' | Where-Object { $_ }
+          $v = $env:VERSION
+          $ids = (python common/scripts/release_prep.py closes $v) -split ' ' | Where-Object { $_ }
           foreach ($n in $ids) {
             $state = gh issue view $n --repo "${{ github.repository }}" --json state --jq .state 2>$null
             if ($LASTEXITCODE -ne 0) { Write-Host "::warning::issue #$n not found"; $global:LASTEXITCODE = 0; continue }
@@ -216,54 +421,48 @@ jobs:
 
       # ─── Test version for a PR that sets a new version (design E1) ───
       - name: Beta release notes
-        if: steps.ver.outputs.beta == 'true'
+        if: needs.version.outputs.beta == 'true'
         shell: pwsh
         run: |
-          python build/release_prep.py notes ${{ steps.ver.outputs.base }} --out release-notes.md --header "**Test version** of Magpie ${{ steps.ver.outputs.base }}, built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes ${{ steps.ver.outputs.base }} to everyone."
-          if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for ${{ steps.ver.outputs.base }}" }
+          python common/scripts/release_prep.py notes $env:BASE --out release-notes.md --header "**Test version** of Magpie $($env:BASE), built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes $($env:BASE) to everyone."
+          if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for $env:BASE" }
 
       # Guard: a PR merged while its CI still runs gets its release from main first — then no test version.
       - name: Is the real release out already?
         id: late
-        if: steps.ver.outputs.beta == 'true'
+        if: needs.version.outputs.beta == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "v${{ steps.ver.outputs.base }}" --repo "${{ github.repository }}" --json tagName *> $null
+          gh release view "v$($env:BASE)" --repo "${{ github.repository }}" --json tagName *> $null
           $out = $LASTEXITCODE -eq 0
           $global:LASTEXITCODE = 0
           "released=$($out.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          if ($out) { Write-Host "::notice::Magpie ${{ steps.ver.outputs.base }} is already released, so no test version is published" }
+          if ($out) { Write-Host "::notice::Magpie $($env:BASE) is already released, so no test version is published" }
 
       - name: Publish test version
-        if: steps.ver.outputs.beta == 'true' && steps.late.outputs.released != 'true'
+        if: needs.version.outputs.beta == 'true' && steps.late.outputs.released != 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
+          tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.event.pull_request.head.sha }}
-          name: Magpie ${{ steps.ver.outputs.version }} (test)
+          name: Magpie ${{ needs.version.outputs.version }} (test)
           body_path: release-notes.md
           prerelease: true
           make_latest: false
-          files: |
-            publish/Magpie.exe
-            publish/Magpie.exe.sha256
-            installer/Output/*.exe
-            installer/Output/*.sha256
-            release/Magpie-*.zip
-            release/Magpie-*.zip.sha256
+          files: files/*
 
       - name: Keep only the newest test version
-        if: steps.ver.outputs.beta == 'true' && steps.late.outputs.released != 'true'
+        if: needs.version.outputs.beta == 'true' && steps.late.outputs.released != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # The real release may have come out while this test version was uploading: then it goes too.
-          gh release view "v${{ steps.ver.outputs.base }}" --repo "${{ github.repository }}" --json tagName *> $null
-          $keep = if ($LASTEXITCODE -eq 0) { "" } else { "v${{ steps.ver.outputs.version }}" }
+          gh release view "v$($env:BASE)" --repo "${{ github.repository }}" --json tagName *> $null
+          $keep = if ($LASTEXITCODE -eq 0) { "" } else { "v$($env:VERSION)" }
           $global:LASTEXITCODE = 0
           $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' |
-            Where-Object { $_ -like "v${{ steps.ver.outputs.base }}-beta.*" -and $_ -ne $keep }
+            Where-Object { $_ -like "v$($env:BASE)-beta.*" -and $_ -ne $keep }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }

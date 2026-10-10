@@ -1,0 +1,927 @@
+using System.Reflection;
+using System.Collections.ObjectModel;
+using System.Text.Json;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Magpie.App.Services;
+using Magpie.Core;
+using Magpie.Core.Ai;
+using Magpie.Core.Mail;
+using Magpie.Core.Models;
+using Magpie.Core.Security;
+using Magpie.Core.Settings;
+
+namespace Magpie.App.ViewModels;
+
+public partial class EditableAccount : ObservableObject
+{
+    public Account Original { get; private set; }
+    /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
+    public void Accept(Account saved) => Original = saved;
+    public EditableAccount(Account a)
+    {
+        Original = a;
+        _displayName = a.DisplayName;
+        _phone = a.Phone;
+        _jobTitle = a.JobTitle;
+        _company = a.Company;
+        _signature = a.Signature;
+        _signatureHtml = a.SignatureHtml;
+        _signatureOnNew = a.SignatureOnNew;
+        _signatureOnReplies = a.SignatureOnReplies;
+        _color = a.Color;
+        _enabled = a.Enabled;
+        _syncDays = a.SyncDays;
+        _downloadAttachments = a.DownloadAttachments;
+        DownloadChoices = DownloadChoice.For(a.SyncDays);
+    }
+    public string Email => Original.Email;
+    public string Kind => Original.Kind switch { AccountKind.Gmail => "Gmail", AccountKind.Microsoft => "Outlook / Microsoft 365", _ => "IMAP" }
+                          + (Original.Auth == AuthMethod.OAuth2 ? " · signed in with " + (Original.Kind == AccountKind.Gmail ? "Google" : "Microsoft") : " · password");
+    public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
+    [ObservableProperty] private string _displayName;
+    /// <summary>Design AC1: your details for this account.</summary>
+    [ObservableProperty] private string _phone;
+    [ObservableProperty] private string _jobTitle;
+    [ObservableProperty] private string _company;
+    /// <summary>Only then does "Sign in again" do anything (design AC1).</summary>
+    [ObservableProperty] private bool _needsSignIn;
+    /// <summary>Q40: "All 1,234 emails from the last 90 days are on this PC" (empty until counted).</summary>
+    [ObservableProperty] private string _onThisPc = "";
+    /// <summary>Collapsed card in Settings → Accounts (design CL1).</summary>
+    [ObservableProperty] private bool _isExpanded;
+    [ObservableProperty] private string _signature;
+    /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain), nameof(HasSignaturePicture), nameof(HasSignature))] private string _signatureHtml;
+    public bool HasSignature => !string.IsNullOrWhiteSpace(SignatureHtml);
+    public bool HasSignaturePicture => SignatureHtml.Contains("<img", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Accounts signed in with Google can copy the signature set in Gmail.</summary>
+    public bool CanImportGmailSignature => Original.Kind == AccountKind.Gmail && Original.Auth == AuthMethod.OAuth2;
+    [ObservableProperty] private bool _signatureOnNew;
+    [ObservableProperty] private bool _signatureOnReplies;
+    [ObservableProperty] private bool _isSignatureSelected;
+    [ObservableProperty] private string _color;
+
+    /// <summary>Plain-text stand-in for the rich editor when WebView2 isn't available.</summary>
+    public string SignaturePlain
+    {
+        get => MimeText.HtmlToText(SignatureHtml).Trim();
+        set => SignatureHtml = string.IsNullOrWhiteSpace(value) ? "" : value.Trim().Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
+    }
+    [ObservableProperty] private bool _enabled;
+    /// <summary>Design DS1: "Download emails from the last …" (0 = everything) and whether attachments come too.</summary>
+    [ObservableProperty] private int _syncDays;
+    [ObservableProperty] private bool _downloadAttachments;
+    public DownloadChoice[] DownloadChoices { get; }
+
+    public Account ToAccount()
+    {
+        var a = Original.Clone();
+        a.DisplayName = DisplayName.Trim();
+        a.Phone = Phone.Trim();
+        a.JobTitle = JobTitle.Trim();
+        a.Company = Company.Trim();
+        a.SignatureHtml = SignatureHtml.Trim();
+        // The old plain-text field mirrors the rich one, so it never brings back a signature that was cleared.
+        if (a.SignatureHtml != Original.SignatureHtml) a.Signature = MimeText.HtmlToText(a.SignatureHtml).Trim();
+        a.SignatureOnNew = SignatureOnNew;
+        a.SignatureOnReplies = SignatureOnReplies;
+        a.Color = Color;
+        a.Enabled = Enabled;
+        a.SyncDays = DownloadChoice.Normalise(SyncDays);
+        a.DownloadAttachments = DownloadAttachments;
+        return a;
+    }
+
+    public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+                           || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
+                           || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
+                           || Enabled != Original.Enabled || SyncDays != Original.SyncDays
+                           || DownloadAttachments != Original.DownloadAttachments;
+}
+
+public partial class EditableTag : ObservableObject
+{
+    [ObservableProperty] private string _name = "";
+    [ObservableProperty] private string _color = "#14606E";
+}
+
+public partial class EditableQuickReply : ObservableObject
+{
+    [ObservableProperty] private string _text = "";
+}
+
+public partial class EditableTemplate : ObservableObject
+{
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _name = "";
+    [ObservableProperty] private string _body = "";
+    /// <summary>Collapsed card (design CL1); a new template starts open.</summary>
+    [ObservableProperty] private bool _isExpanded;
+    public string Title => string.IsNullOrWhiteSpace(Name) ? "New template" : Name.Trim();
+}
+
+public sealed record Choice<T>(T Value, string Label);
+
+/// <summary>One row of Settings → Toolbar &amp; buttons (design C3).</summary>
+public partial class EditableToolbarButton : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => ToolbarButtonVm.NameOf(Id);
+    public string IconKey => ToolbarButtonVm.IconOf(Id);
+    public string Shortcut => ToolbarButtonVm.KeyOf(Id) is { Length: > 0 } k ? k : "—";
+    public string ShowLabel => "Show " + Name;
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+    [ObservableProperty] private bool _visible;
+}
+
+/// <summary>One line the folder hover card can show (design H2).</summary>
+public partial class EditableHoverLine : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => FolderHoverSettings.NameOf(Id);
+    [ObservableProperty] private bool _on;
+}
+
+/// <summary>One action a row can offer (design H3): ticked ones show, in this order (at most five).</summary>
+public partial class EditableRowAction : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name => ToolbarButtonVm.NameOf(Id);
+    public string IconKey => ToolbarButtonVm.IconOf(Id);
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+    [ObservableProperty] private bool _on;
+}
+
+/// <summary>One hit of the Settings search (design SS1).</summary>
+public sealed record SettingHit(string Name, string Page, string PageLabel, string Description, string IconKey, string Anchor);
+
+/// <summary>One "Quick setup" button on the AI page (Off · A · B · C · Custom).</summary>
+public partial class AiPreset : ObservableObject
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    [ObservableProperty] private bool _isSelected;
+}
+
+/// <summary>Settings window. Edits a copy; Save applies everything at once.</summary>
+public partial class SettingsViewModel : ObservableObject
+{
+    private readonly MailEngine _e = AppServices.Engine;
+
+    [ObservableProperty] private string _page = "General";
+
+    // General
+    [ObservableProperty] private bool _smartInbox;
+    [ObservableProperty] private bool _markReadOnOpen;
+    [ObservableProperty] private RemoteImages _remoteImages;
+    /// <summary>Design TB1 (T7): empty Trash by itself after 0 (never), 7 or 30 days.</summary>
+    [ObservableProperty] private int _emptyTrashAfterDays;
+    [ObservableProperty] private int _undoSendSeconds;
+    [ObservableProperty] private int _syncIntervalMinutes;
+    [ObservableProperty] private bool _closeToTray;
+    [ObservableProperty] private bool _startWithWindows;
+    public ObservableCollection<EditableTag> Tags { get; } = new();
+    public int[] UndoChoices { get; } = { 0, 5, 10, 20, 30 };
+    public int[] IntervalChoices { get; } = { 1, 2, 5, 10, 15, 30, 60 };
+    public string[] ColorChoices { get; } = { "#14606E", "#4B3F86", "#B3261E", "#B45309", "#1B6B2E", "#2F5BEA", "#8A5300", "#5A6068" };
+
+    // Gatekeeper (design B7)
+    [ObservableProperty] private bool _gatekeeper;
+    public ObservableCollection<string> Blocked { get; } = new();
+    public bool HasBlocked => Blocked.Count > 0;
+
+    /// <summary>Unblock takes effect at once: future mail from them lands normally (mail already in Spam stays there).</summary>
+    [RelayCommand]
+    private void Unblock(string? address)
+    {
+        if (address == null) return;
+        _e.Config.Gatekeeper.Blocked.Remove(address);
+        _e.Settings.Save(notify: false);
+        Blocked.Remove(address);
+        OnPropertyChanged(nameof(HasBlocked));
+    }
+
+    // Notifications
+    [ObservableProperty] private bool _notifications;
+    [ObservableProperty] private bool _notifyPeopleOnly;
+    [ObservableProperty] private bool _notificationSound;
+
+    // Accounts
+    public ObservableCollection<EditableAccount> Accounts { get; } = new();
+    [ObservableProperty] private string _googleClientId = "";
+    [ObservableProperty] private string _googleClientSecret = "";
+    [ObservableProperty] private string _microsoftClientId = "";
+
+    // Templates
+    public ObservableCollection<EditableTemplate> Templates { get; } = new();
+
+    // ── AI features (S1–S3) ──
+    [ObservableProperty] private bool _aiEnabled;
+    [ObservableProperty] private AiProviderKind _provider;
+    [ObservableProperty] private string _endpoint = "";
+    [ObservableProperty] private string _model = "";
+    [ObservableProperty] private bool _summarise;
+    [ObservableProperty] private bool _draft;
+    [ObservableProperty] private bool _rewrite;
+    [ObservableProperty] private bool _replies;
+    [ObservableProperty] private string _testStatus = "";
+    [ObservableProperty] private bool _testOk;
+    [ObservableProperty] private bool _testing;
+    public string ApiKey { get; set; } = "";
+    public bool ApiKeyChanged { get; set; }
+
+    /// <summary>Quick setup: each preset sets the master switch and the four feature switches.</summary>
+    public List<AiPreset> Presets { get; } = new()
+    {
+        new() { Id = "Off", Name = "Off", Description = "No AI anywhere" },
+        new() { Id = "A", Name = "A · Provider only", Description = "Set up and tested, nothing calls it" },
+        new() { Id = "B", Name = "B · Summarise", Description = "One button in threads" },
+        new() { Id = "C", Name = "C · Full assistant", Description = "Summaries, drafts, rewrite, replies" },
+        new() { Id = "Custom", Name = "Custom", Description = "Your own mix of switches" },
+    };
+
+    /// <summary>Which preset the current switches match (Custom when none).</summary>
+    public string CurrentPreset => AiPresets.Match(AiEnabled, Summarise, Draft, Rewrite, Replies);
+
+    public string PresetSummary => CurrentPreset switch
+    {
+        "Off" => "Off — no AI controls anywhere and nothing is ever sent to a model.",
+        "A" => "Option A — the provider is set up and tested, but nothing in your mail calls it yet. Turn on a feature (or pick B / C) when you are ready.",
+        "B" => "Option B — only the Summarise button appears in threads. Compose is untouched.",
+        "C" => "Option C — the full assistant: summaries, the compose rail, rewrite chips and suggested replies.",
+        _ => "Custom — your own mix of switches. Each feature still asks for consent the first time it sends data to a cloud provider.",
+    };
+
+    [RelayCommand]
+    private void ApplyPreset(string? id)
+    {
+        if (id == null || !AiPresets.TryGet(id, out var p)) return;   // "Custom" is only a state, not an action
+        AiEnabled = p.Master;
+        Summarise = p.Summarise;
+        Draft = p.Draft;
+        Rewrite = p.Rewrite;
+        Replies = p.Replies;
+    }
+
+    private void RefreshPreset()
+    {
+        var cur = CurrentPreset;
+        foreach (var p in Presets) p.IsSelected = p.Id == cur;
+        OnPropertyChanged(nameof(CurrentPreset));
+        OnPropertyChanged(nameof(PresetSummary));
+    }
+
+    partial void OnAiEnabledChanged(bool value) => RefreshPreset();
+    partial void OnSummariseChanged(bool value) => RefreshPreset();
+    partial void OnDraftChanged(bool value) => RefreshPreset();
+    partial void OnRewriteChanged(bool value) => RefreshPreset();
+    partial void OnRepliesChanged(bool value) => RefreshPreset();
+    public List<Choice<AiProviderKind>> Providers { get; } = new()
+    {
+        new(AiProviderKind.OpenAI, "OpenAI"),
+        new(AiProviderKind.Anthropic, "Anthropic (Claude)"),
+        new(AiProviderKind.Ollama, "Ollama — local model on this PC"),
+        new(AiProviderKind.Custom, "Other OpenAI-compatible endpoint"),
+    };
+    public bool IsLocal => AiProviderFactory.IsLocalEndpoint(Endpoint);
+    public string KeyHint => IsLocal ? "(not needed for local models)" : Provider == AiProviderKind.Custom ? "(if your endpoint needs one)" : "";
+
+    public string Version => "Magpie " + UpdateService.Current;
+    public string VersionNumber => UpdateService.Current.ToString();
+
+    // ── About Me (design A1): Krishna's standard block ──
+    public string AuthorName => "Krishna Dipayan Bhunia";
+    public string FeedbackEmail => "kri.subsc@gmail.com";
+    public string LinkedIn => "linkedin.com/in/krishnabhunia";
+    public string Facebook => "facebook.com/kdbhunia";
+    public string VersionLine => "Magpie · Version " + VersionNumber;
+    public string ReleasedLine => "Released on " + ReleaseDate;
+    /// <summary>dd-MMM-yyyy from the assembly's ReleaseDate metadata (Directory.Build.props).</summary>
+    public static string ReleaseDate
+    {
+        get
+        {
+            var raw = typeof(SettingsViewModel).Assembly.GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "ReleaseDate")?.Value;
+            return DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)
+                ? d.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture) : (raw ?? "");
+        }
+    }
+    public static readonly string[] FeedbackKinds = { "New feature request", "Bug found", "Crash / error report", "Feedback", "Other" };
+
+    /// <summary>Opens Magpie's own compose window with the feedback email pre-filled (subject "[Magpie v1.1.2] Bug found", version, device info, recent log lines for bugs).</summary>
+    public void ComposeFeedback(string kind)
+    {
+        var body = new System.Text.StringBuilder();
+        body.AppendLine("App: Magpie " + VersionNumber + " (released " + ReleaseDate + ")");
+        body.AppendLine("Windows: " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
+        body.AppendLine("Machine: " + Environment.MachineName + " · .NET " + Environment.Version);
+        body.AppendLine("Accounts: " + _e.Accounts.Count);
+        if (kind is "Bug found" or "Crash / error report")
+        {
+            var tail = Log.Tail(20);
+            if (tail.Length > 0) { body.AppendLine(); body.AppendLine("Last 20 log lines:"); body.AppendLine(tail); }
+        }
+        body.AppendLine();
+        body.AppendLine("--- Describe below ---");
+        body.AppendLine();
+        var mailto = "mailto:" + FeedbackEmail + "?subject=" + Uri.EscapeDataString($"[Magpie v{VersionNumber}] {kind}") + "&body=" + Uri.EscapeDataString(body.ToString());
+        Views.ComposeWindow.OpenMailto(mailto);
+    }
+
+    [RelayCommand] private void OpenLinkedIn() => Ui.OpenExternal("https://www." + LinkedIn);
+    [RelayCommand] private void OpenFacebook() => Ui.OpenExternal("https://www." + Facebook);
+
+    // ── Search (design SS1) ──
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsSearching), nameof(SearchHeading), nameof(SearchSub))] private string _searchText = "";
+    public bool IsSearching => SearchText.Trim().Length > 0;
+    public ObservableCollection<SettingHit> SearchHits { get; } = new();
+    public string SearchHeading => IsSearching ? $"Results for \"{SearchText.Trim()}\"" : "";
+    public string SearchSub => !IsSearching ? "" : SearchHits.Count == 0 ? "Nothing matches. Try another word." : $"{SearchHits.Count} setting{(SearchHits.Count == 1 ? "" : "s")} found — click one to go to it";
+    /// <summary>Matches per page, shown as a badge in the page list; "" when not searching or none.</summary>
+    [ObservableProperty] private string _hitsGeneral = "", _hitsToolbar = "", _hitsAccounts = "", _hitsAI = "", _hitsRules = "", _hitsSignatures = "", _hitsNotifications = "", _hitsTemplates = "", _hitsKeys = "", _hitsUpdates = "", _hitsAbout = "";
+
+    private static readonly (string Name, string Page, string Desc, string Keys, string Anchor)[] Index =
+    {
+        ("Smart inbox", "General", "People · Notifications · Newsletters tabs", "smart inbox people newsletters categories tabs", "RowSmartInbox"),
+        ("Mark as read when opened", "General", "Otherwise conversations stay unread", "read unread mark open", "RowMarkRead"),
+        ("Pictures from the internet", "General", "Block remote images to stop tracking", "images pictures photos tracking privacy remote load", "RowImages"),
+        ("Empty Trash by itself", "General", "Delete what has been in Trash for 7 or 30 days", "trash bin empty delete forever days auto clean", "RowEmptyTrash"),
+        ("Undo send", "General", "How long you can take a message back after pressing Send", "undo send cancel recall seconds send now", "RowUndo"),
+        ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
+        ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
+        ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
+        ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
+        ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
+        ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
+        ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
+        ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
+        ("Show the status bar", "Toolbar", "One row at the bottom of the window", "status bar bottom activity", "RowLook"),
+        ("Folder numbers", "Toolbar", "Unread / total · Unread only · Off", "counts numbers unread total badge folder", "RowLook"),
+        ("Folder details on hover", "Toolbar", "The card that pops up when you point at a folder", "hover card folder details unread total today oldest size attachments delay", "RowHover"),
+        ("Buttons on email rows", "Toolbar", "Hover actions on each row, and which ones", "hover row actions buttons archive delete always never multi select bulk", "RowRowActions"),
+        ("Deletion dates", "Toolbar", "How an email with an auto-delete timer shows when it will be deleted", "deletion delete date auto-delete timer countdown when deleted expire pill ring banner chip", "RowDeleteDates"),
+        ("Sidebar width", "Toolbar", "Drag the sidebar's edge; narrower snaps to the icon rail (Ctrl+Shift+← / →)", "sidebar width rail narrow resize drag icon", "RowRowActions"),
+        ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
+        ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
+        ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
+        ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
+        ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
+        ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
+        ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key model openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
+        ("Send a test notification", "Notifications", "Shows a sample new-mail notification", "test notification sample try sound", "RowNotifyTest"),
+        ("AI features", "AI", "Summarise, drafts, rewrite, suggested replies", "summarise summary draft rewrite replies suggest ai", "RowAiFeatures"),
+        ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
+        ("Only for mail from people", "Notifications", "Stay quiet for newsletters and automatic mail", "notifications people only newsletters quiet", "RowNotifyPeople"),
+        ("Notification sound", "Notifications", "Play a sound for new mail", "sound notifications alert new mail", "RowNotifySound"),
+        ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
+        ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
+        ("Check for updates", "Updates", "Check now, download, restart into the new version", "update check download restart version github", "RowUpdateCard"),
+        ("Auto update", "Updates", "Check at start and once a day; install new versions in the background", "auto update automatic check daily download install background new version", "RowUpdateSwitches"),
+        ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
+        ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
+        ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
+        ("Auto-delete rules", "Rules", "Emails from a sender or domain go to Trash a set time after they arrive; OTP delete after 24 hours", "auto delete autodelete otp codes expire trash timer clean up old", "RowAutoDelete"),
+        ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
+        ("Signature", "Signatures", "A signature for each account, with pictures; new messages and replies", "signature sign off logo picture name footer html rich", "RowSignatures"),
+        ("Quick replies", "Signatures", "Short answers you send with one click under a conversation", "quick replies canned answers thanks one click send chips", "RowQuickReplies"),
+        ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
+    };
+
+    private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
+    {
+        ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"), ["Rules"] = ("Rules", "rules"), ["Signatures"] = ("Signatures & replies", "signature"),
+        ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
+        ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
+    };
+
+    /// <summary>Every setting whose name, description or plain words contain the text; "" finds nothing.</summary>
+    public static List<SettingHit> Search(string text)
+    {
+        var q = (text ?? "").Trim().ToLowerInvariant();
+        if (q.Length == 0) return new();
+        var words = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return Index.Where(i =>
+            {
+                var hay = (i.Name + " " + i.Desc + " " + i.Keys + " " + Pages[i.Page].Label).ToLowerInvariant();
+                return words.All(hay.Contains);
+            })
+            .Select(i => new SettingHit(i.Name, i.Page, Pages[i.Page].Label, i.Desc, Pages[i.Page].Icon, i.Anchor)).ToList();
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        SearchHits.Clear();
+        foreach (var h in Search(value)) SearchHits.Add(h);
+        string Badge(string page) => IsSearching ? (SearchHits.Count(h => h.Page == page) is var n && n > 0 ? n.ToString() : "") : "";
+        HitsGeneral = Badge("General"); HitsToolbar = Badge("Toolbar"); HitsAccounts = Badge("Accounts"); HitsAI = Badge("AI"); HitsRules = Badge("Rules"); HitsSignatures = Badge("Signatures"); HitsNotifications = Badge("Notifications");
+        HitsTemplates = Badge("Templates"); HitsKeys = Badge("Keys"); HitsUpdates = Badge("Updates"); HitsAbout = Badge("About");
+        OnPropertyChanged(nameof(SearchSub));
+    }
+
+    /// <summary>Raised when a search result is chosen: the window opens that page and flashes the row.</summary>
+    public event Action<string>? HighlightRequested;
+
+    [RelayCommand]
+    private void GoToHit(SettingHit? hit)
+    {
+        if (hit == null) return;
+        SearchText = "";
+        Page = hit.Page;
+        if (hit.Anchor == "RowAutoDelete") RulesTab = "AutoDelete";
+        else if (hit.Anchor == "RowRules") RulesTab = "Filters";
+        HighlightRequested?.Invoke(hit.Anchor);
+    }
+
+    // ── Folder details on hover (design H2) ──
+    [ObservableProperty] private bool _hoverEnabled;
+    [ObservableProperty] private int _hoverDelay;
+    public ObservableCollection<EditableHoverLine> HoverLines { get; } = new();
+    /// <summary>50, 100, … 1000 ms.</summary>
+    public int[] HoverDelayChoices { get; } = Enumerable.Range(1, FolderHoverSettings.MaxDelayMs / FolderHoverSettings.DelayStepMs).Select(i => i * FolderHoverSettings.DelayStepMs).ToArray();
+
+    // ── Buttons on email rows (design H3) ──
+    [ObservableProperty] private RowActionsMode _rowMode;
+    [ObservableProperty] private int _confirmDeleteOver;
+    public ObservableCollection<EditableRowAction> RowActions { get; } = new();
+    public ObservableCollection<ToolbarButtonVm> RowPreview { get; } = new();
+    public List<Choice<RowActionsMode>> RowModes { get; } = new()
+    {
+        new(RowActionsMode.OnHover, "On hover"), new(RowActionsMode.Always, "Always"), new(RowActionsMode.Never, "Never"),
+    };
+    public int[] ConfirmChoices { get; } = { 0, 5, 10, 20, 50 };
+
+    // ── Deletion dates (design DD1) ──
+    [ObservableProperty] private string _deleteHover = "H1";
+    [ObservableProperty] private string _deleteList = "L1";
+    [ObservableProperty] private string _deleteReader = "R1";
+    public List<Choice<string>> DeleteHoverChoices { get; } = new()
+    {
+        new("H1", "H1 · A line in the date's tooltip"), new("H2", "H2 · A small card with Keep / Change rule / Delete now"), new("H3", "H3 · The row's tag grows to the full date and rule"),
+    };
+    public List<Choice<string>> DeleteListChoices { get; } = new()
+    {
+        new("L1", "L1 · Countdown pill, coloured by how soon"), new("L2", "L2 · The date becomes the deletion date"),
+        new("L3", "L3 · Red edge, clock and days left"), new("L4", "L4 · A ring that empties"),
+    };
+    public List<Choice<string>> DeleteReaderChoices { get; } = new()
+    {
+        new("R1", "R1 · Banner with a countdown bar"), new("R2", "R2 · A chip next to the subject"), new("R3", "R3 · On each email of the conversation"),
+    };
+    [ObservableProperty] private string _rowLimitNote = "";
+
+    private void LoadRowActions(RowActionsSettings r)
+    {
+        foreach (var a in RowActions) a.PropertyChanged -= OnRowActionChanged;
+        RowActions.Clear();
+        foreach (var id in r.Ids.Concat(RowActionsSettings.ActionIds.Where(id => !r.Ids.Contains(id))))
+        {
+            var row = new EditableRowAction { Id = id, On = r.Ids.Contains(id) };
+            row.PropertyChanged += OnRowActionChanged;
+            RowActions.Add(row);
+        }
+        RefreshRowPreview();
+    }
+
+    private void OnRowActionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(EditableRowAction.On)) return;
+        // At most five: the sixth tick is undone.
+        if (sender is EditableRowAction { On: true } r && RowActions.Count(a => a.On) > RowActionsSettings.MaxButtons)
+        {
+            r.On = false;
+            RowLimitNote = "Up to 5 buttons fit on a row — untick one first.";
+        }
+        else RowLimitNote = "";
+        RefreshRowPreview();
+    }
+
+    private void RefreshRowPreview()
+    {
+        RowPreview.Clear();
+        foreach (var a in RowActions.Where(a => a.On)) RowPreview.Add(ToolbarButtonVm.For(a.Id, ButtonStyle.IconOnly));
+    }
+
+    [RelayCommand]
+    private void MoveRowActionUp(EditableRowAction? row)
+    {
+        if (row == null) return;
+        var i = RowActions.IndexOf(row);
+        if (i > 0) { RowActions.Move(i, i - 1); RefreshRowPreview(); }
+    }
+
+    [RelayCommand]
+    private void MoveRowActionDown(EditableRowAction? row)
+    {
+        if (row == null) return;
+        var i = RowActions.IndexOf(row);
+        if (i >= 0 && i < RowActions.Count - 1) { RowActions.Move(i, i + 1); RefreshRowPreview(); }
+    }
+
+    [RelayCommand]
+    private void SetRowMode(string? mode)
+    {
+        if (Enum.TryParse<RowActionsMode>(mode, out var v)) RowMode = v;
+    }
+
+    // ── Appearance: theme (design B1) ──
+    [ObservableProperty] private ThemeMode _theme;
+    public bool WindowsIsDark { get; } = ThemeManager.WindowsUsesDark();
+    public string MatchWindowsNote => "Windows is set to " + (WindowsIsDark ? "dark" : "light") + " right now. Magpie changes with it.";
+
+    [RelayCommand]
+    private void SetTheme(string? mode)
+    {
+        if (Enum.TryParse<ThemeMode>(mode, out var v)) Theme = v;
+    }
+
+    // ── Toolbar & buttons (design C3) ──
+    public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
+    public ObservableCollection<ToolbarButtonVm> ToolbarPreview { get; } = new();
+    [ObservableProperty] private ButtonStyle _buttonStyle;
+    [ObservableProperty] private bool _colourful;
+    [ObservableProperty] private CountsMode _counts;
+    [ObservableProperty] private bool _showStatusBar;
+    [ObservableProperty] private bool _menuFollowsToolbar;
+    public List<Choice<ButtonStyle>> ButtonStyles { get; } = new()
+    {
+        new(ButtonStyle.IconAndName, "Icon + name"),
+        new(ButtonStyle.IconOnly, "Icon only (name shows on hover)"),
+        new(ButtonStyle.NameOnly, "Name only"),
+    };
+    public List<Choice<CountsMode>> CountChoices { get; } = new()
+    {
+        new(CountsMode.UnreadAndTotal, "Unread / total (3 / 10)"),
+        new(CountsMode.UnreadOnly, "Unread only (3)"),
+        new(CountsMode.Off, "Off"),
+    };
+
+    partial void OnButtonStyleChanged(ButtonStyle value) => RefreshPreview();
+    partial void OnColourfulChanged(bool value) => RefreshPreview();
+
+    private void LoadToolbar(Appearance a)
+    {
+        foreach (var r in ToolbarRows) r.PropertyChanged -= OnToolbarRowChanged;
+        ToolbarRows.Clear();
+        foreach (var b in a.Toolbar)
+        {
+            var row = new EditableToolbarButton { Id = b.Id, Visible = b.Visible };
+            row.PropertyChanged += OnToolbarRowChanged;
+            ToolbarRows.Add(row);
+        }
+        RefreshPreview();
+    }
+
+    private void OnToolbarRowChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => RefreshPreview();
+
+    private void RefreshPreview()
+    {
+        ToolbarPreview.Clear();
+        foreach (var r in ToolbarRows.Where(r => r.Visible)) ToolbarPreview.Add(ToolbarButtonVm.For(r.Id, ButtonStyle));
+    }
+
+    [RelayCommand]
+    private void MoveToolbarUp(EditableToolbarButton? row)
+    {
+        if (row == null) return;
+        var i = ToolbarRows.IndexOf(row);
+        if (i > 0) { ToolbarRows.Move(i, i - 1); RefreshPreview(); }
+    }
+
+    [RelayCommand]
+    private void MoveToolbarDown(EditableToolbarButton? row)
+    {
+        if (row == null) return;
+        var i = ToolbarRows.IndexOf(row);
+        if (i >= 0 && i < ToolbarRows.Count - 1) { ToolbarRows.Move(i, i + 1); RefreshPreview(); }
+    }
+
+    [RelayCommand]
+    private void SetButtonStyle(string? style)
+    {
+        if (Enum.TryParse<ButtonStyle>(style, out var v)) ButtonStyle = v;
+    }
+
+    [RelayCommand]
+    private void ResetToolbar()
+    {
+        var d = new Appearance();
+        ButtonStyle = d.ButtonStyle;
+        Colourful = d.Colourful;
+        Counts = d.Counts;
+        ShowStatusBar = d.ShowStatusBar;
+        MenuFollowsToolbar = d.MenuFollowsToolbar;
+        LoadToolbar(d);
+        HoverEnabled = d.FolderHover.Enabled;
+        HoverDelay = d.FolderHover.DelayMs;
+        foreach (var l in HoverLines) l.On = d.FolderHover.Lines.Contains(l.Id);
+        RowMode = d.RowActions.Mode;
+        ConfirmDeleteOver = d.RowActions.ConfirmDeleteOver;
+        LoadRowActions(d.RowActions);
+        DeleteHover = d.DeleteDates.Hover;
+        DeleteList = d.DeleteDates.List;
+        DeleteReader = d.DeleteDates.Reader;
+    }
+
+    // ── Updates (design U1): the live state comes from the update service; the switches save with the rest ──
+    public UpdateService? Updates => AppServices.Updates;
+    /// <summary>Auto update (design A1): one switch for checking, downloading and installing in the background.</summary>
+    [ObservableProperty] private bool _autoUpdate;
+    public string PortableNote => _e.Paths.IsPortable ? "Portable copy: mail, settings and sign-ins are kept in the MagpieData folder next to this Magpie." : "";
+    public bool IsPortable => _e.Paths.IsPortable;
+    [ObservableProperty] private bool _includePrerelease;
+    public string UpdateSource => "Updates come from github.com/" + Core.Updates.UpdateClient.Repo;
+    public string DataFolder => _e.Paths.Root;
+
+    public event Action? Saved;
+
+    // ───────────── Backup (design EX1) and mail folder (design DL1) ─────────────
+
+    public string LastBackupText => _e.Config.LastBackup is { } t ? "Last backup: " + t.ToLocalTime().ToString("d MMM yyyy, HH:mm") : "No backup saved yet";
+    public string MailFolderPath => _e.Paths.MailRoot;
+    [ObservableProperty] private string _mailFolderInfo = "";
+
+    public void RefreshBackupAndFolder()
+    {
+        OnPropertyChanged(nameof(LastBackupText));
+        OnPropertyChanged(nameof(MailFolderPath));
+        var root = _e.Paths.MailRoot;
+        _ = Task.Run(() =>
+        {
+            var size = Core.Storage.MailLocation.Size(root);
+            string free = "";
+            try
+            {
+                var drive = new DriveInfo(Path.GetPathRoot(root)!);
+                free = $" · {Services.MailFolderStartup.Size(drive.AvailableFreeSpace)} free on {drive.Name.TrimEnd('\\')}";
+            }
+            catch { }
+            var text = $"{Services.MailFolderStartup.Size(size)} of mail{free}" + (_e.Paths.CustomMailRoot ? "" : " · the usual folder");
+            Ui.Post(() => MailFolderInfo = text);
+        });
+    }
+
+    public SettingsViewModel(string? page)
+    {
+        var c = _e.Config;
+        var parts = (page ?? "General").Split(':', 2);
+        _page = parts[0];
+        if (parts.Length > 1) _rulesTab = parts[1];
+        _smartInbox = c.SmartInbox;
+        _markReadOnOpen = c.MarkReadOnOpen;
+        _remoteImages = c.RemoteImages;
+        _emptyTrashAfterDays = c.EmptyTrashAfterDays;
+        _undoSendSeconds = c.UndoSendSeconds;
+        _syncIntervalMinutes = c.SyncIntervalMinutes;
+        _closeToTray = c.CloseToTray;
+        _startWithWindows = StartupRegistration.IsEnabled();
+        _notifications = c.Notifications;
+        _gatekeeper = c.Gatekeeper.Enabled;
+        foreach (var b in c.Gatekeeper.Blocked) Blocked.Add(b);
+        _notifyPeopleOnly = c.NotifyPeopleOnly;
+        _notificationSound = c.NotificationSound;
+        _googleClientId = c.GoogleClientId;
+        _googleClientSecret = c.GoogleClientSecret;
+        _microsoftClientId = c.MicrosoftClientId;
+        foreach (var t in c.Tags) Tags.Add(new EditableTag { Name = t.Name, Color = t.Color });
+        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Body = t.Body });
+        foreach (var a in c.Accounts) Accounts.Add(new EditableAccount(a));
+
+        var ai = c.Ai;
+        _aiEnabled = ai.Enabled;
+        _summarise = ai.Summarise;
+        _draft = ai.Draft;
+        _rewrite = ai.Rewrite;
+        _replies = ai.Replies;
+        LoadAiConnections(ai);   // design AI2: fills the editor from the connection in use
+        RefreshPreset();
+
+        var ap = c.Appearance;
+        _theme = ap.Theme;
+        _buttonStyle = ap.ButtonStyle;
+        _colourful = ap.Colourful;
+        _counts = ap.Counts;
+        _showStatusBar = ap.ShowStatusBar;
+        _menuFollowsToolbar = ap.MenuFollowsToolbar;
+        LoadToolbar(ap);
+        LoadRules();
+        LoadSignatures();
+        _hoverEnabled = ap.FolderHover.Enabled;
+        _hoverDelay = ap.FolderHover.DelayMs;
+        foreach (var id in FolderHoverSettings.LineIds) HoverLines.Add(new EditableHoverLine { Id = id, On = ap.FolderHover.Lines.Contains(id) });
+        _rowMode = ap.RowActions.Mode;
+        _confirmDeleteOver = ap.RowActions.ConfirmDeleteOver;
+        LoadRowActions(ap.RowActions);
+        _deleteHover = ap.DeleteDates.Hover;
+        _deleteList = ap.DeleteDates.List;
+        _deleteReader = ap.DeleteDates.Reader;
+        _autoUpdate = c.Updates.AutoUpdate ?? true;
+        _includePrerelease = c.Updates.IncludePrerelease;
+        foreach (var a in Accounts)
+        {
+            a.NeedsSignIn = _e.StatusOf(a.Original.Id)?.State == SyncState.NeedsSignIn;   // "Sign in again" only then
+            a.IsExpanded = Accounts.Count == 1;
+        }
+        _e.StatusChanged += OnAccountStatus;
+        StartChangeTracking();
+        foreach (var a in Accounts) RefreshOnThisPc(a.Original.Id);
+    }
+
+    private void OnAccountStatus(string accountId, SyncStatus status)
+    {
+        Ui.Post(() => { if (Accounts.FirstOrDefault(a => a.Original.Id == accountId) is { } a) a.NeedsSignIn = status.State == SyncState.NeedsSignIn; });
+        RefreshOnThisPc(accountId);
+    }
+
+    private readonly Dictionary<string, DateTime> _countedAt = new();
+
+    /// <summary>Q40: counts the account's download window on this PC, off the UI thread and at most every 3 s.</summary>
+    private void RefreshOnThisPc(string accountId)
+    {
+        lock (_countedAt)
+        {
+            if (_countedAt.TryGetValue(accountId, out var at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(3)) return;
+            _countedAt[accountId] = DateTime.UtcNow;
+        }
+        var days = _e.AccountById(accountId)?.SyncDays ?? 0;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var (onPc, total) = _e.WindowProgress(accountId);
+                var text = Magpie.Core.Mail.AccountSync.DescribeWindow(onPc, total, days);
+                Ui.Post(() => { if (Accounts.FirstOrDefault(a => a.Original.Id == accountId) is { } a) a.OnThisPc = text; });
+            }
+            catch (Exception ex) { Log.Warn("count emails on this PC: " + ex.Message); }
+        });
+    }
+
+    /// <summary>The window closed: stop listening to the engine.</summary>
+    public void Detach() => _e.StatusChanged -= OnAccountStatus;
+
+    partial void OnProviderChanged(AiProviderKind value)
+    {
+        if (_loadingAiEditor) return;   // showing another connection, not choosing a new provider
+        var (endpoint, model) = AiSettings.Preset(value);
+        Endpoint = endpoint;
+        Model = model;
+        TestStatus = "";
+        OnPropertyChanged(nameof(KeyHint));
+    }
+
+    partial void OnEndpointChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsLocal));
+        OnPropertyChanged(nameof(KeyHint));
+        TestStatus = "";
+    }
+
+    [RelayCommand] private void Go(string page) { SearchText = ""; Page = page; }
+
+    [RelayCommand]
+    private async Task TestConnection()
+    {
+        Testing = true;
+        TestStatus = "Testing…";
+        TestOk = false;
+        try
+        {
+            var candidate = new AiSettings { Enabled = true, Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim() };
+            if (!AiService.IsConfigured(candidate, ApiKey)) throw new AiException("Fill in the endpoint, model and API key first.");
+            var reply = await Task.Run(() => _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
+            TestOk = true;
+            TestStatus = "✓ Connected" + (string.IsNullOrWhiteSpace(reply) ? "" : $" — model replied \"{(reply.Length > 20 ? reply[..20] : reply)}\"");
+        }
+        catch (Exception ex)
+        {
+            TestOk = false;
+            TestStatus = ex is AiException ? ex.Message : "Couldn't connect: " + ex.Message;
+        }
+        finally
+        {
+            Testing = false;
+            if (SelectedAiConnection != null) SelectedAiConnection.Status = TestStatus;   // design AI2: shown on its row
+        }
+    }
+
+    [RelayCommand]
+    private void ForgetConsents()
+    {
+        _e.Config.Ai.Consents.Clear();
+        _e.Settings.Save();
+        TestStatus = "AI permissions cleared — each feature will ask again.";
+    }
+
+    [RelayCommand] private void AddTag() => Tags.Add(new EditableTag { Name = "New tag", Color = ColorChoices[Tags.Count % ColorChoices.Length] });
+    [RelayCommand] private void RemoveTag(EditableTag? t) { if (t != null) Tags.Remove(t); }
+    [RelayCommand] private void AddTemplate() => Templates.Add(new EditableTemplate { Name = "New template", Body = "", IsExpanded = true });
+    [RelayCommand] private void RemoveTemplate(EditableTemplate? t) { if (t != null) Templates.Remove(t); }
+
+    [RelayCommand]
+    private void RemoveAccount(EditableAccount? a)
+    {
+        if (a == null) return;
+        if (!Ui.Confirm("Remove account", $"Remove {a.Email} from Magpie?\n\nIts mail stays on the server; Magpie deletes its local copy and saved sign-in.")) return;
+        _e.RemoveAccount(a.Original.Id);
+        Accounts.Remove(a);
+    }
+
+    [RelayCommand] private void OpenDataFolder() => Ui.OpenExternal(_e.Paths.Root);
+    [RelayCommand] private void OpenLog() { if (Log.FilePath != null) Ui.OpenExternal(Log.FilePath); }
+
+    /// <summary>Reads a Google "client_secret_….json" (Desktop app) and fills the ID and secret.</summary>
+    public string? ImportGoogleJson(string path)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            var node = root.TryGetProperty("installed", out var inst) ? inst : root.TryGetProperty("web", out var web) ? web : root;
+            GoogleClientId = node.GetProperty("client_id").GetString() ?? "";
+            GoogleClientSecret = node.TryGetProperty("client_secret", out var s) ? s.GetString() ?? "" : "";
+            return null;
+        }
+        catch (Exception ex) { return "That file isn't a Google OAuth client file: " + ex.Message; }
+    }
+
+    [RelayCommand]
+    private void Save()
+    {
+        SaveCore();
+        Saved?.Invoke();
+    }
+
+    /// <summary>Apply: saves everything and keeps Settings open.</summary>
+    [RelayCommand]
+    private void Apply()
+    {
+        SaveCore();
+        Applied?.Invoke();
+    }
+
+    /// <summary>Raised after Apply (the window stays open; it shows "Saved").</summary>
+    public event Action? Applied;
+
+    private void SaveCore()
+    {
+        var c = _e.Config;
+        c.SmartInbox = SmartInbox;
+        c.MarkReadOnOpen = MarkReadOnOpen;
+        c.RemoteImages = RemoteImages;
+        c.EmptyTrashAfterDays = EmptyTrashAfterDays;
+        c.UndoSendSeconds = UndoSendSeconds;
+        c.SyncIntervalMinutes = SyncIntervalMinutes;
+        c.CloseToTray = CloseToTray;
+        c.Notifications = Notifications;
+        c.NotifyPeopleOnly = NotifyPeopleOnly;
+        c.NotificationSound = NotificationSound;
+        var openGate = c.Gatekeeper.Enabled && !Gatekeeper;
+        c.Gatekeeper.Enabled = Gatekeeper;
+        c.GoogleClientId = GoogleClientId.Trim();
+        c.GoogleClientSecret = GoogleClientSecret.Trim();
+        c.MicrosoftClientId = MicrosoftClientId.Trim();
+        c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
+        c.QuickReplies = QuickRepliesToSave();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
+
+        var ai = c.Ai;
+        ai.Enabled = AiEnabled;
+        ai.Summarise = Summarise;
+        ai.Draft = Draft;
+        ai.Rewrite = Rewrite;
+        ai.Replies = Replies;
+        SaveAiConnections(ai);   // design AI2
+
+        c.Appearance = new Appearance
+        {
+            Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
+            Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
+            RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
+                BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
+            DeleteDates = new DeleteDateLook { Hover = DeleteHover, List = DeleteList, Reader = DeleteReader },
+        };
+        c.Appearance.Normalise();
+        c.Updates.AutoUpdate = AutoUpdate;
+        c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
+        c.Updates.IncludePrerelease = IncludePrerelease;
+
+        var err = StartupRegistration.Set(StartWithWindows);
+        if (err != null) Log.Warn("start with Windows: " + err);
+
+        CommitRuleEdits();
+        var changedAccounts = Accounts.Where(a => a.Changed).Select(a => a.ToAccount()).ToList();
+        _e.Settings.Save();
+        foreach (var a in changedAccounts)
+        {
+            _e.UpdateAccount(a);
+            Accounts.FirstOrDefault(x => x.Original.Id == a.Id)?.Accept(a);
+        }
+        if (openGate) _e.OpenGate();
+        _baseline = Snapshot();
+        HasChanges = false;
+    }
+}

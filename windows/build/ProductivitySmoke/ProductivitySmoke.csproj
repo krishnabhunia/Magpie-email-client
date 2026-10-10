@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>true</SelfContained>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <StartupObject>ProductivitySmoke.Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Magpie.App/Magpie.App.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Application-relative pack URIs use the host assembly. Mirror Magpie's assets in this test host. -->
+    <Resource Include="../../Magpie.App/Assets/app.ico" Link="Assets/app.ico" />
+    <Resource Include="../../Magpie.App/Assets/app-256.png" Link="Assets/app-256.png" />
+    <Resource Include="../../Magpie.App/Assets/Fonts/*.ttf" Link="Assets/Fonts/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

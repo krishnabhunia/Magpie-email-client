@@ -1,0 +1,89 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Magpie.Mac.App"
+             Name="Magpie"
+             RequestedThemeVariant="Default">
+  <!-- Light or dark follows the Mac (System Settings → Appearance). Colours: Magpie's teal, as on Windows. -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Magpie.TopBar" Color="#F3F1EC" />
+          <SolidColorBrush x:Key="Magpie.Sidebar" Color="#F7F6F2" />
+          <SolidColorBrush x:Key="Magpie.Pane" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="Magpie.Line" Color="#E4E0D8" />
+          <SolidColorBrush x:Key="Magpie.Ink" Color="#14181C" />
+          <SolidColorBrush x:Key="Magpie.Muted" Color="#5A6068" />
+          <SolidColorBrush x:Key="Magpie.Accent" Color="#14606E" />
+          <SolidColorBrush x:Key="Magpie.AccentSoft" Color="#DFE9E9" />
+          <SolidColorBrush x:Key="Magpie.Update" Color="#1B6B2E" />
+          <SolidColorBrush x:Key="Magpie.Toast" Color="#23282E" />
+          <SolidColorBrush x:Key="Magpie.ToastText" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="Magpie.Error" Color="#B3261E" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Magpie.TopBar" Color="#1B1F23" />
+          <SolidColorBrush x:Key="Magpie.Sidebar" Color="#1E2328" />
+          <SolidColorBrush x:Key="Magpie.Pane" Color="#181C20" />
+          <SolidColorBrush x:Key="Magpie.Line" Color="#2C3238" />
+          <SolidColorBrush x:Key="Magpie.Ink" Color="#E8E6E1" />
+          <SolidColorBrush x:Key="Magpie.Muted" Color="#9AA1A8" />
+          <SolidColorBrush x:Key="Magpie.Accent" Color="#6CC3CF" />
+          <SolidColorBrush x:Key="Magpie.AccentSoft" Color="#1B2A2E" />
+          <SolidColorBrush x:Key="Magpie.Update" Color="#5CC27A" />
+          <SolidColorBrush x:Key="Magpie.Toast" Color="#E8E6E1" />
+          <SolidColorBrush x:Key="Magpie.ToastText" Color="#14181C" />
+          <SolidColorBrush x:Key="Magpie.Error" Color="#E0645A" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{DynamicResource Magpie.Muted}" />
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Magpie.Muted}" />
+    </Style>
+    <Style Selector="TextBlock.error">
+      <Setter Property="Foreground" Value="{DynamicResource Magpie.Error}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.unread">
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style Selector="Button.tool">
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Magpie.Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.update">
+      <Setter Property="Background" Value="{DynamicResource Magpie.Update}" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="12,4" />
+      <Setter Property="CornerRadius" Value="12" />
+    </Style>
+    <Style Selector="Button.update:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Magpie.Accent}" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Magpie.Accent}" />
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+  </Application.Styles>
+</Application>

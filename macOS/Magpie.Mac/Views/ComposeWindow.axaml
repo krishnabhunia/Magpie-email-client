@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Magpie.Mac.ViewModels"
+        xmlns:models="using:Magpie.Core.Models"
+        x:Class="Magpie.Mac.Views.ComposeWindow"
+        x:DataType="vm:ComposeViewModel"
+        Title="{Binding WindowTitle}"
+        Width="760" Height="640" MinWidth="520" MinHeight="420"
+        WindowStartupLocation="CenterScreen"
+        Icon="avares://Magpie/Assets/magpie.png"
+        Background="{DynamicResource Magpie.Pane}">
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid Grid.Row="0" ColumnDefinitions="70,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="16,12,16,6">
+      <TextBlock Grid.Row="0" Text="From" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowFrom}" />
+      <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From}" HorizontalAlignment="Stretch"
+                Margin="0,0,0,6" IsVisible="{Binding ShowFrom}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="models:Account">
+            <TextBlock Text="{Binding Email}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+
+      <TextBlock Grid.Row="1" Text="To" Classes="muted" VerticalAlignment="Center" />
+      <AutoCompleteBox Grid.Row="1" Grid.Column="1" Name="ToBox" Text="{Binding To}" FilterMode="None" MinimumPrefixLength="1"
+                       Margin="0,0,0,6" PlaceholderText="Names or addresses, separated by commas" />
+      <Button Grid.Row="1" Grid.Column="2" Classes="link" Content="Cc / Bcc" Command="{Binding ShowCcCommand}" Margin="6,0,0,6"
+              IsVisible="{Binding !ShowCcBcc}" />
+
+      <TextBlock Grid.Row="2" Text="Cc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
+      <AutoCompleteBox Grid.Row="2" Grid.Column="1" Name="CcBox" Text="{Binding Cc}" FilterMode="None" MinimumPrefixLength="1"
+                       Margin="0,0,0,6" IsVisible="{Binding ShowCcBcc}" />
+      <TextBlock Grid.Row="3" Text="Bcc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
+      <AutoCompleteBox Grid.Row="3" Grid.Column="1" Name="BccBox" Text="{Binding Bcc}" FilterMode="None" MinimumPrefixLength="1"
+                       Margin="0,0,0,6" IsVisible="{Binding ShowCcBcc}" />
+
+      <TextBlock Grid.Row="4" Text="Subject" Classes="muted" VerticalAlignment="Center" />
+      <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subject}" />
+    </Grid>
+
+    <ItemsControl Grid.Row="1" ItemsSource="{Binding Attachments}" Margin="86,0,16,6" IsVisible="{Binding HasAttachments}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate DataType="vm:AttachmentItem">
+          <Border BorderBrush="{DynamicResource Magpie.Line}" BorderThickness="1" CornerRadius="6" Padding="8,3" Margin="0,0,6,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="{Binding Display}" FontSize="12" VerticalAlignment="Center" />
+              <Button Classes="link" Content="✕" Padding="2,0" ToolTip.Tip="Remove"
+                      Command="{Binding $parent[ItemsControl].((vm:ComposeViewModel)DataContext).RemoveAttachmentCommand}" CommandParameter="{Binding}" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <!-- The body: Core's HTML editor page in the Mac's web view. -->
+    <Border Grid.Row="2" Name="EditorHost" BorderBrush="{DynamicResource Magpie.Line}" BorderThickness="0,1,0,1" />
+
+    <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,Auto,*,Auto" Margin="16,10">
+      <Button Grid.Column="0" Classes="accent" Content="Send" Command="{Binding SendCommand}" IsEnabled="{Binding !Sending}"
+              ToolTip.Tip="Send (⌘↩). You can undo for a few seconds." Padding="18,5" />
+      <DropDownButton Grid.Column="1" Name="SendLaterButton" Content="Send later" Margin="8,0,0,0" />
+      <Button Grid.Column="2" Name="AttachButton" Classes="tool" Content="Attach…" Margin="8,0,0,0" />
+      <TextBlock Grid.Column="3" Text="{Binding Status}" Classes="muted" FontSize="12" VerticalAlignment="Center" Margin="12,0" TextTrimming="CharacterEllipsis" />
+      <Button Grid.Column="4" Classes="tool" Content="Save draft" Command="{Binding SaveDraftCommand}" />
+    </Grid>
+  </Grid>
+</Window>

@@ -49,6 +49,7 @@ provider is down or switched off.
 ## First run
 
 1. Download **Magpie-Setup-x.y.z.exe** from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) and run it (installs for your user only; no admin rights), or run the single-file `Magpie.exe`. Then **Add account**.
+   **Mac** (Apple Silicon, macOS 14+): open **Magpie_x.y.z.dmg**, drag Magpie to Applications, and the first time right-click it → **Open** (it isn't signed with an Apple Developer ID) — see [`macOS/README.md`](macOS/README.md).
 2. Gmail / Outlook with one-click sign-in need your own free sign-in app (once, ~5 min): see [`docs/SIGN-IN-SETUP.md`](docs/SIGN-IN-SETUP.md).
    Without it, Gmail works with an **app password**, and any IMAP mailbox with its normal password.
 3. Optional: **Settings → AI features** → switch on, pick a provider, paste an API key (or choose Ollama), **Test connection**, then switch on the features you want.
@@ -70,17 +71,21 @@ pre-release, offered only to copies with "Include test versions" ticked.
 ## Build
 
 ```
-build/publish.sh        # Linux/macOS
-build\publish.ps1       # Windows
+windows/build/publish.sh        # Linux/macOS
+windows\build\publish.ps1       # Windows
 ```
-Runs unit tests, builds, runs the **blocking** XAML static check (`build/xaml_check.py`), and publishes `publish/Magpie.exe`.
-Integration tests against a real IMAP/SMTP server: `build/test-servers/start.sh`, then
-`dotnet test tests/Magpie.Core.Tests --filter Category=Integration`.
+Runs unit tests, builds, runs the **blocking** XAML static check (`windows/build/xaml_check.py`), and publishes `publish/Magpie.exe`.
+Integration tests against a real IMAP/SMTP server: `common/scripts/test-servers/start.sh`, then
+`dotnet test common/tests/Magpie.Core.Tests --filter Category=Integration`.
 
 | Project | Contents |
 |---|---|
-| `src/Magpie.Core` | Accounts, OAuth (PKCE loopback), IMAP/SMTP sync (MailKit), SQLite + FTS5 store, threading, smart categories, HTML sanitiser, composer, outbox (send later / undo), reminders, AI providers + unified toggle gating |
-| `src/Magpie.App` | WPF UI (MVVM Toolkit), WebView2 reader and editor, tray, dialogs, Settings |
-| `tests/Magpie.Core.Tests` | xUnit unit tests + end-to-end tests against Dovecot |
-| `build/` | publish scripts, XAML static checker + WPF metadata dump, test servers |
-| `installer/` | Inno Setup script (built by GitHub Actions) |
+| `common/src/Magpie.Core` | Accounts, OAuth (PKCE loopback), IMAP/SMTP sync (MailKit), SQLite + FTS5 store, threading, smart categories, HTML sanitiser, composer, outbox (send later / undo), reminders, AI providers + unified toggle gating |
+| `windows/Magpie.App` | WPF UI (MVVM Toolkit), WebView2 reader and editor, tray, dialogs, Settings |
+| `common/tests/Magpie.Core.Tests` | xUnit unit tests + end-to-end tests against Dovecot |
+| `windows/build/` | publish scripts, XAML static checker + WPF metadata dump, Windows UI smoke |
+| `windows/installer/` | Inno Setup script (built by GitHub Actions) |
+| `common/scripts/` | release script (version, zip) and the IMAP/SMTP test servers |
+| `macOS/` | Magpie for Mac (Avalonia 12 / .NET 10, Apple Silicon) — first version: mail, compose, accounts, updates ([`macOS/README.md`](macOS/README.md)) |
+| `android/` | placeholder — no Android app yet |
+| `docs/` | designs, CI/CD, sign-in setup |

@@ -5,7 +5,26 @@
     "### New"      a feature added, or a big change to how Magpie looks or works  -> x.0.0
     "### Changed"  a feature changed                                             -> x.y.0
     "### Fixed"    a bug or error fixed                                          -> x.y.z
-    then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+    then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+
+## 8.0.0 (10 Oct 2026)
+### New
+- **Magpie for Mac** (Apple Silicon: M1 and newer, macOS 14 Sonoma or later). Download `Magpie_<version>.dmg` (in the release, or in `macOS/` of `Magpie_<version>.zip`), open it and drag Magpie to Applications. It reads and sends your mail with the same engine as Windows: your accounts and folders with unread counts in the sidebar, the message list with search, conversations shown by the Mac's own web view (links open in your browser; pictures from the internet follow Ask / Always, with Show pictures), Reply, Reply all, Forward, Archive, Delete (in Trash and Spam: Delete forever, after asking), Mark read / unread and Pin, and a compose window with suggestions from your contacts, links (⌘K), attachments, Send later and a few seconds to Undo. Drafts open again with Edit draft — also the ones kept on this Mac while offline, marked "On this Mac".
+- **Accounts on the Mac**: email and password for any IMAP mailbox (server settings found by themselves), or Sign in with Google / Microsoft in your browser (the same client IDs as on Windows: Settings → Accounts → Sign-in apps, or Import Google client JSON…). Passwords and sign-ins are encrypted with a key kept in your Keychain; mail and settings stay in ~/Library/Application Support/Magpie.
+- **The Mac app updates itself** like the Windows one: it checks GitHub at every start, shows "Update to vx.y.z" at the top right only when there is a newer version (click: it downloads, checks the SHA-256, installs and restarts), and with Auto update on it checks daily and installs a downloaded version when you quit. The disk image is checked again just before it is installed, and the previous version is kept (outside Applications) in case the new one doesn't start. The version is shown next to the name in the main window.
+- **Opening it the first time**: Magpie for Mac isn't signed with an Apple Developer ID (by choice), so macOS asks the first time. Right-click Magpie in Applications → Open → Open (or System Settings → Privacy & Security → Open Anyway). After that it opens normally, and updates don't ask again.
+- Still on Windows only for now: calendar, rules, auto-delete, Gatekeeper, snooze / set aside / reminders, tags, AI, hover cards, settings backup and the other Settings pages.
+### Fixed
+- **Gmail works on the Mac.** The Mac's own check can't find out whether Google's new certificates were revoked, so every Gmail connection failed with "Secure connection failed". Magpie now accepts a valid certificate whose revocation status can't be found out (as browsers do); a wrong, expired, untrusted or revoked certificate is still refused.
+- **Mac: ⌘ shortcuts work while typing a message** (⌘W closes the window, ⌘N, ⌘, …) and in the reading pane's header — the web view used to swallow them. Not yet inside the email text itself.
+- **Mac: a crash in the first minutes after an update** now also offers to go back to the previous version.
+- **A refused secure connection now says why** (Windows and Mac): when a mail server's certificate isn't trusted, the account check names who issued it, and says that a company network, VPN or antivirus that inspects secure connections can cause this. The details also go to the log.
+
+## 7.2.0 (10 Oct 2026)
+### Changed
+- **New download layout.** Each build is now one file, `Magpie_<version>.zip`, holding `portable/Magpie_<version>.exe` (run from anywhere; its data stays next to it), `windows-x64/Magpie_<version>.exe` (the installer), and soon `macOS/Magpie_<version>.dmg`. The old `installer/` and `portable/` folders and `portable.txt` are gone; an older portable copy with `portable.txt` keeps working.
+### Fixed
+- **Magpie checks for a new version every time it starts**, even with Auto update off (it then only shows the "Update to vx.y.z" button and waits for you to install).
 
 ## 7.1.0 (9 Oct 2026)
 ### Changed
