@@ -95,11 +95,8 @@ public partial class App : Application
         updates.Start();
         Program.StartupComplete = true;
         if (AppServices.AfterUpdate)
-            Dispatcher.UIThread.Post(() => main.ViewModel.Toasts.Add(new ViewModels.ToastItem
-            {
-                CanUndo = false, Until = DateTimeOffset.Now.AddSeconds(8),
-                Text = $"Magpie updated to {AppServices.Current}. Your mail and settings are as they were.",
-            }), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(() => main.ViewModel.ShowNote($"Magpie updated to {AppServices.Current}. Your mail and settings are as they were."),
+                DispatcherPriority.Background);
         if (e.Accounts.Count == 0) Dispatcher.UIThread.Post(() => AddAccountWindow.Open(null), DispatcherPriority.Background);
     }
 

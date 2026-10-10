@@ -94,7 +94,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         return null;
     }
 
-    [RelayCommand] private void OpenDataFolder() => Shell.Open(E.Paths.Root);
+    [RelayCommand] private void OpenDataFolder() => Shell.OpenLocal(E.Paths.Root);
     [RelayCommand] private void OpenLog() { if (Log.FilePath != null) Shell.Reveal(Log.FilePath); }
-    [RelayCommand] private void OpenReleases() => Shell.Open(Magpie.Core.Updates.UpdateClient.ReleasesPage);
+    [RelayCommand] private void OpenReleases() => Shell.OpenWeb(Magpie.Core.Updates.UpdateClient.ReleasesPage);
 }

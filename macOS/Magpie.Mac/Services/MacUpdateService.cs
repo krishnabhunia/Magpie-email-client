@@ -23,9 +23,12 @@ public sealed partial class MacUpdateService : ObservableObject
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromHours(1) };
     private CancellationTokenSource? _cts;
     private bool _startCheckDone;
-    private bool _installedOnQuit;
+    /// <summary>This copy has put the new version in place (button or quit): nothing more to install.</summary>
+    private bool _installed;
     private ReleaseInfo? _release;
     private string? _downloaded;
+    /// <summary>The published SHA-256 the download was checked against; checked again just before installing.</summary>
+    private string? _expectedSha;
 
     private static MailEngine E => AppServices.Engine;
     public static AppVersion Current => AppServices.Current;
@@ -99,7 +102,7 @@ public sealed partial class MacUpdateService : ObservableObject
     private async Task AutoCheckAsync()
     {
         var cfg = E.Config.Updates;
-        if (!UpdatePolicy.ShouldAutoCheck(_startCheckDone, cfg.AutoUpdate == true, cfg.LastCheck, DateTimeOffset.Now, DateTimeOffset.MinValue,
+        if (!UpdatePolicy.ShouldAutoCheck(_startCheckDone, cfg.AutoUpdate == true, cfg.LastCheck, DateTimeOffset.Now,
                 IsBusy, State is UpdateState.Available or UpdateState.Ready)) return;
         _startCheckDone = true;
         await CheckAsync(automatic: true);
@@ -115,7 +118,7 @@ public sealed partial class MacUpdateService : ObservableObject
 
     public async Task CheckAsync(bool automatic)
     {
-        if (IsBusy) return;
+        if (IsBusy || _installed) return;
         var cfg = E.Config.Updates;
         _cts = new CancellationTokenSource();
         _release = null;
@@ -167,7 +170,7 @@ public sealed partial class MacUpdateService : ObservableObject
                 Status = $"Downloading Magpie {NewVersion} · {UpdateText.Percent(p)}";
             });
             var release = _release;
-            _downloaded = await Task.Run(() => _client.DownloadAsync(release, DownloadFolder, progress, _cts.Token));
+            (_downloaded, _expectedSha) = await Task.Run(() => _client.DownloadCheckedAsync(release, DownloadFolder, progress, _cts.Token));
             State = UpdateState.Ready;
             Status = $"Magpie {_release.Version} is ready (SHA-256 checked)" + (AutoUpdate ? " · it installs when you quit Magpie" : "");
             return true;
@@ -194,28 +197,33 @@ public sealed partial class MacUpdateService : ObservableObject
                 if (!await DownloadAsync()) return;
                 break;
         }
-        if (State != UpdateState.Ready || _downloaded == null || _release == null) return;
+        if (_installed || State != UpdateState.Ready || _downloaded == null || _release == null) return;
         var plan = MacInstaller.Plan();
         if (plan.Problem != null)
         {
             await Dialogs.Info("Update", plan.Problem);
-            if (plan.OpenImageInstead) Shell.Open(_downloaded);
+            if (plan.OpenImageInstead) Shell.OpenLocal(_downloaded);
             return;
         }
         if (!await App.CloseComposeWindowsAsync()) return;   // the user chose Cancel on an unsent message
         Status = $"Installing Magpie {NewVersion}…";
         try
         {
-            await Task.Run(() => MacInstaller.Install(_downloaded, plan.App!));
+            var (dmg, sha, app) = (_downloaded, _expectedSha, plan.App!);
+            await Task.Run(() => MacInstaller.Install(dmg, sha, app));
         }
         catch (Exception ex)
         {
             Log.Error("update install failed", ex);
             Status = "The update couldn't be installed.";
             State = UpdateState.Error;
-            await Dialogs.Error("Update", $"Magpie couldn't install {NewVersion}:\n\n{ex.Message}\n\nYour Magpie is unchanged. The disk image is at {_downloaded}: open it and drag Magpie to Applications.");
+            var manual = _downloaded != null && File.Exists(_downloaded) ? $" The disk image is at {_downloaded}: open it and drag Magpie to Applications." : "";
+            await Dialogs.Error("Update", $"Magpie couldn't install {NewVersion}:\n\n{ex.Message}\n\nYour Magpie is unchanged.{manual}");
             return;
         }
+        // Installed: quitting now must not install it a second time (that would swap again and replace the kept
+        // previous version with this new one).
+        MarkInstalled();
         Log.Info($"updating {Current} → {NewVersion}: restarting");
         MacInstaller.RelaunchAfterExit(plan.App!, Current.ToString());
         App.QuitForUpdate();
@@ -227,18 +235,45 @@ public sealed partial class MacUpdateService : ObservableObject
     /// </summary>
     public void InstallOnQuit()
     {
-        if (_installedOnQuit || State != UpdateState.Ready || _downloaded == null || _release == null || !AutoUpdate) return;
+        if (_release == null || !UpdatePolicy.InstallsOnQuit(AutoUpdate, State == UpdateState.Ready && _downloaded != null, _installed)) return;
         var plan = MacInstaller.Plan();
         if (plan.Problem != null) { Log.Info("update not installed on quit: " + plan.Problem); return; }
         try
         {
-            MacInstaller.Install(_downloaded, plan.App!);
+            MacInstaller.Install(_downloaded!, _expectedSha, plan.App!);
             InstalledUpdate.Write(DownloadFolder, Current.ToString(), _release.Version.ToString());
-            _installedOnQuit = true;
+            MarkInstalled();
             Log.Info($"update {Current} → {NewVersion} installed on quit; runs from the next start");
         }
         catch (Exception ex) { Log.Error("install on quit failed", ex); }
     }
+
+    /// <summary>The new version is in place: the download is spent and the button goes away.</summary>
+    private void MarkInstalled()
+    {
+        _installed = true;
+        _downloaded = null;
+        _expectedSha = null;
+        _release = null;
+        OnPropertyChanged(nameof(NewVersion));
+        State = UpdateState.Idle;
+        Status = "The new version is installed · it runs from the next start";
+    }
+
+    /// <summary>For the headless tests: what quitting would do now.</summary>
+    internal bool WouldInstallOnQuit => _release != null && UpdatePolicy.InstallsOnQuit(AutoUpdate, State == UpdateState.Ready && _downloaded != null, _installed);
+
+    /// <summary>For the headless tests: a downloaded, checked version ready to install.</summary>
+    internal void PretendReady(ReleaseInfo release, string dmg, string sha)
+    {
+        _release = release;
+        _downloaded = dmg;
+        _expectedSha = sha;
+        State = UpdateState.Ready;
+    }
+
+    /// <summary>For the headless tests: the state after the button installed it.</summary>
+    internal void PretendInstalled() => MarkInstalled();
 
     private static void CleanOldDownloads()
     {

@@ -230,7 +230,7 @@ public sealed partial class AddAccountViewModel : ObservableObject
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         try
         {
-            var tokens = await E.OAuth.SignInAsync(cfg, Email.Trim(), Shell.Open, _cts.Token);
+            var tokens = await E.OAuth.SignInAsync(cfg, Email.Trim(), Shell.OpenWeb, _cts.Token);
             if (!string.IsNullOrEmpty(tokens.Email) && !tokens.Email.Equals(Email.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 Error = $"You signed in as {tokens.Email}, but this account is {Email.Trim()}. Sign in with the matching account.";

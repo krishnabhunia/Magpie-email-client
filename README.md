@@ -49,7 +49,7 @@ provider is down or switched off.
 ## First run
 
 1. Download **Magpie-Setup-x.y.z.exe** from [Releases](https://github.com/krishnabhunia/Magpie-email-client/releases) and run it (installs for your user only; no admin rights), or run the single-file `Magpie.exe`. Then **Add account**.
-   **Mac** (Apple Silicon, macOS 12+): open **Magpie_x.y.z.dmg**, drag Magpie to Applications, and the first time right-click it → **Open** (it isn't signed with an Apple Developer ID) — see [`macOS/README.md`](macOS/README.md).
+   **Mac** (Apple Silicon, macOS 14+): open **Magpie_x.y.z.dmg**, drag Magpie to Applications, and the first time right-click it → **Open** (it isn't signed with an Apple Developer ID) — see [`macOS/README.md`](macOS/README.md).
 2. Gmail / Outlook with one-click sign-in need your own free sign-in app (once, ~5 min): see [`docs/SIGN-IN-SETUP.md`](docs/SIGN-IN-SETUP.md).
    Without it, Gmail works with an **app password**, and any IMAP mailbox with its normal password.
 3. Optional: **Settings → AI features** → switch on, pick a provider, paste an API key (or choose Ollama), **Test connection**, then switch on the features you want.

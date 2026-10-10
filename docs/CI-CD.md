@@ -58,13 +58,13 @@ which refuses anything else:
 |---|---|---|
 | `portable/` | `Magpie_<version>.exe` | Run from anywhere; a `Magpie_*.exe` the installer didn't put there keeps all data in `MagpieData\` next to it |
 | `windows-x64/` | `Magpie_<version>.exe` (the installer) | Install Magpie (Start menu, starts with Windows, updates itself) |
-| `macOS/` | `Magpie_<version>.dmg` | Magpie for Mac (Apple Silicon, macOS 12+; unsigned — first open: right-click → Open, see `macOS/README.md`) |
+| `macOS/` | `Magpie_<version>.dmg` | Magpie for Mac (Apple Silicon, macOS 14+; unsigned — first open: right-click → Open, see `macOS/README.md`) |
 | `Android/` | `Magpie_<version>.apk` | Only when `android/` has an app (none planned yet) |
 
 The loose `Magpie.exe` / `.sha256` and `Magpie-Setup-<version>.exe` stay on each release too: installed copies
 update from `Magpie.exe`, and copies installed for all users point at the setup file.
 
-How a platform plugs in: the **macos** job installs .NET 8 and 10 (`setup-dotnet` with both versions; `macOS/global.json` picks SDK 10), runs `dotnet test macOS/Magpie.Mac.Tests` (headless) and `macOS/build/build.sh <version>`, and expects `macOS/out/Magpie_<version>.dmg` (also on the release with its `.sha256`, which installed Mac copies update from);
+How a platform plugs in: the **macos** job installs .NET 8 and 10 (`setup-dotnet` with both versions; `macOS/global.json` picks SDK 10), runs `dotnet test macOS/Magpie.Mac.Tests` (headless; `continue-on-error` for now) and `macOS/build/build.sh <version>`, and expects `macOS/out/Magpie_<version>.dmg` (also on the release with its `.sha256`, which installed Mac copies update from);
 the **android** job runs `android/build.sh <version>` and expects `android/out/Magpie_<version>.apk`. The jobs hand
 their files to **package** as working artifacts (`build-*`), which package deletes after building the zip.
 

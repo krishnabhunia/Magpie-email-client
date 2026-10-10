@@ -83,6 +83,17 @@ public class Release800Tests
     }
 
     [Fact]
+    public void A_damaged_Keychain_key_is_refused_not_silently_replaced()
+    {
+        var store = new FakeKeyStore { Key = new byte[5] };
+        var p = new KeychainProtector(store);
+        var ex = Assert.ThrowsAny<CryptographicException>(() => p.Protect(Encoding.UTF8.GetBytes("x")));
+        Assert.Contains("damaged", ex.Message);
+        Assert.Equal(0, store.Saves);
+        Assert.Equal(5, store.Key!.Length);
+    }
+
+    [Fact]
     public void The_vault_on_a_Mac_keeps_secrets_unreadable_and_a_lost_key_means_signing_in_again()
     {
         using var dir = new TempDir();
@@ -166,9 +177,15 @@ public class Release800Tests
         var client = new UpdateClient(new HttpClient(hub), UpdateAsset.MacDmg);
         var rel = await client.FindNewerAsync(AppVersion.TryParse("7.2.0")!, false, default);
         Assert.Equal("8.0.0", rel!.Version.ToString());
-        var path = await client.DownloadAsync(rel, dir.Path, null, default);
+        var (path, sha) = await client.DownloadCheckedAsync(rel, dir.Path, null, default);
         Assert.EndsWith("Magpie_8.0.0.dmg", path);
         Assert.Equal(dmg, File.ReadAllBytes(path));
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(dmg)).ToLowerInvariant(), sha);
+        // Checked again right before installing: a file changed after the download is refused.
+        Assert.True(UpdateClient.MatchesSha256(path, sha.ToUpperInvariant()));
+        File.AppendAllText(path, "tampered");
+        Assert.False(UpdateClient.MatchesSha256(path, sha));
+        Assert.False(UpdateClient.MatchesSha256(path, null));
         Assert.Null(await client.FindNewerAsync(AppVersion.TryParse("8.0.0")!, false, default));
     }
 
@@ -180,18 +197,26 @@ public class Release800Tests
     [InlineData(false, false)]   // every start checks, Auto update off …
     [InlineData(false, true)]    // … or on
     public void Every_start_checks_for_a_new_version(bool startCheckDone, bool autoUpdate) =>
-        Assert.True(UpdatePolicy.ShouldAutoCheck(startCheckDone, autoUpdate, Now.AddMinutes(-5), Now, DateTimeOffset.MinValue, busy: false, offering: false));
+        Assert.True(UpdatePolicy.ShouldAutoCheck(startCheckDone, autoUpdate, Now.AddMinutes(-5), Now, busy: false, offering: false));
 
     [Fact]
     public void After_the_start_check_only_Auto_update_checks_again_and_only_once_a_day()
     {
-        Assert.False(UpdatePolicy.ShouldAutoCheck(true, false, Now.AddDays(-3), Now, DateTimeOffset.MinValue, false, false));
-        Assert.False(UpdatePolicy.ShouldAutoCheck(true, true, Now.AddHours(-2), Now, DateTimeOffset.MinValue, false, false));
-        Assert.True(UpdatePolicy.ShouldAutoCheck(true, true, Now.AddHours(-23), Now, DateTimeOffset.MinValue, false, false));
-        Assert.True(UpdatePolicy.ShouldAutoCheck(true, true, null, Now, DateTimeOffset.MinValue, false, false));
-        Assert.False(UpdatePolicy.ShouldAutoCheck(true, true, null, Now, Now.AddHours(1), false, false));   // "Later"
-        Assert.False(UpdatePolicy.ShouldAutoCheck(false, true, null, Now, DateTimeOffset.MinValue, busy: true, offering: false));
-        Assert.False(UpdatePolicy.ShouldAutoCheck(false, true, null, Now, DateTimeOffset.MinValue, busy: false, offering: true));
+        Assert.False(UpdatePolicy.ShouldAutoCheck(true, false, Now.AddDays(-3), Now, false, false));
+        Assert.False(UpdatePolicy.ShouldAutoCheck(true, true, Now.AddHours(-2), Now, false, false));
+        Assert.True(UpdatePolicy.ShouldAutoCheck(true, true, Now.AddHours(-23), Now, false, false));
+        Assert.True(UpdatePolicy.ShouldAutoCheck(true, true, null, Now, false, false));
+        Assert.False(UpdatePolicy.ShouldAutoCheck(false, true, null, Now, busy: true, offering: false));
+        Assert.False(UpdatePolicy.ShouldAutoCheck(false, true, null, Now, busy: false, offering: true));
+    }
+
+    [Fact]
+    public void Quitting_installs_a_downloaded_version_once_and_never_after_the_button_installed_it()
+    {
+        Assert.True(UpdatePolicy.InstallsOnQuit(autoUpdate: true, downloadReady: true, alreadyInstalled: false));
+        Assert.False(UpdatePolicy.InstallsOnQuit(autoUpdate: true, downloadReady: true, alreadyInstalled: true));
+        Assert.False(UpdatePolicy.InstallsOnQuit(autoUpdate: false, downloadReady: true, alreadyInstalled: false));
+        Assert.False(UpdatePolicy.InstallsOnQuit(autoUpdate: true, downloadReady: false, alreadyInstalled: false));
     }
 
     [Fact]
@@ -232,36 +257,76 @@ public class Release800Tests
     private static string Marker(string app) => File.ReadAllText(Path.Combine(app, "Contents", "MacOS", "Magpie"));
 
     [Fact]
-    public void The_new_bundle_takes_the_old_ones_place_and_the_old_one_is_kept_for_going_back()
+    public void The_new_bundle_takes_the_old_ones_place_and_the_old_one_is_kept_outside_Applications()
     {
         using var dir = new TempDir();
+        using var caches = new TempDir();
         var app = MakeApp(dir.Path, "Magpie.app", "8.0.0");
-        MakeApp(dir.Path, MacBundle.BackupName, "7.0.0");                    // an older backup is replaced
+        var backup = MacBundle.BackupPathIn(caches.Path);
+        Assert.Equal(Path.Combine(caches.Path, "previous", "Magpie.app"), backup);
+        MakeApp(Path.Combine(caches.Path, "previous"), "Magpie.app", "7.0.0");   // an older backup is replaced
         var staged = MakeApp(dir.Path, MacBundle.StagingName, "8.0.1");
         Assert.Equal(staged, MacBundle.StagingPathFor(app));
         Assert.True(MacBundle.CanReplace(app));
 
-        MacBundle.Swap(app, staged);
+        Assert.True(MacBundle.Swap(app, staged, backup));
         Assert.Equal("8.0.1", Marker(app));
-        Assert.Equal("8.0.0", Marker(MacBundle.BackupPathFor(app)));
-        Assert.False(Directory.Exists(staged));
+        Assert.Equal("8.0.0", Marker(backup));
+        Assert.Equal(new[] { "Magpie.app" }, Directory.GetDirectories(dir.Path).Select(Path.GetFileName));   // nothing else left in "Applications"
 
-        Assert.True(MacBundle.Rollback(app));
+        Assert.True(MacBundle.Rollback(app, backup));
         Assert.Equal("8.0.0", Marker(app));
-        Assert.False(Directory.Exists(MacBundle.BackupPathFor(app)));
-        Assert.False(MacBundle.Rollback(app));                                // nothing left to go back to
+        Assert.False(Directory.Exists(backup));
+        Assert.False(MacBundle.Rollback(app, backup));                        // nothing left to go back to
+        Assert.Equal(new[] { "Magpie.app" }, Directory.GetDirectories(dir.Path).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void Across_volumes_the_backup_and_the_rollback_are_copied_instead_of_moved()
+    {
+        using var dir = new TempDir();
+        using var caches = new TempDir();
+        var app = MakeApp(dir.Path, "Magpie.app", "8.0.0");
+        var backup = MacBundle.BackupPathIn(caches.Path);
+        var staged = MakeApp(dir.Path, MacBundle.StagingName, "8.0.1");
+        var copies = 0;
+        void Copy(string from, string to) { copies++; MakeApp(Path.GetDirectoryName(to)!, Path.GetFileName(to), Marker(from)); }
+        void NoRename(string from, string to) => throw new IOException("Cross-device link");
+
+        Assert.True(MacBundle.Swap(app, staged, backup, Copy, NoRename));
+        Assert.Equal("8.0.1", Marker(app));
+        Assert.Equal("8.0.0", Marker(backup));
+        Assert.False(Directory.Exists(Path.Combine(dir.Path, MacBundle.AsideName)));
+        Assert.True(MacBundle.Rollback(app, backup, Copy, NoRename));
+        Assert.Equal("8.0.0", Marker(app));
+        Assert.Equal(2, copies);
+        Assert.False(Directory.Exists(backup));
+    }
+
+    [Fact]
+    public void If_the_backup_cannot_be_kept_the_new_version_still_installs()
+    {
+        using var dir = new TempDir();
+        using var caches = new TempDir();
+        var app = MakeApp(dir.Path, "Magpie.app", "8.0.0");
+        var staged = MakeApp(dir.Path, MacBundle.StagingName, "8.0.1");
+        void NoRename(string from, string to) => throw new IOException("Cross-device link");
+        Assert.False(MacBundle.Swap(app, staged, MacBundle.BackupPathIn(caches.Path), null, NoRename));
+        Assert.Equal("8.0.1", Marker(app));
+        Assert.Equal(new[] { "Magpie.app" }, Directory.GetDirectories(dir.Path).Select(Path.GetFileName));
     }
 
     [Fact]
     public void An_incomplete_new_bundle_leaves_the_app_as_it_was()
     {
         using var dir = new TempDir();
+        using var caches = new TempDir();
         var app = MakeApp(dir.Path, "Magpie.app", "8.0.0");
         var staged = Path.Combine(dir.Path, MacBundle.StagingName);
         Directory.CreateDirectory(staged);
-        Assert.Throws<InvalidOperationException>(() => MacBundle.Swap(app, staged));
+        Assert.Throws<InvalidOperationException>(() => MacBundle.Swap(app, staged, MacBundle.BackupPathIn(caches.Path)));
         Assert.Equal("8.0.0", Marker(app));
-        Assert.False(Directory.Exists(MacBundle.BackupPathFor(app)));
+        Assert.False(Directory.Exists(MacBundle.BackupPathIn(caches.Path)));
     }
 
     [Theory]

@@ -254,6 +254,13 @@ public sealed partial class MainViewModel : ObservableObject
         _toastTimer.Start();
     }
 
+    /// <summary>A short note (no Undo) that goes away by itself after <paramref name="seconds"/>.</summary>
+    public void ShowNote(string text, int seconds = 8)
+    {
+        Toasts.Add(new ToastItem { CanUndo = false, Until = DateTimeOffset.Now.AddSeconds(seconds), Text = text });
+        _toastTimer.Start();
+    }
+
     /// <summary>Send later: a short note that it's scheduled.</summary>
     public void ShowScheduled(long outboxId, DateTimeOffset when, string subject)
     {

@@ -326,7 +326,7 @@ public sealed partial class ReaderViewModel : ObservableObject
     public void OnLink(string href)
     {
         if (href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) Views.ComposeWindow.OpenMailto(href, AccountId);
-        else Shell.Open(href);
+        else Shell.OpenWeb(href);   // email content: http(s) only, anything else is ignored
     }
 
     /// <summary>An attachment: written to a new temporary folder (downloaded first when needed) and opened in its app.</summary>
@@ -353,7 +353,7 @@ public sealed partial class ReaderViewModel : ObservableObject
                 if (entity is MimePart part) await part.Content!.DecodeToAsync(fs);
                 else if (entity is MessagePart mp && mp.Message != null) await mp.Message.WriteToAsync(fs);
             }
-            Shell.Open(path);
+            Shell.OpenLocal(path);
         }
         catch (Exception ex) { await Dialogs.Error("Attachment", Connector.Friendly(ex)); }
     }

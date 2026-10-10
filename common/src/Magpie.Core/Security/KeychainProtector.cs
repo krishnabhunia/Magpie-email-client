@@ -34,7 +34,10 @@ public sealed class KeychainProtector : ISecretProtector
             if (_key != null) return _key;
             var stored = _store.Load();
             if (stored is { Length: KeySize }) return _key = stored;
-            if (stored != null) Log.Warn($"the Keychain key has {stored.Length} bytes instead of {KeySize}: a new one is made (saved sign-ins must be entered again)");
+            // A damaged key is never silently replaced: a new one would make every saved password unreadable.
+            if (stored != null)
+                throw new CryptographicException($"Magpie's key in the Keychain (\"{MacKeychainStore.Service}\") is damaged ({stored.Length} bytes instead of {KeySize}). " +
+                    "Saved passwords can't be read. To start over, delete that Keychain item and sign in to your accounts again.");
             var key = RandomNumberGenerator.GetBytes(KeySize);
             _store.Save(key);
             return _key = key;
@@ -79,7 +82,12 @@ public sealed class MacKeychainStore : IKeyStore
         if (code == 44) return null;   // errSecItemNotFound: first start
         if (code != 0) throw new InvalidOperationException("Magpie couldn't read its key from the Keychain: " + error.Trim());
         try { return Convert.FromBase64String(output.Trim()); }
-        catch (FormatException) { return null; }
+        catch (FormatException)
+        {
+            // Never treat it as "no key yet": a new key would make every saved password unreadable.
+            Log.Error($"the Keychain item \"{Service}\" doesn't hold a Magpie key");
+            throw new InvalidOperationException($"Magpie's key in the Keychain (\"{Service}\") is damaged. To start over, delete that Keychain item and sign in to your accounts again.");
+        }
     }
 
     public void Save(byte[] key)

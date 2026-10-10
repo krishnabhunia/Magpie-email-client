@@ -25,8 +25,9 @@
   <string>Magpie @VERSION@</string>
   <key>NSHumanReadableCopyright</key>
   <string>© 2026 Krishna Bhunia</string>
+  <!-- .NET 10 needs macOS 14 (Sonoma) or later. -->
   <key>LSMinimumSystemVersion</key>
-  <string>12.0</string>
+  <string>14.0</string>
   <key>LSArchitecturePriority</key>
   <array>
     <string>arm64</string>

@@ -21,10 +21,11 @@ STAGE="$OUT/stage"
 APP="$STAGE/Magpie.app"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
-# 8.0.0-beta.95 -> 8.0.0 (AssemblyVersion, CFBundleShortVersionString) and 8.0.0.95 (CFBundleVersion).
+# 8.0.0 -> 8.0.0 (AssemblyVersion, CFBundleShortVersionString, CFBundleVersion). A test version 8.0.0-beta.95 keeps
+# 8.0.0 as its short version and gets CFBundleVersion 8.0.95 (at most three numbers, as macOS wants).
 NUMERIC="$(python3 "$ROOT/common/scripts/release_prep.py" numeric "$VERSION")"
 BUNDLE_VERSION="$NUMERIC"
-if [[ "$VERSION" =~ -[A-Za-z]+\.([0-9]+)$ ]]; then BUNDLE_VERSION="$NUMERIC.${BASH_REMATCH[1]}"; fi
+if [[ "$VERSION" =~ -[A-Za-z]+\.([0-9]+)$ ]]; then BUNDLE_VERSION="${NUMERIC%.*}.${BASH_REMATCH[1]}"; fi
 echo "Magpie for Mac $VERSION (bundle $NUMERIC / $BUNDLE_VERSION)"
 
 rm -rf "$OUT"
@@ -71,7 +72,8 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Magpie.icns"
 
 # 4. Ad-hoc signature (no Apple Developer ID, by choice): Apple Silicon only runs signed code. The first open needs
 #    right-click -> Open (macOS/README.md).
-find "$APP/Contents/MacOS" -type f -name '*.dylib' -exec codesign --force --sign - {} \;
+# "-exec … +" makes find fail when any codesign fails (with "\;" it would carry on and exit 0).
+find "$APP/Contents/MacOS" -type f -name '*.dylib' -exec codesign --force --sign - {} +
 codesign --force --sign - "$APP/Contents/MacOS/Magpie"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --verbose=2 "$APP"

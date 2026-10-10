@@ -7,8 +7,8 @@ namespace Magpie.Mac.Services;
 /// <summary>
 /// Puts a downloaded, checked Magpie_&lt;version&gt;.dmg in place of the running Magpie.app: mount the image
 /// (<c>hdiutil attach -nobrowse</c>), copy its Magpie.app next to the running one (<c>ditto</c>, which keeps the
-/// bundle's links, permissions and signature), unmount, then Core's <see cref="MacBundle.Swap"/> (the old bundle
-/// stays as Magpie.previous.app). Restarting is <see cref="RelaunchAfterExit"/>.
+/// bundle's links, permissions and signature), unmount, then Core's <see cref="MacBundle.Swap"/> (the old bundle is
+/// kept in ~/Library/Caches/Magpie/previous/Magpie.app, outside Applications). Restarting is <see cref="RelaunchAfterExit"/>.
 /// </summary>
 public static class MacInstaller
 {
@@ -28,9 +28,23 @@ public static class MacInstaller
         return new(app, null, false);
     }
 
-    /// <summary>Installs <paramref name="dmg"/> over <paramref name="app"/>. Throws (leaving the app as it was) on failure.</summary>
-    public static void Install(string dmg, string app)
+    /// <summary>Where the previous version is kept (outside Applications, so Launchpad doesn't show two Magpies).</summary>
+    public static string BackupPath() =>
+        MacBundle.BackupPathIn(AppPaths.MacFolders(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).LocalRoot);
+
+    /// <summary>ditto keeps a bundle's links, permissions and signature; used when a move has to cross volumes.</summary>
+    private static void Ditto(string from, string to) =>
+        Check(Shell.Run("/usr/bin/ditto", new[] { from, to }, TimeSpan.FromMinutes(5)), "copy the app");
+
+    /// <summary>Installs <paramref name="dmg"/> over <paramref name="app"/>, after checking once more that the disk image
+    /// is still the one that matched the published SHA-256. Throws (leaving the app as it was) on failure.</summary>
+    public static void Install(string dmg, string? expectedSha256, string app)
     {
+        if (!UpdateClient.MatchesSha256(dmg, expectedSha256))
+        {
+            try { File.Delete(dmg); } catch { }
+            throw new InvalidOperationException("The downloaded disk image no longer matches its published checksum, so it wasn't installed. Magpie will download it again.");
+        }
         var mount = Path.Combine(Path.GetTempPath(), "magpie-update-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(mount);
         var staged = MacBundle.StagingPathFor(app);
@@ -51,13 +65,15 @@ public static class MacInstaller
         }
         // Downloaded by Magpie itself, so normally not quarantined; make sure Gatekeeper doesn't ask again anyway.
         try { Shell.Run("/usr/bin/xattr", new[] { "-dr", "com.apple.quarantine", staged }, TimeSpan.FromMinutes(1)); } catch { }
-        try { MacBundle.Swap(app, staged); }
+        var backup = BackupPath();
+        bool kept;
+        try { kept = MacBundle.Swap(app, staged, backup, Ditto); }
         catch
         {
             try { if (Directory.Exists(staged)) Directory.Delete(staged, recursive: true); } catch { }
             throw;
         }
-        Log.Info($"installed {Path.GetFileName(dmg)} over {app} (previous version kept as {MacBundle.BackupName})");
+        Log.Info($"installed {Path.GetFileName(dmg)} over {app}" + (kept ? $" (previous version kept in {backup})" : " (the previous version couldn't be kept)"));
     }
 
     private static void Check((int Code, string Output, string Error) r, string what)
@@ -86,19 +102,20 @@ public static class MacInstaller
 
     /// <summary>
     /// The new version failed to start: ask (with a plain macOS dialog — Magpie's own windows may not work) whether to
-    /// go back to Magpie.previous.app, and if so put it back and start it. True when it was put back.
+    /// go back to the kept previous version, and if so put it back and start it. True when it was put back.
     /// </summary>
     public static bool OfferRollback(Exception ex, string fromVersion)
     {
         try
         {
             var app = MacBundle.FindBundle(Environment.ProcessPath);
-            if (app == null || !Directory.Exists(MacBundle.BackupPathFor(app))) return false;
+            var backup = BackupPath();
+            if (app == null || !Directory.Exists(backup)) return false;
             var text = $"Magpie {AppServices.Current} could not start: {ex.Message}\n\nGo back to the previous version ({fromVersion})?";
             var script = $"display dialog {AppleScriptString(text)} buttons {{\"Keep this version\", \"Go back\"}} default button \"Go back\" with icon caution with title \"Magpie\"";
             var (code, output, _) = Shell.Run("/usr/bin/osascript", new[] { "-e", script }, TimeSpan.FromMinutes(10));
             if (code != 0 || !output.Contains("Go back", StringComparison.Ordinal)) return false;
-            MacBundle.Rollback(app);
+            MacBundle.Rollback(app, backup, Ditto);
             RelaunchAfterExit(app, fromVersion, afterUpdate: false);
             Log.Info($"rolled back to {fromVersion}");
             return true;

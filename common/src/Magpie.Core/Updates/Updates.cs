@@ -229,13 +229,18 @@ public sealed class UpdateClient
 
     /// <summary>Downloads the update file (Magpie.exe, or the Mac .dmg) into <paramref name="folder"/> and checks it
     /// against the published SHA-256. Returns the verified file's path; a file that fails the check is deleted.</summary>
-    public async Task<string> DownloadAsync(ReleaseInfo release, string folder, IProgress<double>? progress, CancellationToken ct)
+    public async Task<string> DownloadAsync(ReleaseInfo release, string folder, IProgress<double>? progress, CancellationToken ct) =>
+        (await DownloadCheckedAsync(release, folder, progress, ct)).Path;
+
+    /// <summary>The same, also returning the published SHA-256 (lower-case hex) the file was checked against, so it
+    /// can be checked again just before it is installed (Magpie for Mac).</summary>
+    public async Task<(string Path, string Sha256)> DownloadCheckedAsync(ReleaseInfo release, string folder, IProgress<double>? progress, CancellationToken ct)
     {
         Directory.CreateDirectory(folder);
         var expected = ParseSha256(await _http.GetStringAsync(release.ShaUrl, ct))
                        ?? throw new InvalidOperationException("The release's checksum file is unreadable.");
         var final = Path.Combine(folder, _asset.LocalFileFor(release.Version));
-        if (File.Exists(final) && await HashFileAsync(final, ct) == expected) { progress?.Report(1); return final; }
+        if (File.Exists(final) && await HashFileAsync(final, ct) == expected) { progress?.Report(1); return (final, expected); }
         var part = final + ".part";
         using (var res = await _http.GetAsync(release.ExeUrl, HttpCompletionOption.ResponseHeadersRead, ct))
         {
@@ -261,7 +266,16 @@ public sealed class UpdateClient
         }
         File.Move(part, final, true);
         progress?.Report(1);
-        return final;
+        return (final, expected);
+    }
+
+    /// <summary>True when the file's SHA-256 is <paramref name="expectedSha256"/> (hex, any case). Checked again right
+    /// before an install, so a file changed after its download is refused.</summary>
+    public static bool MatchesSha256(string path, string? expectedSha256)
+    {
+        if (string.IsNullOrWhiteSpace(expectedSha256) || !File.Exists(path)) return false;
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920);
+        return string.Equals(Convert.ToHexString(SHA256.HashData(fs)), expectedSha256.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     public static async Task<string> HashFileAsync(string path, CancellationToken ct)

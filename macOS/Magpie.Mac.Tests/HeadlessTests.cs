@@ -17,8 +17,12 @@ namespace Magpie.Mac.Tests;
 
 public static class TestApp
 {
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        // Never a real WKWebView under the headless platform (also on the macOS CI runner).
+        Environment.SetEnvironmentVariable("MAGPIE_HEADLESS", "1");
+        return AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    }
 }
 
 /// <summary>One engine for the test run, on a temporary data folder with an account, two folders and mail.</summary>
@@ -137,6 +141,48 @@ public class HeadlessTests
         Assert.Null(settings.ViewModel.ImportGoogleJson(file));
         Assert.Equal("1.apps.googleusercontent.com", AppServices.Engine.Config.GoogleClientId);
         settings.Close();
+    }
+
+    [AvaloniaFact]
+    public void Windows_use_the_placeholder_instead_of_a_real_web_view_when_headless()
+    {
+        TestEngine.Ensure();
+        Assert.False(WebSurface.UseNativeView());
+        var w = new MainWindow();
+        Assert.False(w.ReaderSurface.IsNative);
+        Assert.IsType<TextBlock>(w.ReaderSurface.Child);
+    }
+
+    [AvaloniaFact]
+    public void After_the_button_installed_an_update_quitting_installs_nothing()
+    {
+        TestEngine.Ensure();
+        var updates = new MacUpdateService();
+        var engine = AppServices.Engine;
+        engine.Config.Updates.AutoUpdate = true;
+        var release = new Magpie.Core.Updates.ReleaseInfo { Version = Magpie.Core.Updates.AppVersion.TryParse("99.0.0")!, Tag = "v99.0.0" };
+        updates.PretendReady(release, "/tmp/Magpie_99.0.0.dmg", new string('0', 64));
+        Assert.True(updates.WouldInstallOnQuit);
+        Assert.Equal("Update to v99.0.0", updates.ButtonText);
+        updates.PretendInstalled();                       // what UpdateNowAsync does after a successful install
+        Assert.False(updates.WouldInstallOnQuit);
+        Assert.False(updates.IsUpdateVisible);
+        updates.InstallOnQuit();                          // and the quit path does nothing (no second swap)
+        Assert.Equal(UpdateState.Idle, updates.State);
+    }
+
+    [Fact]
+    public void Links_from_emails_open_only_when_they_are_web_links()
+    {
+        Assert.True(Shell.IsWebLink("https://example.com/a?b=c", out var u));
+        Assert.Equal("https://example.com/a?b=c", u.AbsoluteUri);
+        Assert.True(Shell.IsWebLink("http://example.com", out _));
+        Assert.False(Shell.IsWebLink("file:///Applications/Calculator.app", out _));
+        Assert.False(Shell.IsWebLink("-a Calculator", out _));
+        Assert.False(Shell.IsWebLink("/Applications/Calculator.app", out _));
+        Assert.False(Shell.IsWebLink("javascript:alert(1)", out _));
+        Assert.False(Shell.IsWebLink("smb://server/share", out _));
+        Assert.False(Shell.IsWebLink(null, out _));
     }
 
     [Fact]

@@ -23,7 +23,7 @@ public static class Program
         }
         catch (Exception ex) when (AppServices.AfterUpdate && !StartupComplete)
         {
-            // The new version can't even start its windows: offer the previous one (Magpie.previous.app).
+            // The new version can't even start its windows: offer the previous one (kept in ~/Library/Caches/Magpie/previous).
             Log.Error("start-up failed after update", ex);
             MacInstaller.OfferRollback(ex, AppServices.UpdatedFrom);
             return 1;

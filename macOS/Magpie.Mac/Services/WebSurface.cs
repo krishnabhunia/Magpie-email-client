@@ -34,6 +34,13 @@ public sealed class WebSurface : Decorator
 
     public bool IsNative => _web != null;
 
+    /// <summary>The real WKWebView only in the Mac app itself: not on other systems, not under Avalonia's headless
+    /// test platform (no desktop lifetime there), and not when MAGPIE_HEADLESS=1 (set by the tests).</summary>
+    public static bool UseNativeView() =>
+        OperatingSystem.IsMacOS()
+        && Environment.GetEnvironmentVariable("MAGPIE_HEADLESS") != "1"
+        && Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+
     /// <summary>The page that has the keyboard right now (null when an ordinary control has it).</summary>
     public static WebSurface? Focused { get; private set; }
 
@@ -55,11 +62,11 @@ public sealed class WebSurface : Decorator
 
     public WebSurface()
     {
-        if (!OperatingSystem.IsMacOS())
+        if (!UseNativeView())
         {
             Child = new TextBlock
             {
-                Text = "The reading pane needs macOS.", Foreground = Brushes.Gray,
+                Text = "The reading pane needs the Mac app.", Foreground = Brushes.Gray,
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
             return;
@@ -70,7 +77,7 @@ public sealed class WebSurface : Decorator
             _ = typeof(NativeWebViewPlatformMacOSModule);
             NativeWebViewRuntime.EnsureCurrentPlatformRegistered();
             var config = new NativeWebViewInstanceConfiguration();
-            // Nothing to keep between runs (no cookies, no site data): a private data store also works on macOS 12–13.
+            // Nothing to keep between runs (no cookies, no site data), so a private (non-persistent) data store.
             config.ControllerOptions.IsInPrivateModeEnabled = true;
             config.ControllerOptions.IsJavaScriptEnabled = true;
             config.ControllerOptions.IsPasswordAutosaveEnabled = false;
@@ -167,7 +174,7 @@ public sealed class WebSurface : Decorator
     {
         if (u == null) return;
         if (u.Scheme == "mailto") { MailtoClicked?.Invoke(u.OriginalString); return; }
-        if (u.Scheme is "http" or "https") Shell.Open(u.AbsoluteUri);
+        if (u.Scheme is "http" or "https") Shell.OpenWeb(u.AbsoluteUri);
     }
 
     public void DisposeView()

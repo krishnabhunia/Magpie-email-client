@@ -6,39 +6,62 @@ namespace Magpie.Mac.Services;
 /// <summary>macOS command-line tools Magpie uses: <c>open</c> (browser, files, Finder), <c>hdiutil</c>, <c>ditto</c>.</summary>
 public static class Shell
 {
-    /// <summary>Opens a web link in the default browser, a file in its app, a folder in Finder.</summary>
-    public static void Open(string target)
+    /// <summary>
+    /// Opens a web page in the default browser. Only absolute http and https links are passed on (links from email
+    /// content and sign-in pages come here); anything else — file: links, other schemes, text that isn't a URL and so
+    /// could be read by <c>open</c> as an option — is ignored and logged.
+    /// </summary>
+    public static void OpenWeb(string url)
     {
-        if (string.IsNullOrWhiteSpace(target)) return;
-        if (Uri.TryCreate(target, UriKind.Absolute, out var u) && !u.IsFile
-            && u.Scheme is not ("http" or "https" or "mailto"))
-        {
-            Log.Warn("not opening a link with scheme " + u.Scheme);
-            return;
-        }
-        try
-        {
-            if (!OperatingSystem.IsMacOS()) { Log.Info("open (not on a Mac): " + target); return; }
-            var psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false };
-            psi.ArgumentList.Add(target);
-            Process.Start(psi)?.Dispose();
-        }
-        catch (Exception ex) { Log.Warn("open failed: " + ex.Message); }
+        if (!IsWebLink(url, out var uri)) { Log.Warn("not opening a link that isn't http(s): " + Shorten(url)); return; }
+        Start("/usr/bin/open", uri.AbsoluteUri);
     }
 
-    /// <summary>Shows a file selected in Finder.</summary>
+    /// <summary>True for an absolute http:// or https:// URL (its canonical form never starts with "-").</summary>
+    public static bool IsWebLink(string? url, out Uri uri)
+    {
+        uri = null!;
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https")) return false;
+        uri = u;
+        return true;
+    }
+
+    /// <summary>Opens one of Magpie's own files or folders (an attachment it saved, the data folder, a disk image) in its
+    /// app or in Finder. Always an absolute path, so <c>open</c> can never read it as an option.</summary>
+    public static void OpenLocal(string path)
+    {
+        if (!TryLocal(path, out var full)) { Log.Warn("not opening a path that isn't absolute: " + Shorten(path)); return; }
+        Start("/usr/bin/open", full);
+    }
+
+    /// <summary>Shows one of Magpie's own files selected in Finder (absolute path only).</summary>
     public static void Reveal(string path)
+    {
+        if (!TryLocal(path, out var full)) { Log.Warn("not revealing a path that isn't absolute: " + Shorten(path)); return; }
+        Start("/usr/bin/open", "-R", full);
+    }
+
+    private static bool TryLocal(string? path, out string full)
+    {
+        full = "";
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path)) return false;
+        full = Path.GetFullPath(path);
+        return full.StartsWith('/');
+    }
+
+    private static void Start(string tool, params string[] args)
     {
         try
         {
-            if (!OperatingSystem.IsMacOS()) return;
-            var psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false };
-            psi.ArgumentList.Add("-R");
-            psi.ArgumentList.Add(path);
+            if (!OperatingSystem.IsMacOS()) { Log.Info($"{tool} {string.Join(' ', args)} (not on a Mac)"); return; }
+            var psi = new ProcessStartInfo(tool) { UseShellExecute = false };
+            foreach (var a in args) psi.ArgumentList.Add(a);
             Process.Start(psi)?.Dispose();
         }
-        catch (Exception ex) { Log.Warn("reveal failed: " + ex.Message); }
+        catch (Exception ex) { Log.Warn($"{Path.GetFileName(tool)} failed: " + ex.Message); }
     }
+
+    private static string Shorten(string? s) => s == null ? "(null)" : s.Length > 120 ? s[..120] + "…" : s;
 
     /// <summary>Runs a tool and waits for it. Returns the exit code and what it wrote.</summary>
     public static async Task<(int Code, string Output, string Error)> RunAsync(string tool, IEnumerable<string> args, TimeSpan timeout, CancellationToken ct = default)
