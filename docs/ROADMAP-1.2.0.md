@@ -8,7 +8,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 
 | # | Item | Design | Status | GitHub |
 |---|---|---|---|---|
-| 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
+| 5 | Fixes from real Gmail use | — | Log of 29 Sep – 10 Oct reviewed 10 Oct 2026: offline noise, revocation-offline TLS, lost queued changes, Gmail FETCH NO, unreadable emails — fixed (next release) | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
 | 6 | Dark theme (Match Windows / Light / Dark) | B1 | Built — not yet tried on Windows | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
 | 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Built (3.0.0) — not yet tried on Windows; each Google account must sign in again once (calendar scope) | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Built — not yet tried on Windows. Calendar is now built (#7); still to do: an answer in the email also shown in Magpie's calendar right away, "Open in Calendar", clash line from the calendar | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |

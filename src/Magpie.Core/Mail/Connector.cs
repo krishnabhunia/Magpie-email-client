@@ -30,7 +30,7 @@ public sealed class Connector
 
     public async Task<ImapClient> OpenImapAsync(Account a, CancellationToken ct, string? passwordOverride = null)
     {
-        var client = new ImapClient { Timeout = 60_000 };
+        var client = new ImapClient { Timeout = 60_000, ServerCertificateValidationCallback = TlsCheck.Callback };
         try
         {
             await client.ConnectAsync(a.ImapHost, a.ImapPort, Map(a.ImapSecurity), ct);
@@ -50,7 +50,7 @@ public sealed class Connector
 
     public async Task<SmtpClient> OpenSmtpAsync(Account a, CancellationToken ct, string? passwordOverride = null)
     {
-        var client = new SmtpClient { Timeout = 90_000 };
+        var client = new SmtpClient { Timeout = 90_000, ServerCertificateValidationCallback = TlsCheck.Callback };
         try
         {
             await client.ConnectAsync(a.SmtpHost, a.SmtpPort, Map(a.SmtpSecurity), ct);
