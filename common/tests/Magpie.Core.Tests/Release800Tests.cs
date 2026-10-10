@@ -375,4 +375,11 @@ public class Release800Tests
         Assert.Null(GoogleClientFile.Parse("not json", out err));
         Assert.StartsWith("That file isn't a Google OAuth client file", err);
     }
+
+    [Fact]
+    public void A_handshake_failure_without_a_certificate_points_at_the_port_and_security_setting()
+    {
+        var msg = Magpie.Core.Mail.Connector.Friendly(new MailKit.Security.SslHandshakeException("x"));
+        Assert.StartsWith("Secure connection failed. Check the port", msg);
+    }
 }

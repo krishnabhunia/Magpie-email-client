@@ -14,6 +14,8 @@
 - **The Mac app updates itself** like the Windows one: it checks GitHub at every start, shows "Update to vx.y.z" at the top right only when there is a newer version (click: it downloads, checks the SHA-256, installs and restarts), and with Auto update on it checks daily and installs a downloaded version when you quit. The disk image is checked again just before it is installed, and the previous version is kept (outside Applications) in case the new one doesn't start. The version is shown next to the name in the main window.
 - **Opening it the first time**: Magpie for Mac isn't signed with an Apple Developer ID (by choice), so macOS asks the first time. Right-click Magpie in Applications → Open → Open (or System Settings → Privacy & Security → Open Anyway). After that it opens normally, and updates don't ask again.
 - Still on Windows only for now: calendar, rules, auto-delete, Gatekeeper, snooze / set aside / reminders, tags, AI, hover cards, settings backup and the other Settings pages.
+### Fixed
+- **A refused secure connection now says why** (Windows and Mac): when a mail server's certificate isn't trusted, the account check names who issued it, and says that a company network, VPN or antivirus that inspects secure connections can cause this. The details also go to the log.
 
 ## 7.2.0 (10 Oct 2026)
 ### Changed

@@ -105,12 +105,20 @@ public sealed class Connector
         {
             using (var imap = await OpenImapAsync(a, ct, password)) await imap.DisconnectAsync(true, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException) { return "Incoming (IMAP): " + Friendly(ex); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn($"Account test, incoming {a.ImapHost}:{a.ImapPort} {a.ImapSecurity}: {ex}");
+            return "Incoming (IMAP): " + Friendly(ex);
+        }
         try
         {
             using (var smtp = await OpenSmtpAsync(a, ct, password)) await smtp.DisconnectAsync(true, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException) { return "Outgoing (SMTP): " + Friendly(ex); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn($"Account test, outgoing {a.SmtpHost}:{a.SmtpPort} {a.SmtpSecurity}: {ex}");
+            return "Outgoing (SMTP): " + Friendly(ex);
+        }
         return null;
     }
 
@@ -128,11 +136,34 @@ public sealed class Connector
         catch (Exception ex) { Log.Warn("SMTP disconnect after send: " + ex.Message); }
     }
 
+    /// <summary>A failed TLS handshake: without a server certificate the port / security setting is the likely cause;
+    /// with one, the certificate wasn't trusted — say who issued it (a company network or antivirus that inspects
+    /// secure connections shows up here as an unexpected issuer).</summary>
+    public static string SecureFailure(SslHandshakeException h)
+    {
+        if (h.ServerCertificate is not { } cert)
+            return "Secure connection failed. Check the port and security setting (SSL/TLS vs STARTTLS).";
+        static string Name(string dn)
+        {
+            foreach (var part in dn.Split(','))
+            {
+                var p = part.Trim();
+                if (p.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)) return p[3..];
+            }
+            return dn;
+        }
+        var issuer = Name(cert.Issuer);
+        var root = h.RootCertificateAuthority is { } r ? Name(r.Subject) : null;
+        var by = root != null && !string.Equals(root, issuer, StringComparison.Ordinal) ? $"{issuer} (root: {root})" : issuer;
+        return $"The server's certificate wasn't trusted. It is for {Name(cert.Subject)}, issued by {by}. "
+            + "A company network, VPN or antivirus that inspects secure connections can cause this.";
+    }
+
     public static string Friendly(Exception ex) => ex switch
     {
         ReauthRequiredException r => r.Message,
         System.Net.Sockets.SocketException s => $"Can't reach the server ({s.SocketErrorCode}). Check the host name, port and your connection.",
-        SslHandshakeException => "Secure connection failed. Check the port and security setting (SSL/TLS vs STARTTLS).",
+        SslHandshakeException h => SecureFailure(h),
         AuthenticationException => "Wrong user name or password.",
         ImapProtocolException or SmtpProtocolException => "The server closed the connection unexpectedly.",
         TimeoutException or OperationCanceledException => "The server did not respond in time.",
