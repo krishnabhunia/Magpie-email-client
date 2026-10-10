@@ -63,7 +63,14 @@ public sealed partial class MailStore
         using var c = Open();
         Exec(c, "PRAGMA journal_mode=WAL;");
         var ver = Convert.ToInt32(Scalar(c, "PRAGMA user_version;"));
-        if (ver >= SchemaVersion) return;
+        if (ver >= SchemaVersion)
+        {
+            // Checked on every start, not tied to a schema number: pending_ops.message_id (log review #1).
+            // Older files get it in the migration below.
+            if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='message_id'")) == 0)
+                Exec(c, "ALTER TABLE pending_ops ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
+            return;
+        }
         using var tx = c.BeginTransaction();
         Exec(c, """
             CREATE TABLE IF NOT EXISTS folders(
@@ -154,6 +161,8 @@ public sealed partial class MailStore
         MigrateCalendar(c);   // design B2 (MailStore.Calendar.cs)
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='uidvalidity'")) == 0)
             Exec(c, "ALTER TABLE pending_ops ADD COLUMN uidvalidity INTEGER NOT NULL DEFAULT 0");
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='message_id'")) == 0)
+            Exec(c, "ALTER TABLE pending_ops ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
         Exec(c, """
             CREATE TABLE IF NOT EXISTS pending_rules(
               message_row INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
@@ -845,20 +854,21 @@ public sealed partial class MailStore
         using var c = Open();
         if (op.UidValidity == 0)
             op.UidValidity = Convert.ToUInt32(Scalar(c, "SELECT uidvalidity FROM folders WHERE id=$f AND account_id=$a", ("$f", op.FolderId), ("$a", op.AccountId)) ?? 0);
-        Exec(c, "INSERT INTO pending_ops(account_id,folder_id,uid,kind,arg,created,uidvalidity) VALUES($a,$f,$u,$k,$g,$c,$v)",
-            ("$a", op.AccountId), ("$f", op.FolderId), ("$u", op.Uid), ("$k", (int)op.Kind), ("$g", op.Arg), ("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("$v", op.UidValidity));
+        Exec(c, "INSERT INTO pending_ops(account_id,folder_id,uid,kind,arg,created,uidvalidity,message_id) VALUES($a,$f,$u,$k,$g,$c,$v,$m)",
+            ("$a", op.AccountId), ("$f", op.FolderId), ("$u", op.Uid), ("$k", (int)op.Kind), ("$g", op.Arg), ("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("$v", op.UidValidity),
+            ("$m", op.MessageId ?? ""));
     }
 
     public List<PendingOp> GetPendingOps(string accountId)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id,account_id,folder_id,uid,kind,arg,attempts,uidvalidity FROM pending_ops WHERE account_id=$a ORDER BY id";
+        cmd.CommandText = "SELECT id,account_id,folder_id,uid,kind,arg,attempts,uidvalidity,message_id FROM pending_ops WHERE account_id=$a ORDER BY id";
         cmd.Parameters.AddWithValue("$a", accountId);
         var list = new List<PendingOp>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new PendingOp { Id = r.GetInt64(0), AccountId = r.GetString(1), FolderId = r.GetInt64(2), Uid = r.GetInt64(3), Kind = (PendingOpKind)r.GetInt32(4), Arg = r.GetInt64(5), Attempts = r.GetInt32(6), UidValidity = (uint)r.GetInt64(7) });
+            list.Add(new PendingOp { Id = r.GetInt64(0), AccountId = r.GetString(1), FolderId = r.GetInt64(2), Uid = r.GetInt64(3), Kind = (PendingOpKind)r.GetInt32(4), Arg = r.GetInt64(5), Attempts = r.GetInt32(6), UidValidity = (uint)r.GetInt64(7), MessageId = r.GetString(8) });
         return list;
     }
 

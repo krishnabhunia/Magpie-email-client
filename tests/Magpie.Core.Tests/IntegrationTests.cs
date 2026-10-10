@@ -287,6 +287,35 @@ public class IntegrationTests
     }
 
     [Fact]
+    public async Task Queued_move_with_unusable_uid_finds_the_email_by_Message_ID()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("ravi@other.test", me, "Lunch", "third", "lunch1@other.test"));
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => Inbox(e).Count == 1, "1 inbox conversation");
+        var inbox = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Inbox);
+        var trash = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Trash);
+        // magpie.log: 21 changes were dropped because their UID couldn't be used. Now the Message-ID finds the email.
+        e.Store.AddPendingOp(new PendingOp { AccountId = acc.Id, FolderId = inbox.Id, Uid = 999_999, UidValidity = 1, Kind = PendingOpKind.Move, Arg = trash.Id, MessageId = "lunch1@other.test" });
+        e.SyncNow(acc.Id);
+        await WaitUntilAsync(async () =>
+        {
+            using var c = await Raw(me);
+            var t = await c.GetFolderAsync("Trash");
+            await t.OpenAsync(FolderAccess.ReadOnly);
+            var n = t.Count;
+            await c.DisconnectAsync(true);
+            return n == 1;
+        }, "the email in the server's Trash");
+        await WaitUntil(() => e.Store.GetPendingOps(acc.Id).Count == 0, "queue empty");
+    }
+
+    [Fact]
     public async Task Sync_threads_categories_and_server_roundtrips()
     {
         if (!ServersUp()) return;

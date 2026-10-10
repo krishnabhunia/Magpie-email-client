@@ -7,6 +7,15 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 7.1.1 (10 Oct 2026)
+### Fixed
+- **No internet no longer fills the log with errors.** An account that can't reach its server shows "Offline" and writes one line when it goes offline and one when it's back.
+- **Accounts no longer stop after the PC wakes up** because Windows couldn't reach the server that checks whether certificates were withdrawn. Any other certificate problem still blocks the connection.
+- **Reads, pins and moves made on this PC are no longer lost** when the server renumbers a folder. Magpie now finds the email by its ID. Changes Gmail refuses with "System Error" are tried again (up to 5 times) instead of being dropped.
+- **A folder keeps updating when Gmail refuses a few of its emails** ("Some messages could not be fetched"); only those emails are left out. This happened in Gmail's Bin.
+- **An email that can't be read no longer stops the other downloads.** The log now also says what was wrong with it.
+<!-- closes: #1 -->
+
 ## 7.1.0 (9 Oct 2026)
 ### Changed
 - The top-right update button appears only after GitHub finds a newer version and reads “Update to vx.y.z”. It keeps that version while downloading and when ready; check manually in Settings → Updates.
