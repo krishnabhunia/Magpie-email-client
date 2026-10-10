@@ -223,8 +223,9 @@ public sealed partial class MacUpdateService : ObservableObject
         }
         // Installed: quitting now must not install it a second time (that would swap again and replace the kept
         // previous version with this new one).
+        var installedVersion = NewVersion;   // MarkInstalled clears the release
         MarkInstalled();
-        Log.Info($"updating {Current} → {NewVersion}: restarting");
+        Log.Info($"updating {Current} → {installedVersion}: restarting");
         MacInstaller.RelaunchAfterExit(plan.App!, Current.ToString());
         App.QuitForUpdate();
     }
