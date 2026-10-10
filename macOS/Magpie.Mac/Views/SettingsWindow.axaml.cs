@@ -30,7 +30,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         ViewModel = new SettingsViewModel();
         DataContext = ViewModel;
-        NativeMenu.SetMenu(this, MacMenus.ForWindow(this));
+        MacMenus.Attach(this);
         ImportGoogleButton.Click += async (_, _) =>
         {
             var files = await Dialogs.PickFiles(this, "Choose the client_secret….json you downloaded", many: false, jsonOnly: "Google OAuth client");

@@ -31,7 +31,7 @@ public partial class AddAccountWindow : Window
         InitializeComponent();
         ViewModel = new AddAccountViewModel(reauth);
         DataContext = ViewModel;
-        NativeMenu.SetMenu(this, MacMenus.ForWindow(this));
+        MacMenus.Attach(this);
         ViewModel.Done += Close;
         EmailBox.LostFocus += async (_, _) => await ViewModel.FillServersAsync();
         Opened += (_, _) => { if (!ViewModel.IsReauth) EmailBox.Focus(); };

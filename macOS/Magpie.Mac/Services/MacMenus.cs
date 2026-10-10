@@ -45,6 +45,20 @@ public static class MacMenus
         return m;
     }
 
+    /// <summary>Gives <paramref name="window"/> its menu bar and sets it again each time the window is activated:
+    /// on a real Mac the menus of the first window shown at start-up (or after the update restart) did not appear
+    /// until another window had been active, leaving only the Magpie menu.</summary>
+    public static void Attach(Window window)
+    {
+        var menu = ForWindow(window);
+        NativeMenu.SetMenu(window, menu);
+        window.Activated += (_, _) =>
+        {
+            NativeMenu.SetMenu(window, null);
+            NativeMenu.SetMenu(window, menu);
+        };
+    }
+
     /// <summary>File · Edit · View · Message · Window for <paramref name="window"/>.</summary>
     public static NativeMenu ForWindow(Window window)
     {

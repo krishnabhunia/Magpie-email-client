@@ -20,7 +20,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ViewModel = new MainViewModel();
         DataContext = ViewModel;
-        NativeMenu.SetMenu(this, MacMenus.ForWindow(this));
+        MacMenus.Attach(this);
         RestorePlacement();
 
         ReaderSurface = new WebSurface();

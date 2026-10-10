@@ -83,7 +83,7 @@ public partial class ComposeWindow : Window
         InitializeComponent();
         _vm = new ComposeViewModel(draft);
         DataContext = _vm;
-        NativeMenu.SetMenu(this, MacMenus.ForWindow(this));
+        MacMenus.Attach(this);
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
 
         foreach (var box in new[] { ToBox, CcBox, BccBox })
