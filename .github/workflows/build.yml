@@ -60,7 +60,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Version '$v' in Directory.Build.props isn't x.y.z" }
           # Released already *with* its files? (A release whose upload failed gets its files on the next push.)
           $assets = gh release view "v$v" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
-          $released = ($LASTEXITCODE -eq 0) -and ($assets -contains 'Magpie.exe') -and ($assets -contains 'Magpie.exe.sha256')
+          # Every file the release step uploads must be there, so a release whose upload stopped half-way is finished
+          # by the next run instead of being taken as complete.
+          $expected = @('Magpie.exe', "Magpie-Setup-$v.exe", "Magpie_$v.zip")
+          if ((Test-Path macOS/build/build.sh) -and (Get-ChildItem macOS/Magpie.Mac/*.csproj -ErrorAction SilentlyContinue)) { $expected += "Magpie_$v.dmg" }
+          if (Test-Path android/build.sh) { $expected += "Magpie_$v.apk" }
+          $expected += $expected | ForEach-Object { "$_.sha256" }
+          $missing = @($expected | Where-Object { $assets -notcontains $_ })
+          $released = ($LASTEXITCODE -eq 0) -and ($missing.Count -eq 0)
+          if (($LASTEXITCODE -eq 0) -and $missing.Count -gt 0) { Write-Host "Release v$v is missing: $($missing -join ', ')" }
           $global:LASTEXITCODE = 0
           $beta = ($env:IS_OWN_PR -eq "true") -and -not $released
           $full = if ($beta) { "$v-beta.${{ github.run_number }}" } else { $v }
@@ -304,7 +312,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate --jq '.artifacts[] | select(.name | startswith("build-")) | .id'); do
-            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "removed artifact $id"
+            # A PR from a fork gets a read-only token: then the working artifacts just stay (they expire after a day).
+            if gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"; then echo "removed artifact $id"; else echo "::warning::could not remove working artifact $id (read-only token?)"; fi
           done
 
       # The release keeps the bare Magpie.exe (+ .sha256): every installed copy's updater downloads that file.

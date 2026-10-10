@@ -12,6 +12,9 @@ public class Release720Tests
         Assert.False(AppPaths.IsPortableCopy(dir.Path, "Magpie.exe"));               // the release's loose Magpie.exe
         Assert.False(AppPaths.IsPortableCopy(dir.Path, null));
         Assert.False(AppPaths.IsPortableCopy(dir.Path, "Magpie_7.2.0.dll"));
+        Assert.True(AppPaths.IsPortableCopy(dir.Path, "Magpie_7.2.0 (1).exe"));     // downloaded twice
+        Assert.False(AppPaths.IsPortableCopy(dir.Path, "Magpie_backup.exe"));       // a renamed copy keeps its profile data
+        Assert.False(AppPaths.IsPortableCopy(dir.Path, "Magpie_7.2.exe"));
         File.WriteAllText(Path.Combine(dir.Path, AppPaths.InstallerUninstaller), "");
         Assert.False(AppPaths.IsPortableCopy(dir.Path, "Magpie_7.2.0.exe"));         // the installer put it there
         File.WriteAllText(Path.Combine(dir.Path, AppPaths.PortableMarker), "portable");

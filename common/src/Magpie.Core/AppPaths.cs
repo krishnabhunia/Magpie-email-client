@@ -81,9 +81,14 @@ public sealed class AppPaths
     /// <summary>True for the portable copy: Magpie_x.y.z.exe not installed by the installer, or portable.txt next to it.</summary>
     public static bool IsPortableCopy(string exeFolder, string? exeName) =>
         File.Exists(Path.Combine(exeFolder, PortableMarker))
-        || (exeName is { } n && n.StartsWith(PortableExePrefix, StringComparison.OrdinalIgnoreCase)
-            && n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+        || (exeName is { } n && PortableExeName.IsMatch(n)
             && !File.Exists(Path.Combine(exeFolder, InstallerUninstaller)));
+
+    /// <summary>The download's own name, <c>Magpie_&lt;version&gt;.exe</c> (x.y.z or x.y.z-beta.N; a browser's " (1)" allowed).
+    /// Any other name — e.g. a copy renamed to <c>Magpie_backup.exe</c> — keeps using the profile folders.</summary>
+    private static readonly System.Text.RegularExpressions.Regex PortableExeName = new(
+        @"^Magpie_\d+\.\d+\.\d+(-[A-Za-z]+\.\d+)?( \(\d+\))?\.exe$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Portable (see <see cref="IsPortableCopy"/>); otherwise the user's profile folders.</summary>
     public static AppPaths For(string exeFolder, string? exeName = null)
