@@ -41,7 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Magpie.Core\Magpie.Core.csproj" />
+    <ProjectReference Include="..\..\common\src\Magpie.Core\Magpie.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

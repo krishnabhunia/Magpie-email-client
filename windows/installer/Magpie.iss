@@ -1,9 +1,9 @@
 ; Inno Setup 6 script for Magpie Mail
-; Compile: ISCC.exe /DMyAppVersion=1.0.0 /DSourceDir=..\publish Magpie.iss  (GitHub Actions does this)
+; Compile: ISCC.exe /DMyAppVersion=1.0.0 /DSourceDir=..\..\publish Magpie.iss  (GitHub Actions does this)
 
 #define MyAppName "Magpie Mail"
 #ifndef MyAppVersion
-  #define MyAppVersion "7.1.0"
+  #define MyAppVersion "7.2.0"
 #endif
 ; Windows file versions are numbers only: a test build (1.2.0-beta.3) passes /DMyAppNumericVersion=1.2.0 as well.
 #ifndef MyAppNumericVersion
@@ -13,7 +13,7 @@
 #define MyAppURL "https://github.com/krishnabhunia/Magpie-email-client"
 #define MyAppExeName "Magpie.exe"
 #ifndef SourceDir
-  #define SourceDir "..\publish"
+  #define SourceDir "..\..\publish"
 #endif
 
 [Setup]

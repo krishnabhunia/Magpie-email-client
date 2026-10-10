@@ -151,7 +151,10 @@ public sealed partial class UpdateService : ObservableObject
     private async Task AutoCheckAsync()
     {
         var cfg = AppServices.Engine.Config.Updates;
-        if (cfg.AutoUpdate != true || IsBusy || State is UpdateState.Ready or UpdateState.Available) return;
+        // Krishna's rule (GitHub Skills/versions_management.md): every start checks GitHub, even with Auto update off;
+        // only the download waits for him then (CheckAsync downloads on its own only when Auto update is on).
+        if (IsBusy || State is UpdateState.Ready or UpdateState.Available) return;
+        if (cfg.AutoUpdate != true && _startCheckDone) return;
         if (DateTimeOffset.Now < _laterUntil) return;
         // Once at start, then at most once a day.
         if (_startCheckDone && cfg.LastCheck is { } last && DateTimeOffset.Now - last < TimeSpan.FromHours(23)) return;
