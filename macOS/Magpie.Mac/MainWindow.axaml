@@ -110,6 +110,25 @@
           </ListBox>
           <TextBlock Text="{Binding EmptyText}" Classes="muted" TextWrapping="Wrap" TextAlignment="Center"
                      HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" IsVisible="{Binding ShowEmpty}" />
+          <!-- "Sending “…” · 8 s  Undo" and other short notes, over the list (the reading pane is a native view that
+               would cover anything drawn over it). -->
+          <ItemsControl ItemsSource="{Binding Toasts}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="10,0,10,14">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:ToastItem">
+                <Border Background="{DynamicResource Magpie.Toast}" CornerRadius="8" Padding="14,8" Margin="0,4,0,0" BoxShadow="0 4 14 0 #40000000">
+                  <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Magpie.ToastText}" VerticalAlignment="Center" MaxWidth="250" TextWrapping="Wrap" />
+                    <Button Classes="link" Content="Undo" IsVisible="{Binding CanUndo}" FontWeight="SemiBold"
+                            Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).UndoCommand}" CommandParameter="{Binding}" />
+                    <Button Classes="link" Content="Send now" IsVisible="{Binding CanUndo}"
+                            Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).SendNowCommand}" CommandParameter="{Binding}" />
+                    <Button Classes="link" Content="✕" IsVisible="{Binding !CanUndo}"
+                            Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DismissToastCommand}" CommandParameter="{Binding}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </Panel>
       </Grid>
       <GridSplitter Grid.Column="3" Background="{DynamicResource Magpie.Line}" ResizeDirection="Columns" />
@@ -143,24 +162,6 @@
       </Grid>
     </Grid>
 
-    <!-- "Sending “…” · 8 s  Undo" and other short notes. -->
-    <ItemsControl Grid.Row="1" ItemsSource="{Binding Toasts}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,18">
-      <ItemsControl.ItemTemplate>
-        <DataTemplate DataType="vm:ToastItem">
-          <Border Background="{DynamicResource Magpie.Toast}" CornerRadius="8" Padding="14,8" Margin="0,4,0,0" BoxShadow="0 4 14 0 #40000000">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Magpie.ToastText}" VerticalAlignment="Center" MaxWidth="520" TextWrapping="Wrap" />
-              <Button Classes="link" Content="Undo" IsVisible="{Binding CanUndo}" FontWeight="SemiBold"
-                      Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).UndoCommand}" CommandParameter="{Binding}" />
-              <Button Classes="link" Content="Send now" IsVisible="{Binding CanUndo}"
-                      Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).SendNowCommand}" CommandParameter="{Binding}" />
-              <Button Classes="link" Content="✕" IsVisible="{Binding !CanUndo}"
-                      Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DismissToastCommand}" CommandParameter="{Binding}" />
-            </StackPanel>
-          </Border>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
 
     <Border Grid.Row="2" BorderBrush="{DynamicResource Magpie.Line}" BorderThickness="0,1,0,0" Padding="12,3"
             IsVisible="{Binding SyncText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">

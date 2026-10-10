@@ -6,7 +6,7 @@
         x:DataType="vm:ComposeViewModel"
         Title="{Binding WindowTitle}"
         Width="760" Height="640" MinWidth="520" MinHeight="420"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         Icon="avares://Magpie/Assets/magpie.png"
         Background="{DynamicResource Magpie.Pane}">
   <Grid RowDefinitions="Auto,Auto,*,Auto">

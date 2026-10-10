@@ -68,9 +68,9 @@ public partial class ComposeWindow : Window
 
     private static void Show(Draft d)
     {
+        // Its own window (not owned by the main one), as in Mail: it stays when the main window is hidden.
         var w = new ComposeWindow(d);
-        if (AppServices.MainWindow is { IsVisible: true } main) w.Show(main);
-        else w.Show();
+        w.Show();
         w.Activate();
     }
 

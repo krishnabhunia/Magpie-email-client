@@ -230,7 +230,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var i = Selected == null ? -1 : Threads.IndexOf(Selected);
         ReloadList();
-        if (Threads.Count == 0) { Selected = null; return; }
+        if (Threads.Count == 0) { Selected = null; Reader.Clear(); return; }
         if (Selected == null || i < 0) Selected = Threads[Math.Clamp(i < 0 ? 0 : i, 0, Threads.Count - 1)];
     }
 
