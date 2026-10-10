@@ -72,10 +72,13 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Magpie.icns"
 
 # 4. Ad-hoc signature (no Apple Developer ID, by choice): Apple Silicon only runs signed code. The first open needs
 #    right-click -> Open (macOS/README.md).
-# "-exec … +" makes find fail when any codesign fails (with "\;" it would carry on and exit 0).
-find "$APP/Contents/MacOS" -type f -name '*.dylib' -exec codesign --force --sign - {} +
+# Every file in Contents/MacOS is signed on its own (the .NET .dll files too: codesign treats everything there as
+# code, and a bundle signature over unsigned .dll files fails with "code object is not signed at all"), then the
+# main executable, then the bundle (as Avalonia's macOS deployment guide does). "-exec … +" makes find fail when
+# any codesign fails (with "\;" it would carry on and exit 0).
+find "$APP/Contents/MacOS" -type f ! -path "$APP/Contents/MacOS/Magpie" -exec codesign --force --sign - {} +
 codesign --force --sign - "$APP/Contents/MacOS/Magpie"
-codesign --force --deep --sign - "$APP"
+codesign --force --sign - "$APP"
 codesign --verify --deep --verbose=2 "$APP"
 
 # 5. The disk image: Magpie.app and a link to Applications, to drag it across.
