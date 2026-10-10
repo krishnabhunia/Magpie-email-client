@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for build/release_prep.py (run: python3 build/test_release_prep.py). CI runs them on every build."""
+"""Tests for common/scripts/release_prep.py (run: python3 common/scripts/test_release_prep.py). CI runs them on every build."""
 import datetime
 import os
 import shutil
@@ -46,8 +46,8 @@ def only(kind, line="- A line."):
 class ReleasePrepTests(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
-        os.makedirs(os.path.join(self.root, "installer"))
-        for name, text in (("Directory.Build.props", PROPS), ("installer/Magpie.iss", ISS), ("CHANGELOG.md", LOG), ("CLAUDE.md", CLAUDE)):
+        os.makedirs(os.path.join(self.root, "windows", "installer"))
+        for name, text in (("Directory.Build.props", PROPS), (rp.ISS, ISS), ("CHANGELOG.md", LOG), ("CLAUDE.md", CLAUDE)):
             rp.write(name, text, self.root)
 
     def tearDown(self):
@@ -108,7 +108,7 @@ class ReleasePrepTests(unittest.TestCase):
         for want in ("<Version>2.0.0</Version>", "<AssemblyVersion>2.0.0.0</AssemblyVersion>",
                      "<FileVersion>2.0.0.0</FileVersion>", "<ReleaseDate>2026-10-03</ReleaseDate>"):
             self.assertIn(want, props)
-        self.assertIn('#define MyAppVersion "2.0.0"', rp.read("installer/Magpie.iss", self.root))
+        self.assertIn('#define MyAppVersion "2.0.0"', rp.read(rp.ISS, self.root))
         log = rp.read("CHANGELOG.md", self.root)
         self.assertIn("## 2.0.0 (3 Oct 2026)\n### New", log)
         self.assertNotIn("not released yet", log)
@@ -133,7 +133,7 @@ class ReleasePrepTests(unittest.TestCase):
         with self.assertRaises(rp.ReleaseError):
             rp.check("2.0.1", self.root)
         # A number typed by hand that breaks the rule (New lines but only y raised) is refused.
-        for name in ("Directory.Build.props", "installer/Magpie.iss", "CHANGELOG.md"):
+        for name in ("Directory.Build.props", rp.ISS, "CHANGELOG.md"):
             rp.write(name, rp.read(name, self.root).replace("2.0.0", "1.2.0"), self.root)
         with self.assertRaises(rp.ReleaseError) as e:
             rp.check("1.2.0", self.root)
@@ -141,20 +141,26 @@ class ReleasePrepTests(unittest.TestCase):
 
     def test_a_program_change_needs_a_new_version(self):
         with self.assertRaises(rp.ReleaseError):
-            rp.needs_version(["src/Magpie.App/MainWindow.xaml", "docs/x.md"], released=True)
+            rp.needs_version(["windows/Magpie.App/MainWindow.xaml", "docs/x.md"], released=True)
+        with self.assertRaises(rp.ReleaseError):
+            rp.needs_version(["common/src/Magpie.Core/MailEngine.cs"], released=True)
+        with self.assertRaises(rp.ReleaseError):
+            rp.needs_version(["macOS/Magpie.Mac/App.axaml"], released=True)
         with self.assertRaises(rp.ReleaseError):
             rp.needs_version(["Directory.Build.props"], released=True)
         with self.assertRaises(rp.ReleaseError):
-            rp.needs_version(["installer/Magpie.iss"], released=True)
-        self.assertEqual(rp.needs_version(["src/a.cs"], released=False), ["src/a.cs"])   # new version set: fine
-        for other in (["docs/CI-CD.md", "CLAUDE.md", "CHANGELOG.md"], [".github/workflows/build.yml", "build/release_prep.py"],
-                      ["tests/Magpie.Core.Tests/X.cs"]):
+            rp.needs_version(["windows/installer/Magpie.iss"], released=True)
+        self.assertEqual(rp.needs_version(["common/src/a.cs"], released=False), ["common/src/a.cs"])   # new version set: fine
+        for other in (["docs/CI-CD.md", "CLAUDE.md", "CHANGELOG.md"], [".github/workflows/build.yml", "common/scripts/release_prep.py"],
+                      ["common/tests/Magpie.Core.Tests/X.cs"], ["windows/build/xaml_check.py", "macOS/README.md", "android/README.md"]):
             self.assertEqual(rp.needs_version(other, released=True), [])
 
     def test_real_repository_files_are_readable(self):
         # The repo's own files must keep the shapes apply() edits.
         self.assertTrue(rp.SEMVER.match(rp.current()))
-        self.assertIn("MyAppVersion", rp.read("installer/Magpie.iss"))
+        self.assertIn("MyAppVersion", rp.read(rp.ISS))
+        for folder in ("docs", "windows", "macOS", "android", "common"):   # Krishna's GitHub folder rule
+            self.assertTrue(os.path.isdir(rp.path(folder)), folder + "/ missing")
         self.assertEqual(rp.compare(rp.last_release(), rp.current()), 0, "Directory.Build.props should be the last release in CHANGELOG.md")
         p = rp.pending()
         if p:
@@ -177,30 +183,43 @@ class ReleaseZipTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
-    def test_zip_has_only_installer_and_portable(self):
+    def _file(self, name, data=b"x"):
+        f = os.path.join(self.root, name)
+        with open(f, "wb") as h:
+            h.write(data)
+        return f
+
+    def test_zip_follows_the_workflow_rule(self):
         import zipfile
         out = rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"))
-        self.assertTrue(out.endswith("Magpie-1.2.0.zip"))
+        self.assertTrue(out.endswith("Magpie_1.2.0.zip"))
+        self.assertEqual(rp.artifact_name("1.2.0-beta.7"), "Magpie_1.2.0-beta.7")
         with zipfile.ZipFile(out) as z:
-            names = sorted(z.namelist())
-            self.assertEqual(names, sorted([
-                "installer/Magpie-Setup-1.2.0.exe", "installer/Magpie-Setup-1.2.0.exe.sha256",
-                "portable/Magpie.exe", "portable/Magpie.exe.sha256", "portable/portable.txt"]))
-            self.assertEqual(z.read("portable/Magpie.exe"), b"app")
-            self.assertEqual(z.read("portable/Magpie.exe.sha256").decode().strip(), rp.sha256_file(os.path.join(self.exe, "Magpie.exe")))
-            self.assertIn("MagpieData", z.read("portable/portable.txt").decode())
+            self.assertEqual(sorted(z.namelist()), ["portable/Magpie_1.2.0.exe", "windows-x64/Magpie_1.2.0.exe"])
+            self.assertEqual(z.read("portable/Magpie_1.2.0.exe"), b"app")
+            self.assertEqual(z.read("windows-x64/Magpie_1.2.0.exe"), b"setup")
         with open(out + ".sha256") as f:
             self.assertEqual(f.read().strip(), rp.sha256_file(out))
 
-    def test_zip_with_anything_else_at_the_top_is_refused(self):
+    def test_zip_takes_the_mac_and_android_builds(self):
         import zipfile
-        bad = os.path.join(self.root, "bad.zip")
-        with zipfile.ZipFile(bad, "w") as z:
-            z.writestr("installer/a.exe", "x")
-            z.writestr("portable/portable.txt", "x")
-            z.writestr("README.txt", "x")
-        with self.assertRaises(rp.ReleaseError):
-            rp.check_zip(bad)
+        out = rp.make_zip("1.2.0", self.setup, self.exe, os.path.join(self.root, "release"),
+                          dmg=self._file("Magpie.dmg", b"mac"), apk=self._file("app.apk", b"apk"))
+        with zipfile.ZipFile(out) as z:
+            self.assertEqual(sorted(z.namelist()), ["Android/Magpie_1.2.0.apk", "macOS/Magpie_1.2.0.dmg",
+                                                    "portable/Magpie_1.2.0.exe", "windows-x64/Magpie_1.2.0.exe"])
+            self.assertEqual(z.read("macOS/Magpie_1.2.0.dmg"), b"mac")
+
+    def test_zip_with_anything_else_is_refused(self):
+        import zipfile
+        for extra in (("README.txt", "x"), ("installer/a.exe", "x"), ("portable/portable.txt", "x"), ("macOS/Magpie_1.2.0.exe", "x")):
+            bad = os.path.join(self.root, "bad.zip")
+            with zipfile.ZipFile(bad, "w") as z:
+                z.writestr("portable/Magpie_1.2.0.exe", "x")
+                z.writestr("windows-x64/Magpie_1.2.0.exe", "x")
+                z.writestr(*extra)
+            with self.assertRaises(rp.ReleaseError, msg=extra[0]):
+                rp.check_zip(bad)
 
     def test_zip_needs_exactly_one_setup(self):
         os.remove(os.path.join(self.setup, "Magpie-Setup-1.2.0.exe"))
@@ -217,10 +236,14 @@ class ReleaseZipTests(unittest.TestCase):
         os.makedirs(os.path.join(dest, "publish"))
         with self.assertRaises(rp.ReleaseError):
             rp.check_folders(dest)
+        os.rmdir(os.path.join(dest, "publish"))
+        open(os.path.join(dest, "portable", "Magpie_1.2.0.exe.sha256"), "w").close()
+        with self.assertRaises(rp.ReleaseError):
+            rp.check_folders(dest)
 
-    def test_portable_marker_name_matches_the_app(self):
-        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "Magpie.Core", "AppPaths.cs"), encoding="utf-8") as f:
-            self.assertIn(f'PortableMarker = "{rp.PORTABLE_MARKER}"', f.read())
+    def test_portable_name_matches_the_app(self):
+        with open(os.path.join(rp.ROOT, "common", "src", "Magpie.Core", "AppPaths.cs"), encoding="utf-8") as f:
+            self.assertIn(f'PortableExePrefix = "{rp.APP}_"', f.read())
 
 
 if __name__ == "__main__":

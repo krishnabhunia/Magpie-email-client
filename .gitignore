@@ -1,8 +1,8 @@
 bin/
 obj/
 publish/
-installer/Output/
-build/app-types.json
+windows/installer/Output/
+windows/build/app-types.json
 *.user
 .vs/
 TestResults/

@@ -15,24 +15,26 @@ kind, sets the version everywhere and dates the heading. The PR's CI publishes a
 merging it publishes the release (.github/workflows/build.yml). Issues it closes can be listed in
 the section as an HTML comment (hidden in the release notes):  <!-- closes: #2 #4 -->
 
-    python3 build/release_prep.py pending            -> prints the next version, e.g. "3.0.0" (or nothing)
-    python3 build/release_prep.py apply --date 2026-09-29
-                                                     -> sets Directory.Build.props, installer/Magpie.iss,
+    python3 common/scripts/release_prep.py pending            -> prints the next version, e.g. "3.0.0" (or nothing)
+    python3 common/scripts/release_prep.py apply --date 2026-09-29
+                                                     -> sets Directory.Build.props, windows/installer/Magpie.iss,
                                                         CHANGELOG.md heading, CLAUDE.md "Current release"
-    git diff --name-only ... | python3 build/release_prep.py needs-version --released true
+    git diff --name-only ... | python3 common/scripts/release_prep.py needs-version --released true
                                                      -> fails when a PR changes the program but its version
                                                         is already released (run by CI on every PR)
-    python3 build/release_prep.py notes 1.2.0 [--out release-notes.md] [--header "…"]
+    python3 common/scripts/release_prep.py notes 1.2.0 [--out release-notes.md] [--header "…"]
                                                      -> that version's CHANGELOG section
-    python3 build/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
-    python3 build/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
-    python3 build/release_prep.py check-folders ci-download
-                                                     -> fails unless the folder holds only installer/ and portable/
-    python3 build/release_prep.py check 1.2.0         -> fails unless 1.2.0 is set everywhere, its CHANGELOG
+    python3 common/scripts/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
+    python3 common/scripts/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
+    python3 common/scripts/release_prep.py check-folders ci-download
+                                                     -> fails unless the folder holds only portable/ and windows-x64/
+                                                        (plus macOS/ and Android/ when built), one Magpie_<version> file each
+    python3 common/scripts/release_prep.py check 1.2.0         -> fails unless 1.2.0 is set everywhere, its CHANGELOG
                                                         section is dated and the number follows the rule (run by CI)
-    python3 build/release_prep.py zip 1.2.0 --setup installer/Output --exe publish --out release
-                                                     -> release/Magpie-1.2.0.zip (+ .sha256) holding exactly two
-                                                        folders: installer/ and portable/ (design Z1)
+    python3 common/scripts/release_prep.py zip 1.2.0 --setup windows/installer/Output --exe publish [--dmg x.dmg] [--apk x.apk] --out release
+                                                     -> release/Magpie_1.2.0.zip (+ .sha256): portable/Magpie_1.2.0.exe,
+                                                        windows-x64/Magpie_1.2.0.exe (installer), macOS/Magpie_1.2.0.dmg,
+                                                        Android/Magpie_1.2.0.apk (Krishna's workflow rule)
 
 Needs Python 3 only (stdlib).
 """
@@ -45,7 +47,8 @@ import re
 import sys
 import zipfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The repo root: this file is common/scripts/release_prep.py.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 NEXT = "Next version"
 PENDING = re.compile(r"^## Next version \(not released yet\)\s*$", re.M)
 DATED = re.compile(r"^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \((?!not released yet\))[^)]*\)\s*$", re.M)
@@ -53,8 +56,10 @@ DATED = re.compile(r"^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \((?!not released y
 KINDS = ("New", "Changed", "Fixed")
 KIND_HELP = "### New (a feature added, or a big change to how Magpie looks or works), ### Changed (a feature changed) or ### Fixed (a bug or error fixed)"
 # A change to any of these is a change to the program and needs a new version.
-PROGRAM_PREFIXES = ("src/", "installer/")
+# Repo layout (Krishna's GitHub rule): docs/ windows/ macOS/ android/ common/. Tests, scripts, build tools and READMEs need none.
+PROGRAM_PREFIXES = ("common/src/", "windows/Magpie.App/", "windows/installer/", "macOS/Magpie.Mac/", "android/app/")
 PROGRAM_FILES = ("directory.build.props", "directory.packages.props", "global.json", "magpie.sln", "nuget.config")
+ISS = "windows/installer/Magpie.iss"
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
 
 
@@ -172,7 +177,7 @@ def needs_version(files, released):
         raise ReleaseError(
             "this PR changes Magpie (" + shown + ") but keeps a version that is already released. Every change gets a "
             "new number: add \"## Next version (not released yet)\" at the top of CHANGELOG.md with the lines under "
-            + KIND_HELP + ", then run: python build/release_prep.py apply --date YYYY-MM-DD")
+            + KIND_HELP + ", then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD")
     return program
 
 
@@ -217,9 +222,9 @@ def check(version, root=None):
         m = re.search(rf"<{tag}>([^<]*)</{tag}>", props)
         if not m or m.group(1).strip() != want:
             problems.append(f"Directory.Build.props <{tag}> should be {want}")
-    m = re.search(r'#define MyAppVersion "([^"]*)"', read("installer/Magpie.iss", root))
+    m = re.search(r'#define MyAppVersion "([^"]*)"', read(ISS, root))
     if not m or m.group(1) != version:
-        problems.append(f'installer/Magpie.iss MyAppVersion should be "{version}"')
+        problems.append(f'windows/installer/Magpie.iss MyAppVersion should be "{version}"')
     m = re.search(r"^## " + re.escape(version) + r" \((.*)\)\s*$", read("CHANGELOG.md", root), re.M)
     if not m:
         problems.append(f'CHANGELOG.md needs a "## {version} (<date>)" section')
@@ -239,7 +244,7 @@ def check(version, root=None):
         except ReleaseError as e:
             problems.append(str(e))
     if PENDING.search(read("CHANGELOG.md", root)):
-        problems.append('CHANGELOG.md still has "## Next version (not released yet)" — run: python build/release_prep.py apply --date YYYY-MM-DD')
+        problems.append('CHANGELOG.md still has "## Next version (not released yet)" — run: python common/scripts/release_prep.py apply --date YYYY-MM-DD')
     if problems:
         raise ReleaseError("; ".join(problems))
 
@@ -265,11 +270,11 @@ def apply(date, root=None):
             raise ReleaseError(f"Directory.Build.props has no <{tag}>")
     write("Directory.Build.props", props, root)
 
-    iss = read("installer/Magpie.iss", root)
+    iss = read(ISS, root)
     iss, n = re.subn(r'(#define MyAppVersion ")[^"]*(")', rf"\g<1>{version}\g<2>", iss, count=1)
     if n != 1:
-        raise ReleaseError('installer/Magpie.iss has no #define MyAppVersion "…"')
-    write("installer/Magpie.iss", iss, root)
+        raise ReleaseError('windows/installer/Magpie.iss has no #define MyAppVersion "…"')
+    write(ISS, iss, root)
 
     log = read("CHANGELOG.md", root)
     log = PENDING.sub(f"## {version} ({human_date(date)})", log, count=1)
@@ -282,20 +287,16 @@ def apply(date, root=None):
     return version
 
 
-ZIP_FOLDERS = ("installer", "portable")
-PORTABLE_MARKER = "portable.txt"   # Magpie.Core AppPaths.PortableMarker
-PORTABLE_TEXT = """Magpie portable
+APP = "Magpie"
+# Krishna's workflow rule (GitHub Skills/workflows.md): the zip and the CI download hold these folders, each with
+# exactly one file named <App>_<version>.<ext>. portable/ and windows-x64/ always; macOS/ and Android/ when built.
+ZIP_LAYOUT = {"portable": ".exe", "windows-x64": ".exe", "macOS": ".dmg", "Android": ".apk"}
+REQUIRED_FOLDERS = ("portable", "windows-x64")
 
-This file tells Magpie.exe to keep everything it stores (accounts, settings, mail, logs) in the
-folder MagpieData next to it, instead of in your Windows profile. Copy this whole folder to a
-USB stick or anywhere you like. Delete this file and Magpie uses your Windows profile again.
 
-Passwords and sign-ins are protected with your Windows account, so on another PC or another
-Windows user Magpie asks you to sign in again. Only one Magpie can run at a time for a Windows
-user, so close the installed one before starting this one.
-
-To install Magpie instead, use the installer folder.
-"""
+def artifact_name(version):
+    """"Magpie_7.2.0" — the CI artifact and the zip (Krishna's naming rule: [Software_Name]_[Version_Number])."""
+    return f"{APP}_{version}"
 
 
 def sha256_file(file):
@@ -306,34 +307,51 @@ def sha256_file(file):
     return h.hexdigest().upper()
 
 
+def _check_layout(entries, where):
+    """entries: {folder: [file names]}. Each allowed folder holds one <App>_<version><ext>; nothing else at the top."""
+    folders = set(entries)
+    extra = sorted(folders - set(ZIP_LAYOUT))
+    missing = [f for f in REQUIRED_FOLDERS if f not in folders]
+    if extra or missing or "" in folders:
+        raise ReleaseError(f"{where}: top level must be portable/ and windows-x64/ (plus macOS/, Android/ when built); "
+                           f"found {sorted(f or '(loose files)' for f in folders)}")
+    pattern = re.compile(r"^" + APP + r"_\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(\.[a-z]+)$")
+    for folder, names in entries.items():
+        m = pattern.match(names[0]) if len(names) == 1 else None
+        if not m or m.group(1) != ZIP_LAYOUT[folder]:
+            raise ReleaseError(f"{where}: {folder}/ must hold exactly one {APP}_<version>{ZIP_LAYOUT[folder]}; found {names}")
+
+
 def check_folders(folder):
-    """A folder (the unpacked CI download) holding only installer/ and portable/ (Krishna's standing rule)."""
-    found = sorted(os.listdir(folder))
-    if found != sorted(ZIP_FOLDERS) or not all(os.path.isdir(os.path.join(folder, f)) for f in found):
-        raise ReleaseError(f"{folder}: must hold exactly {', '.join(ZIP_FOLDERS)}; found {found}")
+    """The unpacked CI download / release zip folder (Krishna's workflow rule)."""
+    entries = {}
+    for name in os.listdir(folder):
+        full = os.path.join(folder, name)
+        entries[name if os.path.isdir(full) else ""] = sorted(os.listdir(full)) if os.path.isdir(full) else [name]
+    _check_layout(entries, folder)
 
 
-def make_zip(version, setup_dir, exe_dir, out_dir):
-    """Design Z1: Magpie-<version>.zip with only installer/ (setup EXE + checksum) and portable/
-    (Magpie.exe + checksum + portable.txt). Returns the zip's path; also writes <zip>.sha256."""
+def make_zip(version, setup_dir, exe_dir, out_dir, dmg=None, apk=None):
+    """Magpie_<version>.zip: portable/Magpie_<v>.exe (the app), windows-x64/Magpie_<v>.exe (the installer),
+    macOS/Magpie_<v>.dmg and Android/Magpie_<v>.apk when given. Returns its path; also writes <zip>.sha256."""
     setups = sorted(glob.glob(os.path.join(setup_dir, "*.exe")))
     if len(setups) != 1:
         raise ReleaseError(f"expected one setup EXE in {setup_dir}, found {len(setups)}")
     exe = os.path.join(exe_dir, "Magpie.exe")
     if not os.path.isfile(exe):
         raise ReleaseError(f"{exe} not found")
-    entries = [("installer/" + os.path.basename(setups[0]), setups[0]), ("portable/Magpie.exe", exe)]
-    for folder, file in (("installer", setups[0]), ("portable", exe)):
-        entries.append((f"{folder}/{os.path.basename(file)}.sha256", None, sha256_file(file) + "\n"))
+    name = artifact_name(version)
+    entries = [(f"portable/{name}.exe", exe), (f"windows-x64/{name}.exe", setups[0])]
+    for folder, file in (("macOS", dmg), ("Android", apk)):
+        if file:
+            if not os.path.isfile(file):
+                raise ReleaseError(f"{file} not found")
+            entries.append((f"{folder}/{name}{ZIP_LAYOUT[folder]}", file))
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, f"Magpie-{version}.zip")
+    out = os.path.join(out_dir, f"{name}.zip")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for e in entries:
-            if len(e) == 2:
-                z.write(e[1], e[0])
-            else:
-                z.writestr(e[0], e[2])
-        z.writestr("portable/" + PORTABLE_MARKER, PORTABLE_TEXT.replace("\n", "\r\n"))
+        for arc, file in entries:
+            z.write(file, arc)
     check_zip(out)
     with open(out + ".sha256", "w", encoding="ascii", newline="\n") as f:
         f.write(sha256_file(out) + "\n")
@@ -341,15 +359,19 @@ def make_zip(version, setup_dir, exe_dir, out_dir):
 
 
 def check_zip(file):
-    """Only installer/ and portable/ at the top of the zip, and nothing else (Krishna's standing rule)."""
+    """The zip follows the same layout as the CI download (Krishna's workflow rule)."""
     with zipfile.ZipFile(file) as z:
-        names = z.namelist()
-    top = {n.replace("\\", "/").split("/")[0] for n in names}
-    loose = [n for n in names if "/" not in n.replace("\\", "/")]
-    if top != set(ZIP_FOLDERS) or loose:
-        raise ReleaseError(f"{file}: top level must be exactly {', '.join(ZIP_FOLDERS)}; found {sorted(top)}")
-    if "portable/" + PORTABLE_MARKER not in names:
-        raise ReleaseError(f"{file}: portable/{PORTABLE_MARKER} missing")
+        names = [n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")]
+    entries = {}
+    for n in names:
+        folder, _, rest = n.partition("/")
+        if not rest:
+            entries.setdefault("", []).append(folder)
+        elif "/" in rest:
+            raise ReleaseError(f"{file}: nested path {n}")
+        else:
+            entries.setdefault(folder, []).append(rest)
+    _check_layout({k: sorted(v) for k, v in entries.items()}, file)
 
 
 def main(argv=None):
@@ -370,9 +392,13 @@ def main(argv=None):
     cf.add_argument("folder")
     zp = sub.add_parser("zip")
     zp.add_argument("version")
-    zp.add_argument("--setup", required=True, help="folder with the one setup EXE (installer/Output)")
+    zp.add_argument("--setup", required=True, help="folder with the one setup EXE (windows/installer/Output)")
     zp.add_argument("--exe", required=True, help="folder with Magpie.exe (publish)")
-    zp.add_argument("--out", required=True, help="folder for Magpie-<version>.zip")
+    zp.add_argument("--dmg", help="the macOS disk image, when built")
+    zp.add_argument("--apk", help="the Android package, when built")
+    zp.add_argument("--out", required=True, help="folder for Magpie_<version>.zip")
+    an = sub.add_parser("artifact-name")
+    an.add_argument("version")
     args = p.parse_args(argv)
     try:
         if args.cmd == "pending":
@@ -399,9 +425,11 @@ def main(argv=None):
             print(f"{len(program)} program file(s) changed" + ("; new version set" if program else "; no new version needed"))
         elif args.cmd == "check-folders":
             check_folders(args.folder)
-            print(f"{args.folder}: installer/ and portable/ only")
+            print(f"{args.folder}: layout ok")
         elif args.cmd == "zip":
-            print(make_zip(args.version, args.setup, args.exe, args.out))
+            print(make_zip(args.version, args.setup, args.exe, args.out, args.dmg, args.apk))
+        elif args.cmd == "artifact-name":
+            print(artifact_name(args.version))
     except ReleaseError as e:
         print("release_prep: " + str(e), file=sys.stderr)
         return 1

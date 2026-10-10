@@ -70,17 +70,21 @@ pre-release, offered only to copies with "Include test versions" ticked.
 ## Build
 
 ```
-build/publish.sh        # Linux/macOS
-build\publish.ps1       # Windows
+windows/build/publish.sh        # Linux/macOS
+windows\build\publish.ps1       # Windows
 ```
-Runs unit tests, builds, runs the **blocking** XAML static check (`build/xaml_check.py`), and publishes `publish/Magpie.exe`.
-Integration tests against a real IMAP/SMTP server: `build/test-servers/start.sh`, then
-`dotnet test tests/Magpie.Core.Tests --filter Category=Integration`.
+Runs unit tests, builds, runs the **blocking** XAML static check (`windows/build/xaml_check.py`), and publishes `publish/Magpie.exe`.
+Integration tests against a real IMAP/SMTP server: `common/scripts/test-servers/start.sh`, then
+`dotnet test common/tests/Magpie.Core.Tests --filter Category=Integration`.
 
 | Project | Contents |
 |---|---|
-| `src/Magpie.Core` | Accounts, OAuth (PKCE loopback), IMAP/SMTP sync (MailKit), SQLite + FTS5 store, threading, smart categories, HTML sanitiser, composer, outbox (send later / undo), reminders, AI providers + unified toggle gating |
-| `src/Magpie.App` | WPF UI (MVVM Toolkit), WebView2 reader and editor, tray, dialogs, Settings |
-| `tests/Magpie.Core.Tests` | xUnit unit tests + end-to-end tests against Dovecot |
-| `build/` | publish scripts, XAML static checker + WPF metadata dump, test servers |
-| `installer/` | Inno Setup script (built by GitHub Actions) |
+| `common/src/Magpie.Core` | Accounts, OAuth (PKCE loopback), IMAP/SMTP sync (MailKit), SQLite + FTS5 store, threading, smart categories, HTML sanitiser, composer, outbox (send later / undo), reminders, AI providers + unified toggle gating |
+| `windows/Magpie.App` | WPF UI (MVVM Toolkit), WebView2 reader and editor, tray, dialogs, Settings |
+| `common/tests/Magpie.Core.Tests` | xUnit unit tests + end-to-end tests against Dovecot |
+| `windows/build/` | publish scripts, XAML static checker + WPF metadata dump, Windows UI smoke |
+| `windows/installer/` | Inno Setup script (built by GitHub Actions) |
+| `common/scripts/` | release script (version, zip) and the IMAP/SMTP test servers |
+| `macOS/` | Magpie for Mac (Avalonia) — coming in the next PR |
+| `android/` | placeholder — no Android app yet |
+| `docs/` | designs, CI/CD, sign-in setup |

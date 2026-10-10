@@ -3,12 +3,18 @@ namespace Magpie.Core;
 /// <summary>
 /// Where Magpie keeps its data. Everything is local: %APPDATA%\Magpie (mail, settings, sign-ins, log) and
 /// %LOCALAPPDATA%\Magpie (reading-pane cache, update downloads) by default.
-/// Portable mode (design Z1): a file <see cref="PortableMarker"/> next to Magpie.exe (the release zip's portable/
-/// folder has one) puts all of it in <see cref="PortableFolder"/> next to the EXE instead, e.g. on a USB stick.
+/// Portable mode (design Z1): the portable copy keeps all of it in <see cref="PortableFolder"/> next to the EXE instead,
+/// e.g. on a USB stick. A copy is portable when the EXE is named like the release zip's portable/Magpie_x.y.z.exe
+/// (Krishna's workflow rule: one file per folder) and wasn't put there by the installer, or when an older
+/// <see cref="PortableMarker"/> sits next to it.
 /// </summary>
 public sealed class AppPaths
 {
     public const string PortableMarker = "portable.txt";
+    /// <summary>The portable EXE's name: Magpie_7.2.0.exe (release_prep.py APP + "_").</summary>
+    public const string PortableExePrefix = "Magpie_";
+    /// <summary>Inno Setup's uninstaller sits next to an installed Magpie: that copy is never portable.</summary>
+    public const string InstallerUninstaller = "unins000.exe";
     public const string PortableFolder = "MagpieData";
 
     public string Root { get; }
@@ -67,15 +73,27 @@ public sealed class AppPaths
     private static AppPaths? _default;
 
     /// <summary>The paths for this copy of Magpie (portable or not), decided once from where Magpie.exe is.</summary>
-    public static AppPaths Default() => _default ??= For(ExeFolder());
+    public static AppPaths Default() => _default ??= For(ExeFolder(), Path.GetFileName(Environment.ProcessPath));
 
     public static string ExeFolder() =>
         Path.GetDirectoryName(Environment.ProcessPath) is { Length: > 0 } d ? d : AppContext.BaseDirectory;
 
-    /// <summary>Portable when <paramref name="exeFolder"/> holds portable.txt; otherwise the user's profile folders.</summary>
-    public static AppPaths For(string exeFolder)
+    /// <summary>True for the portable copy: Magpie_x.y.z.exe not installed by the installer, or portable.txt next to it.</summary>
+    public static bool IsPortableCopy(string exeFolder, string? exeName) =>
+        File.Exists(Path.Combine(exeFolder, PortableMarker))
+        || (exeName is { } n && PortableExeName.IsMatch(n)
+            && !File.Exists(Path.Combine(exeFolder, InstallerUninstaller)));
+
+    /// <summary>The download's own name, <c>Magpie_&lt;version&gt;.exe</c> (x.y.z or x.y.z-beta.N; a browser's " (1)" allowed).
+    /// Any other name — e.g. a copy renamed to <c>Magpie_backup.exe</c> — keeps using the profile folders.</summary>
+    private static readonly System.Text.RegularExpressions.Regex PortableExeName = new(
+        @"^Magpie_\d+\.\d+\.\d+(-[A-Za-z]+\.\d+)?( \(\d+\))?\.exe$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Portable (see <see cref="IsPortableCopy"/>); otherwise the user's profile folders.</summary>
+    public static AppPaths For(string exeFolder, string? exeName = null)
     {
-        if (File.Exists(Path.Combine(exeFolder, PortableMarker)))
+        if (IsPortableCopy(exeFolder, exeName))
         {
             var data = Path.Combine(exeFolder, PortableFolder);
             return new AppPaths(data, Path.Combine(data, "local"), true);
