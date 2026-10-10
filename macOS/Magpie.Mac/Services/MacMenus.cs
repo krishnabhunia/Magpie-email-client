@@ -11,10 +11,20 @@ namespace Magpie.Mac.Services;
 /// </summary>
 public static class MacMenus
 {
+    // The shortcuts of the menus being built (see ForWindow / AppMenu), so a ⌘ key pressed inside a web page can run
+    // the same command (see KeyForwardScript and TryRunKey).
+    private static List<(KeyGesture Gesture, Action Run)>? _collect;
+    private static readonly List<(KeyGesture Gesture, Action Run)> AppShortcuts = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Window, List<(KeyGesture Gesture, Action Run)>> WindowShortcuts = new();
+
     private static NativeMenuItem Item(string header, Action click, Key? key = null, KeyModifiers mods = KeyModifiers.Meta)
     {
         var item = new NativeMenuItem(header);
-        if (key is { } k) item.Gesture = new KeyGesture(k, mods);
+        if (key is { } k)
+        {
+            item.Gesture = new KeyGesture(k, mods);
+            _collect?.Add((item.Gesture, click));
+        }
         item.Click += (_, _) => click();
         return item;
     }
@@ -32,6 +42,13 @@ public static class MacMenus
 
     /// <summary>The items of the Magpie menu (before Avalonia's Services · Hide · Quit).</summary>
     public static NativeMenu AppMenu()
+    {
+        AppShortcuts.Clear();
+        _collect = AppShortcuts;
+        try { return BuildAppMenu(); } finally { _collect = null; }
+    }
+
+    private static NativeMenu BuildAppMenu()
     {
         var m = new NativeMenu();
         m.Add(Item("About Magpie", () => Views.SettingsWindow.Open("About")));
@@ -53,6 +70,81 @@ public static class MacMenus
 
     /// <summary>File · Edit · View · Message · Window for <paramref name="window"/>.</summary>
     public static NativeMenu ForWindow(Window window)
+    {
+        var list = new List<(KeyGesture Gesture, Action Run)>();
+        _collect = list;
+        try { return BuildForWindow(window); }
+        finally { _collect = null; WindowShortcuts.AddOrUpdate(window, list); }
+    }
+
+    /// <summary>
+    /// Put into Magpie's own pages (compose editor, reading pane): while a web page has the keyboard, macOS hands ⌘ keys
+    /// to the page instead of the menu bar — found on a real Mac, where ⌘W did nothing in the compose editor. The page
+    /// sends them here instead ({t:"menukey"}), except the keys the page itself uses (copy, paste, cut, select all,
+    /// undo / redo, bold, italic, underline, link) and ⌘↩.
+    /// </summary>
+    public const string KeyForwardScript = """
+<script>
+(function(){
+  var own = {c:1, v:1, x:1, a:1, z:1, b:1, i:1, u:1, k:1};
+  document.addEventListener('keydown', function(e){
+    if (!e.metaKey) return;
+    var k = (e.key || '').toLowerCase();
+    if (k.length !== 1) return;
+    if (own[k] && !e.ctrlKey && !e.altKey && !(e.shiftKey && k !== 'z')) return;
+    e.preventDefault();
+    try { window.chrome.webview.postMessage(JSON.stringify({t:'menukey', k:k, s:e.shiftKey, c:e.ctrlKey, a:e.altKey})); } catch(_) {}
+  }, true);
+})();
+</script>
+""";
+
+    /// <summary>Adds <see cref="KeyForwardScript"/> to a page.</summary>
+    public static string WithKeyForwarding(string html)
+    {
+        var i = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        return i < 0 ? html + KeyForwardScript : html.Insert(i, KeyForwardScript);
+    }
+
+    /// <summary>Runs the menu command for a ⌘ key a page sent (see <see cref="KeyForwardScript"/>); true when one ran.</summary>
+    public static bool TryRunKey(Window window, string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (!r.TryGetProperty("t", out var t) || t.GetString() != "menukey") return false;
+            var k = r.TryGetProperty("k", out var kv) ? kv.GetString() ?? "" : "";
+            var mods = KeyModifiers.Meta;
+            if (r.TryGetProperty("s", out var sv) && sv.GetBoolean()) mods |= KeyModifiers.Shift;
+            if (r.TryGetProperty("c", out var cv) && cv.GetBoolean()) mods |= KeyModifiers.Control;
+            if (r.TryGetProperty("a", out var av) && av.GetBoolean()) mods |= KeyModifiers.Alt;
+            if (KeyFor(k) is not { } key) return true;   // a menukey message, but nothing to run
+            var run = Find(WindowShortcuts.TryGetValue(window, out var list) ? list : null, key, mods) ?? Find(AppShortcuts, key, mods);
+            if (run != null) Avalonia.Threading.Dispatcher.UIThread.Post(run);
+            return true;
+        }
+        catch (Exception ex) { Magpie.Core.Log.Warn("menu key from page: " + ex.Message); return false; }
+    }
+
+    private static Action? Find(List<(KeyGesture Gesture, Action Run)>? list, Key key, KeyModifiers mods)
+    {
+        if (list == null) return null;
+        foreach (var (g, run) in list)
+            if (g.Key == key && g.KeyModifiers == mods) return run;
+        return null;
+    }
+
+    internal static Key? KeyFor(string k)
+    {
+        if (k.Length != 1) return null;
+        var c = char.ToUpperInvariant(k[0]);
+        if (c is >= 'A' and <= 'Z') return Enum.Parse<Key>(c.ToString());
+        if (c is >= '0' and <= '9') return Enum.Parse<Key>("D" + c);
+        return c switch { ',' => Key.OemComma, '.' => Key.OemPeriod, _ => null };
+    }
+
+    private static NativeMenu BuildForWindow(Window window)
     {
         var bar = new NativeMenu();
         bar.Add(Sub("File",

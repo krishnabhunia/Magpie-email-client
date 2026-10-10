@@ -101,7 +101,7 @@ public partial class ComposeWindow : Window
         _editor = new WebSurface();
         EditorHost.Child = _editor;
         _editor.Message += OnEditorMessage;
-        _editor.Load(EditorPage.ForMac, "editor");
+        _editor.Load(MacMenus.WithKeyForwarding(EditorPage.ForMac), "editor");
         _vm.GetHtml = GetHtmlAsync;
         App.ThemeChanged += OnThemeChanged;
     }
@@ -157,6 +157,7 @@ public partial class ComposeWindow : Window
             var t = doc.RootElement.TryGetProperty("t", out var v) ? v.GetString() : null;
             switch (t)
             {
+                case "menukey": MacMenus.TryRunKey(this, json); break;
                 case "ready":
                     await _editor.RunAsync($"setDark({(App.IsDark ? "true" : "false")})");
                     await _editor.RunAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");

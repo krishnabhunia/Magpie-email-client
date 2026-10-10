@@ -26,7 +26,7 @@ public partial class MainWindow : Window
         ReaderSurface = new WebSurface();
         ReaderHost.Child = ReaderSurface;
         _presenter = new ReaderPresenter(ReaderSurface, () => AppServices.Engine.Config.Appearance.FolderHover.DelayMs);
-        ReaderSurface.Message += ViewModel.Reader.OnPageMessage;
+        ReaderSurface.Message += json => { if (!json.Contains("\"menukey\"", StringComparison.Ordinal) || !MacMenus.TryRunKey(this, json)) ViewModel.Reader.OnPageMessage(json); };
         ReaderSurface.MailtoClicked += href => Views.ComposeWindow.OpenMailto(href, ViewModel.Reader.AccountId);
         ViewModel.Reader.PageReady += _presenter.Show;
         _presenter.LoadShell(App.IsDark);

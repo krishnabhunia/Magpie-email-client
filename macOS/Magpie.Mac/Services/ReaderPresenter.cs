@@ -35,7 +35,7 @@ public sealed class ReaderPresenter
     public void LoadShell(bool dark)
     {
         _ready = false;
-        _web.Load(ReaderShell.Build(dark), "reader-shell");
+        _web.Load(MacMenus.WithKeyForwarding(ReaderShell.Build(dark)), "reader-shell");
     }
 
     public void Show(ReaderPage page)
