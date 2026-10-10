@@ -20,6 +20,7 @@ public static class Icons
         ["setaside"] = new("Set aside", "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5", "#4338CA", "#E0E7FF", "#C7D2FE", "#312E81"),
         ["snooze"] = new("Snooze", "M12 7v5l3 2 M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "#6D28D9", "#EDE9FE", "#DDD6FE", "#4C1D95"),
         ["followup"] = new("Follow up", "M5 21V4 M5 4h11l-2 4 2 4H5", "#C2410C", "#FFEDD5", "#FED7AA", "#7C2D12"),
+        ["contacts"] = new("Contacts", "M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8z M4.5 20c0-3.6 3.4-5.6 7.5-5.6s7.5 2 7.5 5.6", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
         ["calendar"] = new("Calendar", "M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4 M8 14h3v3H8z", "#1D4ED8", "#DBEAFE", "#BFDBFE", "#1E3A8A"),
         ["scheduled"] = new("Scheduled", "M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
         ["sent"] = new("Sent", "M4 12l16-8-6 16-3-7z M11 13l9-9", "#15803D", "#DCFCE7", "#BBF7D0", "#14532D"),

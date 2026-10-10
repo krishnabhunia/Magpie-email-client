@@ -46,6 +46,7 @@ public sealed partial class MailStore
         }.ToString();
         Migrate();
         EnsureProductivitySchema();
+        EnsureSavedContactsSchema();   // design B4
     }
 
     private SqliteConnection Open()
@@ -249,7 +250,7 @@ public sealed partial class MailStore
             using var c = Open();
             using var tx = c.BeginTransaction();
             Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from" })
+            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from", "saved_contacts" })
                 Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
             tx.Commit();
         }

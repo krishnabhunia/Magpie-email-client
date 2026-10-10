@@ -34,6 +34,8 @@ public sealed class ReaderHover
 
     private MailEngine E => AppServices.Engine;
     private bool HasCalendar => _main.Cal.WritableCalendars().Count > 0;
+    /// <summary>Design B4: E6 "Add to contacts" when a Google account can save contacts.</summary>
+    private bool HasContacts => E.Contacts.GoogleAccounts.Count > 0;
 
     private Task Run(string js) { try { return _script(js); } catch (Exception ex) { Log.Warn("hover card: " + ex.Message); return Task.CompletedTask; } }
     private Task Note(string text) => Run("hmNote(" + JsonSerializer.Serialize(text) + ")");
@@ -123,7 +125,8 @@ public sealed class ReaderHover
                 var name = Str(c, "n").Trim().Trim('"');
                 var isMe = _reader.IsMyAddress(address);
                 var (count, last) = await Task.Run(() => E.Store.AddressStats(address));
-                var items = HoverMenus.ForAddress(name, address, isMe, HasCalendar, _reader.PicturesTrusted(address));
+                var saved = E.Store.GetSavedContacts().Any(sc => sc.Emails.Contains(address, StringComparer.OrdinalIgnoreCase));
+                var items = HoverMenus.ForAddress(name, address, isMe, HasCalendar, _reader.PicturesTrusted(address), HasContacts, saved);
                 card = new
                 {
                     title = name.Length > 0 ? name : address,
@@ -195,6 +198,13 @@ public sealed class ReaderHover
             case "E5":
                 await Hide();
                 Search(HoverMenus.SearchFor(id, address));
+                break;
+            case "E6":
+                await Hide();
+                if (E.Store.GetSavedContacts().Any(sc => sc.Emails.Contains(address, StringComparer.OrdinalIgnoreCase)))
+                    _main.OpenContact(address);   // already saved: show it
+                else
+                    Views.ContactEditWindow.Edit(_owner, _main.People.NewFrom(name, address));
                 break;
             case "E7":
                 await Hide();
