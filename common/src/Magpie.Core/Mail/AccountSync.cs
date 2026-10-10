@@ -124,6 +124,9 @@ public sealed class AccountSync : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _remaining = new();
     /// <summary>UIDs already tried this session, so one message the server won't return can't loop forever.</summary>
     private readonly HashSet<(long folder, uint uid)> _tried = new();
+    /// <summary>Per folder: UIDs a refused FETCH left out of a CONDSTORE flag check; asked again every round until listed.</summary>
+    private readonly Dictionary<long, HashSet<uint>> _flagRetry = new();
+    private HashSet<uint> FlagRetry(long folderId) => _flagRetry.TryGetValue(folderId, out var set) ? set : _flagRetry[folderId] = new HashSet<uint>();
     private long _priorityFolder;
     private int _budget;
     /// <summary>Per folder: server UIDs still to list, newest first (filled by a full check, drained by backfill rounds).</summary>
@@ -180,6 +183,17 @@ public sealed class AccountSync : IDisposable
     }
 
     private DateTimeOffset? _lastSuccess;
+    private bool _offlineLogged;
+
+    /// <summary>"SocketException: No such host is known." — the type too, since some exceptions carry no message
+    /// (magpie.log had 64 "email … unreadable: " lines with nothing after the colon).</summary>
+    internal static string Describe(Exception ex)
+    {
+        var text = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : $"{ex.GetType().Name}: {ex.Message.Trim()}";
+        if (ex.InnerException is { } inner && (string.IsNullOrWhiteSpace(inner.Message) || !text.Contains(inner.Message.Trim(), StringComparison.Ordinal)))
+            text += " ← " + (string.IsNullOrWhiteSpace(inner.Message) ? inner.GetType().Name : $"{inner.GetType().Name}: {inner.Message.Trim()}");
+        return text.Replace('\n', ' ').Replace('\r', ' ');
+    }
 
     private void SetStatus(SyncState state, string msg = "")
     {
@@ -218,6 +232,7 @@ public sealed class AccountSync : IDisposable
                 if (full) _lastFullCheck = DateTimeOffset.Now;
                 _initialDone = true;
                 backoff = TimeSpan.FromSeconds(15);
+                if (_offlineLogged) { _offlineLogged = false; Log.Info($"[{Account.Email}] back online"); }
                 var pending = _store.PendingOpCount(Account.Id);
                 var backlog = Backlog;
                 var windowLeft = _windowPending ? _windowLeft : 0;
@@ -245,7 +260,9 @@ public sealed class AccountSync : IDisposable
             catch (Exception ex)
             {
                 var offline = ImapLease.IsConnectionError(ex) || ex is TimeoutException || ex.InnerException is System.Net.Sockets.SocketException;
-                Log.Error($"[{Account.Email}] sync failed", ex);
+                // No internet (magpie.log: 73 "No such host is known" errors with full stacks): one line when it starts, not an error each retry.
+                if (!offline) Log.Error($"[{Account.Email}] sync failed", ex);
+                else if (!_offlineLogged) { _offlineLogged = true; Log.Info($"[{Account.Email}] offline: {Describe(ex)}"); }
                 SetStatus(offline ? SyncState.Offline : SyncState.Error, Connector.Friendly(ex));
                 try { await _wake.WaitAsync(backoff, ct); } catch (OperationCanceledException) { break; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 300));
@@ -417,6 +434,7 @@ public sealed class AccountSync : IDisposable
                 local.HighestModSeq = 0;
                 local.UidNext = 0;
                 lock (_tried) _tried.RemoveWhere(t => t.folder == local.Id);
+                _flagRetry.Remove(local.Id);
                 lock (_queue) _queue.Remove(local.Id);
                 full = true;
             }
@@ -500,24 +518,48 @@ public sealed class AccountSync : IDisposable
                     if ((long)f.HighestModSeq != local.HighestModSeq)
                     {
                         var req = new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Flags) { ChangedSince = (ulong)local.HighestModSeq };
-                        foreach (var s in await f.FetchAsync(0, -1, req, ct))
+                        IList<IMessageSummary> changedSince;
+                        // Gmail's Bin answered "NO Some messages could not be FETCHed" and the whole folder failed: ask by UID instead.
+                        try { changedSince = await f.FetchAsync(0, -1, req, ct); }
+                        catch (ImapCommandException ex) when (ex.Response == ImapCommandResponse.No)
+                        {
+                            // The watermark moves on below without the refused emails: remember them and ask again next rounds.
+                            var leftOut = new List<UniqueId>();
+                            changedSince = await FetchTolerantAsync(f, map.Keys.Select(u => new UniqueId(f.UidValidity, (uint)u)).ToList(),
+                                new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Flags), ct, leftOut);
+                            if (leftOut.Count > 0) FlagRetry(local.Id).UnionWith(leftOut.Select(u => u.Id));
+                        }
+                        foreach (var s in changedSince)
                             if (map.TryGetValue(s.UniqueId.Id, out var cur) && s.Flags is { } fl)
                             {
                                 var nf = Merge(cur.flags, fl);
                                 if (nf != cur.flags) changes.Add((s.UniqueId.Id, nf));
                             }
                     }
-                }
-                else
-                {
-                    var known = map.Keys.Select(u => new UniqueId(f.UidValidity, (uint)u)).ToList();
-                    foreach (var batch in known.Chunk(1000))
-                        foreach (var s in await f.FetchAsync(batch, MessageSummaryItems.UniqueId | MessageSummaryItems.Flags, ct))
+                    // Emails a refused FETCH left out in an earlier round: their flags are checked until the server lists them.
+                    if (_flagRetry.TryGetValue(local.Id, out var retry) && retry.Count > 0)
+                    {
+                        var again = retry.Where(u => map.ContainsKey(u)).Select(u => new UniqueId(f.UidValidity, u)).ToList();
+                        var still = new List<UniqueId>();
+                        foreach (var s in await FetchTolerantAsync(f, again, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Flags), ct, still))
                             if (map.TryGetValue(s.UniqueId.Id, out var cur) && s.Flags is { } fl)
                             {
                                 var nf = Merge(cur.flags, fl);
                                 if (nf != cur.flags) changes.Add((s.UniqueId.Id, nf));
                             }
+                        retry.Clear();
+                        retry.UnionWith(still.Select(u => u.Id));
+                    }
+                }
+                else
+                {
+                    var known = map.Keys.Select(u => new UniqueId(f.UidValidity, (uint)u)).ToList();
+                    foreach (var s in await FetchTolerantAsync(f, known, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Flags), ct))
+                        if (map.TryGetValue(s.UniqueId.Id, out var cur) && s.Flags is { } fl)
+                        {
+                            var nf = Merge(cur.flags, fl);
+                            if (nf != cur.flags) changes.Add((s.UniqueId.Id, nf));
+                        }
                 }
                 // Don't overwrite local changes that haven't reached the server yet.
                 var pendingFlags = _store.GetPendingOps(Account.Id).Where(o => o.FolderId == local.Id).Select(o => o.Uid).ToHashSet();
@@ -612,6 +654,53 @@ public sealed class AccountSync : IDisposable
         return f;
     }
 
+    /// <summary>
+    /// FETCH in batches of 1000; when the server refuses a batch ("NO Some messages could not be FETCHed"), the batch is
+    /// split in halves until the bad emails are found, and only those are left out (one log line for all of them).
+    /// More than <see cref="MaxLeftOut"/> refusals in one call is not a few bad emails but a server refusing
+    /// everything ("NO [UNAVAILABLE] Temporary System Error"): the refusal is thrown as before, so the round fails
+    /// and is tried again later instead of thousands of emails being left out one by one.
+    /// </summary>
+    internal static async Task<IList<IMessageSummary>> FetchTolerantAsync(IMailFolder f, IList<UniqueId> uids, IFetchRequest req, CancellationToken ct, ICollection<UniqueId>? leftOut = null)
+    {
+        var all = new List<IMessageSummary>();
+        var skipped = new List<UniqueId>();
+        try
+        {
+            foreach (var batch in uids.Chunk(1000)) all.AddRange(await FetchSplitAsync(f, batch, req, skipped, ct));
+        }
+        finally
+        {
+            if (skipped.Count > 0)
+            {
+                Log.Info($"{f.FullName}: {skipped.Count} email(s) the server refused to list left out: uid {string.Join(", ", skipped.Take(20).Select(u => u.Id))}{(skipped.Count > 20 ? ", …" : "")}");
+                if (leftOut != null) foreach (var u in skipped) leftOut.Add(u);
+            }
+        }
+        return all;
+    }
+
+    internal const int MaxLeftOut = 50;
+
+    private static async Task<IList<IMessageSummary>> FetchSplitAsync(IMailFolder f, IList<UniqueId> uids, IFetchRequest req, List<UniqueId> leftOut, CancellationToken ct)
+    {
+        if (uids.Count == 0) return Array.Empty<IMessageSummary>();
+        try { return await f.FetchAsync(uids, req, ct); }
+        catch (ImapCommandException ex) when (ex.Response == ImapCommandResponse.No)
+        {
+            if (uids.Count == 1)
+            {
+                leftOut.Add(uids[0]);
+                if (leftOut.Count > MaxLeftOut) throw;
+                return Array.Empty<IMessageSummary>();
+            }
+            var half = uids.Count / 2;
+            var list = new List<IMessageSummary>(await FetchSplitAsync(f, uids.Take(half).ToList(), req, leftOut, ct));
+            list.AddRange(await FetchSplitAsync(f, uids.Skip(half).ToList(), req, leftOut, ct));
+            return list;
+        }
+    }
+
     private async Task<List<MessageRow>> FetchRowsAsync(ImapClient client, IMailFolder f, MailFolder local, IList<UniqueId> uids, CancellationToken ct, ISet<long>? returnedUids = null)
     {
         var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
@@ -619,7 +708,7 @@ public sealed class AccountSync : IDisposable
         var gmail = client.Capabilities.HasFlag(ImapCapabilities.GMailExt1);
         if (gmail) items |= MessageSummaryItems.GMailThreadId;
         var req = new FetchRequest(items) { Headers = new HeaderSet(ExtraHeaders) };
-        var summaries = await f.FetchAsync(uids, req, ct);
+        var summaries = await FetchTolerantAsync(f, uids, req, ct);
         foreach (var summary in summaries) returnedUids?.Add(summary.UniqueId.Id);
         var rows = new List<MessageRow>();
         // Oldest first so replies can find their parents' thread keys within the same batch.
@@ -808,13 +897,24 @@ public sealed class AccountSync : IDisposable
                     await imap.GetStreamsAsync(chunk.Select(r => new UniqueId(f.UidValidity, (uint)r.Uid)).Distinct().ToList(), async (_, _, uid, stream, token) =>
                     {
                         if (!byUid.TryGetValue(uid.Id, out var row)) return;
-                        try
+                        MimeMessage msg;
+                        try { msg = await MimeMessage.LoadAsync(stream, token); }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
                         {
-                            var msg = await MimeMessage.LoadAsync(stream, token);
-                            SaveBody(row, msg, writeFile: Account.DownloadAttachments);
+                            // Not retried one by one below (it failed the same way there and stopped the whole download).
+                            // A broken email is not asked for again this session; a broken stream is, next round.
+                            Log.Warn($"[{Account.Email}] email {row.Id} unreadable: {Describe(ex)}");
                             done.Add(row.Id);
+                            if (!ImapLease.IsConnectionError(ex)) _noBody.Add(row.Id);
+                            return;
                         }
-                        catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn($"[{Account.Email}] email {row.Id} unreadable: {ex.Message}"); }
+                        try { SaveBody(row, msg, writeFile: Account.DownloadAttachments); }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // Couldn't be kept on this PC (file in use, database busy): the email is fine — tried again next round.
+                            Log.Warn($"[{Account.Email}] email {row.Id} not saved: {Describe(ex)}");
+                        }
+                        done.Add(row.Id);
                     }, ct);
                 }
                 foreach (var row in chunk.Where(r => !done.Contains(r.Id)))
@@ -1008,11 +1108,31 @@ public sealed class AccountSync : IDisposable
                     foreach (var op in group)
                     {
                         ct.ThrowIfCancellationRequested();
+                        // EmptyFolder has no UID (and UniqueId refuses 0); the others are checked by CanReplay first.
+                        var uid = op.Uid is > 0 and <= uint.MaxValue ? new UniqueId(f.UidValidity, (uint)op.Uid) : UniqueId.Invalid;
                         if (!CanReplay(op, f.UidValidity))
                         {
-                            Log.Warn($"[{Account.Email}] queued {op.Kind} was not replayed: this mailbox's message identifiers changed or were not recorded");
-                            _store.RemovePendingOp(op.Id);
-                            continue;
+                            // The UID can't be trusted (folder renumbered, or its number wasn't recorded): find the email by Message-ID.
+                            UniqueId? found = null;
+                            if (op.Kind != PendingOpKind.EmptyFolder && op.MessageId.Length > 0)
+                            {
+                                try { found = await FindByMessageIdAsync(f, op.MessageId, ct); }
+                                catch (ImapCommandException ex)
+                                {
+                                    // A refused search doesn't mean the email is gone: keep the change for the next checks.
+                                    RetryLater(op, ex.Message);
+                                    continue;
+                                }
+                            }
+                            if (found is not { } byId)
+                            {
+                                Log.Info(op.Kind == PendingOpKind.EmptyFolder
+                                    ? $"[{Account.Email}] queued {op.Kind} skipped: the folder was renumbered on the server since it was queued"
+                                    : $"[{Account.Email}] queued {op.Kind} skipped: the email is no longer in that folder on the server");
+                                _store.RemovePendingOp(op.Id);
+                                continue;
+                            }
+                            uid = byId;
                         }
                         try
                         {
@@ -1024,7 +1144,6 @@ public sealed class AccountSync : IDisposable
                                 _store.RemovePendingOp(op.Id);
                                 continue;
                             }
-                            var uid = new UniqueId(f.UidValidity, (uint)op.Uid);
                             switch (op.Kind)
                             {
                                 case PendingOpKind.SetSeen: await f.StoreAsync(uid, new StoreFlagsRequest(StoreAction.Add, KitFlags.Seen) { Silent = true }, ct); break;
@@ -1053,22 +1172,61 @@ public sealed class AccountSync : IDisposable
                             }
                             _store.RemovePendingOp(op.Id);
                         }
-                        catch (Exception ex) when (ex is MessageNotFoundException || (ex is ImapCommandException ic && ic.Response == ImapCommandResponse.No))
+                        catch (MessageNotFoundException ex)
                         {
                             Log.Warn($"[{Account.Email}] op {op.Kind} uid {op.Uid} dropped: {ex.Message}");
                             _store.RemovePendingOp(op.Id);
+                        }
+                        catch (ImapCommandException ex) when (ex.Response == ImapCommandResponse.No)
+                        {
+                            // Gmail answers "NO System Error (Failure)" now and then: try again at the next checks, give up after 5.
+                            RetryLater(op, ex.Message);
                         }
                         catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
                         {
                             Log.Error($"[{Account.Email}] op {op.Kind} failed", ex);
                             _store.BumpPendingOp(op.Id);
-                            if (op.Attempts >= 5) _store.RemovePendingOp(op.Id);
+                            if (op.Attempts + 1 >= MaxOpAttempts) _store.RemovePendingOp(op.Id);
                         }
                     }
                 }
                 finally { try { await f.CloseAsync(false, ct); } catch { } }
             }
         }, ct);
+    }
+
+    internal const int MaxOpAttempts = 5;
+
+    /// <summary>A queued change the server refused for now: counted, kept for the next checks, dropped after <see cref="MaxOpAttempts"/>.</summary>
+    private void RetryLater(PendingOp op, string why)
+    {
+        _store.BumpPendingOp(op.Id);
+        if (op.Attempts + 1 >= MaxOpAttempts)
+        {
+            Log.Warn($"[{Account.Email}] op {op.Kind} uid {op.Uid} dropped after {MaxOpAttempts} tries: {why}");
+            _store.RemovePendingOp(op.Id);
+        }
+        else Log.Info($"[{Account.Email}] op {op.Kind} uid {op.Uid} refused ({why}); trying again later");
+    }
+
+    /// <summary>The UID of the email with exactly this Message-ID in the open folder, or null when it isn't there.
+    /// SEARCH HEADER matches substrings ("abc@x" also finds "prefix-abc@x"), so each candidate's own Message-ID is
+    /// checked before a move or delete acts on it.</summary>
+    internal static async Task<UniqueId?> FindByMessageIdAsync(IMailFolder f, string messageId, CancellationToken ct)
+    {
+        var want = Threading.NormalizeId(messageId);
+        if (want.Length == 0) return null;
+        var candidates = await f.SearchAsync(KitSearch.HeaderContains("Message-ID", want), ct);
+        if (candidates.Count == 0) return null;
+        return ExactMessageId(await f.FetchAsync(candidates, MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope, ct), want);
+    }
+
+    /// <summary>The UID of the email whose Message-ID is exactly <paramref name="messageId"/> (angle brackets and case ignored), or null.</summary>
+    internal static UniqueId? ExactMessageId(IEnumerable<IMessageSummary> candidates, string messageId)
+    {
+        var want = Threading.NormalizeId(messageId);
+        return candidates.Where(s => want.Length > 0 && Threading.NormalizeId(s.Envelope?.MessageId) == want)
+            .Select(s => (UniqueId?)s.UniqueId).FirstOrDefault();
     }
 
     internal static bool CanReplay(PendingOp op, uint uidValidity) =>
