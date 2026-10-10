@@ -1,8 +1,12 @@
-namespace Magpie.App.Services;
+namespace Magpie.Core.Mail;
 
-/// <summary>The rich-text editor used by the compose window (our own page — the only place scripts run).</summary>
+/// <summary>The rich-text editor used by the compose window (our own page — the only place scripts run).
+/// Shared by the Windows app (WebView2) and Magpie for Mac (WKWebView, see <see cref="ForMac"/>).</summary>
 public static class EditorPage
 {
+    /// <summary>The same page with the Mac keys: ⌘↩ sends and ⌘K adds a link (Ctrl still works too).</summary>
+    public static string ForMac => Html.Replace("e.ctrlKey && ", "(e.ctrlKey || e.metaKey) && ", StringComparison.Ordinal);
+
     public const string Html = """
 <!doctype html>
 <html><head><meta charset="utf-8">

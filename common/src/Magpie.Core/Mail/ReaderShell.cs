@@ -14,6 +14,20 @@ public static class ReaderShell
         return html.Replace("function post(", Script + "\nfunction post(", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The call that shows <paramref name="page"/> in a loaded shell (the same payload the Windows reader sends):
+    /// <paramref name="reuse"/> = the browser still holds this page, so only its key and fingerprint are sent; the
+    /// shell answers false when it doesn't have it after all, and the caller sends it again in full.
+    /// </summary>
+    public static string PresentScript(ReaderPage page, long version, bool reuse, int hoverDelayMs) =>
+        "magpiePresent(" + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            key = page.Key, fingerprint = page.Fingerprint, body = reuse ? "" : page.Body, style = reuse ? "" : page.Style,
+            bytes = page.Bytes, context = page.Context, retain = page.Retain, version, reuse,
+            read = page.ReadStates,
+            hoverDelay = Math.Clamp(hoverDelayMs, 50, 1000),
+        }) + ")";
+
     private const string Script = """
         var READER={pages:new Map(),active:null,bytes:0,version:0,context:null,started:false};
         function readerRoot(){ return READER.active?READER.active.node:document; }

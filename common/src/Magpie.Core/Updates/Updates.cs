@@ -98,7 +98,37 @@ public static class UpdateText
     };
 }
 
-/// <summary>One GitHub release that carries Magpie.exe and its SHA-256 file.</summary>
+/// <summary>
+/// The file an installed copy updates from, with its SHA-256 next to it on the release: <see cref="WindowsExe"/>
+/// (Magpie.exe, the Windows app) or <see cref="MacDmg"/> (Magpie_&lt;version&gt;.dmg, Magpie for Mac).
+/// </summary>
+public sealed class UpdateAsset
+{
+    private readonly Func<string, string> _file;
+    private readonly Func<AppVersion, string> _local;
+
+    private UpdateAsset(string kind, Func<string, string> file, Func<AppVersion, string> local)
+    {
+        Kind = kind;
+        _file = file;
+        _local = local;
+    }
+
+    /// <summary>"exe" or "dmg".</summary>
+    public string Kind { get; }
+
+    /// <summary>The asset's name on a release whose tag is v<paramref name="tagVersion"/> (the tag without its "v").</summary>
+    public string FileFor(string tagVersion) => _file(tagVersion);
+    public string ShaFor(string tagVersion) => FileFor(tagVersion) + ".sha256";
+    /// <summary>The name of the verified download in the updates folder.</summary>
+    public string LocalFileFor(AppVersion version) => _local(version);
+
+    public static UpdateAsset WindowsExe { get; } = new("exe", _ => UpdateClient.ExeAsset, v => $"Magpie-{v}.exe");
+    /// <summary>The Mac disk image CI puts on every release and test version: Magpie_8.0.0.dmg, Magpie_8.0.0-beta.95.dmg.</summary>
+    public static UpdateAsset MacDmg { get; } = new("dmg", v => $"Magpie_{v}.dmg", v => $"Magpie_{v}.dmg");
+}
+
+/// <summary>One GitHub release that carries the update file (Magpie.exe, or the Mac .dmg) and its SHA-256 file.</summary>
 public sealed class ReleaseInfo
 {
     public AppVersion Version { get; init; } = AppVersion.TryParse("0.0.0")!;
@@ -120,8 +150,16 @@ public sealed class UpdateClient
     public static string ReleasesPage => $"https://github.com/{Repo}/releases";
 
     private readonly HttpClient _http;
+    private readonly UpdateAsset _asset;
 
-    public UpdateClient(HttpClient http) { _http = http; }
+    /// <param name="asset">What this copy updates from: Magpie.exe (Windows, the default) or the Mac .dmg.</param>
+    public UpdateClient(HttpClient http, UpdateAsset? asset = null)
+    {
+        _http = http;
+        _asset = asset ?? UpdateAsset.WindowsExe;
+    }
+
+    public UpdateAsset Asset => _asset;
 
     /// <summary>The newest release newer than <paramref name="current"/>, or null when up to date.</summary>
     public async Task<ReleaseInfo?> FindNewerAsync(AppVersion current, bool includePrerelease, CancellationToken ct)
@@ -134,12 +172,15 @@ public sealed class UpdateClient
             throw new InvalidOperationException("GitHub is limiting requests right now — Magpie will try again later.");
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync(ct);
-        var best = PickNewest(ParseReleases(json), includePrerelease);
+        var best = PickNewest(ParseReleases(json, _asset), includePrerelease);
         return best != null && best.Version.CompareTo(current) > 0 ? best : null;
     }
 
     /// <summary>Releases (not drafts) that have both Magpie.exe and Magpie.exe.sha256 attached.</summary>
-    public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json)
+    public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json) => ParseReleases(json, UpdateAsset.WindowsExe);
+
+    /// <summary>Releases (not drafts) that have both <paramref name="asset"/>'s file and its .sha256 attached.</summary>
+    public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json, UpdateAsset asset)
     {
         var list = new List<(ReleaseInfo, bool)>();
         using var doc = JsonDocument.Parse(json);
@@ -150,6 +191,9 @@ public sealed class UpdateClient
             var tag = r.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
             var ver = AppVersion.TryParse(tag);
             if (ver == null) continue;
+            var tagVersion = tag.Trim().TrimStart('v', 'V');
+            var exeName = asset.FileFor(tagVersion);
+            var shaName = asset.ShaFor(tagVersion);
             string exe = "", sha = "";
             long size = 0;
             if (r.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
@@ -157,8 +201,8 @@ public sealed class UpdateClient
                 {
                     var name = a.TryGetProperty("name", out var n) ? n.GetString() : null;
                     var url = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() ?? "" : "";
-                    if (string.Equals(name, ExeAsset, StringComparison.OrdinalIgnoreCase)) { exe = url; size = a.TryGetProperty("size", out var s) ? s.GetInt64() : 0; }
-                    else if (string.Equals(name, ShaAsset, StringComparison.OrdinalIgnoreCase)) sha = url;
+                    if (string.Equals(name, exeName, StringComparison.OrdinalIgnoreCase)) { exe = url; size = a.TryGetProperty("size", out var s) ? s.GetInt64() : 0; }
+                    else if (string.Equals(name, shaName, StringComparison.OrdinalIgnoreCase)) sha = url;
                 }
             if (exe.Length == 0 || sha.Length == 0) continue;
             var pre = (r.TryGetProperty("prerelease", out var p) && p.ValueKind == JsonValueKind.True) || ver.IsPrerelease;
@@ -183,14 +227,14 @@ public sealed class UpdateClient
         return m.Success ? m.Groups[1].Value.ToLowerInvariant() : null;
     }
 
-    /// <summary>Downloads Magpie.exe into <paramref name="folder"/> and checks it against the published SHA-256.
-    /// Returns the verified file's path; a file that fails the check is deleted.</summary>
+    /// <summary>Downloads the update file (Magpie.exe, or the Mac .dmg) into <paramref name="folder"/> and checks it
+    /// against the published SHA-256. Returns the verified file's path; a file that fails the check is deleted.</summary>
     public async Task<string> DownloadAsync(ReleaseInfo release, string folder, IProgress<double>? progress, CancellationToken ct)
     {
         Directory.CreateDirectory(folder);
         var expected = ParseSha256(await _http.GetStringAsync(release.ShaUrl, ct))
                        ?? throw new InvalidOperationException("The release's checksum file is unreadable.");
-        var final = Path.Combine(folder, $"Magpie-{release.Version}.exe");
+        var final = Path.Combine(folder, _asset.LocalFileFor(release.Version));
         if (File.Exists(final) && await HashFileAsync(final, ct) == expected) { progress?.Report(1); return final; }
         var part = final + ".part";
         using (var res = await _http.GetAsync(release.ExeUrl, HttpCompletionOption.ResponseHeadersRead, ct))
