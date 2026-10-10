@@ -56,6 +56,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 50 | Update button at the top-right of the title bar (always visible; replaces the green pill) | UB1 (HTML) | Approved 7 Oct 2026 — UB1-a · Built — not yet tried on Windows | [#59](https://github.com/krishnabhunia/Magpie-email-client/issues/59) |
 | 51 | Delete three ways: Shift+Del forever · past emails from a sender/domain keeping the last N · future auto-delete, one dialog | DX1 (HTML) | Approved 7 Oct 2026 — DX1-A + DX1-B1 · Built — not yet tried on Windows | [#60](https://github.com/krishnabhunia/Magpie-email-client/issues/60) |
 | 70 | Superhuman-inspired local productivity workspace | [Workspace design](PRODUCTIVITY-WORKSPACE.md) | Approved 8 Oct 2026 · Implemented in feature PR with automated Windows checks; device smoke test pending | [#83](https://github.com/krishnabhunia/Magpie-email-client/issues/83) |
+| 71 | Sign in once on a new PC and every account comes along, added at the same time (like Spark desktop) | SY1 (HTML, below) | Design shown 8 Oct 2026 — waiting for approval (choose A / B / C and SA1 / SA2) | [#85](https://github.com/krishnabhunia/Magpie-email-client/issues/85) |
 | 72 | Fix 7.0.0 startup crash from search button styles | Patch regression | Fixed in PR #89; full main-window construction checks pass; device verification pending | [#88](https://github.com/krishnabhunia/Magpie-email-client/issues/88) |
 | 73 | Show update button only for a newer GitHub release; label Update to vx.y.z | Requested 9 Oct 2026 | Implemented with native state and binding checks; device verification pending | [#90](https://github.com/krishnabhunia/Magpie-email-client/issues/90) |
 
@@ -305,3 +306,50 @@ y when there is a feature modification and z when there is a bug or error fix."*
   negative margins so the row doesn't grow); the full date is a tooltip (`ThreadItem.DateTip`). Replaces RB1's floating
   bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr
+
+## #71 SY1 — Sign in once, every account comes along (shown 8 Oct 2026, waiting for approval)
+
+Krishna: *"Like in Spark desktop email client, when I log in with an account and parallelly all the accounts gets
+attached, can we do it for Magpie?"*
+
+Screens: https://claude.ai/artifact/B4af4P9CiwZ9SouwKEhQ8B (SY1·1 – SY1·5).
+
+**Why it needs a design choice.** Spark keeps your account list and every sign-in on Spark's own servers, tied to the
+first email you sign in with. Magpie has no server of its own, so the copy has to live somewhere Krishna already owns.
+
+**The flow (SY1·1 – SY1·4).**
+
+| Step | What happens |
+|---|---|
+| PC 1 — turn it on | Settings → Accounts → **Bring my accounts to other PCs** (off by default). Pick the *home account* (default: the first one), set a **sync password** (10+ characters, typed twice, strength line; Magpie can't recover it), choose what comes along: accounts + sign-ins (always) · settings — rules, signatures, quick replies, templates, tags, Gatekeeper lists, look (ticked) · AI keys (not ticked) · "Add accounts from my other PCs here by themselves" (ticked). Status line: "✓ Copy updated 10:42 · 17 accounts · 46 KB · used by HP-OMEN, NEW-PC"; *Update the copy now* · *Stop and delete the copy*. |
+| The copy | One locked file in the EX1 format (PBKDF2-SHA256 600 000 rounds → AES-256-GCM, new format name `magpie-accounts-copy`), refreshed within a minute of any account or setting change. Emails never go into it. |
+| New PC — sign in once | First start / Add account → sign in to the home account as usual → Magpie finds the copy → "Your other accounts are in this mailbox — Magpie on HP-OMEN left a locked copy (updated today 10:42): 17 accounts…" → sync password → list, all ticked (accounts already here greyed) → **Add 16 accounts**. *Not now — only this account* keeps it for later (Settings → Accounts). Wrong password: "That password doesn't open this copy", try again. |
+| Added at once | One step adds every ticked account (one settings save); each starts its own sync, as today. **First downloads run 4 accounts at a time, Inbox first**, the rest start as one finishes, so the PC and the servers aren't swamped — mail is readable from the first ready account. Window + status bar: "Adding accounts · 9 of 16 ready"; per account ✓ Ready / Getting Inbox · n of N / Waiting / *Type password* (saved password no longer works) / *Sign in again* (Google or Microsoft refused the copied sign-in). One account's problem never stops the others. |
+| Staying in step | Added / signed in again / password changed / a setting changed → copy updated; other PCs pick it up at their next mail check. Newest change wins per account and per settings block. **Removing an account never removes it elsewhere by itself** — the other PCs ask (*Remove it here too* / *Keep it*). Removing the home account asks to move the copy or delete it. A new sync password: other PCs ask for it once. |
+
+**To approve (SY1·5).**
+
+| Choice | Options | Recommended |
+|---|---|---|
+| Where the copy lives | **A** hidden folder "Magpie Sync" in the home account's mailbox (IMAP: Gmail, Microsoft 365, any IMAP; Gmail web shows a "Magpie Sync" label with one email) · **B** Google Drive hidden app folder (invisible; Gmail home account only; Drive API on + `drive.appdata` scope, home account signs in again once) · **C** list only, no sign-ins in the copy (no sync password, but every account still signs in on the new PC — not Spark-like) | **A** |
+| Sign-in apps on a brand-new PC | **SA1** Google / Microsoft client IDs built into each release from GitHub secrets (Settings → Sign-in apps still overrides) — one sign-in, like Spark; but anyone installing this public build signs in through Krishna's Google project · **SA2** typed once on each new PC (as today), then everything else comes along | **SA1** |
+
+**Doubts / lacunas to settle before building.**
+
+| # | Point |
+|---|---|
+| 1 | Google consent screen in *Testing* ends sign-ins after 7 days → copied Gmail sign-ins older than that ask "Sign in again". Publishing the app (`docs/SIGN-IN-SETUP.md` step 7) fixes it. |
+| 2 | Security: the home mailbox then holds every account's sign-in, locked with the sync password. Someone needs both the mailbox and the password; the lock can be attacked offline, so the password must be long (10+ characters enforced, strength line). |
+| 3 | Work / school Microsoft accounts with device rules (Conditional Access) may refuse a sign-in copied from another PC → that account shows *Sign in again*; the others carry on. |
+| 4 | Two PCs changing the same rule or signature within one mail check: the newer change wins; the older is lost (no merge inside one item). |
+| 5 | Copy size: signatures with pictures are data URIs; the copy is capped at 10 MB (a bigger one is refused with a plain message). |
+
+**Build notes (after approval).** Core: `src/Magpie.Core/Settings/AccountsCopy.cs` (collect / lock / unlock / merge, reuses
+`SettingsBackup.Lock`/`Unlock` with format `magpie-accounts-copy`), `Mail/CopyFolder.cs` (create the hidden folder,
+APPEND/replace the one email by header `X-Magpie-Accounts-Copy`, read the newest); `AccountSync` leaves that folder out
+of the folder list, counts and search; `MailEngine.AddAccounts(IReadOnlyList<(Account, secrets)>)` — one save, then
+staggered first syncs (`SemaphoreSlim(4)`); App: Settings → Accounts card, Add account "found" step, adding window +
+status-bar segment, toasts. Settings: `AccountsCopySettings` (Normalise, Snapshot/SaveCore twins, search index row
+"sync / other PCs / Spark"). Tests in the release's `Release<ver>Tests.cs` (lock/unlock round trip, merge rules, removal
+never propagates, staggering) + one Dovecot integration test (write the copy on account 1, find and unlock it as a
+"new PC", add every account). Kind: **New** → x (the release script works the number out).
