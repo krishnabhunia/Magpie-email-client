@@ -22,7 +22,7 @@ git clone https://github.com/krishnabhunia/Magpie-email-client.git Magpie
 cd Magpie
 git config user.name "Krishna Bhunia"
 git config user.email "krishnabhunia@gmail.com"
-dotnet test tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # expect 151 passed
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # expect 151 passed
 ```
 
 ## 3. Start Claude Code
@@ -32,15 +32,15 @@ cd C:\Dev\Magpie
 claude
 ```
 
-Claude Code reads `CLAUDE.md` automatically (build/test/release rules, the way you work). Paste this as the first message:
+Claude Code reads `CLAUDE.md` automatically (windows/build/test/release rules, the way you work). Paste this as the first message:
 
-> Read CLAUDE.md and docs/ROADMAP-1.2.0.md. First run the "Smoke test first" table in the roadmap on this laptop (build with build/publish.ps1, run publish/Magpie.exe, use my real accounts) and report anything that fails as a table. Then start queue item #6 (dark theme, design B1): show me the plan and a screenshot/mock-up before writing code, wait for my "approved", build it, run tests + the XAML check, and stop before pushing — I will say "deploy".
+> Read CLAUDE.md and docs/ROADMAP-1.2.0.md. First run the "Smoke test first" table in the roadmap on this laptop (build with windows/build/publish.ps1, run publish/Magpie.exe, use my real accounts) and report anything that fails as a table. Then start queue item #6 (dark theme, design B1): show me the plan and a screenshot/mock-up before writing code, wait for my "approved", build it, run tests + the XAML check, and stop before pushing — I will say "deploy".
 
 ## 4. Daily loop
 
 | Step | Command / word |
 |---|---|
-| Build + tests + XAML check + EXE | `build/publish.ps1` |
+| Build + tests + XAML check + EXE | `windows/build/publish.ps1` |
 | Run the app | `publish\Magpie.exe` (quit the installed Magpie first — single instance) |
 | Approve a design | write **approved** |
 | Release | write **deploy** → Claude bumps the version + CHANGELOG, commits, pushes → GitHub Actions publishes `v<version>` → your installed Magpie offers the update |

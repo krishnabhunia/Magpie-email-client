@@ -10,12 +10,12 @@
     <StartupObject>ProductivitySmoke.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Magpie.App/Magpie.App.csproj" />
+    <ProjectReference Include="../../Magpie.App/Magpie.App.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Application-relative pack URIs use the host assembly. Mirror Magpie's assets in this test host. -->
-    <Resource Include="../../src/Magpie.App/Assets/app.ico" Link="Assets/app.ico" />
-    <Resource Include="../../src/Magpie.App/Assets/app-256.png" Link="Assets/app-256.png" />
-    <Resource Include="../../src/Magpie.App/Assets/Fonts/*.ttf" Link="Assets/Fonts/%(Filename)%(Extension)" />
+    <Resource Include="../../Magpie.App/Assets/app.ico" Link="Assets/app.ico" />
+    <Resource Include="../../Magpie.App/Assets/app-256.png" Link="Assets/app-256.png" />
+    <Resource Include="../../Magpie.App/Assets/Fonts/*.ttf" Link="Assets/Fonts/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

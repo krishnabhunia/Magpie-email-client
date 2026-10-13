@@ -1,13 +1,13 @@
 # Static XAML checks
 
 WPF validates much of its XAML only at run time, on Windows. We build on Linux and can't run
-the app, so `build/xaml_check.py` catches those failures before we ship. Remindly 1.0.0 is the
+the app, so `windows/build/xaml_check.py` catches those failures before we ship. Remindly 1.0.0 is the
 example: a shared Style had `<Setter Property="WindowStartupLocation">`, and every dialog crashed.
 
 ```
-python3 build/xaml_check.py                    # checks ../src/Magpie.App
-python3 build/xaml_check.py path/to/App.Project
-python3 build/xaml_check.py --dps build/app-types.json   # also know the app's own controls
+python3 windows/build/xaml_check.py                    # checks ../src/Magpie.App
+python3 windows/build/xaml_check.py path/to/App.Project
+python3 windows/build/xaml_check.py --dps windows/build/app-types.json   # also know the app's own controls
 ```
 
 The checker writes one line per problem, in the form `[category] file:line: message`. It exits
@@ -37,7 +37,7 @@ load it, dump the app assembly and pass it with `--dps`, as shown below.
 
 ## Regenerating `wpf-dps.json`
 
-`build/wpf-dps.json` is generated and committed. It holds the metadata for every public type in
+`windows/build/wpf-dps.json` is generated and committed. It holds the metadata for every public type in
 WindowsBase, PresentationCore, PresentationFramework, System.Xaml, Ribbon and
 WindowsFormsIntegration. For each type it records:
 
@@ -47,17 +47,17 @@ WindowsFormsIntegration. For each type it records:
 - the CLR and routed events
 - the XAML xmlns→CLR namespace map
 
-`build/DpDump` reads these from the reference assemblies with `MetadataLoadContext`, so it runs on
+`windows/build/DpDump` reads these from the reference assemblies with `MetadataLoadContext`, so it runs on
 Linux. Regenerate the file after you change the targeting pack version:
 
 ```
 export PATH=/opt/dotnet:$PATH DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
-dotnet run --project build/DpDump -- build/wpf-dps.json
+dotnet run --project windows/build/DpDump -- windows/build/wpf-dps.json
 # optional: include the app's own controls (build the app first), then pass it to the checker
-dotnet run --project build/DpDump -- build/app-types.json src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
-python3 build/xaml_check.py --dps build/app-types.json
+dotnet run --project windows/build/DpDump -- windows/build/app-types.json windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64/Magpie.dll
+python3 windows/build/xaml_check.py --dps windows/build/app-types.json
 # every assembly the build references must be in it (a missing one only fails on Windows, at run time)
-dotnet run --project build/DpDump -c Release -- --check-refs src/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
+dotnet run --project windows/build/DpDump -c Release -- --check-refs windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
 ```
 
 By default the dump uses the newest `microsoft.windowsdesktop.app.ref` package in the NuGet cache

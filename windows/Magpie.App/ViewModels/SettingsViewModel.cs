@@ -630,7 +630,7 @@ public partial class SettingsViewModel : ObservableObject
     public UpdateService? Updates => AppServices.Updates;
     /// <summary>Auto update (design A1): one switch for checking, downloading and installing in the background.</summary>
     [ObservableProperty] private bool _autoUpdate;
-    public string PortableNote => _e.Paths.IsPortable ? "Portable copy: mail, settings and sign-ins are kept in the MagpieData folder next to Magpie.exe." : "";
+    public string PortableNote => _e.Paths.IsPortable ? "Portable copy: mail, settings and sign-ins are kept in the MagpieData folder next to this Magpie." : "";
     public bool IsPortable => _e.Paths.IsPortable;
     [ObservableProperty] private bool _includePrerelease;
     public string UpdateSource => "Updates come from github.com/" + Core.Updates.UpdateClient.Repo;

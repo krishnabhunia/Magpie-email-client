@@ -8,13 +8,13 @@ needed a personal `RELEASE_TOKEN` secret.)
 
 | # | Step | Who / what |
 |---|---|---|
-| 1 | Every PR that changes the program writes its lines under `## Next version (not released yet)` in `CHANGELOG.md` — each under `### New`, `### Changed` or `### Fixed` (see *Version rule*) — then runs `python build/release_prep.py apply --date YYYY-MM-DD`: works the number out, sets it in `Directory.Build.props` (+ release date) and `installer/Magpie.iss`, dates the CHANGELOG heading, updates CLAUDE.md. PRs that only touch docs, CI, tests or build scripts need no version. | Claude |
-| 2 | CI on the PR: release-script tests → **a change to Magpie gets a new version** (`needs-version`) → `check` (new version set everywhere, CHANGELOG dated, number follows the rule) → unit tests → build → XAML + missing-assembly checks → EXE → installer → zip | `build.yml` |
+| 1 | Every PR that changes the program writes its lines under `## Next version (not released yet)` in `CHANGELOG.md` — each under `### New`, `### Changed` or `### Fixed` (see *Version rule*) — then runs `python common/scripts/release_prep.py apply --date YYYY-MM-DD`: works the number out, sets it in `Directory.Build.props` (+ release date) and `windows/installer/Magpie.iss`, dates the CHANGELOG heading, updates CLAUDE.md. PRs that only touch docs, CI, tests or build scripts need no version. | Claude |
+| 2 | CI on the PR, one workflow with jobs **version** (release-script tests, `needs-version`, `check`) → **windows** (unit tests, build, XAML + missing-assembly checks, UI smoke, EXE, installer) · **macos** (`macOS/build/build.sh` → dmg) · **android** (`android/build.sh` → apk; both skipped while those folders have no app) → **package** (the one artifact `Magpie_<v>.zip`, release or test version) | `build.yml` |
 | 3 | Same CI run publishes a **test version** `x.y.z-beta.N` (pre-release; only the newest is kept). If the PR is merged before this finishes and `vx.y.z` is out, no test version is published (or it is removed right away) | `build.yml` |
 | 4 | Smoke-test it: Magpie → Settings → Updates → *Include test versions* → Check now (or download it from the release page) | **Krishna** |
 | 5 | Merge the PR — this is the deploy | **Krishna** |
-| 6 | Release `vx.y.z` is published (EXE, installer, `Magpie-x.y.z.zip`, checksums, notes from CHANGELOG), marked Latest; its test versions are removed; the issues in its CHANGELOG section's `<!-- closes: #n … -->` are closed with a link to the release | `build.yml` |
-| 7 | Installed copies update themselves (Auto update, or Settings → Updates / the title-bar pill) | Magpie |
+| 6 | Release `vx.y.z` is published (`Magpie.exe`, installer, `Magpie_x.y.z.zip`, the Mac `Magpie_x.y.z.dmg` once it exists, checksums, notes from CHANGELOG), marked Latest; its test versions are removed; the issues in its CHANGELOG section's `<!-- closes: #n … -->` are closed with a link to the release | `build.yml` |
+| 7 | Installed copies check at every start and update themselves (Auto update, or Settings → Updates / the title-bar "Update to vx.y.z" button) | Magpie |
 
 ## Version rule (design VB1, Krishna 30 Sep 2026)
 
@@ -25,8 +25,8 @@ needed a personal `RELEASE_TOKEN` secret.)
 | **z** | `### Fixed` — a bug or error fixed | 2.2.1 |
 
 The biggest kind in the section wins (New + Fixed → x). The count starts from the newest dated version in
-`CHANGELOG.md`; nobody types the number. The number changes with every update: CI fails a PR that changes `src/`,
-`installer/`, `Directory.Build.props`, `global.json` or `Magpie.sln` while its version is already released. Releases
+`CHANGELOG.md`; nobody types the number. The number changes with every update: CI fails a PR that changes the app code
+(`common/src/`, `windows/Magpie.App/`, `windows/installer/`, `macOS/Magpie.Mac/`, `android/app/`), `Directory.Build.props`, `global.json` or `Magpie.sln` while its version is already released. Releases
 before 30 Sep 2026 keep their numbers. The version shows in the main window's title bar (design V1).
 
 Tags are created by CI — never create releases or tags by hand (a hand-made release with a higher number,
@@ -44,24 +44,29 @@ e.g. `v2.0.1-…`, confuses "Latest"; Magpie's updater skips releases without `M
 | File | Job |
 |---|---|
 | `.github/workflows/build.yml` | CI for every PR and push; test version for a PR with a new version; release on `main` when the version has none yet |
-| `build/release_prep.py` | `apply` (work the version out and set it everywhere), `pending`, `needs-version`, `check`, `notes`, `zip` (design Z1), `numeric`, `closes` |
-| `build/test_release_prep.py` | Its tests (run in CI) |
+| `common/scripts/release_prep.py` | `apply` (work the version out and set it everywhere), `pending`, `needs-version`, `check`, `notes`, `zip` / `check-folders` / `artifact-name` (zip rule), `numeric`, `closes` |
+| `common/scripts/test_release_prep.py` | Its tests (run in CI) |
 | `.github/workflows/remove-release.yml` | Run by hand: removes one release and its tag (e.g. one made by mistake); refuses the newest real release |
 
-## Release zip (design Z1)
+## Release zip and CI download (Krishna's GitHub Skills rules, 10 Oct 2026; replaced design Z1)
 
-Every release and test version also carries `Magpie-<version>.zip` (+ `.sha256`), built by
-`python build/release_prep.py zip` — it refuses to build a zip with anything but these two folders:
+Every run's **Artifacts** box holds exactly one file, `Magpie_<version>.zip` (`Magpie_7.2.0-beta.95.zip` for a PR).
+Every release and test version carries the same zip (+ `.sha256`), built by `python common/scripts/release_prep.py zip`,
+which refuses anything else:
 
 | Folder | Holds | Use |
 |---|---|---|
-| `installer/` | `Magpie-Setup-<version>.exe` + `.sha256` | Install Magpie (Start menu, starts with Windows, updates itself) |
-| `portable/` | `Magpie.exe` + `.sha256` + `portable.txt` | Run from anywhere; `portable.txt` keeps all data in `MagpieData\` next to the EXE |
+| `portable/` | `Magpie_<version>.exe` | Run from anywhere; a `Magpie_*.exe` the installer didn't put there keeps all data in `MagpieData\` next to it |
+| `windows-x64/` | `Magpie_<version>.exe` (the installer) | Install Magpie (Start menu, starts with Windows, updates itself) |
+| `macOS/` | `Magpie_<version>.dmg` | Magpie for Mac (Apple Silicon) — once `macOS/` has the app |
+| `Android/` | `Magpie_<version>.apk` | Only when `android/` has an app (none planned yet) |
 
-The loose `Magpie.exe` / `.sha256` stay on each release too: installed copies update from them.
+The loose `Magpie.exe` / `.sha256` and `Magpie-Setup-<version>.exe` stay on each release too: installed copies
+update from `Magpie.exe`, and copies installed for all users point at the setup file.
 
-The CI download of every run (Actions → the run → Artifacts) is the same zip unpacked: only `installer/` and
-`portable/` (`release_prep.py check-folders` fails the build otherwise).
+How a platform plugs in: the **macos** job runs `macOS/build/build.sh <version>` and expects `macOS/out/Magpie_<version>.dmg`;
+the **android** job runs `android/build.sh <version>` and expects `android/out/Magpie_<version>.apk`. The jobs hand
+their files to **package** as working artifacts (`build-*`), which package deletes after building the zip.
 
 ## Build checks that fail the build
 

@@ -2,11 +2,11 @@
 """Static XAML checker for WPF apps that are cross-compiled on Linux and cannot be run here.
 
 WPF validates a lot of XAML only at run time (on Windows). This script uses the metadata
-dumped from the WPF reference assemblies (build/wpf-dps.json, produced by build/DpDump) to
+dumped from the WPF reference assemblies (windows/build/wpf-dps.json, produced by windows/build/DpDump) to
 catch those failures before shipping.
 
-Usage:  python3 build/xaml_check.py [app_dir] [--dps extra-types.json ...]
-        (default app_dir: ../src/Magpie.App relative to this script)
+Usage:  python3 windows/build/xaml_check.py [app_dir] [--dps extra-types.json ...]
+        (default app_dir: ../Magpie.App relative to this script)
 
 Prints one line per problem:  [category] file:line: message
 Exit code: 0 = clean, 1 = problems found, 2 = usage / setup error.
@@ -928,7 +928,7 @@ def main(argv):
     if any(a in ("-h", "--help") for a in args):
         print(__doc__)
         return 0
-    app_dir = args[0] if args else os.path.normpath(os.path.join(HERE, "..", "src", "Magpie.App"))
+    app_dir = args[0] if args else os.path.normpath(os.path.join(HERE, "..", "Magpie.App"))
     if not os.path.isdir(app_dir):
         print(f"xaml_check: app directory not found: {app_dir}", file=sys.stderr)
         return 2

@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
-    <Version>7.1.0</Version>
-    <AssemblyVersion>7.1.0.0</AssemblyVersion>
-    <FileVersion>7.1.0.0</FileVersion>
+    <Version>7.2.0</Version>
+    <AssemblyVersion>7.2.0.0</AssemblyVersion>
+    <FileVersion>7.2.0.0</FileVersion>
     <Company>Krishna Bhunia</Company>
     <Product>Magpie</Product>
     <Copyright>© 2026 Krishna Bhunia</Copyright>
@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- Shown in Settings → About ("Released on dd-MMM-yyyy"); set with each release -->
-    <ReleaseDate>2026-10-09</ReleaseDate>
+    <ReleaseDate>2026-10-10</ReleaseDate>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleaseDate" Value="$(ReleaseDate)" />

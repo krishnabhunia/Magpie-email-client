@@ -5,7 +5,13 @@
     "### New"      a feature added, or a big change to how Magpie looks or works  -> x.0.0
     "### Changed"  a feature changed                                             -> x.y.0
     "### Fixed"    a bug or error fixed                                          -> x.y.z
-    then run: python build/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+    then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
+
+## 7.2.0 (10 Oct 2026)
+### Changed
+- **New download layout.** Each build is now one file, `Magpie_<version>.zip`, holding `portable/Magpie_<version>.exe` (run from anywhere; its data stays next to it), `windows-x64/Magpie_<version>.exe` (the installer), and soon `macOS/Magpie_<version>.dmg`. The old `installer/` and `portable/` folders and `portable.txt` are gone; an older portable copy with `portable.txt` keeps working.
+### Fixed
+- **Magpie checks for a new version every time it starts**, even with Auto update off (it then only shows the "Update to vx.y.z" button and waits for you to install).
 
 ## 7.1.0 (9 Oct 2026)
 ### Changed

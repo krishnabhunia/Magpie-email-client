@@ -234,7 +234,7 @@ foreach (var asm in targets)
 
 var doc = new
 {
-    generator = "build/DpDump",
+    generator = "windows/build/DpDump",
     assemblies = targets.Select(a => a.GetName().Name).ToArray(),
     xmlns,
     types,

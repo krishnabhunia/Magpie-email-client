@@ -10,4 +10,4 @@ touch /opt/imaptest/users
 chown -R mailtest:mailtest /opt/imaptest/mail
 dovecot -c /opt/imaptest/dovecot.conf || true
 (cd /opt/imaptest && setsid nohup python3 smtp.py > smtp.out 2>&1 &)
-echo "IMAP 127.0.0.1:1143, SMTP 127.0.0.1:1025 — run: dotnet test tests/Magpie.Core.Tests --filter Category=Integration"
+echo "IMAP 127.0.0.1:1143, SMTP 127.0.0.1:1025 — run: dotnet test common/tests/Magpie.Core.Tests --filter Category=Integration"

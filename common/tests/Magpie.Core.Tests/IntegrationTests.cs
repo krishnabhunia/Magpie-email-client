@@ -15,7 +15,7 @@ namespace Magpie.Core.Tests;
 /// <summary>
 /// End-to-end tests against a real IMAP server (Dovecot on 127.0.0.1:1143) and an SMTP server that
 /// delivers into it (127.0.0.1:1025). They are skipped (pass trivially) when those servers are not running.
-/// Set up with build/test-servers/start.sh.
+/// Set up with common/scripts/test-servers/start.sh.
 /// </summary>
 [Trait("Category", "Integration")]
 public class IntegrationTests
