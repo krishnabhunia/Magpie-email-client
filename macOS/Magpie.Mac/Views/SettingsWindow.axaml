@@ -1,0 +1,97 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Magpie.Mac.ViewModels"
+        x:Class="Magpie.Mac.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Settings"
+        Width="680" Height="600" MinWidth="560" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Icon="avares://Magpie/Assets/magpie.png"
+        Background="{DynamicResource Magpie.Pane}">
+  <TabControl Name="Tabs" Margin="12,8">
+    <TabItem Header="Accounts" Name="AccountsTab">
+      <ScrollViewer>
+        <StackPanel Spacing="10" Margin="4,10">
+          <TextBlock Text="Accounts" Classes="heading" />
+          <ItemsControl ItemsSource="{Binding Accounts}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:AccountRow">
+                <Border BorderBrush="{DynamicResource Magpie.Line}" BorderThickness="0,0,0,1" Padding="0,8">
+                  <Grid ColumnDefinitions="*,Auto,Auto">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Email}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Kind}" Classes="muted" FontSize="12" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="tool" Content="Sign in again" Margin="0,0,6,0" VerticalAlignment="Center"
+                            Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).SignInAgainCommand}" CommandParameter="{Binding}" />
+                    <Button Grid.Column="2" Classes="tool" Content="Remove" VerticalAlignment="Center"
+                            Command="{Binding $parent[Window].((vm:SettingsViewModel)DataContext).RemoveAccountCommand}" CommandParameter="{Binding}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="accent" Content="Add account…" Command="{Binding AddAccountCommand}" HorizontalAlignment="Left" />
+
+          <TextBlock Text="Sign-in apps" Classes="heading" Margin="0,18,0,0" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="12.5"
+                     Text="Sign in with Google or Microsoft uses your own app registration (the same IDs as Magpie on Windows). Paste the IDs, or import the client_secret….json Google Cloud gives for a Desktop app." />
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto">
+            <TextBlock Grid.Row="0" Text="Google client ID" VerticalAlignment="Center" />
+            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding GoogleClientId}" PlaceholderText="….apps.googleusercontent.com" Margin="0,0,0,8" />
+            <TextBlock Grid.Row="1" Text="Google client secret" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding GoogleClientSecret}" PlaceholderText="GOCSPX-…" Margin="0,0,0,8" />
+            <Button Grid.Row="2" Grid.Column="1" Name="ImportGoogleButton" Classes="tool" Content="Import Google client JSON…" HorizontalAlignment="Left" Margin="0,0,0,12" />
+            <TextBlock Grid.Row="3" Text="Microsoft client ID" VerticalAlignment="Center" />
+            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MicrosoftClientId}" PlaceholderText="Application (client) ID from Azure" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Classes="accent" Content="Save sign-in apps" Command="{Binding SaveSignInAppsCommand}" />
+            <TextBlock Text="{Binding SavedNote}" Classes="muted" VerticalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+    <TabItem Header="Updates" Name="UpdatesTab">
+      <StackPanel Spacing="12" Margin="4,10">
+        <TextBlock Text="Updates" Classes="heading" />
+        <TextBlock Text="{Binding Updates.Status}" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding Updates.LastChecked}" Classes="muted" FontSize="12" />
+        <ProgressBar Minimum="0" Maximum="1" Value="{Binding Updates.Progress, FallbackValue=0}" IsVisible="{Binding Updates.ShowProgress, FallbackValue=False}" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Classes="tool" Content="Check now" Command="{Binding Updates.CheckNowCommand}" />
+          <Button Classes="update" Content="{Binding Updates.ButtonText}" Command="{Binding Updates.UpdateNowCommand}"
+                  IsVisible="{Binding Updates.IsUpdateVisible, FallbackValue=False}" />
+        </StackPanel>
+        <CheckBox IsChecked="{Binding Updates.AutoUpdate}" Content="Auto update" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Margin="28,-8,0,0"
+                   Text="Checks once a day, downloads new versions, checks them (SHA-256) and installs them when you quit Magpie. Magpie always checks when it starts; with this off it only shows the “Update to …” button." />
+        <CheckBox IsChecked="{Binding Updates.IncludePrerelease}" Content="Include test versions" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Margin="28,-8,0,0"
+                   Text="Also offers the test versions made for each change before it is released." />
+        <Button Classes="link" Content="All versions on GitHub" Command="{Binding OpenReleasesCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </TabItem>
+
+    <TabItem Header="About" Name="AboutTab">
+      <StackPanel Spacing="10" Margin="4,10">
+        <StackPanel Orientation="Horizontal" Spacing="14">
+          <Image Source="avares://Magpie/Assets/magpie.png" Width="56" Height="56" />
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="Magpie for Mac" Classes="heading" />
+            <TextBlock Text="{Binding VersionLine}" Classes="muted" />
+          </StackPanel>
+        </StackPanel>
+        <TextBlock Text="Your data" FontWeight="SemiBold" Margin="0,10,0,0" />
+        <TextBlock Text="{Binding DataNote}" TextWrapping="Wrap" FontSize="12.5" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Classes="tool" Content="Open data folder" Command="{Binding OpenDataFolderCommand}" />
+          <Button Classes="tool" Content="Show the log" Command="{Binding OpenLogCommand}" />
+        </StackPanel>
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0"
+                   Text="© 2026 Krishna Bhunia. Magpie for Mac is the first version: mail, compose and accounts. Calendar, rules, AI, auto-delete and the other tools are on Windows for now." />
+      </StackPanel>
+    </TabItem>
+  </TabControl>
+</Window>

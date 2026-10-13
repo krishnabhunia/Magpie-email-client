@@ -90,9 +90,20 @@ public sealed class AppPaths
         @"^Magpie_\d+\.\d+\.\d+(-[A-Za-z]+\.\d+)?( \(\d+\))?\.exe$",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    /// <summary>Portable (see <see cref="IsPortableCopy"/>); otherwise the user's profile folders.</summary>
-    public static AppPaths For(string exeFolder, string? exeName = null)
+    /// <summary>Portable (see <see cref="IsPortableCopy"/>); otherwise the user's profile folders
+    /// (on a Mac: ~/Library/Application Support/Magpie and ~/Library/Caches/Magpie, see <see cref="MacFolders"/>).</summary>
+    public static AppPaths For(string exeFolder, string? exeName = null) =>
+        For(exeFolder, exeName, OperatingSystem.IsMacOS() ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : null);
+
+    /// <param name="macHome">The Mac user's home folder, or null on Windows (and on Linux, where only tests run).
+    /// .NET maps ApplicationData to ~/.config on a Mac, which is not where Mac apps keep their data.</param>
+    public static AppPaths For(string exeFolder, string? exeName, string? macHome)
     {
+        if (macHome != null)
+        {
+            var (root, local) = MacFolders(macHome);
+            return new AppPaths(root, local, false);
+        }
         if (IsPortableCopy(exeFolder, exeName))
         {
             var data = Path.Combine(exeFolder, PortableFolder);
@@ -104,12 +115,20 @@ public sealed class AppPaths
             false);
     }
 
+    /// <summary>Magpie for Mac: mail, settings, sign-ins and the log in ~/Library/Application Support/Magpie;
+    /// caches and update downloads in ~/Library/Caches/Magpie. There is no portable copy on a Mac.</summary>
+    public static (string Root, string LocalRoot) MacFolders(string home) => (
+        Path.Combine(home, "Library", "Application Support", "Magpie"),
+        Path.Combine(home, "Library", "Caches", "Magpie"));
+
     public string Database => Path.Combine(MailRoot, "mail.db");
     public string Settings => Path.Combine(Root, "settings.json");
     public string Secrets => Path.Combine(Root, "secrets.json");
     public string MimeCache => Path.Combine(MailRoot, "messages");
     public string Logs => Root;
     public string WebView2Data => Path.Combine(LocalRoot, "WebView2");
+    /// <summary>Magpie for Mac: the reading pane's and compose editor's web view data (WKWebView).</summary>
+    public string WebViewData => Path.Combine(LocalRoot, "WebView");
     public string RenderCache => Path.Combine(LocalRoot, "render");
     public string Updates => Path.Combine(LocalRoot, "updates");
 
