@@ -121,6 +121,8 @@ public partial class App : Application
         var updates = new UpdateService();
         AppServices.Updates = updates;
         updates.Start();
+        AppServices.ModelRefresh = new ModelRefreshService(engine);   // design AM1: the AI model list, daily
+        AppServices.ModelRefresh.Start();
         (main.DataContext as ViewModels.MainViewModel)?.StatusBar.AttachUpdates(updates);
         main.AttachUpdates(updates);
         engine.Settings.Changed += () => Ui.Post(() => { Icons.Colourful = engine.Config.Appearance.Colourful; ThemeManager.SetMode(engine.Config.Appearance.Theme); });
@@ -220,6 +222,7 @@ public partial class App : Application
         try { (MainWindow as MainWindow)?.SavePlacement(); } catch { }
         _cts.Cancel();
         AppServices.Tray?.Dispose();
+        AppServices.ModelRefresh?.Dispose();
         ThemeManager.Stop();
         try { AppServices.Engine?.Dispose(); } catch { }
         Log.Info("Magpie exiting");
@@ -246,6 +249,7 @@ public static class AppServices
     public static MailEngine Engine { get; set; } = null!;
     public static TrayIcon? Tray { get; set; }
     public static UpdateService? Updates { get; set; }
+    public static ModelRefreshService? ModelRefresh { get; set; }
     public static App Current => (App)Application.Current;
     /// <summary>The main window's view model (toasts, list), for dialogs opened from Settings or a hover card.</summary>
     public static ViewModels.MainViewModel? Main => (Application.Current?.MainWindow as MainWindow)?.ViewModel;
