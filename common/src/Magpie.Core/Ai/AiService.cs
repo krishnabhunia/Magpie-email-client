@@ -30,6 +30,13 @@ public sealed class ThreadForAi
 
 public enum RewriteKind { Shorter, Longer, Friendlier, MoreFormal, FixGrammar, Custom }
 
+/// <summary>What "Test connection" found: the model's reply and the request settings it refused (design AM1).</summary>
+public sealed record AiTestResult(string Reply, IReadOnlyList<string> Dropped)
+{
+    /// <summary>"" or " (sent without temperature)" for the status line.</summary>
+    public string DroppedNote => Dropped.Count == 0 ? "" : $" (sent without {string.Join(" and ", Dropped.Select(d => d.Replace('_', ' ')))})";
+}
+
 /// <summary>
 /// Everything that calls a model goes through here, so the toggle rules are enforced in one place:
 /// master switch → provider configured → feature switch → consent (cloud providers only).
@@ -42,6 +49,9 @@ public sealed class AiService
     private readonly Func<string, string?> _apiKey;
 
     public const int ThreadBudgetChars = 24_000;
+
+    /// <summary>Design AM1: called after a refused setting was written into the connection in use, so the app saves settings.</summary>
+    public Action? SaveSettings { get; set; }
 
     public AiService(HttpClient http, Func<AiSettings> settings, Func<string?> apiKey)
     {
@@ -113,7 +123,26 @@ public sealed class AiService
         }
         if (!AiProviderFactory.IsLocalEndpoint(s.Endpoint) && !s.Consents.Contains(ConsentKey(f, s)))
             throw new AiException("Allow this AI feature to send your text to the selected provider first.");
-        return AiProviderFactory.Create(_http, s, key);
+        var id = s.ActiveId;
+        var model = s.Model;
+        return AiProviderFactory.Create(_http, s, key, param => Remember(id, model, param));
+    }
+
+    /// <summary>Design AM1: the model refused a request setting — keep that on the connection so it isn't sent again.</summary>
+    public void Remember(string connectionId, string model, string param)
+    {
+        var live = _settings();
+        var c = live.Connections?.FirstOrDefault(x => x.Id == connectionId);
+        if (c == null) return;
+        var entry = RequestShape.Key(model, param);
+        lock (live)
+        {
+            c.Unsupported ??= new();
+            if (c.Unsupported.Contains(entry, StringComparer.OrdinalIgnoreCase)) return;
+            c.Unsupported.Add(entry);
+        }
+        try { SaveSettings?.Invoke(); }
+        catch (Exception ex) { Log.Warn("AI: couldn't save the refused setting: " + ex.Message); }
     }
 
     // ───────────────────────── context building ─────────────────────────
@@ -219,11 +248,19 @@ public sealed class AiService
             .Take(3).ToList();
     }
 
-    public async Task<string> TestAsync(AiSettings candidate, string? key, CancellationToken ct)
+    /// <summary>Tries the connection once. The candidate's connection in use supplies the temperature and what the model refused before;
+    /// anything refused during the test is in <see cref="AiTestResult.Dropped"/> (and remembered on the live connection when it exists).</summary>
+    public async Task<AiTestResult> TestAsync(AiSettings candidate, string? key, CancellationToken ct)
     {
         if (!IsConfigured(candidate, key)) throw new AiException("Use HTTPS for a cloud provider, or HTTP for a model on this PC, and supply its model and key.");
-        var p = AiProviderFactory.Create(_http, candidate.Clone(), key);
+        var s = candidate.Clone();
+        var dropped = new List<string>();
+        var p = AiProviderFactory.Create(_http, s, key, param =>
+        {
+            lock (dropped) if (!dropped.Contains(param)) dropped.Add(param);
+            Remember(s.ActiveId, s.Model, param);
+        });
         var reply = await p.CompleteAsync("Reply with exactly: OK", new[] { new ChatMessage("user", "Say OK") }, null, 10, ct);
-        return reply.Trim();
+        return new AiTestResult(reply.Trim(), dropped);
     }
 }
