@@ -28,8 +28,14 @@ public static class ModelCatalog
     public static readonly TimeSpan NewFor = TimeSpan.FromDays(30);
     private const int MaxPages = 5;
 
+    public const int MaxModels = 500;
+    public const int MaxTextLength = 200;
+    public const string NeedsHttps = "Model list needs an https endpoint (http only for a server on this PC).";
+
     public static async Task<IReadOnlyList<AiModelInfo>> ListAsync(HttpClient http, AiProviderKind kind, string endpoint, string? apiKey, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(endpoint)) endpoint = AiSettings.Preset(kind).endpoint;
+        if (!AiService.EndpointAllowed(endpoint)) throw new AiException(NeedsHttps);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(Timeout);
         try
@@ -40,7 +46,7 @@ public static class ModelCatalog
                 AiProviderKind.Ollama => await OllamaAsync(http, endpoint, timeout.Token),
                 _ => await OpenAiAsync(http, endpoint, apiKey, kind, timeout.Token),
             };
-            return Sort(list);
+            return Sort(list.Take(MaxModels).Select(Clip));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -57,10 +63,28 @@ public static class ModelCatalog
         AiProviderKind.Anthropic => "Anthropic", AiProviderKind.OpenAI => "OpenAI", AiProviderKind.Ollama => "Ollama", _ => "The server",
     };
 
-    /// <summary>"https://api.anthropic.com" or ".../v1" → "https://api.anthropic.com".</summary>
-    private static string Base(string endpoint)
+    private static AiModelInfo Clip(AiModelInfo m)
+    {
+        if (m.Id.Length > MaxTextLength) m.Id = m.Id[..MaxTextLength];
+        if (m.Name.Length > MaxTextLength) m.Name = m.Name[..MaxTextLength];
+        return m;
+    }
+
+    private static readonly string[] RequestPaths = { "/v1/messages", "/chat/completions", "/messages" };
+
+    /// <summary>A saved endpoint may name the request path ("…/v1/messages", "…/v1/chat/completions"): the list lives next to it, not under it.</summary>
+    private static string Root(string endpoint)
     {
         var e = (endpoint ?? "").Trim().TrimEnd('/');
+        foreach (var path in RequestPaths)
+            if (e.EndsWith(path, StringComparison.OrdinalIgnoreCase)) { e = e[..^path.Length]; break; }
+        return e;
+    }
+
+    /// <summary>"https://api.anthropic.com", ".../v1" or ".../v1/messages" → "https://api.anthropic.com".</summary>
+    private static string Base(string endpoint)
+    {
+        var e = Root(endpoint);
         if (e.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)) e = e[..^3];
         return e;
     }
@@ -91,7 +115,7 @@ public static class ModelCatalog
 
     private static async Task<List<AiModelInfo>> AnthropicAsync(HttpClient http, string endpoint, string? apiKey, CancellationToken ct)
     {
-        var baseUrl = Base(string.IsNullOrWhiteSpace(endpoint) ? "https://api.anthropic.com" : endpoint);
+        var baseUrl = Base(endpoint);
         var list = new List<AiModelInfo>();
         string? after = null;
         for (int page = 0; page < MaxPages; page++)
@@ -137,7 +161,7 @@ public static class ModelCatalog
 
     private static async Task<List<AiModelInfo>> OpenAiAsync(HttpClient http, string endpoint, string? apiKey, AiProviderKind kind, CancellationToken ct)
     {
-        var url = (endpoint ?? "").Trim().TrimEnd('/') + "/models";
+        var url = Root(endpoint) + "/models";
         using var doc = await GetAsync(http, url, req =>
         {
             if (!string.IsNullOrEmpty(apiKey)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -163,7 +187,7 @@ public static class ModelCatalog
 
     private static async Task<List<AiModelInfo>> OllamaAsync(HttpClient http, string endpoint, CancellationToken ct)
     {
-        var url = Base(string.IsNullOrWhiteSpace(endpoint) ? "http://localhost:11434" : endpoint) + "/api/tags";
+        var url = Base(endpoint) + "/api/tags";
         using var doc = await GetAsync(http, url, _ => { }, AiProviderKind.Ollama, ct);
         if (!doc.RootElement.TryGetProperty("models", out var data) || data.ValueKind != JsonValueKind.Array) throw new AiException("This server doesn't list its models");
         var list = new List<AiModelInfo>();

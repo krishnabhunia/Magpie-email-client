@@ -11,7 +11,7 @@
 ### Changed
 - **Pick the AI model from a list.** Settings → AI asks your provider (Anthropic, OpenAI, Ollama or any OpenAI-compatible server) which models your key can use and shows them newest first, with "New" on anything added since Magpie last looked, so a new Claude appears by itself. You can still type a model id. The API key now sits above the model; the endpoint is under "Server (advanced)". A creativity (temperature) slider per connection.
 ### Fixed
-- **New models no longer refuse Magpie's requests.** Claude Fable / Mythos, Claude 5.x and OpenAI's o-series / GPT-5 reject the temperature or max_tokens settings; Magpie now sends only what each model accepts, retries once without a refused setting, and remembers it (Test connection says "sent without temperature").
+- **New models no longer refuse Magpie's requests.** Claude Fable / Mythos, Claude 5.x and OpenAI's o-series / GPT-5 reject the temperature or max_tokens settings; Magpie now sends only what each model accepts, retries without the refused setting, and remembers it (Test connection says "sent without temperature").
 <!-- closes: #98 -->
 
 ## 8.0.0 (10 Oct 2026)

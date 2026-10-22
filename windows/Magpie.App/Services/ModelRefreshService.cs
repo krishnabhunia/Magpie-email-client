@@ -31,6 +31,7 @@ public sealed class ModelRefreshService : IDisposable
         {
             var ai = _e.Config.Ai;
             if (!ai.Enabled || ai.Active is not { } c) return;
+            if (!AiService.EndpointAllowed(c.Endpoint)) return;   // https, or a server on this PC — the key goes nowhere else
             var key = _e.Vault.Get(SecretVault.AiKeyFor(c.Id));
             var local = c.Provider == AiProviderKind.Ollama || AiProviderFactory.IsLocalEndpoint(c.Endpoint);
             if (string.IsNullOrWhiteSpace(key) && !local && c.Provider != AiProviderKind.Custom) return;

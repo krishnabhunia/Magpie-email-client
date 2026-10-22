@@ -67,9 +67,12 @@ public sealed class AiService
         _apiKey = apiKeyFor;
     }
 
+    /// <summary>HTTPS for a cloud provider; plain HTTP only for a server on this PC. Nothing (not even a model list request with the key) goes elsewhere.</summary>
+    public static bool EndpointAllowed(string? endpoint) =>
+        !string.IsNullOrWhiteSpace(endpoint) && Uri.TryCreate(endpoint, UriKind.Absolute, out var u) && (u.Scheme == "https" || u.Scheme == "http" && u.IsLoopback);
+
     public static bool IsConfigured(AiSettings s, string? key) =>
-        !string.IsNullOrWhiteSpace(s.Endpoint) && Uri.TryCreate(s.Endpoint, UriKind.Absolute, out var endpoint)
-        && (endpoint.Scheme == "https" || endpoint.Scheme == "http" && endpoint.IsLoopback) && !string.IsNullOrWhiteSpace(s.Model)
+        EndpointAllowed(s.Endpoint) && !string.IsNullOrWhiteSpace(s.Model)
         && (!string.IsNullOrWhiteSpace(key) || AiProviderFactory.IsLocalEndpoint(s.Endpoint) || s.Provider == AiProviderKind.Custom);
 
     public static AiAvailability Availability(AiSettings s, string? key, AiFeature f)
@@ -137,9 +140,9 @@ public sealed class AiService
         var entry = RequestShape.Key(model, param);
         lock (live)
         {
-            c.Unsupported ??= new();
-            if (c.Unsupported.Contains(entry, StringComparer.OrdinalIgnoreCase)) return;
-            c.Unsupported.Add(entry);
+            var now = c.Unsupported ?? new();
+            if (now.Contains(entry, StringComparer.OrdinalIgnoreCase)) return;
+            c.Unsupported = new List<string>(now) { entry };   // a new list: a request reading the old one is never disturbed
         }
         try { SaveSettings?.Invoke(); }
         catch (Exception ex) { Log.Warn("AI: couldn't save the refused setting: " + ex.Message); }

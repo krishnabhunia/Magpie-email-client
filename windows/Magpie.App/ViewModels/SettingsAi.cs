@@ -81,6 +81,8 @@ public partial class SettingsViewModel
     /// <summary>"Server (advanced)" open — by itself for "Other endpoint", where the address is the point.</summary>
     [ObservableProperty] private bool _showServer;
     private AiModelInfo? _offeredModel;
+    /// <summary>Set while <see cref="Models"/> is rebuilt: WPF blanks the editable box's text when its selected item leaves the list, and that must not count as the user clearing the model.</summary>
+    private bool _rebuildingModels;
     private System.Windows.Threading.DispatcherTimer? _keyTimer, _endpointTimer;
     /// <summary>The key each connection's list was fetched with, so re-showing the same key doesn't ask again.</summary>
     private readonly Dictionary<string, string> _listedKey = new();
@@ -184,9 +186,16 @@ public partial class SettingsViewModel
         FlushAiEditor(SelectedAiConnection);
         foreach (var item in AiConnections)
         {
-            // Refusals learned while Settings was open (AiService.Remember) stay.
+            // Same server as saved: refusals learned while Settings was open (AiService.Remember) stay, and a daily list refresh
+            // that landed meanwhile (ModelRefreshService) is not overwritten. Another server: the editor's fresh state wins.
             var live = ai.Connections.FirstOrDefault(c => c.Id == item.Id);
-            if (live != null) item.Unsupported = item.Unsupported.Union(live.Unsupported, StringComparer.OrdinalIgnoreCase).ToList();
+            if (live == null || live.Provider != item.Provider || live.Endpoint != item.Endpoint) continue;
+            item.Unsupported = item.Unsupported.Union(live.Unsupported, StringComparer.OrdinalIgnoreCase).ToList();
+            if (live.ModelsCheckedAt != null && (item.ModelsCheckedAt == null || live.ModelsCheckedAt > item.ModelsCheckedAt))
+            {
+                item.Models = live.Models.Select(m => m.Clone()).ToList();
+                item.ModelsCheckedAt = live.ModelsCheckedAt;
+            }
         }
         ai.Connections = AiConnections.Select(c => c.ToConnection()).ToList();
         ai.ActiveId = (AiConnections.FirstOrDefault(c => c.IsActive) ?? AiConnections.First()).Id;
@@ -218,14 +227,19 @@ public partial class SettingsViewModel
         var recommended = ModelCatalog.Recommended(c.Provider, list)?.Id;
         var model = Model.Trim();
         var keep = Model;   // an editable ComboBox blanks its text when the selected item leaves the list
-        Models.Clear();
-        foreach (var m in list)
-            Models.Add(new AiModelItem
-            {
-                Id = m.Id, Name = m.Name, IsNew = fromProvider && ModelCatalog.IsNew(m, now),
-                IsRecommended = m.Id == recommended, IsInUse = m.Id.Equals(model, StringComparison.OrdinalIgnoreCase),
-            });
-        if (Model != keep) Model = keep;
+        _rebuildingModels = true;
+        try
+        {
+            Models.Clear();
+            foreach (var m in list)
+                Models.Add(new AiModelItem
+                {
+                    Id = m.Id, Name = m.Name, IsNew = fromProvider && ModelCatalog.IsNew(m, now),
+                    IsRecommended = m.Id == recommended, IsInUse = m.Id.Equals(model, StringComparison.OrdinalIgnoreCase),
+                });
+            if (Model != keep) Model = keep;
+        }
+        finally { _rebuildingModels = false; }
         var who = ProviderShortName(c.Provider);
         if (fromProvider)
             ModelsHeader = $"From {who} · {list.Count} model{(list.Count == 1 ? "" : "s")} · checked {Ago(c.ModelsCheckedAt, now)}";
@@ -291,12 +305,23 @@ public partial class SettingsViewModel
     }
 
     [RelayCommand]
-    private Task RefreshModels() => SelectedAiConnection is { } c ? RefreshModelsAsync(c, silent: false) : Task.CompletedTask;
+    private Task RefreshModels()
+    {
+        if (SelectedAiConnection is not { } c) return Task.CompletedTask;
+        ClearUnsupported(c);
+        RefreshTemperatureUsed(c);
+        return RefreshModelsAsync(c, silent: false);
+    }
 
     /// <summary>Asks the provider for its models and shows them. <paramref name="silent"/>: a background refresh (page opened, key typed) — a failure
     /// is shown only when the user asked, or when the key was refused.</summary>
     private async Task RefreshModelsAsync(AiConnectionItem c, bool silent)
     {
+        if (!AiService.EndpointAllowed(Endpoint.Trim()))   // the key goes nowhere but an https server, or a server on this PC
+        {
+            if (!silent) { ModelsOk = false; ModelsStatus = ModelCatalog.NeedsHttps; }
+            return;
+        }
         if (!CanListModels(c))
         {
             if (!silent) { ModelsOk = false; ModelsStatus = "Add the API key first — the list needs it."; }
@@ -364,13 +389,16 @@ public partial class SettingsViewModel
         return t;
     }
 
-    /// <summary>The provider or endpoint changed: the old list is for another server.</summary>
+    /// <summary>The provider or endpoint changed: the old list, and what that server refused, are for another server.
+    /// <paramref name="refresh"/> (provider change only): ask the new provider shortly. An endpoint being typed never triggers a
+    /// request — the key would go to a half-typed host; the user clicks Refresh or Test when done.</summary>
     private void ForgetModelList(bool refresh)
     {
         if (SelectedAiConnection is not { } c) return;
         c.Models = new();
         c.ModelsCheckedAt = null;
         c.DismissedNewModel = "";
+        c.Unsupported = new();
         ShowModels(c);
         if (!refresh) return;
         _endpointTimer ??= MakeTimer(KeyDebounce, () => { if (SelectedAiConnection is { } x) _ = RefreshModelsAsync(x, silent: true); });
@@ -378,8 +406,20 @@ public partial class SettingsViewModel
         _endpointTimer.Start();
     }
 
+    /// <summary>Refresh was clicked: what the server refused before is forgotten too (it may be another server, or fixed).</summary>
+    private void ClearUnsupported(AiConnectionItem c)
+    {
+        c.Unsupported = new();
+        if (_e.Config.Ai.Connections.FirstOrDefault(x => x.Id == c.Id) is { } live && live.Unsupported.Count > 0)
+        {
+            live.Unsupported = new();
+            _e.Settings.Save(notify: false);
+        }
+    }
+
     partial void OnModelChanged(string value)
     {
+        if (_rebuildingModels) return;
         TestStatus = "";
         if (SelectedAiConnection is not { } c) return;
         var model = value.Trim();

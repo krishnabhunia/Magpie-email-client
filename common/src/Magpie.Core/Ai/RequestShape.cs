@@ -13,7 +13,8 @@ namespace Magpie.Core.Ai;
 /// <param name="SendTemperature">Send <c>temperature</c> at all.</param>
 /// <param name="Temperature">The value to send (0–1).</param>
 /// <param name="MaxTokensField">"max_tokens", "max_completion_tokens", or null = send no length limit (the provider then cuts the text itself).</param>
-public sealed record RequestShape(bool SendTemperature, double Temperature, string? MaxTokensField)
+/// <param name="FixedMaxTokens">The API requires the length field (Anthropic): a 400 naming it is never "learned" and never changes the request.</param>
+public sealed record RequestShape(bool SendTemperature, double Temperature, string? MaxTokensField, bool FixedMaxTokens = false)
 {
     public const string TemperatureParam = "temperature";
     public const string MaxTokensParam = "max_tokens";
@@ -25,11 +26,12 @@ public sealed record RequestShape(bool SendTemperature, double Temperature, stri
     public static RequestShape For(AiProviderKind kind, string model, IEnumerable<string>? unsupported, double temperature)
     {
         model = (model ?? "").Trim();
-        var shape = new RequestShape(!NoTemperatureByDefault(kind, model), Math.Clamp(temperature, 0, 1), DefaultMaxTokensField(kind, model));
+        var shape = new RequestShape(!NoTemperatureByDefault(kind, model), Math.Clamp(temperature, 0, 1), DefaultMaxTokensField(kind, model), kind == AiProviderKind.Anthropic);
         var prefix = model + ":";
         var refused = new HashSet<string>((unsupported ?? Array.Empty<string>())
             .Where(u => u.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).Select(u => u[prefix.Length..]), StringComparer.OrdinalIgnoreCase);
         if (refused.Contains(TemperatureParam)) shape = shape with { SendTemperature = false };
+        if (shape.FixedMaxTokens) return shape;
         if (shape.MaxTokensField == MaxTokensParam && refused.Contains(MaxTokensParam))
             shape = shape with { MaxTokensField = kind == AiProviderKind.OpenAI ? MaxCompletionTokensParam : null };
         if (shape.MaxTokensField == MaxCompletionTokensParam && refused.Contains(MaxCompletionTokensParam))
@@ -42,6 +44,7 @@ public sealed record RequestShape(bool SendTemperature, double Temperature, stri
     public RequestShape Without(string param, string? serverMessage = null)
     {
         if (param.Equals(TemperatureParam, StringComparison.OrdinalIgnoreCase)) return this with { SendTemperature = false };
+        if (FixedMaxTokens) return this;   // Anthropic: max_tokens is part of the API, the 400 is about its value, not the field
         if (param.Equals(MaxTokensParam, StringComparison.OrdinalIgnoreCase))
         {
             if (MaxTokensField == MaxTokensParam && (serverMessage ?? "").Contains(MaxCompletionTokensParam, StringComparison.OrdinalIgnoreCase))
@@ -64,7 +67,7 @@ public sealed record RequestShape(bool SendTemperature, double Temperature, stri
             return ClaudeFamilyVersion(m) >= 5.0;
         }
         if (kind == AiProviderKind.OpenAI || m.StartsWith("gpt-") || m.StartsWith("o1") || m.StartsWith("o3") || m.StartsWith("o4"))
-            return m.StartsWith("o1") || m.StartsWith("o3") || m.StartsWith("o4") || m.StartsWith("gpt-5");
+            return m.StartsWith("o1") || m.StartsWith("o3") || m.StartsWith("o4") || m.StartsWith("gpt-5") && !m.StartsWith("gpt-5-chat");
         return false;
     }
 

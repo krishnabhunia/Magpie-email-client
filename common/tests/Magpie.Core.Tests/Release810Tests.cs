@@ -371,6 +371,71 @@ public class Release810Tests
         Assert.Equal(3000, text.Length);   // stopped after ~4 × 100 characters: the second chunk was never appended
     }
 
+    [Fact]
+    public async Task Anthropic_never_learns_a_max_tokens_refusal()
+    {
+        var http = new FakeHttp
+        {
+            Respond = (_, _) => Json("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"max_tokens: 100000 > 64000, which is the maximum allowed. Use 'max_completion_tokens' is not supported.\"}}", HttpStatusCode.BadRequest),
+        };
+        var refused = new List<string>();
+        var p = new AnthropicProvider(new HttpClient(http), "https://api.anthropic.com", "claude-haiku-4-5", "k", RequestShape.For(AiProviderKind.Anthropic, "claude-haiku-4-5", null, 0.4), refused.Add);
+        var ex = await Assert.ThrowsAsync<AiException>(() => p.CompleteAsync("s", new[] { new ChatMessage("user", "x") }, null, 100000, CancellationToken.None));
+        Assert.Single(http.Requests);   // the field is part of the API: nothing to retry without
+        Assert.Empty(refused);
+        Assert.StartsWith("Request failed (400)", ex.Message);
+
+        // A learned "max_tokens" entry (from an older build, or a gateway) changes nothing for Anthropic either.
+        var shape = RequestShape.For(AiProviderKind.Anthropic, "claude-haiku-4-5", new[] { "claude-haiku-4-5:max_tokens", "claude-haiku-4-5:max_completion_tokens" }, 0.4);
+        Assert.Equal("max_tokens", shape.MaxTokensField);
+        Assert.True(shape.FixedMaxTokens);
+        Assert.Equal(shape, shape.Without("max_tokens", "use max_completion_tokens"));
+    }
+
+    [Theory]
+    [InlineData("gpt-5-chat-latest", true)]
+    [InlineData("gpt-5-chat", true)]
+    [InlineData("gpt-5-mini", false)]
+    public void GPT5_chat_models_keep_temperature(string model, bool temperature) =>
+        Assert.Equal(temperature, RequestShape.For(AiProviderKind.OpenAI, model, null, 0.4).SendTemperature);
+
+    [Theory]
+    [InlineData(AiProviderKind.OpenAI, "https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/models")]
+    [InlineData(AiProviderKind.Custom, "http://localhost:1234/v1/chat/completions/", "http://localhost:1234/v1/models")]
+    [InlineData(AiProviderKind.Anthropic, "https://api.anthropic.com/v1/messages", "https://api.anthropic.com/v1/models?limit=100")]
+    [InlineData(AiProviderKind.Anthropic, "https://api.anthropic.com/v1", "https://api.anthropic.com/v1/models?limit=100")]
+    [InlineData(AiProviderKind.Ollama, "http://127.0.0.1:11434/v1/chat/completions", "http://127.0.0.1:11434/api/tags")]
+    public async Task A_saved_request_path_is_stripped_before_models_is_added(AiProviderKind kind, string endpoint, string expected)
+    {
+        var http = new FakeHttp { Respond = (_, _) => Json("{\"data\":[],\"models\":[]}") };
+        await ModelCatalog.ListAsync(new HttpClient(http), kind, endpoint, "k", CancellationToken.None);
+        Assert.Equal(expected, http.Requests.Single().req.RequestUri!.ToString());
+    }
+
+    [Theory]
+    [InlineData("http://api.openai.com/v1")]
+    [InlineData("http://evil.example/v1")]
+    [InlineData("ftp://x")]
+    [InlineData("not a url")]
+    public async Task The_key_never_goes_to_a_plain_http_or_odd_endpoint(string endpoint)
+    {
+        var http = new FakeHttp();
+        var ex = await Assert.ThrowsAsync<AiException>(() => ModelCatalog.ListAsync(new HttpClient(http), AiProviderKind.OpenAI, endpoint, "sk-secret", CancellationToken.None));
+        Assert.Equal(ModelCatalog.NeedsHttps, ex.Message);
+        Assert.Empty(http.Requests);
+        Assert.False(AiService.EndpointAllowed(endpoint));
+    }
+
+    [Fact]
+    public async Task A_huge_list_is_capped()
+    {
+        var items = string.Join(",", Enumerable.Range(0, 700).Select(i => "{\"id\":\"gpt-" + i + "-" + new string('x', 400) + "\",\"created\":" + (1700000000 + i) + "}"));
+        var http = new FakeHttp { Respond = (_, _) => Json("{\"data\":[" + items + "]}") };
+        var list = await ModelCatalog.ListAsync(new HttpClient(http), AiProviderKind.OpenAI, "https://api.openai.com/v1", "k", CancellationToken.None);
+        Assert.Equal(ModelCatalog.MaxModels, list.Count);
+        Assert.All(list, m => { Assert.True(m.Id.Length <= ModelCatalog.MaxTextLength); Assert.True(m.Name.Length <= ModelCatalog.MaxTextLength); });
+    }
+
     // ── Settings round-trip ──
 
     [Fact]

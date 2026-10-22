@@ -66,17 +66,17 @@ internal static class ShapedRequest
             HttpResponseMessage resp;
             try { resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct); }
             catch (HttpRequestException ex) { req.Dispose(); throw new AiException($"Can't reach {req.RequestUri?.Host}: {ex.Message}", inner: ex); }
+            req.Dispose();   // the response stream doesn't need it
             if (resp.IsSuccessStatusCode) return (resp, shape);
             var text = "";
             try { text = await resp.Content.ReadAsStringAsync(ct); } catch { }
             var code = (int)resp.StatusCode;
             resp.Dispose();
-            req.Dispose();
             var param = RequestShape.RefusedParameter(code, text);
             if (param != null && attempt < MaxRetries && dropped.Add(param))
             {
                 var next = shape.Without(param, text);
-                if (next != shape)
+                if (next != shape)   // only a shape that changes the request is worth a retry — and worth remembering
                 {
                     Log.Info($"AI: the model refused '{param}' — sending again without it");
                     onRefused?.Invoke(param);
@@ -207,7 +207,7 @@ public sealed class AnthropicProvider : IAiProvider
         _endpoint = string.IsNullOrWhiteSpace(endpoint) ? "https://api.anthropic.com" : endpoint.TrimEnd('/');
         _model = model;
         _key = apiKey;
-        _shape = shape ?? RequestShape.For(AiProviderKind.Anthropic, model, null, AiConnection.DefaultTemperature);
+        _shape = (shape ?? RequestShape.For(AiProviderKind.Anthropic, model, null, AiConnection.DefaultTemperature)) with { FixedMaxTokens = true };
         _onRefused = onRefused;
     }
 
@@ -218,8 +218,8 @@ public sealed class AnthropicProvider : IAiProvider
         {
             var msgs = new JsonArray();
             foreach (var m in messages) msgs.Add(new JsonObject { ["role"] = m.Role == "assistant" ? "assistant" : "user", ["content"] = m.Content });
-            // Anthropic requires max_tokens; a learned refusal of it can only switch the name, never drop it.
-            var body = new JsonObject { ["model"] = _model, [shape.MaxTokensField ?? RequestShape.MaxTokensParam] = maxTokens, ["system"] = system, ["messages"] = msgs, ["stream"] = true };
+            // Anthropic requires max_tokens (RequestShape.FixedMaxTokens: never dropped or renamed).
+            var body = new JsonObject { ["model"] = _model, ["max_tokens"] = maxTokens, ["system"] = system, ["messages"] = msgs, ["stream"] = true };
             if (shape.SendTemperature) body["temperature"] = shape.Temperature;
             var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
             req.Headers.Add("x-api-key", _key);
@@ -268,7 +268,7 @@ public static class AiProviderFactory
     public static IAiProvider Create(HttpClient http, AiSettings s, string? apiKey, Action<string>? onRefused = null)
     {
         var c = s.Active;
-        var shape = RequestShape.For(s.Provider, s.Model, c?.Unsupported, c?.Temperature ?? AiConnection.DefaultTemperature);
+        var shape = RequestShape.For(s.Provider, s.Model, c?.Unsupported?.ToList(), c?.Temperature ?? AiConnection.DefaultTemperature);   // a snapshot: the list may be replaced meanwhile
         return s.Provider switch
         {
             AiProviderKind.Anthropic => new AnthropicProvider(http, s.Endpoint, s.Model, apiKey ?? "", shape, onRefused),

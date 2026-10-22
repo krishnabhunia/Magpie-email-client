@@ -789,7 +789,7 @@ public partial class SettingsViewModel : ObservableObject
         TestStatus = "";
         if (_loadingAiEditor) return;
         if (SelectedAiConnection is { } c) c.Endpoint = value.Trim();
-        ForgetModelList(refresh: true);   // design AM1: another server, another list
+        ForgetModelList(refresh: false);   // design AM1: another server, another list — but no request while the address is being typed
     }
 
     partial void OnPageChanged(string value)
