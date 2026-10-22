@@ -33,8 +33,16 @@ public enum RewriteKind { Shorter, Longer, Friendlier, MoreFormal, FixGrammar, C
 /// <summary>What "Test connection" found: the model's reply and the request settings it refused (design AM1).</summary>
 public sealed record AiTestResult(string Reply, IReadOnlyList<string> Dropped)
 {
-    /// <summary>"" or " (sent without temperature)" for the status line.</summary>
-    public string DroppedNote => Dropped.Count == 0 ? "" : $" (sent without {string.Join(" and ", Dropped.Select(d => d.Replace('_', ' ')))})";
+    /// <summary>"" or " (sent without temperature)" / " (sent with max_completion_tokens instead of max_tokens)" for the status line.</summary>
+    public string DroppedNote
+    {
+        get
+        {
+            if (Dropped.Count == 0) return "";
+            var parts = Dropped.Select(d => RequestShape.Parse(d) is var (from, to) && to != null ? $"with {to} instead of {from}" : $"without {from.Replace('_', ' ')}");
+            return $" (sent {string.Join(", ", parts)})";
+        }
+    }
 }
 
 /// <summary>
@@ -131,12 +139,15 @@ public sealed class AiService
         return AiProviderFactory.Create(_http, s, key, param => Remember(id, model, param));
     }
 
-    /// <summary>Design AM1: the model refused a request setting — keep that on the connection so it isn't sent again.</summary>
-    public void Remember(string connectionId, string model, string param)
+    /// <summary>Design AM1: the model refused a request setting — keep that on the connection so it isn't sent again. With
+    /// <paramref name="provider"/> / <paramref name="endpoint"/> given (a test of edited settings), only when the saved connection
+    /// still points at that same server.</summary>
+    public void Remember(string connectionId, string model, string param, AiProviderKind? provider = null, string? endpoint = null)
     {
         var live = _settings();
         var c = live.Connections?.FirstOrDefault(x => x.Id == connectionId);
         if (c == null) return;
+        if (provider != null && (c.Provider != provider || !string.Equals(c.Endpoint.TrimEnd('/'), (endpoint ?? "").TrimEnd('/'), StringComparison.OrdinalIgnoreCase))) return;
         var entry = RequestShape.Key(model, param);
         lock (live)
         {
@@ -261,7 +272,7 @@ public sealed class AiService
         var p = AiProviderFactory.Create(_http, s, key, param =>
         {
             lock (dropped) if (!dropped.Contains(param)) dropped.Add(param);
-            Remember(s.ActiveId, s.Model, param);
+            Remember(s.ActiveId, s.Model, param, s.Provider, s.Endpoint);
         });
         var reply = await p.CompleteAsync("Reply with exactly: OK", new[] { new ChatMessage("user", "Say OK") }, null, 10, ct);
         return new AiTestResult(reply.Trim(), dropped);

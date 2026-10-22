@@ -267,10 +267,30 @@ public class Release810Tests
         var refused = new List<string>();
         var p = new OpenAiCompatibleProvider(new HttpClient(http), "https://api.openai.com/v1", "gpt-4.1-mini", "k", RequestShape.For(AiProviderKind.OpenAI, "gpt-4.1-mini", null, 0.4), refused.Add);
         Assert.Equal("OK", await p.CompleteAsync("s", new[] { new ChatMessage("user", "x") }, null, 10, CancellationToken.None));
-        Assert.Equal(new[] { "max_tokens" }, refused);
+        Assert.Equal(new[] { "max_tokens->max_completion_tokens" }, refused);   // remembered as the replacement, not as "no length field"
         Assert.Equal(2, http.Requests.Count);
         Assert.Contains("\"max_completion_tokens\":10", http.Requests[1].body);
         Assert.DoesNotContain("\"max_tokens\"", http.Requests[1].body);
+    }
+
+    [Fact]
+    public async Task An_OpenAI_compatible_server_that_asked_for_max_completion_tokens_gets_it_next_time()
+    {
+        var learned = new[] { "local-model:max_tokens->max_completion_tokens" };
+        var custom = RequestShape.For(AiProviderKind.Custom, "local-model", learned, 0.4);
+        Assert.Equal("max_completion_tokens", custom.MaxTokensField);   // not null: the server named the field it wants
+        Assert.Equal("max_completion_tokens", RequestShape.For(AiProviderKind.OpenAI, "local-model", learned, 0.4).MaxTokensField);
+        Assert.Equal("max_tokens", RequestShape.For(AiProviderKind.Anthropic, "local-model", learned, 0.4).MaxTokensField);
+        Assert.Null(RequestShape.For(AiProviderKind.Custom, "local-model", new[] { "local-model:max_tokens" }, 0.4).MaxTokensField);   // a plain refusal: no field
+        Assert.Equal(("max_tokens", "max_completion_tokens"), RequestShape.Parse("max_tokens->max_completion_tokens"));
+        Assert.Equal(("temperature", (string?)null), RequestShape.Parse("temperature"));
+
+        var http = new FakeHttp { Respond = (_, _) => FakeHttp.Sse("{\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}", "[DONE]") };
+        var p = new OpenAiCompatibleProvider(new HttpClient(http), "http://localhost:1234/v1", "local-model", null, custom);
+        await p.CompleteAsync("s", new[] { new ChatMessage("user", "x") }, null, 10, CancellationToken.None);
+        Assert.Contains("\"max_completion_tokens\":10", http.Requests.Single().body);
+        var r = new AiTestResult("OK", new[] { "temperature", "max_tokens->max_completion_tokens" });
+        Assert.Equal(" (sent without temperature, with max_completion_tokens instead of max_tokens)", r.DroppedNote);
     }
 
     [Fact]
@@ -357,6 +377,14 @@ public class Release810Tests
         Assert.Equal(new[] { "temperature" }, r.Dropped);
         Assert.Equal(" (sent without temperature)", r.DroppedNote);
         Assert.Equal(new[] { "claude-opus-4-5:temperature" }, live.Connections[0].Unsupported);   // remembered on the live connection too
+
+        // The editor points at another server than the saved connection: the refusal goes back to the caller only.
+        live.Connections[0].Unsupported.Clear();
+        var elsewhere = new AiSettings { Enabled = true, Connections = { new AiConnection { Id = "a", Provider = AiProviderKind.Anthropic, Endpoint = "https://gateway.example/anthropic", Model = "claude-opus-4-5" } }, ActiveId = "a" };
+        elsewhere.UseActive();
+        var r2 = await svc.TestAsync(elsewhere, "sk-ant", CancellationToken.None);
+        Assert.Equal(new[] { "temperature" }, r2.Dropped);
+        Assert.Empty(live.Connections[0].Unsupported);
     }
 
     [Fact]
@@ -427,13 +455,29 @@ public class Release810Tests
     }
 
     [Fact]
-    public async Task A_huge_list_is_capped()
+    public async Task A_huge_list_keeps_the_newest_500()
     {
-        var items = string.Join(",", Enumerable.Range(0, 700).Select(i => "{\"id\":\"gpt-" + i + "-" + new string('x', 400) + "\",\"created\":" + (1700000000 + i) + "}"));
+        // Mixed order on the wire: even ids are old, odd ids are new.
+        var items = string.Join(",", Enumerable.Range(0, 700).Select(i => "{\"id\":\"gpt-" + i + "-" + new string('x', 400) + "\",\"created\":" + (i % 2 == 0 ? 1600000000 + i : 1700000000 + i) + "}"));
         var http = new FakeHttp { Respond = (_, _) => Json("{\"data\":[" + items + "]}") };
         var list = await ModelCatalog.ListAsync(new HttpClient(http), AiProviderKind.OpenAI, "https://api.openai.com/v1", "k", CancellationToken.None);
         Assert.Equal(ModelCatalog.MaxModels, list.Count);
         Assert.All(list, m => { Assert.True(m.Id.Length <= ModelCatalog.MaxTextLength); Assert.True(m.Name.Length <= ModelCatalog.MaxTextLength); });
+        Assert.Equal(350, list.Count(m => m.Created >= DateTimeOffset.FromUnixTimeSeconds(1700000000)));   // every new one is in
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1700000699), list[0].Created);
+        Assert.True(list[^1].Created >= DateTimeOffset.FromUnixTimeSeconds(1600000000 + 400));   // the oldest 200 were dropped
+    }
+
+    [Fact]
+    public async Task A_remote_Ollama_gets_the_key_as_a_bearer_header()
+    {
+        var http = new FakeHttp { Respond = (_, _) => Json("{\"models\":[{\"name\":\"llama3.2\"}]}") };
+        await ModelCatalog.ListAsync(new HttpClient(http), AiProviderKind.Ollama, "https://ollama.example/v1", "tok", CancellationToken.None);
+        Assert.Equal("https://ollama.example/api/tags", http.Requests.Single().req.RequestUri!.ToString());
+        Assert.Equal("Bearer tok", http.Requests.Single().req.Headers.Authorization!.ToString());
+        http.Requests.Clear();
+        await ModelCatalog.ListAsync(new HttpClient(http), AiProviderKind.Ollama, "http://localhost:11434/v1", null, CancellationToken.None);
+        Assert.Null(http.Requests.Single().req.Headers.Authorization);
     }
 
     // ── Settings round-trip ──

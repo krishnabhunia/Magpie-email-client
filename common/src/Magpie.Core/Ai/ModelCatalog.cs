@@ -43,10 +43,10 @@ public static class ModelCatalog
             var list = kind switch
             {
                 AiProviderKind.Anthropic => await AnthropicAsync(http, endpoint, apiKey, timeout.Token),
-                AiProviderKind.Ollama => await OllamaAsync(http, endpoint, timeout.Token),
+                AiProviderKind.Ollama => await OllamaAsync(http, endpoint, apiKey, timeout.Token),
                 _ => await OpenAiAsync(http, endpoint, apiKey, kind, timeout.Token),
             };
-            return Sort(list.Take(MaxModels).Select(Clip));
+            return Sort(list).Take(MaxModels).Select(Clip).ToList();   // the newest 500
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -185,10 +185,13 @@ public static class ModelCatalog
         return list;
     }
 
-    private static async Task<List<AiModelInfo>> OllamaAsync(HttpClient http, string endpoint, CancellationToken ct)
+    private static async Task<List<AiModelInfo>> OllamaAsync(HttpClient http, string endpoint, string? apiKey, CancellationToken ct)
     {
         var url = Base(endpoint) + "/api/tags";
-        using var doc = await GetAsync(http, url, _ => { }, AiProviderKind.Ollama, ct);
+        using var doc = await GetAsync(http, url, req =>
+        {
+            if (!string.IsNullOrEmpty(apiKey)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);   // a remote Ollama behind a gateway
+        }, AiProviderKind.Ollama, ct);
         if (!doc.RootElement.TryGetProperty("models", out var data) || data.ValueKind != JsonValueKind.Array) throw new AiException("This server doesn't list its models");
         var list = new List<AiModelInfo>();
         foreach (var m in data.EnumerateArray())

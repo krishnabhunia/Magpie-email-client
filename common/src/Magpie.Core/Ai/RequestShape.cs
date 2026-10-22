@@ -20,19 +20,44 @@ public sealed record RequestShape(bool SendTemperature, double Temperature, stri
     public const string MaxTokensParam = "max_tokens";
     public const string MaxCompletionTokensParam = "max_completion_tokens";
 
-    /// <summary>The entry kept in <see cref="AiConnection.Unsupported"/> for one model and parameter.</summary>
+    /// <summary>The entry kept in <see cref="AiConnection.Unsupported"/> for one model and parameter ("model:temperature"), or a
+    /// replacement the server asked for ("model:max_tokens->max_completion_tokens").</summary>
     public static string Key(string model, string param) => $"{model.Trim()}:{param}";
+
+    /// <summary>"max_tokens->max_completion_tokens": the server wants the second name instead of the first.</summary>
+    public static string Replacement(string from, string to) => $"{from}->{to}";
+
+    /// <summary>What <paramref name="next"/> dropped or renamed compared with this shape, as the entry to remember — or null when nothing changed.</summary>
+    public string? ChangeTo(RequestShape next)
+    {
+        if (SendTemperature && !next.SendTemperature) return TemperatureParam;
+        if (MaxTokensField != next.MaxTokensField && MaxTokensField != null)
+            return next.MaxTokensField == null ? MaxTokensField : Replacement(MaxTokensField, next.MaxTokensField);
+        return null;
+    }
+
+    /// <summary>"max_tokens->max_completion_tokens" → (max_tokens, max_completion_tokens); a plain name → (name, null).</summary>
+    public static (string from, string? to) Parse(string entry)
+    {
+        var i = entry.IndexOf("->", StringComparison.Ordinal);
+        return i < 0 ? (entry.Trim(), null) : (entry[..i].Trim(), entry[(i + 2)..].Trim());
+    }
 
     public static RequestShape For(AiProviderKind kind, string model, IEnumerable<string>? unsupported, double temperature)
     {
         model = (model ?? "").Trim();
         var shape = new RequestShape(!NoTemperatureByDefault(kind, model), Math.Clamp(temperature, 0, 1), DefaultMaxTokensField(kind, model), kind == AiProviderKind.Anthropic);
         var prefix = model + ":";
-        var refused = new HashSet<string>((unsupported ?? Array.Empty<string>())
-            .Where(u => u.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).Select(u => u[prefix.Length..]), StringComparer.OrdinalIgnoreCase);
+        var entries = (unsupported ?? Array.Empty<string>())
+            .Where(u => u.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).Select(u => Parse(u[prefix.Length..])).ToList();
+        var refused = new HashSet<string>(entries.Where(e => e.to == null).Select(e => e.from), StringComparer.OrdinalIgnoreCase);
+        var replaced = entries.Where(e => e.to != null).ToDictionary(e => e.from, e => e.to!, StringComparer.OrdinalIgnoreCase);
         if (refused.Contains(TemperatureParam)) shape = shape with { SendTemperature = false };
         if (shape.FixedMaxTokens) return shape;
-        if (shape.MaxTokensField == MaxTokensParam && refused.Contains(MaxTokensParam))
+        // A replacement the server asked for ("use max_completion_tokens instead") beats a plain refusal; OpenAI's own newer name is the default replacement.
+        if (shape.MaxTokensField == MaxTokensParam && replaced.TryGetValue(MaxTokensParam, out var to) && to is MaxCompletionTokensParam or MaxTokensParam)
+            shape = shape with { MaxTokensField = to };
+        else if (shape.MaxTokensField == MaxTokensParam && refused.Contains(MaxTokensParam))
             shape = shape with { MaxTokensField = kind == AiProviderKind.OpenAI ? MaxCompletionTokensParam : null };
         if (shape.MaxTokensField == MaxCompletionTokensParam && refused.Contains(MaxCompletionTokensParam))
             shape = shape with { MaxTokensField = null };

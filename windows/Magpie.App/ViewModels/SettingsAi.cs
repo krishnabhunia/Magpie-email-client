@@ -84,6 +84,8 @@ public partial class SettingsViewModel
     /// <summary>Set while <see cref="Models"/> is rebuilt: WPF blanks the editable box's text when its selected item leaves the list, and that must not count as the user clearing the model.</summary>
     private bool _rebuildingModels;
     private System.Windows.Threading.DispatcherTimer? _keyTimer, _endpointTimer;
+    /// <summary>The endpoint a pending refresh was armed for: the tick is dropped when the box changed since.</summary>
+    private string _armedEndpoint = "";
     /// <summary>The key each connection's list was fetched with, so re-showing the same key doesn't ask again.</summary>
     private readonly Dictionary<string, string> _listedKey = new();
     private CancellationTokenSource? _modelsCts;
@@ -222,7 +224,7 @@ public partial class SettingsViewModel
     private void ShowModels(AiConnectionItem c)
     {
         var now = DateTimeOffset.UtcNow;
-        var fromProvider = c.Models.Count > 0;
+        var fromProvider = c.ModelsCheckedAt != null;   // fetched (even if the answer was "none") — never fetched or forgotten → built-in list
         var list = fromProvider ? ModelCatalog.Sort(c.Models) : ModelCatalog.BuiltIn(c.Provider).ToList();
         var recommended = ModelCatalog.Recommended(c.Provider, list)?.Id;
         var model = Model.Trim();
@@ -241,7 +243,9 @@ public partial class SettingsViewModel
         }
         finally { _rebuildingModels = false; }
         var who = ProviderShortName(c.Provider);
-        if (fromProvider)
+        if (fromProvider && list.Count == 0)
+            ModelsHeader = (c.Provider == AiProviderKind.Ollama ? "Ollama has no models yet — pull one, then Refresh." : $"Your key can use no models at {who}.") + $" Checked {Ago(c.ModelsCheckedAt, now)}.";
+        else if (fromProvider)
             ModelsHeader = $"From {who} · {list.Count} model{(list.Count == 1 ? "" : "s")} · checked {Ago(c.ModelsCheckedAt, now)}";
         else if (list.Count == 0)
             ModelsHeader = CanListModels(c) ? "No list yet — Refresh asks the server which models it has." : "Type the model id your server expects.";
@@ -343,8 +347,10 @@ public partial class SettingsViewModel
             var now = DateTimeOffset.UtcNow;
             c.Models = ModelCatalog.Merge(c.Models, fetched, now, checkedBefore: c.ModelsCheckedAt != null);
             c.ModelsCheckedAt = now;
-            // The list isn't a change the user made: keep it even if Settings is closed without saving.
-            if (_e.Config.Ai.Connections.FirstOrDefault(x => x.Id == c.Id) is { } live && live.Provider == provider && live.Endpoint == endpoint)
+            // The list isn't a change the user made: keep it even if Settings is closed without saving — but only when it was fetched
+            // with the saved key (a key typed and then cancelled must not leave its list on the saved connection).
+            var savedKey = (_e.Vault.Get(SecretVault.AiKeyFor(c.Id)) ?? "").Trim();
+            if (_e.Config.Ai.Connections.FirstOrDefault(x => x.Id == c.Id) is { } live && live.Provider == provider && live.Endpoint == endpoint && (key ?? "") == savedKey)
             {
                 live.Models = c.Models.Select(m => m.Clone()).ToList();
                 live.ModelsCheckedAt = now;
@@ -376,8 +382,10 @@ public partial class SettingsViewModel
     {
         _keyTimer ??= MakeTimer(KeyDebounce, () =>
         {
+            if (Endpoint.Trim() != _armedEndpoint) return;   // the address changed since: nothing automatic
             if (SelectedAiConnection is { } c && (ApiKey != _listedKey.GetValueOrDefault(c.Id) || ListIsStale(c))) _ = RefreshModelsAsync(c, silent: true);
         });
+        _armedEndpoint = Endpoint.Trim();
         _keyTimer.Stop();
         _keyTimer.Start();
     }
@@ -400,10 +408,24 @@ public partial class SettingsViewModel
         c.DismissedNewModel = "";
         c.Unsupported = new();
         ShowModels(c);
+        CancelPendingRefresh();   // an edited address: the key goes nowhere until Refresh or Test is clicked
         if (!refresh) return;
-        _endpointTimer ??= MakeTimer(KeyDebounce, () => { if (SelectedAiConnection is { } x) _ = RefreshModelsAsync(x, silent: true); });
+        _endpointTimer ??= MakeTimer(KeyDebounce, () =>
+        {
+            if (Endpoint.Trim() != _armedEndpoint) return;   // the address was edited after the provider change
+            if (SelectedAiConnection is { } x) _ = RefreshModelsAsync(x, silent: true);
+        });
+        _armedEndpoint = Endpoint.Trim();
         _endpointTimer.Stop();
         _endpointTimer.Start();
+    }
+
+    private void CancelPendingRefresh()
+    {
+        _keyTimer?.Stop();
+        _endpointTimer?.Stop();
+        _modelsCts?.Cancel();
+        ModelsBusy = false;
     }
 
     /// <summary>Refresh was clicked: what the server refused before is forgotten too (it may be another server, or fixed).</summary>

@@ -76,10 +76,10 @@ internal static class ShapedRequest
             if (param != null && attempt < MaxRetries && dropped.Add(param))
             {
                 var next = shape.Without(param, text);
-                if (next != shape)   // only a shape that changes the request is worth a retry — and worth remembering
+                if (shape.ChangeTo(next) is { } change)   // only a shape that changes the request is worth a retry — and worth remembering
                 {
-                    Log.Info($"AI: the model refused '{param}' — sending again without it");
-                    onRefused?.Invoke(param);
+                    Log.Info($"AI: the model refused '{param}' — sending again ({change})");
+                    onRefused?.Invoke(change);
                     shape = next;
                     continue;
                 }
