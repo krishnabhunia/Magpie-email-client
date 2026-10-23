@@ -19,7 +19,8 @@ public partial class SettingsViewModel
     [ObservableProperty] private bool _hasChanges;
     private string _baseline = "";
     private System.Windows.Threading.DispatcherTimer? _changeTimer;
-    private readonly HashSet<string> _quiet = new() { nameof(HasChanges), nameof(Page), nameof(SearchText), nameof(TestStatus), nameof(TestOk), nameof(Testing), nameof(SignatureStatus), nameof(MailFolderInfo) };
+    private readonly HashSet<string> _quiet = new() { nameof(HasChanges), nameof(Page), nameof(SearchText), nameof(TestStatus), nameof(TestOk), nameof(Testing), nameof(SignatureStatus), nameof(MailFolderInfo),
+        nameof(ModelsHeader), nameof(ModelsStatus), nameof(ModelsOk), nameof(ModelsBusy), nameof(TemperatureUsed), nameof(TemperatureNote), nameof(NewModelNotice), nameof(TemperatureText), nameof(ShowServer) };
 
     private void StartChangeTracking()
     {
@@ -84,6 +85,13 @@ public partial class SettingsViewModel
         c.Ai.Replies = Replies;
         FlushAiEditor(SelectedAiConnection);
         c.Ai.Connections = AiConnections.Select(x => x.ToConnection()).ToList();
+        foreach (var x in c.Ai.Connections)   // design AM1: the fetched list, learned refusals and a dismissed notice are saved as they come, not by Apply
+        {
+            x.Models = new();
+            x.ModelsCheckedAt = null;
+            x.Unsupported = new();
+            x.DismissedNewModel = "";
+        }
         c.Ai.ActiveId = (AiConnections.FirstOrDefault(x => x.IsActive) ?? AiConnections.FirstOrDefault())?.Id ?? "";
         c.Appearance = new Appearance
         {

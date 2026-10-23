@@ -89,6 +89,7 @@ public sealed class AiSettings
             if (string.IsNullOrWhiteSpace(c.Id)) c.Id = AiConnection.NewId();
             if (string.IsNullOrWhiteSpace(c.Endpoint)) (c.Endpoint, _) = Preset(c.Provider);
             if (string.IsNullOrWhiteSpace(c.Name)) c.Name = ProviderName(c.Provider);
+            c.Normalise();
         }
         Connections = Connections.DistinctBy(c => c.Id).ToList();
         UseActive();
@@ -97,8 +98,8 @@ public sealed class AiSettings
     public AiSettings Clone()
     {
         var c = (AiSettings)MemberwiseClone();
-        c.Consents = new List<string>(Consents);
-        c.Connections = Connections.Select(x => x.Clone()).ToList();
+        c.Consents = new List<string>(Consents ?? new());
+        c.Connections = (Connections ?? new()).Select(x => x.Clone()).ToList();
         return c;
     }
 }
@@ -116,7 +117,38 @@ public sealed class AiConnection
     public string Endpoint { get; set; } = "";
     public string Model { get; set; } = "";
 
-    public AiConnection Clone() => (AiConnection)MemberwiseClone();
+    /// <summary>Design AM1: the models the provider listed for this key, newest first (empty until the first list).</summary>
+    public List<Ai.AiModelInfo> Models { get; set; } = new();
+    /// <summary>When <see cref="Models"/> was last fetched; null = never (the first list marks nothing "New").</summary>
+    public DateTimeOffset? ModelsCheckedAt { get; set; }
+    /// <summary>Request settings a model refused, as "model:parameter" (<see cref="Ai.RequestShape"/>) — learned, applied next time.</summary>
+    public List<string> Unsupported { get; set; } = new();
+    /// <summary>Creativity (temperature) 0–1 for models that accept it.</summary>
+    public double Temperature { get; set; } = DefaultTemperature;
+    /// <summary>The "New from …" notice the user dismissed, so it doesn't come back for that model.</summary>
+    public string DismissedNewModel { get; set; } = "";
+
+    public const double DefaultTemperature = 0.4;
+
+    /// <summary>Old settings.json (before AM1) has none of the list fields.</summary>
+    public void Normalise()
+    {
+        Models ??= new();
+        Models = Models.Where(m => m != null && !string.IsNullOrWhiteSpace(m.Id)).ToList();
+        foreach (var m in Models) if (string.IsNullOrWhiteSpace(m.Name)) m.Name = m.Id;
+        Unsupported = (Unsupported ?? new()).Where(u => !string.IsNullOrWhiteSpace(u)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        DismissedNewModel ??= "";
+        if (double.IsNaN(Temperature)) Temperature = DefaultTemperature;
+        Temperature = Math.Clamp(Temperature, 0, 1);
+    }
+
+    public AiConnection Clone()
+    {
+        var c = (AiConnection)MemberwiseClone();
+        c.Models = (Models ?? new()).Select(m => m.Clone()).ToList();
+        c.Unsupported = new List<string>(Unsupported ?? new());
+        return c;
+    }
 }
 
 public sealed class TagDef

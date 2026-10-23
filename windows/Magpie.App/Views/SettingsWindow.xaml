@@ -572,25 +572,89 @@
                                     <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding SelectedAiConnection.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
                                     <TextBlock Text="Provider" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                     <ComboBox ItemsSource="{Binding Providers}" SelectedValue="{Binding Provider, Mode=TwoWay}" SelectedValuePath="Value" DisplayMemberPath="Label" Margin="0,0,0,14" />
-                                    <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
-                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="12" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,5">
-                                                <Run Text="API key " /><Run Text="{Binding KeyHint, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,5">
+                                        <Run Text="API key " /><Run Text="{Binding KeyHint, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                    </TextBlock>
+                                    <PasswordBox x:Name="ApiKeyBox" Style="{StaticResource PasswordBox.Field}" PasswordChanged="OnApiKeyChanged" Margin="0,0,0,14" />
+
+                                    <!-- Design AM1: the model comes from the provider's list (newest first, "New" / "Recommended" / "In use"), or is typed -->
+                                    <StackPanel x:Name="RowAiModel">
+                                        <Border Style="{StaticResource Card.Ai}" Margin="0,0,0,10" Visibility="{Binding NewModelNotice, Converter={StaticResource BoolToVis}}">
+                                            <DockPanel>
+                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                                                    <Button Style="{StaticResource Button.Link}" Content="Switch" Command="{Binding SwitchToNewModelCommand}" Margin="0,0,12,0" />
+                                                    <Button Style="{StaticResource Button.Link}" Content="Dismiss" Command="{Binding DismissNewModelCommand}" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding NewModelNotice}" TextWrapping="Wrap" FontSize="12.5" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Ai.Text}" />
+                                            </DockPanel>
+                                        </Border>
+                                        <TextBlock Text="Model" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                        <ComboBox x:Name="ModelBox" Style="{StaticResource ComboBox.Editable}" ItemsSource="{Binding Models}" IsTextSearchEnabled="False" TextSearch.TextPath="Id"
+                                                  Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" MaxDropDownHeight="320">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:AiModelItem}">
+                                                    <DockPanel MinWidth="360">
+                                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                                                            <Border Style="{StaticResource Tag.Indigo}" Padding="7,1" Margin="4,0,0,0" Visibility="{Binding IsNew, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="New" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Ai.Text}" />
+                                                            </Border>
+                                                            <Border Style="{StaticResource Tag.Teal}" Padding="7,1" Margin="4,0,0,0" Visibility="{Binding IsRecommended, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="Recommended" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent.Text}" />
+                                                            </Border>
+                                                            <Border Background="{DynamicResource Brush.Success.Subtle}" CornerRadius="4" Padding="7,1" Margin="4,0,0,0" VerticalAlignment="Center" Visibility="{Binding IsInUse, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="In use" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Success}" />
+                                                            </Border>
+                                                        </StackPanel>
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Name}" FontWeight="Medium" FontSize="13" />
+                                                            <TextBlock Text="{Binding Id}" Style="{StaticResource Text.Mono}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" Visibility="{Binding ShowId, Converter={StaticResource BoolToVis}}" />
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <DockPanel Margin="0,5,0,0">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Refresh" FontSize="12" Command="{Binding RefreshModelsCommand}" VerticalAlignment="Top" Margin="12,0,0,0"
+                                                    Visibility="{Binding ModelsBusy, Converter={StaticResource InvBoolToVis}}" />
+                                            <TextBlock DockPanel.Dock="Right" Text="Asking…" Style="{StaticResource Text.Caption}" Margin="12,0,0,0" Visibility="{Binding ModelsBusy, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="{Binding ModelsHeader}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding ModelsStatus}" FontSize="12.5" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="{Binding ModelsStatus, Converter={StaticResource BoolToVis}}"
+                                                   Foreground="{Binding ModelsOk, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Text.Secondary|Brush.Danger}" />
+
+                                        <!-- Creativity (temperature) -->
+                                        <DockPanel Margin="0,16,0,5">
+                                            <Border DockPanel.Dock="Right" Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="4" Padding="7,1" VerticalAlignment="Center"
+                                                    Visibility="{Binding TemperatureUsed, Converter={StaticResource InvBoolToVis}}">
+                                            <TextBlock Text="Not used by this model" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Warning}" />
+                                            </Border>
+                                            <TextBlock Style="{StaticResource Text.Caption}" VerticalAlignment="Center">
+                                                <Run Text="Creativity (temperature) " /><Run Text="{Binding TemperatureText, Mode=OneWay}" FontWeight="SemiBold" />
                                             </TextBlock>
-                                            <PasswordBox x:Name="ApiKeyBox" Style="{StaticResource PasswordBox.Field}" PasswordChanged="OnApiKeyChanged" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Model" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
-                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
-                                        </StackPanel>
-                                    </Grid>
+                                        </DockPanel>
+                                        <Grid IsEnabled="{Binding TemperatureUsed}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Precise" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" SmallChange="0.05" LargeChange="0.1"
+                                                    Value="{Binding Temperature, Mode=TwoWay}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Text="Creative" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        </Grid>
+                                        <TextBlock Text="{Binding TemperatureNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="{Binding TemperatureNote, Converter={StaticResource BoolToVis}}" />
+
+                                        <!-- The endpoint is rarely changed: under "Server (advanced)" -->
+                                        <Expander Header="Server (advanced)" Margin="0,14,0,0" IsExpanded="{Binding ShowServer, Mode=TwoWay}">
+                                            <StackPanel Margin="0,8,0,0">
+                                                <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock Text="The address Magpie sends requests to (https, or http for a server on this PC). Change it for a proxy, a company gateway or a local server, then click Refresh or Test connection." Style="{StaticResource Text.Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Expander>
+                                    </StackPanel>
+
                                     <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                         <Button Style="{StaticResource Button.Secondary}" Content="Test connection" FontWeight="Normal" Command="{Binding TestConnectionCommand}" />
                                         <TextBlock Text="{Binding TestStatus}" FontSize="12.5" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="440"

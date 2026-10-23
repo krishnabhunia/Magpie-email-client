@@ -371,7 +371,8 @@ public partial class SettingsViewModel : ObservableObject
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
-        ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key model openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
+        ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
+        ("AI model", "AI", "Pick the model from your provider's list (newest first, \"New\" for recent ones) or type its id; creativity (temperature) per connection", "ai model models list claude gpt ollama temperature creativity new recommended refresh pick choose", "RowAiModel"),
         ("Send a test notification", "Notifications", "Shows a sample new-mail notification", "test notification sample try sound", "RowNotifyTest"),
         ("AI features", "AI", "Summarise, drafts, rewrite, suggested replies", "summarise summary draft rewrite replies suggest ai", "RowAiFeatures"),
         ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
@@ -760,16 +761,25 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>The window closed: stop listening to the engine.</summary>
-    public void Detach() => _e.StatusChanged -= OnAccountStatus;
+    public void Detach() { _e.StatusChanged -= OnAccountStatus; StopModelRefresh(); }
 
     partial void OnProviderChanged(AiProviderKind value)
     {
         if (_loadingAiEditor) return;   // showing another connection, not choosing a new provider
         var (endpoint, model) = AiSettings.Preset(value);
-        Endpoint = endpoint;
-        Model = model;
+        _loadingAiEditor = true;   // one list refresh for the provider change, not one per field
+        try
+        {
+            Endpoint = endpoint;
+            Model = model;
+        }
+        finally { _loadingAiEditor = false; }
         TestStatus = "";
         OnPropertyChanged(nameof(KeyHint));
+        OnPropertyChanged(nameof(IsLocal));
+        if (SelectedAiConnection is { } c) { c.Provider = value; c.Endpoint = endpoint; }
+        if (value == AiProviderKind.Custom) ShowServer = true;
+        ForgetModelList(refresh: true);   // design AM1
     }
 
     partial void OnEndpointChanged(string value)
@@ -777,6 +787,14 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsLocal));
         OnPropertyChanged(nameof(KeyHint));
         TestStatus = "";
+        if (_loadingAiEditor) return;
+        if (SelectedAiConnection is { } c) c.Endpoint = value.Trim();
+        ForgetModelList(refresh: false);   // design AM1: another server, another list — but no request while the address is being typed
+    }
+
+    partial void OnPageChanged(string value)
+    {
+        if (value == "AI") OnAiPageOpened();   // design AM1
     }
 
     [RelayCommand] private void Go(string page) { SearchText = ""; Page = page; }
@@ -787,23 +805,36 @@ public partial class SettingsViewModel : ObservableObject
         Testing = true;
         TestStatus = "Testing…";
         TestOk = false;
+        var item = SelectedAiConnection;   // the connection being tested — results go to it even if another one is picked meanwhile
+        var status = "";
         try
         {
-            var candidate = new AiSettings { Enabled = true, Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim() };
+            FlushAiEditor(item);
+            var conn = item?.ToConnection() ?? new AiConnection { Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim(), Temperature = Temperature };
+            var candidate = new AiSettings { Enabled = true, Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim(), Connections = { conn }, ActiveId = conn.Id };
             if (!AiService.IsConfigured(candidate, ApiKey)) throw new AiException("Fill in the endpoint, model and API key first.");
-            var reply = await Task.Run(() => _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
-            TestOk = true;
-            TestStatus = "✓ Connected" + (string.IsNullOrWhiteSpace(reply) ? "" : $" — model replied \"{(reply.Length > 20 ? reply[..20] : reply)}\"");
+            var result = await Task.Run(() => _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
+            var reply = result.Reply;
+            if (item != null && AiConnections.Contains(item))
+            {
+                foreach (var d in result.Dropped)   // design AM1: remembered on the connection being edited too
+                {
+                    var entry = RequestShape.Key(conn.Model, d);
+                    if (!item.Unsupported.Contains(entry, StringComparer.OrdinalIgnoreCase)) item.Unsupported.Add(entry);
+                }
+                if (SelectedAiConnection == item) RefreshTemperatureUsed(item);
+            }
+            status = "✓ Connected" + (string.IsNullOrWhiteSpace(reply) ? "" : $" — model replied \"{(reply.Length > 20 ? reply[..20] : reply)}\"") + result.DroppedNote;
         }
         catch (Exception ex)
         {
-            TestOk = false;
-            TestStatus = ex is AiException ? ex.Message : "Couldn't connect: " + ex.Message;
+            status = ex is AiException ? ex.Message : "Couldn't connect: " + ex.Message;
         }
         finally
         {
             Testing = false;
-            if (SelectedAiConnection != null) SelectedAiConnection.Status = TestStatus;   // design AI2: shown on its row
+            if (item != null) item.Status = status;   // design AI2: shown on its row
+            if (item == null || SelectedAiConnection == item) { TestStatus = status; TestOk = status.StartsWith('✓'); }
         }
     }
 

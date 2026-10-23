@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **8.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **8.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -33,7 +33,7 @@ Current release: **8.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 413 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 484 unit tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -67,6 +67,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Backup (EX1) | `common/src/Magpie.Core/Settings/SettingsBackup.cs` (lock/unlock, staged restore applied at start), `windows/Magpie.App/Services/BackupUi.cs`, `Views/PasswordDialog.cs` |
 | Mail folder (DL1) | `AppPaths.MailRoot` (+ `mail-folder.txt`), `common/src/Magpie.Core/Storage/MailLocation.cs` (move), `windows/Magpie.App/Services/MailFolderStartup.cs` (move at start, drive missing) |
 | AI connections (AI2) | `AiSettings.Connections` / `ActiveId` / `UseActive()` (Provider/Endpoint/Model mirror the one in use), `SecretVault.AiKeyFor(id)`, `ViewModels/SettingsAi.cs` |
+| AI model list / request shape (AM1, 8.1.0) | `common/src/Magpie.Core/Ai/ModelCatalog.cs` (`ListAsync` per provider, `Sort` newest first, `Recommended`, `BuiltIn` fallback, `Merge` + `IsNew` 30 days, `NewModelToOffer`), `Ai/RequestShape.cs` (`For` = built-in table + learned `AiConnection.Unsupported` "model:param", `RefusedParameter` reads a 400, `Without`), `ShapedRequest.SendAsync` in `AiProviders.cs` (retry without the refused setting, ≤3, never twice), `AiService.Remember` + `SaveSettings` hook, `TestAsync` → `AiTestResult` (`Dropped`); `AiConnection.Models` / `ModelsCheckedAt` / `Temperature` / `DismissedNewModel`; Windows: `ViewModels/SettingsAi.cs` (`Models`, `ModelsHeader`, `RefreshModelsCommand`, key debounce 800 ms, `NewModelNotice`), `Styles/Controls.xaml` `ComboBox.Editable` + `Slider`, `Services/ModelRefreshService.cs` (30 s after start, then daily) |
 | Settings change tracking (AP1) | `ViewModels/SettingsChanges.cs` — `Snapshot()` is the pure twin of `SaveCore`: add every new setting to BOTH, or Apply stays greyed out for it |
 | Reader (RL1, Q38/Q39) | `ThreadViewModel.Show` switches the pane at once; `LoadAsync` renders from the store first; `MessageBody.Images` + `ImagesComplete` (schema v7); `MimeText.NeedsDownload` / `MissingPictures`; `MailEngine.FetchBodyAsync` (text-only on open); page cache + `WarmNeighboursAsync` |
 | Calendar (B2, Q7) | `common/src/Magpie.Core/Calendar/` — `GoogleCalendar.cs` (Calendar API v3 client, errors → plain messages), `CalendarService.cs` (poll 5 min + `Poke`, local-first save/delete/respond, pending ops pushed next round), `CalendarLayout.cs` (ranges, titles, overlap columns); `MailStore.Calendar.cs` (`cal_calendars`, `cal_events`, `TakeDueEventReminders`); `ViewModels/CalendarViewModel.cs`, `Views/CalendarView.xaml`, `Views/EventWindow.xaml`; Google sign-in asks for calendar + contacts scopes (`OAuth.GrantedScopes`) |

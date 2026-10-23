@@ -73,7 +73,7 @@ public sealed class MailEngine : IDisposable
         };
         Connector = new Connector(Vault, OAuth);
         _sendMessage = sendMessage ?? Connector.SendAsync;
-        Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id)));
+        Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id))) { SaveSettings = () => Settings.Save(notify: false) };
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
     }
 

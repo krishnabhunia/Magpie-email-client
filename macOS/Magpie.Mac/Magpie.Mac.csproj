@@ -29,6 +29,8 @@
     <!-- WKWebView in Avalonia (MIT, Wieslaw Soltes): the reading pane and the compose editor. -->
     <PackageReference Include="NativeWebView" Version="12.0.4.9" />
     <PackageReference Include="NativeWebView.Platform.macOS" Version="12.0.4.9" />
+    <!-- Avalonia / NativeWebView pull in 10.0.0, which has a vulnerability advisory (GHSA-846f-f764-76mx); the patched one wins. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\common\src\Magpie.Core\Magpie.Core.csproj" />

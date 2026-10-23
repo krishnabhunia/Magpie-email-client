@@ -124,6 +124,7 @@ public partial class SettingsWindow : Window
         _vm.ApiKey = ApiKeyBox.Password;
         _vm.ApiKeyChanged = true;
         _vm.NoteChange();
+        _vm.NoteApiKeyTyped();   // design AM1: the model list follows the key
     }
 
     private void OnSave(object sender, RoutedEventArgs e)

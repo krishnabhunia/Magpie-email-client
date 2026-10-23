@@ -7,6 +7,13 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 8.1.0 (22 Oct 2026)
+### Changed
+- **Pick the AI model from a list.** Settings → AI asks your provider (Anthropic, OpenAI, Ollama or any OpenAI-compatible server) which models your key can use and shows them newest first, with "New" on anything added since Magpie last looked, so a new Claude appears by itself. You can still type a model id. The API key now sits above the model; the endpoint is under "Server (advanced)". A creativity (temperature) slider per connection.
+### Fixed
+- **New models no longer refuse Magpie's requests.** Claude Fable / Mythos, Claude 5.x and OpenAI's o-series / GPT-5 reject the temperature or max_tokens settings; Magpie now sends only what each model accepts, retries without the refused setting, and remembers it (Test connection says "sent without temperature").
+<!-- closes: #98 -->
+
 ## 8.0.0 (10 Oct 2026)
 ### New
 - **Magpie for Mac** (Apple Silicon: M1 and newer, macOS 14 Sonoma or later). Download `Magpie_<version>.dmg` (in the release, or in `macOS/` of `Magpie_<version>.zip`), open it and drag Magpie to Applications. It reads and sends your mail with the same engine as Windows: your accounts and folders with unread counts in the sidebar, the message list with search, conversations shown by the Mac's own web view (links open in your browser; pictures from the internet follow Ask / Always, with Show pictures), Reply, Reply all, Forward, Archive, Delete (in Trash and Spam: Delete forever, after asking), Mark read / unread and Pin, and a compose window with suggestions from your contacts, links (⌘K), attachments, Send later and a few seconds to Undo. Drafts open again with Edit draft — also the ones kept on this Mac while offline, marked "On this Mac".
