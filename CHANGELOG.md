@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 8.1.0 (23 Oct 2026)
+### Changed
+- **Claude model setup**: refresh the models available to your Anthropic key, choose which appear in the model dropdown, and test your chosen model before saving. Each connection keeps its own model choices; existing providers and manually entered model IDs still work.
+### Fixed
+- **Newer AI models** no longer receive sampling settings they do not support. Errors explain key, access, model, usage-limit and provider problems without exposing your key or email text. Interrupted replies are not silently repeated. Creativity is saved per connection and disabled for models that refuse it.
+
 ## 8.0.0 (10 Oct 2026)
 ### New
 - **Magpie for Mac** (Apple Silicon: M1 and newer, macOS 14 Sonoma or later). Download `Magpie_<version>.dmg` (in the release, or in `macOS/` of `Magpie_<version>.zip`), open it and drag Magpie to Applications. It reads and sends your mail with the same engine as Windows: your accounts and folders with unread counts in the sidebar, the message list with search, conversations shown by the Mac's own web view (links open in your browser; pictures from the internet follow Ask / Always, with Show pictures), Reply, Reply all, Forward, Archive, Delete (in Trash and Spam: Delete forever, after asking), Mark read / unread and Pin, and a compose window with suggestions from your contacts, links (⌘K), attachments, Send later and a few seconds to Undo. Drafts open again with Edit draft — also the ones kept on this Mac while offline, marked "On this Mac".

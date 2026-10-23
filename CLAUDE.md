@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **8.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **8.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -33,7 +33,7 @@ Current release: **8.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 413 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 507 unit tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```

@@ -11,6 +11,13 @@ public sealed record ChatMessage(string Role, string Content);
 public sealed class AiException : Exception
 {
     public bool Auth { get; }
+    public AiErrorKind Kind { get; init; }
+    public int? StatusCode { get; init; }
+    public string ErrorType { get; init; } = "";
+    public string RequestId { get; init; } = "";
+    public TimeSpan? RetryAfter { get; init; }
+    public bool Retryable { get; init; }
+    public bool PartialResponse { get; init; }
     public AiException(string message, bool auth = false, Exception? inner = null) : base(message, inner) { Auth = auth; }
 }
 
@@ -53,35 +60,43 @@ public sealed class OpenAiCompatibleProvider : IAiProvider
     private readonly HttpClient _http;
     private readonly string _endpoint, _model;
     private readonly string? _key;
+    private readonly RequestShape _shape;
+    private readonly Action<string>? _remember;
 
-    public OpenAiCompatibleProvider(HttpClient http, string endpoint, string model, string? apiKey)
+    public OpenAiCompatibleProvider(HttpClient http, string endpoint, string model, string? apiKey, RequestShape? shape = null, Action<string>? remember = null)
     {
         _http = http;
+        if (!AiService.IsConfigured(new AiSettings { Provider = AiProviderKind.Custom, Endpoint = endpoint, Model = model }, apiKey))
+            throw new AiException("Use an HTTPS endpoint (or HTTP on this PC), without a password, query or fragment, and supply a model.");
         _endpoint = endpoint.TrimEnd('/');
         _model = model;
         _key = apiKey;
+        _shape = shape ?? RequestShape.For(AiProviderKind.OpenAI, model, null, AiConnection.DefaultTemperature);
+        _remember = remember;
     }
 
     public async Task<string> CompleteAsync(string system, IReadOnlyList<ChatMessage> messages, Action<string>? onToken, int maxTokens, CancellationToken ct)
     {
-        var msgs = new JsonArray { new JsonObject { ["role"] = "system", ["content"] = system } };
-        foreach (var m in messages) msgs.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content });
-        var body = new JsonObject
+        HttpRequestMessage Build(RequestShape shape)
         {
-            ["model"] = _model,
-            ["messages"] = msgs,
-            ["stream"] = true,
-            ["temperature"] = 0.4,
-            ["max_tokens"] = maxTokens,
-        };
-        var url = _endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ? _endpoint : _endpoint + "/chat/completions";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
-        if (!string.IsNullOrEmpty(_key)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
-        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-
-        HttpResponseMessage resp;
-        try { resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct); }
-        catch (HttpRequestException ex) { throw new AiException($"Can't reach {new Uri(url).Host}: {ex.Message}", inner: ex); }
+            var msgs = new JsonArray { new JsonObject { ["role"] = "system", ["content"] = system } };
+            foreach (var m in messages) msgs.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content });
+            var body = new JsonObject
+            {
+                ["model"] = _model,
+                ["messages"] = msgs,
+                ["stream"] = true,
+            };
+            if (shape.SendTemperature) body["temperature"] = shape.Temperature;
+            if (shape.MaxTokensField != null) body[shape.MaxTokensField] = maxTokens;
+            var url = _endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ? _endpoint : _endpoint + "/chat/completions";
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+            if (!string.IsNullOrEmpty(_key)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            return req;
+        }
+        var (resp, used) = await AiTransport.SendShapedAsync(_http, _shape, Build, _remember, ct);
+        var limit = used.MaxTokensField == null ? Math.Max(200, maxTokens * 4) : int.MaxValue;
         using (resp)
         {
             if (!resp.IsSuccessStatusCode) throw await ErrorAsync(resp, ct);
@@ -93,6 +108,7 @@ public sealed class OpenAiCompatibleProvider : IAiProvider
                 // Some servers ignore stream=true.
                 using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
                 var text = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+                if (text.Length > limit) text = text[..limit];
                 onToken?.Invoke(text);
                 return text;
             }
@@ -102,14 +118,16 @@ public sealed class OpenAiCompatibleProvider : IAiProvider
                 try
                 {
                     using var doc = JsonDocument.Parse(data);
-                    if (doc.RootElement.TryGetProperty("error", out var err)) throw new AiException(err.ToString());
+                    if (doc.RootElement.TryGetProperty("error", out _)) throw AiTransport.StreamError(doc.RootElement, sb.Length > 0, _key);
                     var choices = doc.RootElement.GetProperty("choices");
                     if (choices.GetArrayLength() == 0) continue;
                     if (choices[0].TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
                     {
                         var piece = c.GetString() ?? "";
+                        if (piece.Length > limit - sb.Length) piece = piece[..(limit - sb.Length)];
                         sb.Append(piece);
                         onToken?.Invoke(piece);
+                        if (sb.Length >= limit) break;
                     }
                 }
                 catch (JsonException) { /* keep-alive or partial */ }
@@ -119,32 +137,7 @@ public sealed class OpenAiCompatibleProvider : IAiProvider
     }
 
     internal static async Task<AiException> ErrorAsync(HttpResponseMessage resp, CancellationToken ct)
-    {
-        var text = "";
-        try { text = await resp.Content.ReadAsStringAsync(ct); } catch { }
-        string detail = text;
-        try
-        {
-            using var doc = JsonDocument.Parse(text);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("error", out var e))
-                detail = e.ValueKind == JsonValueKind.Object && e.TryGetProperty("message", out var m) ? m.GetString() ?? text : e.ToString();
-        }
-        catch { }
-        if (detail.Length > 300) detail = detail[..300] + "…";
-        var code = (int)resp.StatusCode;
-        var auth = code is 401 or 403;
-        var prefix = code switch
-        {
-            401 => "The API key was rejected",
-            403 => "Access denied",
-            404 => "Model or endpoint not found",
-            429 => "Rate limited or out of credit",
-            >= 500 => "The provider had a server error",
-            _ => $"Request failed ({code})",
-        };
-        return new AiException($"{prefix}: {Log.Redact(detail)}", auth);
-    }
+        => await AiTransport.ErrorAsync(resp, ct);
 }
 
 /// <summary>Anthropic Messages API.</summary>
@@ -152,40 +145,65 @@ public sealed class AnthropicProvider : IAiProvider
 {
     private readonly HttpClient _http;
     private readonly string _endpoint, _model, _key;
+    private readonly int? _maxOutputTokens;
+    private readonly RequestShape _shape;
+    private readonly Action<string>? _remember;
 
-    public AnthropicProvider(HttpClient http, string endpoint, string model, string apiKey)
+    public AnthropicProvider(HttpClient http, string endpoint, string model, string apiKey, RequestShape? shape = null, Action<string>? remember = null, int? maxOutputTokens = null)
     {
         _http = http;
-        _endpoint = string.IsNullOrWhiteSpace(endpoint) ? "https://api.anthropic.com" : endpoint.TrimEnd('/');
+        _endpoint = AiModelCatalog.Scope(string.IsNullOrWhiteSpace(endpoint) ? "https://api.anthropic.com" : endpoint);
         _model = model;
         _key = apiKey;
+        _maxOutputTokens = maxOutputTokens;
+        _shape = shape ?? RequestShape.For(AiProviderKind.Anthropic, model, null, AiConnection.DefaultTemperature);
+        _remember = remember;
     }
 
     public async Task<string> CompleteAsync(string system, IReadOnlyList<ChatMessage> messages, Action<string>? onToken, int maxTokens, CancellationToken ct)
     {
-        var msgs = new JsonArray();
-        foreach (var m in messages) msgs.Add(new JsonObject { ["role"] = m.Role == "assistant" ? "assistant" : "user", ["content"] = m.Content });
-        var body = new JsonObject
+        HttpRequestMessage Build(RequestShape shape)
         {
-            ["model"] = _model,
-            ["max_tokens"] = maxTokens,
-            ["system"] = system,
-            ["messages"] = msgs,
-            ["stream"] = true,
-            ["temperature"] = 0.4,
-        };
-        var url = _endpoint.EndsWith("/v1/messages", StringComparison.OrdinalIgnoreCase) ? _endpoint : _endpoint + "/v1/messages";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
-        req.Headers.Add("x-api-key", _key);
-        req.Headers.Add("anthropic-version", "2023-06-01");
-        HttpResponseMessage resp;
-        try { resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct); }
-        catch (HttpRequestException ex) { throw new AiException($"Can't reach {new Uri(url).Host}: {ex.Message}", inner: ex); }
+            var msgs = new JsonArray();
+            foreach (var m in messages) msgs.Add(new JsonObject { ["role"] = m.Role == "assistant" ? "assistant" : "user", ["content"] = m.Content });
+            var body = new JsonObject
+            {
+                ["model"] = _model,
+                ["max_tokens"] = _maxOutputTokens is > 0 ? Math.Min(maxTokens, _maxOutputTokens.Value) : maxTokens,
+                ["system"] = system,
+                ["messages"] = msgs,
+                ["stream"] = true,
+            };
+            if (shape.SendTemperature) body["temperature"] = shape.Temperature;
+            var url = _endpoint + "/messages";
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+            req.Headers.Add("x-api-key", _key);
+            req.Headers.Add("anthropic-version", "2023-06-01");
+            return req;
+        }
+        var (resp, _) = await AiTransport.SendShapedAsync(_http, _shape, Build, _remember, ct);
         using (resp)
         {
             if (!resp.IsSuccessStatusCode) throw await OpenAiCompatibleProvider.ErrorAsync(resp, ct);
             var sb = new StringBuilder();
+            var stopped = false;
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            if (resp.Content.Headers.ContentType?.MediaType?.Contains("event-stream") != true)
+            {
+                try
+                {
+                    using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                    if (doc.RootElement.TryGetProperty("error", out _)) throw AiTransport.StreamError(doc.RootElement, false, _key);
+                    foreach (var block in doc.RootElement.GetProperty("content").EnumerateArray())
+                        if (block.TryGetProperty("type", out var kind) && kind.GetString() == "text" && block.TryGetProperty("text", out var text))
+                            sb.Append(text.GetString());
+                    var result = sb.ToString();
+                    onToken?.Invoke(result);
+                    return result;
+                }
+                catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+                { throw new AiException("The provider returned an unreadable reply."); }
+            }
             await foreach (var data in Sse.ReadAsync(stream, ct))
             {
                 try
@@ -199,11 +217,14 @@ public sealed class AnthropicProvider : IAiProvider
                         onToken?.Invoke(piece);
                     }
                     else if (type == "error")
-                        throw new AiException(doc.RootElement.GetProperty("error").TryGetProperty("message", out var m) ? m.GetString() ?? "error" : "error");
-                    else if (type == "message_stop") break;
+                        throw AiTransport.StreamError(doc.RootElement, sb.Length > 0, _key);
+                    else if (type == "message_stop") { stopped = true; break; }
                 }
                 catch (JsonException) { }
             }
+            ct.ThrowIfCancellationRequested();
+            if (!stopped) throw new AiException("The provider stopped before finishing the reply. Review any partial text before trying again.")
+            { Kind = AiErrorKind.Incomplete, PartialResponse = sb.Length > 0 };
             return sb.ToString();
         }
     }
@@ -219,9 +240,25 @@ public static class AiProviderFactory
 
     public static string Host(string endpoint) => Uri.TryCreate(endpoint, UriKind.Absolute, out var u) ? u.Host.ToLowerInvariant() : endpoint;
 
-    public static IAiProvider Create(HttpClient http, AiSettings s, string? apiKey) => s.Provider switch
+    public static string ParameterScope(string endpoint) => new Uri(endpoint.Trim()).AbsoluteUri.TrimEnd('/');
+
+    public static RequestShape Shape(AiSettings s)
     {
-        AiProviderKind.Anthropic => new AnthropicProvider(http, s.Endpoint, s.Model, apiKey ?? ""),
-        _ => new OpenAiCompatibleProvider(http, s.Endpoint, s.Model, apiKey),
-    };
+        var c = s.Active;
+        var same = c != null && c.Provider == s.Provider && c.Model == s.Model && c.Endpoint == s.Endpoint;
+        return RequestShape.For(s.Provider, s.Model,
+            same && c!.UnsupportedEndpoint == ParameterScope(s.Endpoint) ? c.Unsupported : null,
+            same ? c!.Temperature : AiConnection.DefaultTemperature);
+    }
+
+    public static IAiProvider Create(HttpClient http, AiSettings s, string? apiKey, Action<string>? remember = null)
+    {
+        var shape = Shape(s);
+        return s.Provider switch
+        {
+            AiProviderKind.Anthropic => new AnthropicProvider(http, s.Endpoint, s.Model, apiKey ?? "", shape, remember,
+                s.Active is { } c && c.CatalogEndpoint == AiModelCatalog.Scope(s.Endpoint) ? c.Models.FirstOrDefault(m => m.Id == s.Model && m.Available)?.MaxOutputTokens : null),
+            _ => new OpenAiCompatibleProvider(http, s.Endpoint, s.Model, apiKey, shape, remember),
+        };
+    }
 }

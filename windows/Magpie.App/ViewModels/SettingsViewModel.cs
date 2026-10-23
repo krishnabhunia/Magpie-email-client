@@ -371,7 +371,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
-        ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key model openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
+        ("AI connections", "AI", "Several providers or models; discover Claude models, choose dropdown models, test and save", "ai provider connection key model openai anthropic claude ollama endpoint api test delete add several refresh discover dropdown enable", "RowAiProvider"),
         ("Send a test notification", "Notifications", "Shows a sample new-mail notification", "test notification sample try sound", "RowNotifyTest"),
         ("AI features", "AI", "Summarise, drafts, rewrite, suggested replies", "summarise summary draft rewrite replies suggest ai", "RowAiFeatures"),
         ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
@@ -760,16 +760,24 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>The window closed: stop listening to the engine.</summary>
-    public void Detach() => _e.StatusChanged -= OnAccountStatus;
+    public void Detach() { CancelAiOperation(); _e.StatusChanged -= OnAccountStatus; }
 
     partial void OnProviderChanged(AiProviderKind value)
     {
         if (_loadingAiEditor) return;   // showing another connection, not choosing a new provider
+        AiCredentialsChanged();
+        if (SelectedAiConnection is { } item) { item.Unsupported.Clear(); item.UnsupportedEndpoint = ""; }
+        ApiKey = "";
+        ApiKeyChanged = true;
+        ApiKeyReloaded?.Invoke();
         var (endpoint, model) = AiSettings.Preset(value);
         Endpoint = endpoint;
         Model = model;
         TestStatus = "";
         OnPropertyChanged(nameof(KeyHint));
+        OnPropertyChanged(nameof(IsAnthropic));
+        ReloadAiModels();
+        RefreshAiModelsCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnEndpointChanged(string value)
@@ -777,33 +785,62 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsLocal));
         OnPropertyChanged(nameof(KeyHint));
         TestStatus = "";
+        if (!_loadingAiEditor)
+        {
+            CancelAiOperation();
+            TestOk = false;
+            if (SelectedAiConnection is { } item) item.Status = "";
+            ReloadAiModels();
+            UpdateTemperature();
+        }
     }
 
     [RelayCommand] private void Go(string page) { SearchText = ""; Page = page; }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanTestAiConnection))]
     private async Task TestConnection()
     {
+        var identity = AiEditorIdentity();
+        using var operation = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        _aiOperation = operation;
         Testing = true;
         TestStatus = "Testing…";
         TestOk = false;
         try
         {
-            var candidate = new AiSettings { Enabled = true, Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim() };
-            if (!AiService.IsConfigured(candidate, ApiKey)) throw new AiException("Fill in the endpoint, model and API key first.");
-            var reply = await Task.Run(() => _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
+            var candidate = new AiSettings { Enabled = true, Provider = identity.provider, Endpoint = identity.endpoint, Model = identity.model };
+            if (!AiService.IsConfigured(candidate, identity.key)) throw new AiException("Fill in the HTTPS endpoint, model and API key first (HTTP is allowed on this PC).");
+            var connection = identity.item?.ToConnection() ?? new AiConnection();
+            connection.Provider = identity.provider; connection.Endpoint = identity.endpoint; connection.Model = identity.model; connection.Temperature = Temperature;
+            candidate.Connections = new() { connection }; candidate.ActiveId = connection.Id;
+            var changes = new List<string>();
+            await _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(identity.key) ? null : identity.key, operation.Token, changes.Add);
+            if (operation.IsCancellationRequested || identity != AiEditorIdentity()) return;
+            if (identity.item != null && changes.Count > 0)
+            {
+                var scope = SafeParameterScope();
+                if (identity.item.UnsupportedEndpoint != scope) identity.item.Unsupported.Clear();
+                identity.item.UnsupportedEndpoint = scope;
+                identity.item.Unsupported = identity.item.Unsupported.Concat(changes.Select(c => RequestShape.Key(identity.model, c))).Distinct().ToList();
+                UpdateTemperature();
+                NoteChange();
+            }
             TestOk = true;
-            TestStatus = "✓ Connected" + (string.IsNullOrWhiteSpace(reply) ? "" : $" — model replied \"{(reply.Length > 20 ? reply[..20] : reply)}\"");
+            TestStatus = "✓ Connected" + (!TemperatureUsed ? " — sent without temperature" : "") + ". Apply to save.";
         }
         catch (Exception ex)
         {
-            TestOk = false;
-            TestStatus = ex is AiException ? ex.Message : "Couldn't connect: " + ex.Message;
+            if (identity == AiEditorIdentity())
+            {
+                TestOk = false;
+                TestStatus = ex is OperationCanceledException ? "Connection test cancelled or timed out."
+                    : ex is AiException ? ex.Message : "Couldn't connect. Check your endpoint and connection.";
+            }
         }
         finally
         {
-            Testing = false;
-            if (SelectedAiConnection != null) SelectedAiConnection.Status = TestStatus;   // design AI2: shown on its row
+            if (ReferenceEquals(_aiOperation, operation)) { _aiOperation = null; Testing = false; }
+            if (identity == AiEditorIdentity() && identity.item != null) identity.item.Status = TestStatus;
         }
     }
 

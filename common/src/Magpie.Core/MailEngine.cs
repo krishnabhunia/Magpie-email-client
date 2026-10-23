@@ -24,6 +24,7 @@ public sealed class MailEngine : IDisposable
     public Connector Connector { get; }
     public AiService Ai { get; }
     public HttpClient Http { get; }
+    private readonly HttpClient _aiHttp;
 
     private readonly ConcurrentDictionary<string, AccountSync> _syncs = new();
     private HashSet<string> _known = new(StringComparer.OrdinalIgnoreCase);
@@ -73,7 +74,12 @@ public sealed class MailEngine : IDisposable
         };
         Connector = new Connector(Vault, OAuth);
         _sendMessage = sendMessage ?? Connector.SendAsync;
-        Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id)));
+        // API-key headers must never follow a redirect to a different credential destination.
+        _aiHttp = httpHandler == null
+            ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            : new HttpClient(httpHandler, disposeHandler: false);
+        _aiHttp.Timeout = TimeSpan.FromMinutes(3);
+        Ai = new AiService(_aiHttp, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id))) { SaveSettings = () => Settings.Save() };
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
     }
 
@@ -1590,5 +1596,6 @@ public sealed class MailEngine : IDisposable
         try { _cts?.Cancel(); } catch { }
         foreach (var s in _syncs.Values) s.Dispose();
         _syncs.Clear();
+        _aiHttp.Dispose();
     }
 }

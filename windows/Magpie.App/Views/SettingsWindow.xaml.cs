@@ -41,7 +41,9 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _vm = new SettingsViewModel(page);
         DataContext = _vm;
+        _reloadingKey = true;
         ApiKeyBox.Password = _vm.ApiKey;
+        _reloadingKey = false;
         _vm.ApiKeyChanged = false;
         _vm.Saved += Close;
         _vm.Applied += ShowApplied;
@@ -123,6 +125,7 @@ public partial class SettingsWindow : Window
         if (_reloadingKey) return;
         _vm.ApiKey = ApiKeyBox.Password;
         _vm.ApiKeyChanged = true;
+        _vm.AiCredentialsChanged();
         _vm.NoteChange();
     }
 

@@ -41,6 +41,8 @@ public sealed class AiService
     private readonly Func<AiSettings> _settings;
     private readonly Func<string, string?> _apiKey;
 
+    public Action? SaveSettings { get; set; }
+
     public const int ThreadBudgetChars = 24_000;
 
     public AiService(HttpClient http, Func<AiSettings> settings, Func<string?> apiKey)
@@ -60,6 +62,7 @@ public sealed class AiService
     public static bool IsConfigured(AiSettings s, string? key) =>
         !string.IsNullOrWhiteSpace(s.Endpoint) && Uri.TryCreate(s.Endpoint, UriKind.Absolute, out var endpoint)
         && (endpoint.Scheme == "https" || endpoint.Scheme == "http" && endpoint.IsLoopback) && !string.IsNullOrWhiteSpace(s.Model)
+        && endpoint.UserInfo.Length == 0 && endpoint.Query.Length == 0 && endpoint.Fragment.Length == 0
         && (!string.IsNullOrWhiteSpace(key) || AiProviderFactory.IsLocalEndpoint(s.Endpoint) || s.Provider == AiProviderKind.Custom);
 
     public static AiAvailability Availability(AiSettings s, string? key, AiFeature f)
@@ -113,7 +116,21 @@ public sealed class AiService
         }
         if (!AiProviderFactory.IsLocalEndpoint(s.Endpoint) && !s.Consents.Contains(ConsentKey(f, s)))
             throw new AiException("Allow this AI feature to send your text to the selected provider first.");
-        return AiProviderFactory.Create(_http, s, key);
+        return AiProviderFactory.Create(_http, s, key, change =>
+        {
+            var current = _settings().Connections.FirstOrDefault(c => c.Id == s.ActiveId);
+            if (current == null || current.Provider != s.Provider || current.Endpoint != s.Endpoint) return;
+            var scope = AiProviderFactory.ParameterScope(s.Endpoint);
+            if (current.UnsupportedEndpoint != scope) current.Unsupported.Clear();
+            current.UnsupportedEndpoint = scope;
+            var entry = RequestShape.Key(s.Model, change);
+            if (!current.Unsupported.Contains(entry))
+            {
+                current.Unsupported.Add(entry);
+                try { SaveSettings?.Invoke(); }
+                catch { Log.Warn("AI parameter preferences could not be saved."); }
+            }
+        });
     }
 
     // ───────────────────────── context building ─────────────────────────
@@ -219,11 +236,15 @@ public sealed class AiService
             .Take(3).ToList();
     }
 
-    public async Task<string> TestAsync(AiSettings candidate, string? key, CancellationToken ct)
+    public async Task<string> TestAsync(AiSettings candidate, string? key, CancellationToken ct, Action<string>? remember = null)
     {
         if (!IsConfigured(candidate, key)) throw new AiException("Use HTTPS for a cloud provider, or HTTP for a model on this PC, and supply its model and key.");
-        var p = AiProviderFactory.Create(_http, candidate.Clone(), key);
+        var p = AiProviderFactory.Create(_http, candidate.Clone(), key, remember);
         var reply = await p.CompleteAsync("Reply with exactly: OK", new[] { new ChatMessage("user", "Say OK") }, null, 10, ct);
+        if (string.IsNullOrWhiteSpace(reply)) throw new AiException("The model returned an empty test reply. Check the selected model and try again.");
         return reply.Trim();
     }
+
+    public Task<IReadOnlyList<AiModelInfo>> DiscoverModelsAsync(string endpoint, string key, CancellationToken ct) =>
+        AiModelCatalog.DiscoverAsync(_http, endpoint, key, ct);
 }

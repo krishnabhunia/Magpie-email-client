@@ -572,27 +572,46 @@
                                     <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding SelectedAiConnection.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
                                     <TextBlock Text="Provider" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                     <ComboBox ItemsSource="{Binding Providers}" SelectedValue="{Binding Provider, Mode=TwoWay}" SelectedValuePath="Value" DisplayMemberPath="Label" Margin="0,0,0,14" />
-                                    <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
-                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="12" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,5">
-                                                <Run Text="API key " /><Run Text="{Binding KeyHint, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
-                                            </TextBlock>
-                                            <PasswordBox x:Name="ApiKeyBox" Style="{StaticResource PasswordBox.Field}" PasswordChanged="OnApiKeyChanged" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,5">
+                                        <Run Text="API key " /><Run Text="{Binding KeyHint, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                                    </TextBlock>
+                                    <PasswordBox x:Name="ApiKeyBox" Style="{StaticResource PasswordBox.Field}" PasswordChanged="OnApiKeyChanged" Margin="0,0,0,14" />
+                                    <TextBlock Text="Model ID" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
+                                    <StackPanel Visibility="{Binding IsAnthropic, Converter={StaticResource BoolToVis}}" Margin="0,14,0,0">
+                                        <TextBlock Text="Choose an enabled model" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding PublishedAiModels}" SelectedItem="{Binding PublishedAiModel, Mode=TwoWay}" />
+                                        <TextBlock Text="The Model field also accepts an exact model ID. A refresh never changes it automatically." Style="{StaticResource Text.Caption}" Margin="0,5,0,10" />
+                                        <Button Content="Refresh Claude models" Style="{StaticResource Button.Secondary}" HorizontalAlignment="Left" Command="{Binding RefreshAiModelsCommand}" />
+                                        <TextBlock Text="{Binding ModelsStatus}" Style="{StaticResource Text.Caption}" Margin="0,8,0,5" />
+                                        <ScrollViewer MaxHeight="210" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding DiscoveredAiModels}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:AiModelItem}">
+                                                        <DockPanel Margin="0,4">
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Badge}" Foreground="{DynamicResource Brush.Accent.Text}" Margin="10,0" VerticalAlignment="Center" />
+                                                            <CheckBox Content="{Binding Label}" IsChecked="{Binding Enabled}" IsEnabled="{Binding Available}" />
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding TemperatureHint}" Style="{StaticResource Text.Caption}" Margin="0,14,0,5" />
+                                    <Slider Minimum="0" Maximum="1" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="{Binding Temperature, Mode=TwoWay}" IsEnabled="{Binding TemperatureUsed}" />
+                                    <Expander Style="{StaticResource Expander.Group}" IsExpanded="False" Margin="0,14,0,0">
+                                        <Expander.Header>
+                                            <TextBlock Text="Server (advanced)" Foreground="{DynamicResource Brush.Text.Primary}" />
+                                        </Expander.Header>
+                                        <StackPanel Margin="0,8,0,0">
+                                            <TextBlock Text="Endpoint" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Model" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
-                                            <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
-                                        </StackPanel>
-                                    </Grid>
+                                    </Expander>
+                                    <TextBlock Text="Refresh sends only your key to the endpoint above. Test sends a short ‘Say OK’ prompt and may use API credits. Neither sends email content. Keys are encrypted when you Apply; Close discards unsaved edits." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,12,0,0" />
                                     <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                         <Button Style="{StaticResource Button.Secondary}" Content="Test connection" FontWeight="Normal" Command="{Binding TestConnectionCommand}" />
+                                        <Button Style="{StaticResource Button.Link}" Content="Cancel request" Command="{Binding CancelAiRequestCommand}" Visibility="{Binding Testing, Converter={StaticResource BoolToVis}}" Margin="12,0,0,0" />
                                         <TextBlock Text="{Binding TestStatus}" FontSize="12.5" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="440"
                                                    Foreground="{Binding TestOk, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Success|Brush.Text.Secondary}" />
                                     </StackPanel>

@@ -164,6 +164,11 @@ jobs:
         run: dotnet run --project windows/build/ProductivitySmoke/ProductivitySmoke.csproj -c Release -- smoke-captures
 
       # Only when the smoke fails (no Magpie zip is made then): the captures that show what broke.
+      - name: AI settings smoke (model dropdown, vault, stale requests, light and dark)
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 5
+        run: dotnet run --project windows/build/AiSettingsSmoke/AiSettingsSmoke.csproj -c Release -- smoke-captures
+
       - name: UI smoke captures (failed runs only)
         if: failure()
         uses: actions/upload-artifact@v7

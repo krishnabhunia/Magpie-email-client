@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magpie.Core.Models;
+using Magpie.Core.Ai;
 
 namespace Magpie.Core.Settings;
 
@@ -89,6 +90,10 @@ public sealed class AiSettings
             if (string.IsNullOrWhiteSpace(c.Id)) c.Id = AiConnection.NewId();
             if (string.IsNullOrWhiteSpace(c.Endpoint)) (c.Endpoint, _) = Preset(c.Provider);
             if (string.IsNullOrWhiteSpace(c.Name)) c.Name = ProviderName(c.Provider);
+            c.Models ??= new();
+            c.Unsupported ??= new();
+            c.Temperature = double.IsFinite(c.Temperature) ? Math.Clamp(c.Temperature, 0, 1) : AiConnection.DefaultTemperature;
+            c.Models = c.Models.Where(m => m != null && !string.IsNullOrWhiteSpace(m.Id)).DistinctBy(m => m.Id).ToList();
         }
         Connections = Connections.DistinctBy(c => c.Id).ToList();
         UseActive();
@@ -115,8 +120,21 @@ public sealed class AiConnection
     public AiProviderKind Provider { get; set; } = AiProviderKind.OpenAI;
     public string Endpoint { get; set; } = "";
     public string Model { get; set; } = "";
+    public const double DefaultTemperature = 0.4;
+    public double Temperature { get; set; } = DefaultTemperature;
+    public List<string> Unsupported { get; set; } = new();
+    public string UnsupportedEndpoint { get; set; } = "";
+    public List<AiModelInfo> Models { get; set; } = new();
+    public string CatalogEndpoint { get; set; } = "";
+    public DateTimeOffset? ModelsRefreshedAt { get; set; }
 
-    public AiConnection Clone() => (AiConnection)MemberwiseClone();
+    public AiConnection Clone()
+    {
+        var copy = (AiConnection)MemberwiseClone();
+        copy.Models = Models.Select(m => m.Clone()).ToList();
+        copy.Unsupported = new(Unsupported);
+        return copy;
+    }
 }
 
 public sealed class TagDef

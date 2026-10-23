@@ -307,3 +307,13 @@ y when there is a feature modification and z when there is a bug or error fix."*
   negative margins so the row doesn't grow); the full date is a tooltip (`ThreadItem.DateTip`). Replaces RB1's floating
   bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr
+
+
+## AI provider setup and enabled Claude models (23 Oct 2026)
+
+Separate follow-up to the approved AI2 / AM1 designs and #98. Settings → AI asks
+Anthropic's paginated Models API, lets the user enable entries for the dropdown,
+retains exact/manual model IDs, and offers candidate testing before Apply saves.
+Provider → key → model; endpoint under Server (advanced). Creativity and parameter
+compatibility are scoped per connection/model/server. Keys remain in SecretVault.
+See `docs/AI-PROVIDER-DISCOVERY.md` for scope, #99 overlap and verification.
