@@ -45,9 +45,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While it is open, its CI
-      # publishes a test version <version>-beta.<run number> (pre-release, tried through Settings → Updates →
-      # "Include test versions"); merging it publishes <version> to everyone.
+      # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While any PR from this
+      # repository is open, its CI publishes a test version <version>-beta.<run number> (pre-release; tried through
+      # Settings → Updates → "Include test versions" when the version is new, or downloaded from the release page
+      # when the PR keeps the released version); merging a PR with a new version publishes <version> to everyone.
       - name: Read version
         id: ver
         shell: pwsh
@@ -70,7 +71,10 @@ jobs:
           $released = ($LASTEXITCODE -eq 0) -and ($missing.Count -eq 0)
           if (($LASTEXITCODE -eq 0) -and $missing.Count -gt 0) { Write-Host "Release v$v is missing: $($missing -join ', ')" }
           $global:LASTEXITCODE = 0
-          $beta = ($env:IS_OWN_PR -eq "true") -and -not $released
+          # Every PR from this repository gets a test version x.y.z-beta.N while it is open — also a PR that changes
+          # no version (docs, CI): then the test version carries the released number with a -beta suffix, which the
+          # updater ranks below the release itself, so installed copies are never offered a downgrade.
+          $beta = ($env:IS_OWN_PR -eq "true")
           $full = if ($beta) { "$v-beta.${{ github.run_number }}" } else { $v }
           "version=$full" >> $env:GITHUB_OUTPUT
           "artifact=$(python common/scripts/release_prep.py artifact-name $full)" >> $env:GITHUB_OUTPUT
@@ -390,9 +394,10 @@ jobs:
           make_latest: ${{ !contains(needs.version.outputs.version, '-') }}
           files: files/*
 
-      # The test versions of a release are no longer needed once it is out.
+      # The test versions of a version are no longer needed once main carries it: after its release, and after a
+      # docs/CI-only PR (no new version) is merged.
       - name: Remove this version's test builds
-        if: steps.rel.outputs.needed == 'true' && !contains(needs.version.outputs.version, '-')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(needs.version.outputs.version, '-')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -424,25 +429,16 @@ jobs:
         if: needs.version.outputs.beta == 'true'
         shell: pwsh
         run: |
-          python common/scripts/release_prep.py notes $env:BASE --out release-notes.md --header "**Test version** of Magpie $($env:BASE), built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes $($env:BASE) to everyone."
+          $header = if ("${{ needs.version.outputs.released }}" -eq "true") {
+            "**Test version** built from PR #${{ github.event.pull_request.number }} on top of the released Magpie $($env:BASE) (the PR changes no program version). Download it from this page to try the PR; installed copies are not offered it, because $($env:BASE) itself is the newer version."
+          } else {
+            "**Test version** of Magpie $($env:BASE), built from PR #${{ github.event.pull_request.number }}. Installed copies get it only with Settings > Updates > Include test versions. Merging the PR publishes $($env:BASE) to everyone."
+          }
+          python common/scripts/release_prep.py notes $env:BASE --out release-notes.md --header $header
           if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for $env:BASE" }
 
-      # Guard: a PR merged while its CI still runs gets its release from main first — then no test version.
-      - name: Is the real release out already?
-        id: late
-        if: needs.version.outputs.beta == 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "v$($env:BASE)" --repo "${{ github.repository }}" --json tagName *> $null
-          $out = $LASTEXITCODE -eq 0
-          $global:LASTEXITCODE = 0
-          "released=$($out.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          if ($out) { Write-Host "::notice::Magpie $($env:BASE) is already released, so no test version is published" }
-
       - name: Publish test version
-        if: needs.version.outputs.beta == 'true' && steps.late.outputs.released != 'true'
+        if: needs.version.outputs.beta == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.version.outputs.version }}
@@ -454,15 +450,13 @@ jobs:
           files: files/*
 
       - name: Keep only the newest test version
-        if: needs.version.outputs.beta == 'true' && steps.late.outputs.released != 'true'
+        if: needs.version.outputs.beta == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The real release may have come out while this test version was uploading: then it goes too.
-          gh release view "v$($env:BASE)" --repo "${{ github.repository }}" --json tagName *> $null
-          $keep = if ($LASTEXITCODE -eq 0) { "" } else { "v$($env:VERSION)" }
-          $global:LASTEXITCODE = 0
+          # If the PR was merged while this ran and main published the release, its test versions go at once (main's
+          # own run removes them too, but it may have finished before this one).
           $tags = gh release list --repo "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName' |
-            Where-Object { $_ -like "v$($env:BASE)-beta.*" -and $_ -ne $keep }
+            Where-Object { $_ -like "v$($env:BASE)-beta.*" -and $_ -ne "v$($env:VERSION)" }
           foreach ($t in $tags) { gh release delete $t --repo "${{ github.repository }}" --cleanup-tag --yes; Write-Host "removed $t" }

@@ -33,7 +33,7 @@ Current release: **9.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 497 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # Core unit/regression tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -50,7 +50,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 
 1. Every PR that changes the program (`common/src/`, `windows/Magpie.App/`, `windows/installer/`, `macOS/Magpie.Mac/`, `android/app/`, `Directory.Build.props`, `global.json`, `Magpie.sln`) is a release (design VB1). Write the user-facing lines at the top of `CHANGELOG.md` under `## Next version (not released yet)`, each under `### New` (feature added / big UI-UX change → x), `### Changed` (feature changed → y) or `### Fixed` (bug or error fix → z), and put "Closes #n" in the PR body for the `[Q..]` issues it finishes. Never type the number.
 2. In the same PR run `python common/scripts/release_prep.py apply --date YYYY-MM-DD` (today, India time): it works the number out (last release + the biggest kind) and sets `Directory.Build.props` (version, release date), `windows/installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI fails a PR that changes the program without a new version (`needs-version`), and `check` fails if anything is missing or the number breaks the rule.
-3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges.
+3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges. A PR with no new version (docs, CI) still gets one, named after the released version (`8.1.0-beta.N`): download it from the release page; the updater ranks it below 8.1.0 and never offers it. Main removes a version's test builds on every push.
 4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes), removes its test versions and closes the issues listed in the section's `<!-- closes: #n … -->` (GitHub's "Closes #n" in the PR body doesn't close them here — always fill that comment). Tags are created by CI — never push tags.
 5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar Update button; SHA-256 checked, rollback on failure).
 6. PRs that only touch docs, CI, tests or build scripts need no version and release nothing.
@@ -104,6 +104,6 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 
 - 1.1.1 / 1.1.2 have not been smoke-tested on this laptop yet — do that first (`docs/ROADMAP-1.2.0.md` → "Smoke test").
 - Google Calendar API + People API must be enabled in his Google Cloud project (the one used for Gmail sign-in) before the 1.2.0 calendar/contacts items; re-sign-in needed for the new scopes.
-- `magpie.log` review (queue #5) — ask him to look at `%APPDATA%\Magpie\magpie.log` after real use.
+- `magpie.log` review (queue #5) — the 29 Sep – 10 Oct log is fixed in 8.1.1 (offline noise, certificate soft-fail, queued changes found by Message-ID in `pending_ops.message_id`, `FetchTolerantAsync` for Gmail's FETCH NO, `AccountSync.Describe` in log lines); ask him for the next `%APPDATA%\Magpie\magpie.log` after real use.
 - Code signing: parked (unsigned by choice).
 - CI/CD (E1) needs no setup. Branch protection on `main` (require the **build** check) is recommended so a red PR can't be merged and released (`docs/CI-CD.md`).

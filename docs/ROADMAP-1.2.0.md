@@ -8,7 +8,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 
 | # | Item | Design | Status | GitHub |
 |---|---|---|---|---|
-| 5 | Fixes from real Gmail use | — | Waiting on Krishna's `magpie.log` | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
+| 5 | Fixes from real Gmail use | — | Log of 29 Sep – 10 Oct reviewed: offline noise, certificate check after wake-up, lost queued changes, Gmail FETCH NO, unreadable emails — fixed in 8.1.1 (PR #96); ask for the next `magpie.log` after real use of 8.1.1 | [#1](https://github.com/krishnabhunia/Magpie-email-client/issues/1) |
 | 6 | Dark theme (Match Windows / Light / Dark) | B1 | Built — not yet tried on Windows | [#2](https://github.com/krishnabhunia/Magpie-email-client/issues/2) |
 | 7 | Calendar — Day / Week / Month / Agenda, Google Calendar sync | B2 | Built (3.0.0) — not yet tried on Windows; each Google account must sign in again once (calendar scope) | [#3](https://github.com/krishnabhunia/Magpie-email-client/issues/3) |
 | 8 | Meeting invites in threads — Accept / Maybe / Decline | B3 | Built — not yet tried on Windows. Calendar is now built (#7); still to do: an answer in the email also shown in Magpie's calendar right away, "Open in Calendar", clash line from the calendar | [#4](https://github.com/krishnabhunia/Magpie-email-client/issues/4) |
@@ -61,6 +61,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 69 | Add account: sign in with Google first (Continue with Google / Microsoft / Other) | GS1 (HTML) | Design shown 9 Oct 2026 — waiting for approval | [#92](https://github.com/krishnabhunia/Magpie-email-client/issues/92) |
 | 74 | Magpie for macOS + repo layout + one Windows/macOS/Android workflow (GitHub Skills rules) | PX1 (plan) | Approved 10 Oct 2026 — PR A (layout, workflow, Magpie_x.y.z.zip, update check at every start) built; PR B (Magpie for Mac first version, 8.0.0: Avalonia 12 / .NET 10, WKWebView reader + editor, accounts, compose, self-update from the .dmg) built — not yet tried on a Mac; PR C (Mac parity) next | [#93](https://github.com/krishnabhunia/Magpie-email-client/issues/93) |
 | 75 | AI model drop-down filled by the provider: new Claude (and OpenAI / Ollama) models appear by themselves, "New" pill, built-in fallback, key above model | AM1 | Approved 22 Oct 2026 — built in PR #99 (8.1.0) | [#98](https://github.com/krishnabhunia/Magpie-email-client/issues/98) |
+| 76 | New look for Magpie for Windows: type scale, colour tokens, spacing, motion, Light + Dark + Match Windows themes (directions UX1 Clear desk / UX2 Reading room / UX3 Command center) | UX1–UX3 | Design shown 24 Oct 2026 — awaiting approval | [#101](https://github.com/krishnabhunia/Magpie-email-client/issues/101) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
