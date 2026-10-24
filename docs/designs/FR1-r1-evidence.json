@@ -1,0 +1,55 @@
+{
+  "revision": "FR1-r1",
+  "state": "design_prepared_awaiting_user_approval",
+  "date_india": "2026-10-24",
+  "base_commit": "07cebc1ce45d544ebc038bff52db7b4a3f2982c1",
+  "base_version": "8.1.0",
+  "proposed_version": "9.0.0 (provisional; repository New-feature automation)",
+  "branch": "claude/magpie-fonts-ai-replies-r1",
+  "artifact": "docs/designs/FR1-r1-fonts-ai-replies.html",
+  "artifact_sha256": "4a1aa04863d14fe9667230b5de0c110f7f9c8c94c7d024dfa14a269b7f98ffcb",
+  "requests": [
+    {
+      "queue": "Q80",
+      "original_unapproved_allocation": "Q77",
+      "issue": 103,
+      "key": "magpie-fonts-ai-replies-20261024-01a16e5a-typography"
+    },
+    {
+      "queue": "Q81",
+      "original_unapproved_allocation": "Q78",
+      "issue": 104,
+      "key": "magpie-fonts-ai-replies-20261024-01a16e5a-reply-click"
+    },
+    {
+      "queue": "Q82",
+      "original_unapproved_allocation": "Q79",
+      "issue": 105,
+      "key": "magpie-fonts-ai-replies-20261024-01a16e5a-reply-preferences"
+    }
+  ],
+  "parallel_related_issues": [
+    106,
+    107
+  ],
+  "approval": null,
+  "implementation_pr": null,
+  "beta_tag": null,
+  "app_source_changed": false,
+  "app_builds_or_tests_run": false,
+  "html_preview_checks_passed": 25,
+  "html_preview_checks_note": "Queue label renumbering only after these checks; interaction code unchanged. Screenshots refreshed after renumbering.",
+  "unavailable_policy_files": [
+    "D:/Projects/Skills/Github Skills/software app.md",
+    "D:/Projects/Skills/Github Skills/versions_management.md",
+    "D:/Projects/Skills/Github Skills/workflows.md"
+  ],
+  "not_verified": [
+    "Native WPF and Windows DPI/assistive technology",
+    "Installed font coverage",
+    "Real provider/network/consent behaviour",
+    "Outgoing MIME and draft persistence",
+    "Settings/backup round-trip",
+    "Shared/Mac regression checks"
+  ]
+}

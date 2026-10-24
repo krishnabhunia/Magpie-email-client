@@ -1,0 +1,111 @@
+{
+  "kind": "HTML preview validation only; application builds and tests await design approval",
+  "checks": [
+    {
+      "check": "Individual font family and size update the live sample without changing another role",
+      "pass": true,
+      "details": {
+        "meta": "Georgia · 18 px / 13.5 pt",
+        "otherSize": "13",
+        "size": "18px"
+      }
+    },
+    {
+      "check": "Invalid size disables Apply and shows validation",
+      "pass": true
+    },
+    {
+      "check": "Single-role reset restores its default",
+      "pass": true
+    },
+    {
+      "check": "Search finds a role in another text area",
+      "pass": true
+    },
+    {
+      "check": "Writing body defaults to Arial 18px normal",
+      "pass": true
+    },
+    {
+      "check": "Tone and purpose have independent settings and preview",
+      "pass": true
+    },
+    {
+      "check": "Close discards unapplied settings",
+      "pass": true
+    },
+    {
+      "check": "Reply All generates a preview with Maya and Alex in To and Nina in Cc",
+      "pass": true
+    },
+    {
+      "check": "A generated draft is not inserted automatically",
+      "pass": true
+    },
+    {
+      "check": "Use draft asks before altering existing typed text",
+      "pass": true
+    },
+    {
+      "check": "Append preserves existing text and one signature",
+      "pass": true
+    },
+    {
+      "check": "AI-off gives a manual Reply addressed only to the sender",
+      "pass": true
+    },
+    {
+      "check": "First cloud use requires the consent choice",
+      "pass": true
+    },
+    {
+      "check": "Declined consent leaves a manual reply",
+      "pass": true
+    },
+    {
+      "check": "Missing configuration offers setup without blocking manual writing",
+      "pass": true
+    },
+    {
+      "check": "Provider error preserves typed text and offers retry",
+      "pass": true
+    },
+    {
+      "check": "Cancellation stops the preview and keeps manual writing available",
+      "pass": true
+    },
+    {
+      "check": "Turning off the master and applying also gates regeneration",
+      "pass": true
+    },
+    {
+      "check": "No browser JavaScript errors",
+      "pass": true,
+      "errors": []
+    },
+    {
+      "check": "fonts view fits 1440px",
+      "pass": true
+    },
+    {
+      "check": "ai view fits 1440px",
+      "pass": true
+    },
+    {
+      "check": "reply view fits 1440px",
+      "pass": true
+    },
+    {
+      "check": "fonts view fits 1024px",
+      "pass": true
+    },
+    {
+      "check": "ai view fits 1024px",
+      "pass": true
+    },
+    {
+      "check": "reply view fits 1024px",
+      "pass": true
+    }
+  ]
+}
