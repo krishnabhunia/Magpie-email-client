@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **8.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **8.1.1** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -33,7 +33,7 @@ Current release: **8.1.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 484 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 490 unit tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -103,6 +103,6 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 
 - 1.1.1 / 1.1.2 have not been smoke-tested on this laptop yet — do that first (`docs/ROADMAP-1.2.0.md` → "Smoke test").
 - Google Calendar API + People API must be enabled in his Google Cloud project (the one used for Gmail sign-in) before the 1.2.0 calendar/contacts items; re-sign-in needed for the new scopes.
-- `magpie.log` review (queue #5) — ask him to look at `%APPDATA%\Magpie\magpie.log` after real use.
+- `magpie.log` review (queue #5) — the 29 Sep – 10 Oct log is fixed in 8.1.1 (offline noise, certificate soft-fail, queued changes found by Message-ID in `pending_ops.message_id`, `FetchTolerantAsync` for Gmail's FETCH NO, `AccountSync.Describe` in log lines); ask him for the next `%APPDATA%\Magpie\magpie.log` after real use.
 - Code signing: parked (unsigned by choice).
 - CI/CD (E1) needs no setup. Branch protection on `main` (require the **build** check) is recommended so a red PR can't be merged and released (`docs/CI-CD.md`).

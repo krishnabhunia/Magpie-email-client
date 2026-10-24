@@ -232,7 +232,7 @@ public sealed class MailEngine : IDisposable
     // ───────────────────────── local-first actions ─────────────────────────
 
     private void Queue(MessageRow m, PendingOpKind kind, long arg = 0) =>
-        Store.AddPendingOp(new PendingOp { AccountId = m.AccountId, FolderId = m.FolderId, Uid = m.Uid, Kind = kind, Arg = arg });
+        Store.AddPendingOp(new PendingOp { AccountId = m.AccountId, FolderId = m.FolderId, Uid = m.Uid, Kind = kind, Arg = arg, MessageId = m.MessageId });
 
     private void Touched(string accountId, IEnumerable<long> folderIds)
     {

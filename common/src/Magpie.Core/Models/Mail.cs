@@ -187,6 +187,8 @@ public enum PendingOpKind { SetSeen, ClearSeen, SetFlagged, ClearFlagged, Move, 
 public sealed class PendingOp
 {
     public uint UidValidity { get; set; }
+    /// <summary>The email's Message-ID, so the change still reaches it when its UID can't be used (log review #1).</summary>
+    public string MessageId { get; set; } = "";
     public long Id { get; set; }
     public string AccountId { get; set; } = "";
     public long FolderId { get; set; }
