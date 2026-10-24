@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 9.0.0 (24 Oct 2026)
 ### New
 - **Contacts.** A new **Contacts** page in the sidebar (Ctrl+3) shows the contacts saved in your Google accounts, plus the people you've written to (marked **Recent**). Search by name, email, company or phone, and switch between **All**, **Frequent** and **Groups**. Each person shows their emails, work, phone, groups, notes, and your **conversations**, **attachments** and **events** with them, with **New message** and **New event** buttons.
 - **Add and edit contacts** from Magpie: **New contact**, **Edit**, **Add to contacts** for someone you wrote to, or **Add to contacts** on the card that opens when you point at an email address. Changes are saved on this PC at once and reach Google in the background.
