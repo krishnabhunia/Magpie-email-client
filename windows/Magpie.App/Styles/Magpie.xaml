@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ty="clr-namespace:Magpie.App.Services">
 
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="Controls.xaml" />
@@ -26,6 +27,7 @@
 
     <!-- Collapsible sidebar heading (FOLDERS / ACCOUNTS / TAGS): chevron (rotates with IsChecked) + content -->
     <Style x:Key="Toggle.SectionHeader" TargetType="ToggleButton">
+        <Setter Property="ty:Typography.Role" Value="navHeading" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
         <Setter Property="FontSize" Value="11" />
@@ -66,6 +68,7 @@
 
     <!-- Account row in the sidebar: same chevron behaviour, normal text weight -->
     <Style x:Key="Toggle.Account" TargetType="ToggleButton" BasedOn="{StaticResource Toggle.SectionHeader}">
+        <Setter Property="ty:Typography.Role" Value="accountAddress" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Nav.Text}" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="FontWeight" Value="Normal" />
@@ -105,12 +108,14 @@
 
     <!-- ═══════════════ Text ═══════════════ -->
     <Style x:Key="Text.Serif" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="dialogTitle" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Serif}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style x:Key="Text.SectionCaps" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="settingsSection" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
@@ -413,6 +418,7 @@
 
     <!-- Sidebar folder item: RadioButton with icon, label and count -->
     <Style x:Key="Button.Folder" TargetType="RadioButton">
+        <Setter Property="ty:Typography.Role" Value="folder" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Nav.Text}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="FontSize" Value="13" />

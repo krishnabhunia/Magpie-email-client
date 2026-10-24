@@ -408,6 +408,7 @@ public partial class MainViewModel : ObservableObject
     public bool HasAccounts => _e.Accounts.Count > 0;
 
     private string _deleteLook = AppServices.Engine.Config.Appearance.DeleteDates.ToString();
+    private string _typographyLook = System.Text.Json.JsonSerializer.Serialize(AppServices.Engine.Config.Typography);
     private readonly System.Windows.Threading.DispatcherTimer _deleteTick = new() { Interval = TimeSpan.FromMinutes(5) };
 
     public MainViewModel()
@@ -425,6 +426,8 @@ public partial class MainViewModel : ObservableObject
             Icons.Colourful = _e.Config.Appearance.Colourful;   // before the counts are coloured again
             OnPropertyChanged(nameof(ShowCategories));
             Reader.RefreshAiVisibility();
+            var typography = System.Text.Json.JsonSerializer.Serialize(_e.Config.Typography);
+            if (typography != _typographyLook) { _typographyLook = typography; Reader.Redraw(); }
             BuildNav();
             // Design DD1: another option for the deletion dates shows at once.
             var look = _e.Config.Appearance.DeleteDates.ToString();

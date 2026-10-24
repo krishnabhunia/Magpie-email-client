@@ -56,6 +56,7 @@ public class AiToggleTests
     public void S3_all_on_but_cloud_without_key_is_not_configured_while_local_needs_no_key()
     {
         var cloud = S(true, true, true, true, true);
+        cloud.ReplyDrafts.Enabled = true; // FR1 adds a separately opted-in fifth feature.
         foreach (var f in Enum.GetValues<AiFeature>())
         {
             Assert.Equal(AiAvailability.Ready, AiService.Availability(cloud, "key", f));

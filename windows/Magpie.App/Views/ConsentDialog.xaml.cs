@@ -5,7 +5,7 @@ using Magpie.Core.Settings;
 
 namespace Magpie.App.Views;
 
-/// <summary>First-use consent (design B2). Asked once per feature and provider host; never for local models.</summary>
+/// <summary>First-use consent. Asked per feature, connection and full endpoint; never for local models.</summary>
 public partial class ConsentDialog : Window
 {
     public ConsentDialog() { InitializeComponent(); }
@@ -14,6 +14,7 @@ public partial class ConsentDialog : Window
     {
         var e = AppServices.Engine;
         if (!e.Ai.NeedsConsent(feature)) return true;
+        var consentKey = AiService.ConsentKey(feature, e.Config.Ai);
         var d = new ConsentDialog { Owner = Ui.ActiveWindow };
         (d.Heading.Text, d.Intro.Text, d.WhatSent.Text) = feature switch
         {
@@ -26,6 +27,9 @@ public partial class ConsentDialog : Window
             AiFeature.Rewrite => ("Rewrite text with your AI provider?",
                 "To rewrite, Magpie sends the text you selected to the AI provider you set up.",
                 "Only the selected text and the kind of change you asked for."),
+            AiFeature.ReplyDraft => ("Draft this reply with your AI provider?",
+                "To prepare a reply draft, Magpie sends the selected conversation and your writing preferences to the active AI connection.",
+                $"The text of this conversation ({messageCount} message{(messageCount == 1 ? "" : "s")}), with names, addresses and dates, plus your tone, purpose and instructions. Attachments and other accounts' messages are not sent. Nothing is inserted or sent until you choose."),
             _ => ("Suggest replies with your AI provider?",
                 "To suggest replies, Magpie sends the conversation you open to the AI provider you set up.",
                 "The text of the conversation you are reading (no attachments). This happens each time you open a conversation from a person."),
@@ -33,8 +37,9 @@ public partial class ConsentDialog : Window
         d.Where.Text = $"{e.Ai.ProviderLabel}. Its own privacy terms apply.";
         if (d.ShowDialog() != true) return false;
         var s = e.Config.Ai;
-        var key = AiService.ConsentKey(feature, s);
-        if (!s.Consents.Contains(key)) s.Consents.Add(key);
+        // A modal can outlive a background settings update. Approval only covers the connection shown.
+        if (consentKey != AiService.ConsentKey(feature, s)) return false;
+        if (!s.Consents.Contains(consentKey)) s.Consents.Add(consentKey);
         e.Settings.Save();
         return true;
     }

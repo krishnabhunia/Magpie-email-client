@@ -94,6 +94,7 @@ public partial class ComposeViewModel : ObservableObject
         // A message pulled back by Undo send / Cancel & edit exists nowhere else any more: treat it as unsaved
         // so closing the window asks before discarding it.
         StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null && draft.LocalDraftId == null;
+        InitializeReplyDrafts(prefillText);
         RefreshAi();
         if (draft.LocalDraftId is { } localId)
         {
@@ -295,20 +296,23 @@ public partial class ComposeViewModel : ObservableObject
         ReleaseClaim();   // a draft still marked for upload is picked up by the background upload from now on
         _e.Settings.Changed -= _onSettings;
         _aiCts?.Cancel();
+        StopReplyDraft(clear: true);
     }
 
     public static string TextToParagraphs(string text) => Composer.TextToParagraphs(text);
 
-    partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); }
-    partial void OnToChanged(string value) => MarkEdited();
-    partial void OnCcChanged(string value) => MarkEdited();
-    partial void OnBccChanged(string value) => MarkEdited();
+    partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnBccChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
 
     public void RefreshAi()
     {
         ShowDraftAi = _e.Ai.IsVisible(AiFeature.Draft);
         ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
-        ShowAiRail = ShowDraftAi || ShowRewriteAi;
+        RefreshReplyAi();
+        InvalidateLegacyAi();
+        ShowAiRail = ShowDraftAi || ShowRewriteAi || ShowReplyAi;
         if (!ShowAiRail) AiPanelOpen = false;
         AiNeedsSetup = ShowAiRail && (ShowDraftAi ? _e.Ai.Availability(AiFeature.Draft) : _e.Ai.Availability(AiFeature.Rewrite)) == AiAvailability.NotConfigured;
         OnPropertyChanged(nameof(ProviderLabel));
@@ -348,6 +352,7 @@ public partial class ComposeViewModel : ObservableObject
             if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
         }
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
+        if (_draft.Mode != ComposeMode.EditDraft) _draft.ComposeStyle = _e.Config.Typography.Resolve("composeBody");
         _draft.AccountId = From.Id;
         _draft.To = To;
         _draft.Cc = Cc;
@@ -363,6 +368,8 @@ public partial class ComposeViewModel : ObservableObject
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
         if (Sending || _queued) return;
+        StopReplyDraft(clear: true);
+        DiscardPreview();
         Sending = true;
         try
         {
@@ -459,23 +466,33 @@ public partial class ComposeViewModel : ObservableObject
         _aiCts?.Cancel();
         _aiCts = new CancellationTokenSource();
         var ct = _aiCts.Token;
+        var context = _legacyAiContext = LegacyAiFingerprint();
+        bool Current() => !ct.IsCancellationRequested && !_closed && !_queued
+            && context == LegacyAiFingerprint()
+            && _e.Ai.Availability(kind == "rewrite" ? AiFeature.Rewrite : AiFeature.Draft) == AiAvailability.Ready;
         AiError = "";
         AiPreview = "";
         PreviewKind = kind;
         AiBusy = true;
         var sb = new StringBuilder();
+        var acceptingTokens = true;
         try
         {
-            var result = await Task.Run(() => call(t => Ui.Post(() => { if (!ct.IsCancellationRequested) { sb.Append(t); AiPreview = sb.ToString(); } }), ct), ct);
-            if (!ct.IsCancellationRequested) AiPreview = result.Trim();
+            var result = await Task.Run(() => call(t => Ui.Post(() => { if (acceptingTokens && Current()) { sb.Append(t); AiPreview = sb.ToString(); } }), ct), ct);
+            acceptingTokens = false;
+            if (Current()) AiPreview = result.Trim();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            AiError = ex is AiException ? ex.Message : "The AI provider could not be reached: " + ex.Message;
-            PreviewKind = "";
+            acceptingTokens = false;
+            if (Current())
+            {
+                AiError = ex is AiException ? ex.Message : "The AI provider could not be reached: " + ex.Message;
+                PreviewKind = "";
+            }
         }
-        finally { if (!ct.IsCancellationRequested) AiBusy = false; }
+        finally { acceptingTokens = false; if (!ct.IsCancellationRequested) AiBusy = false; }
     }
 
     /// <summary>Nothing is inserted until the user chooses — the result is a preview card.</summary>
@@ -500,5 +517,6 @@ public partial class ComposeViewModel : ObservableObject
         AiBusy = false;
         AiPreview = "";
         PreviewKind = "";
+        _legacyAiContext = "";
     }
 }

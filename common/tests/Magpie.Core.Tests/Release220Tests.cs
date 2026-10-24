@@ -57,7 +57,7 @@ public class Release220Tests
     {
         var a = new Account { DisplayName = "Krishna Bhunia", Phone = "+91 98765 43210", JobTitle = "Senior Engineer", Company = "Acme <Pharma>" };
         var html = Composer.DefaultSignatureHtml(a);
-        Assert.Equal("<p>Thanks and Regards<br><b>Krishna Bhunia</b><br>Senior Engineer · Acme &lt;Pharma&gt;<br>+91 98765 43210</p>", html);
+        Assert.Equal("<p>Thanks and Regards<br>Krishna Bhunia<br>Senior Engineer · Acme &lt;Pharma&gt;<br>+91 98765 43210</p>", html); // FR1: new default signatures use normal weight.
         Assert.Equal("<p>Thanks and Regards</p>", Composer.DefaultSignatureHtml(new Account()));   // empty lines left out
     }
 

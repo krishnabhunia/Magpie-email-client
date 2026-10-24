@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using Magpie.App.Services;
 using Magpie.Core;
 using Magpie.Core.Mail;
+using Magpie.Core.Settings;
 
 namespace Magpie.App.Views;
 
@@ -14,6 +15,7 @@ public partial class SignatureEditorWindow : Window
 {
     private bool _ready, _plain;
     private string _html;
+    private readonly TextStyle _textStyle;
     public string? Result { get; private set; }
 
     public static readonly string[] Fonts = { "Segoe UI", "Arial", "Calibri", "Georgia", "Times New Roman", "Verdana", "Courier New" };
@@ -30,6 +32,10 @@ public partial class SignatureEditorWindow : Window
     {
         InitializeComponent();
         _html = html;
+        _textStyle = AppServices.Engine.Config.Typography.Resolve("signature");
+        Plain.FontFamily = Typography.ResolveFont(_textStyle.Family);
+        Plain.FontSize = _textStyle.Size;
+        Plain.FontWeight = FontWeights.Normal;
         Heading.Text = "Signature for " + email;
         FontBox.ItemsSource = Fonts;
         ColourList.ItemsSource = Colours;
@@ -76,6 +82,8 @@ public partial class SignatureEditorWindow : Window
                 case "ready":
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({System.Text.Json.JsonSerializer.Serialize(_html)})");
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setTypography(" + System.Text.Json.JsonSerializer.Serialize(_textStyle.Family) + ","
+                        + _textStyle.Size.ToString(System.Globalization.CultureInfo.InvariantCulture) + "," + (!string.IsNullOrWhiteSpace(_html) ? "true" : "false") + ")");
                     await Editor.CoreWebView2.ExecuteScriptAsync("document.getElementById('ed').focus()");
                     _ready = true;
                     Editor.Focus();
@@ -96,7 +104,9 @@ public partial class SignatureEditorWindow : Window
         if (_plain)
         {
             var t = Plain.Text.Trim();
-            Result = t.Length == 0 ? "" : t.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
+            var text = t.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "\n").Replace("\n", "<br>");
+            Result = t.Length == 0 ? "" : "<div style=\"font-family:" + System.Net.WebUtility.HtmlEncode(TypographyCss.Family(_textStyle.Family))
+                + ";font-size:" + _textStyle.Size.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px;font-weight:400\">" + text + "</div>";
         }
         else if (_ready)
         {

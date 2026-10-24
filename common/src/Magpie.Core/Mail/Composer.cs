@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 using MimeKit;
 using MimeKit.Utils;
 
@@ -20,6 +21,8 @@ public sealed class Draft
     public string Subject { get; set; } = "";
     /// <summary>HTML of the editor (new text + quoted original).</summary>
     public string Html { get; set; } = "";
+    /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
+    public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
     /// <summary>Attachments carried over from the original (forward), as raw MIME parts.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public List<MimeEntity> CarriedParts { get; set; } = new();
@@ -93,7 +96,7 @@ public static class Composer
     /// <summary>Reply / reply-all recipients. <paramref name="myAddresses"/> are removed from the lists.</summary>
     public static (string to, string cc) ReplyRecipients(MessageRow original, bool replyAll, IReadOnlyCollection<string> myAddresses, bool originalIsMine)
     {
-        var mine = new HashSet<string>(myAddresses.Select(a => a.ToLowerInvariant()));
+        var mine = new HashSet<string>(myAddresses.Select(a => a.Trim()), StringComparer.OrdinalIgnoreCase);
         InternetAddressList to;
         if (originalIsMine)
             to = ParseAddresses(original.To); // replying to our own sent message → same recipients
@@ -102,8 +105,11 @@ public static class Composer
         else
             to = ParseAddresses(string.IsNullOrWhiteSpace(original.FromName) ? original.FromAddress : $"\"{original.FromName}\" <{original.FromAddress}>");
 
-        var toList = Unique(to.Mailboxes).Where(m => !mine.Contains(m.Address.ToLowerInvariant()) || originalIsMine).ToList();
-        if (toList.Count == 0) toList = Unique(to.Mailboxes).ToList();
+        var toList = Unique(to.Mailboxes).Where(m => !mine.Contains(m.Address)).ToList();
+        // A Reply-To pointing only to ourselves must not silently put our own addresses back into Reply All.
+        // Fall back to the actual sender if it is not one of our addresses; otherwise leave recipients for the user.
+        if (toList.Count == 0 && !originalIsMine && !mine.Contains(original.FromAddress)
+            && MailboxAddress.TryParse(original.FromAddress, out var sender)) toList.Add(sender);
         var cc = new List<MailboxAddress>();
         if (replyAll)
         {
@@ -111,7 +117,7 @@ public static class Composer
             foreach (var m in ParseAddresses(original.To).Mailboxes.Concat(ParseAddresses(original.Cc).Mailboxes))
             {
                 var a = m.Address.ToLowerInvariant();
-                if (mine.Contains(a) || !seen.Add(a)) continue;
+                if (mine.Contains(m.Address) || !seen.Add(a)) continue;
                 cc.Add(m);
             }
         }
@@ -173,7 +179,7 @@ public static class Composer
     {
         static string E(string s) => System.Net.WebUtility.HtmlEncode(s.Trim());
         var lines = new List<string> { "Thanks and Regards" };
-        if (!string.IsNullOrWhiteSpace(a.DisplayName)) lines.Add("<b>" + E(a.DisplayName) + "</b>");
+        if (!string.IsNullOrWhiteSpace(a.DisplayName)) lines.Add(E(a.DisplayName));
         var role = string.Join(" · ", new[] { a.JobTitle, a.Company }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(E));
         if (role.Length > 0) lines.Add(role);
         if (!string.IsNullOrWhiteSpace(a.Phone)) lines.Add(E(a.Phone));
@@ -269,7 +275,7 @@ public static class Composer
             msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
             return msg;
         }
-        builder.HtmlBody = WrapHtml(inner);
+        builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
         builder.TextBody = MimeText.HtmlToText(d.Html);
         foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);
         foreach (var part in d.CarriedParts) builder.Attachments.Add(part);
@@ -279,8 +285,14 @@ public static class Composer
 
     private static readonly Regex DataImage = new(@"src\s*=\s*[""'](?:data:)(image/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)[""']", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static string WrapHtml(string inner) =>
-        "<!doctype html><html><head><meta charset=\"utf-8\"></head><body style=\"font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:11pt\">" + inner + "</body></html>";
+    private static string WrapHtml(string inner, TextStyle? selected)
+    {
+        var style = selected?.IsValid == true ? selected : new TextStyle { Family = "Arial", Size = 18 };
+        var family = WebUtility.HtmlEncode(style.Family.Replace("'", "\\'", StringComparison.Ordinal));
+        var size = style.Size.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+        return "<!doctype html><html><head><meta charset=\"utf-8\"></head><body style=\"font-family:'"
+            + family + "',Arial,sans-serif;font-size:" + size + "px;font-weight:normal\">" + inner + "</body></html>";
+    }
 
     public static byte[] ToBytes(MimeMessage msg)
     {
@@ -296,6 +308,41 @@ public static class Composer
     }
 
     private static readonly Regex CidImage = new(@"src\s*=\s*[""']cid:([^""']+)[""']", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>A styled draft's body element is removed when it enters the editor. Preserve its safe text styling
+    /// on an inner wrapper so the new-message default cannot reformat a draft the user already wrote.</summary>
+    private static string RetainBodyTypography(string html, string inner)
+    {
+        var body = Regex.Match(html, @"<body\b([^>]*)>", RegexOptions.IgnoreCase);
+        if (!body.Success) return inner;
+        var attr = Regex.Match(body.Groups[1].Value, """\bstyle\s*=\s*(["'])(.*?)\1""", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!attr.Success) return inner;
+        var css = WebUtility.HtmlDecode(attr.Groups[2].Value);
+        var retained = new List<string>();
+        foreach (Match declaration in Regex.Matches(css, @"(?:^|;)\s*(font-family|font-size|font-weight|font-style)\s*:\s*([^;]+)", RegexOptions.IgnoreCase))
+        {
+            var property = declaration.Groups[1].Value.ToLowerInvariant();
+            var value = declaration.Groups[2].Value.Trim();
+            switch (property)
+            {
+                case "font-family":
+                    var family = value.Split(',')[0].Trim().Trim('"', '\'');
+                    if (TypographyCatalog.IsValidFamily(family)) retained.Add("font-family:" + TypographyCss.Family(family));
+                    break;
+                case "font-size":
+                    if (Regex.IsMatch(value, @"^(?:\d{1,3}(?:\.\d{1,4})?)(?:px|pt)$", RegexOptions.IgnoreCase))
+                        retained.Add("font-size:" + value);
+                    break;
+                case "font-weight":
+                    if (Regex.IsMatch(value, @"^(?:normal|bold|[1-9]00)$", RegexOptions.IgnoreCase)) retained.Add("font-weight:" + value);
+                    break;
+                case "font-style":
+                    if (Regex.IsMatch(value, @"^(?:normal|italic|oblique)$", RegexOptions.IgnoreCase)) retained.Add("font-style:" + value);
+                    break;
+            }
+        }
+        return retained.Count == 0 ? inner : "<div style=\"" + WebUtility.HtmlEncode(string.Join(";", retained)) + "\">" + inner + "</div>";
+    }
 
     /// <summary>
     /// Pasted pictures are stored as inline parts referenced by cid: (see <see cref="Build"/>). When a message is
@@ -345,7 +392,8 @@ public static class Composer
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");
         var m = Regex.Match(html, @"<body[^>]*>(.*)</body>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         var inlined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        d.Html = InlineImagesToData(m.Success ? m.Groups[1].Value : html, msg, inlined);
+        var inner = m.Success ? RetainBodyTypography(html, m.Groups[1].Value) : html;
+        d.Html = InlineImagesToData(inner, msg, inlined);
         foreach (var part in msg.BodyParts)
         {
             // A picture now inside the HTML is not carried again as an attachment (Outlook marks some as attachments).

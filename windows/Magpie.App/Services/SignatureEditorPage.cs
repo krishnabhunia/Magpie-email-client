@@ -27,10 +27,22 @@ html.dark a{color:#6CC3CF}
 <script>
 const ed = document.getElementById('ed');
 let saved = null, timer = null;
+function setTypography(family, size, preserveExisting){
+  if(preserveExisting){
+    Array.from(ed.querySelectorAll('*')).forEach(function(el){const s=getComputedStyle(el);el.style.fontFamily=s.fontFamily;el.style.fontSize=s.fontSize;el.style.fontWeight=s.fontWeight;});
+    Array.from(ed.childNodes).forEach(function(n){if(n.nodeType===Node.TEXT_NODE && n.textContent){const span=document.createElement('span'),s=getComputedStyle(ed);span.style.fontFamily=s.fontFamily;span.style.fontSize=s.fontSize;span.style.fontWeight=s.fontWeight;n.replaceWith(span);span.appendChild(n);}});
+  }
+  ed.style.fontFamily=family;ed.style.fontSize=size+'px';ed.style.fontWeight='400';
+}
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
-function changed(){ clearTimeout(timer); timer = setTimeout(function(){ post({t:'change', html: ed.innerHTML}); }, 200); }
+function changed(){ clearTimeout(timer); timer = setTimeout(function(){ post({t:'change', html: getHtml()}); }, 200); }
 function setHtml(h){ ed.innerHTML = h || ''; saved = null; }
-function getHtml(){ return ed.innerHTML; }
+function getHtml(){
+  const copy=ed.cloneNode(true),originals=Array.from(ed.querySelectorAll('*')),copies=Array.from(copy.querySelectorAll('*'));
+  copies.forEach(function(el,i){const s=getComputedStyle(originals[i]);el.style.fontFamily=s.fontFamily;el.style.fontSize=s.fontSize;el.style.fontWeight=s.fontWeight;});
+  Array.from(copy.childNodes).forEach(function(n){if(n.nodeType===Node.TEXT_NODE && n.textContent){const span=document.createElement('span'),s=getComputedStyle(ed);span.style.fontFamily=s.fontFamily;span.style.fontSize=s.fontSize;span.style.fontWeight=s.fontWeight;n.replaceWith(span);span.appendChild(n);}});
+  return copy.innerHTML;
+}
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
 function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
 function fmt(c, v){ ed.focus(); restore(); document.execCommand('styleWithCSS', false, true); document.execCommand(c, false, v === undefined ? null : v); changed(); }

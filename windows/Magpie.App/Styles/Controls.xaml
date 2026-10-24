@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ty="clr-namespace:Magpie.App.Services">
 
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="Converters.xaml" />
@@ -21,37 +22,44 @@
     </Style>
 
     <Style x:Key="Text.Title" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="dialogTitle" />
         <Setter Property="FontSize" Value="22" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style x:Key="Text.Subtitle" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="helper" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Section" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="settingsSection" />
         <Setter Property="FontSize" Value="15" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
     </Style>
     <Style x:Key="Text.Body" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="dialogBody" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Caption" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="helper" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style x:Key="Text.Mono" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="fieldValue" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Mono}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
     </Style>
     <Style x:Key="Text.Label" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="fieldLabel" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Tertiary}" />
@@ -75,6 +83,7 @@
         <Setter Property="Margin" Value="6,0,0,0" />
     </Style>
     <Style x:Key="Badge.Text" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="folderCount" />
         <Setter Property="FontSize" Value="11" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
@@ -103,6 +112,7 @@
     </ControlTemplate>
 
     <Style x:Key="Button.Base" TargetType="ButtonBase">
+        <Setter Property="ty:Typography.Role" Value="toolbar" />
         <Setter Property="Template" Value="{StaticResource Template.Button}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -256,6 +266,7 @@
 
     <!-- Sidebar navigation item (RadioButton so only one is checked) -->
     <Style x:Key="Button.Nav" TargetType="RadioButton">
+        <Setter Property="ty:Typography.Role" Value="folder" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Nav.Text}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="FontSize" Value="13.5" />
@@ -302,6 +313,7 @@
 
     <!-- Sub-tab strip (All / Recently installed / …) -->
     <Style x:Key="Button.Tab" TargetType="RadioButton">
+        <Setter Property="ty:Typography.Role" Value="toolbar" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Padding" Value="12,8" />
@@ -356,6 +368,7 @@
 
     <!-- ═══════════════ TextBox ═══════════════ -->
     <Style x:Key="TextBox.Base" TargetType="TextBox">
+        <Setter Property="ty:Typography.Role" Value="fieldValue" />
         <Setter Property="Background" Value="{DynamicResource Brush.Control.Background}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.Control.Border}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
@@ -395,6 +408,7 @@
 
     <!-- Search box: same as base but with a magnifier glyph. Placeholder text comes from Tag. -->
     <Style x:Key="TextBox.Search" TargetType="TextBox" BasedOn="{StaticResource TextBox.Base}">
+        <Setter Property="ty:Typography.Role" Value="search" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
@@ -427,6 +441,7 @@
 
     <!-- Read-only log output -->
     <Style x:Key="TextBox.Log" TargetType="TextBox" BasedOn="{StaticResource TextBox.Base}">
+        <Setter Property="ty:Typography.Role" Value="activity" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Mono}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Background" Value="{DynamicResource Brush.Code.Background}" />
@@ -1267,6 +1282,7 @@
         <Setter Property="Background" Value="{DynamicResource Brush.Badge.Background}" />
     </Style>
     <Style x:Key="Pill.Text" TargetType="TextBlock">
+        <Setter Property="ty:Typography.Role" Value="listBadges" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />

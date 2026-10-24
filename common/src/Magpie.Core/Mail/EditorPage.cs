@@ -1,9 +1,20 @@
+using System.Text.Json;
+using Magpie.Core.Settings;
+
 namespace Magpie.Core.Mail;
 
 /// <summary>The rich-text editor used by the compose window (our own page — the only place scripts run).
 /// Shared by the Windows app (WebView2) and Magpie for Mac (WKWebView, see <see cref="ForMac"/>).</summary>
 public static class EditorPage
 {
+    /// <summary>Apply Windows writing defaults after setHtml; saved drafts keep their existing visible formatting.</summary>
+    public static string TypographyScript(TypographySettings settings, bool preserveExisting)
+    {
+        object Style(string id) { var s = settings.Resolve(id); return new { family = s.Family, size = s.Size, overrideExisting = settings.HasOverride(id) }; }
+        return "setTypography(" + JsonSerializer.Serialize(Style("composeBody")) + ","
+            + JsonSerializer.Serialize(Style("signature")) + "," + JsonSerializer.Serialize(Style("composeQuote")) + ","
+            + (preserveExisting ? "true" : "false") + ")";
+    }
     /// <summary>The same page with the Mac keys: ⌘↩ sends and ⌘K adds a link (Ctrl still works too).</summary>
     public static string ForMac => Html.Replace("e.ctrlKey && ", "(e.ctrlKey || e.metaKey) && ", StringComparison.Ordinal);
 
@@ -37,9 +48,61 @@ html.dark .magpie-quote a{color:#14606E}
 const ed = document.getElementById('ed');
 let saved = null;
 let rewrite = null;
+let typography = null;
+const protectedFonts = new WeakMap();
+function fontCss(style){ return 'font-family:' + JSON.stringify(style.family) + ';font-size:' + style.size + 'px;font-weight:400'; }
+function applyFont(el, style, normal){ el.style.fontFamily=style.family; el.style.fontSize=style.size+'px'; if(normal!==false) el.style.fontWeight='400'; }
+function applyProtectedFont(el, style){
+  // A saved rich signature and a received quote keep their own formatting and emphasis.
+  const nodes=[el].concat(Array.from(el.querySelectorAll('*')));
+  if(style.overrideExisting){
+    nodes.forEach(function(n){
+      if(!protectedFonts.has(n)) protectedFonts.set(n,{
+        family:n.style.getPropertyValue('font-family'),familyPriority:n.style.getPropertyPriority('font-family'),
+        size:n.style.getPropertyValue('font-size'),sizePriority:n.style.getPropertyPriority('font-size')
+      });
+      n.style.setProperty('font-family',style.family,'important');n.style.setProperty('font-size',style.size+'px','important');
+    });
+  }else{
+    nodes.forEach(function(n){
+      const original=protectedFonts.get(n);if(!original) return;
+      if(original.family) n.style.setProperty('font-family',original.family,original.familyPriority);else n.style.removeProperty('font-family');
+      if(original.size) n.style.setProperty('font-size',original.size,original.sizePriority);else n.style.removeProperty('font-size');
+      protectedFonts.delete(n);
+    });
+    if(!el.style.fontFamily) el.style.fontFamily=style.family;
+    if(!el.style.fontSize) el.style.fontSize=style.size+'px';
+  }
+}
+function preserveFont(el){
+  const style=window.getComputedStyle(el);
+  el.style.fontFamily=style.fontFamily; el.style.fontSize=style.fontSize; el.style.fontWeight=style.fontWeight;
+}
+function setTypography(body, signature, quote, preserveExisting){
+  // Freeze old text's current appearance before changing inherited defaults; never reformat an existing styled draft.
+  const subsequent=typography!==null;
+  if(preserveExisting || subsequent){
+    Array.from(ed.querySelectorAll('*')).forEach(function(el){
+      if(preserveExisting || !el.closest('.magpie-signature,.magpie-quote')) preserveFont(el);
+    });
+    Array.from(ed.childNodes).forEach(function(n){
+      if(n.nodeType===Node.TEXT_NODE && n.textContent){ const span=document.createElement('span'); preserveFont(ed); span.style.fontFamily=ed.style.fontFamily; span.style.fontSize=ed.style.fontSize; span.style.fontWeight=ed.style.fontWeight; n.replaceWith(span); span.appendChild(n); }
+    });
+  }
+  typography={body:body,signature:signature,quote:quote};
+  applyFont(ed,body);
+  if(!preserveExisting){
+    Array.from(ed.children).forEach(function(el){
+      if(!subsequent && !el.matches('.magpie-signature,.magpie-quote')) applyFont(el,body);
+    });
+    ed.querySelectorAll('.magpie-signature').forEach(function(el){applyProtectedFont(el,signature);});
+    ed.querySelectorAll('.magpie-quote').forEach(function(el){applyProtectedFont(el,quote);});
+  }
+}
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
 function setHtml(h){
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
+  typography=null;
   const r = document.createRange();
   const first = ed.firstChild || ed;
   r.setStart(first, 0); r.collapse(true);
@@ -47,7 +110,23 @@ function setHtml(h){
   saved = r.cloneRange();
   ed.focus();
 }
-function getHtml(){ return ed.innerHTML; }
+function getHtml(){
+  if(!typography) return ed.innerHTML;
+  // Stamp a detached copy, preserving body/signature/quote boundaries and existing rich formatting.
+  const copy=ed.cloneNode(true), originals=Array.from(ed.querySelectorAll('*')), copies=Array.from(copy.querySelectorAll('*'));
+  copies.forEach(function(el,i){const style=window.getComputedStyle(originals[i]);el.style.fontFamily=style.fontFamily;el.style.fontSize=style.fontSize;el.style.fontWeight=style.fontWeight;});
+  Array.from(copy.childNodes).forEach(function(n){if(n.nodeType===Node.TEXT_NODE && n.textContent){const span=document.createElement('span');applyFont(span,typography.body);n.replaceWith(span);span.appendChild(n);}});
+  return copy.innerHTML;
+}
+function getNewText(){
+  const source=ed.cloneNode(true), stop=source.querySelector('.magpie-signature,.magpie-quote');
+  const range=document.createRange();range.selectNodeContents(source);if(stop) range.setEndBefore(stop);
+  const copy=document.createElement('div');copy.appendChild(range.cloneContents());
+  copy.querySelectorAll('img,video,audio,object').forEach(function(n){n.replaceWith(document.createTextNode('[Embedded content]'));});
+  copy.querySelectorAll('br').forEach(function(n){n.replaceWith(document.createTextNode('\n'));});
+  copy.querySelectorAll('p,div,li').forEach(function(n){n.appendChild(document.createTextNode('\n'));});
+  return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
+}
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
 function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
 function fmt(c, v){ ed.focus(); restore(); document.execCommand(c, false, v === undefined ? null : v); post({t:'dirty'}); }
@@ -56,10 +135,30 @@ document.addEventListener('selectionchange', function(){
   if (s.rangeCount && ed.contains(s.anchorNode)) { saved = s.getRangeAt(0).cloneRange(); post({t:'sel', text: s.toString()}); }
 });
 function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(p){ return '<p>' + esc(p).replace(/\n/g,'<br>') + '</p>'; }).join(''); }
+function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(p){ return '<p'+(typography?' style="'+esc(fontCss(typography.body)).replace(/"/g,'&quot;')+'"':'')+'>' + esc(p).replace(/\n/g,'<br>') + '</p>'; }).join(''); }
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }
+function insertBody(text, replace){
+  const stop=ed.querySelector('.magpie-signature, .magpie-quote'),r=document.createRange();
+  if(replace){
+    r.setStart(ed,0);if(stop) r.setEndBefore(stop);else r.setEnd(ed,ed.childNodes.length);
+    r.deleteContents();r.collapse(true);
+  }else{
+    if(stop) r.setStartBefore(stop);else r.setStart(ed,ed.childNodes.length);r.collapse(true);
+  }
+  const fragment=r.createContextualFragment(toHtml(text)),last=fragment.lastChild;
+  // execCommand can merge a paragraph into the signature at this boundary. Insert the fragment exactly here.
+  r.insertNode(fragment);
+  if(last) r.setStartAfter(last);r.collapse(true);
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(r);saved=r.cloneRange();ed.focus();
+}
 function cmd(mode, text){
+  if(mode==='replyDraft'){
+    let request; try{request=JSON.parse(text);}catch(e){return false;}
+    if(!request || typeof request.text!=='string' || typeof request.expectedNewText!=='string'
+       || (request.mode!=='replaceBody' && request.mode!=='appendBody') || getNewText()!==request.expectedNewText) return false;
+    return cmd(request.mode,request.text);
+  }
   if (mode === 'captureRewrite') {
     if (!saved || saved.collapsed || saved.toString() !== text) return false;
     rewrite = { range: saved.cloneRange(), html: ed.innerHTML };
@@ -73,13 +172,10 @@ function cmd(mode, text){
   }
   else if (mode === 'insert') { ed.focus(); restore(); document.execCommand('insertHTML', false, toHtml(text)); }
   else if (mode === 'replaceBody') {
-    ed.focus();
-    const stop = topChild(ed.querySelector('.magpie-signature, .magpie-quote'));
-    const r = document.createRange();
-    r.setStart(ed, 0);
-    if (stop) r.setEndBefore(stop); else r.setEnd(ed, ed.childNodes.length);
-    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    document.execCommand('insertHTML', false, toHtml(text));
+    insertBody(text,true);
+  }
+  else if(mode === 'appendBody') {
+    insertBody(text,false);
   }
   post({t:'dirty'});
   return true;

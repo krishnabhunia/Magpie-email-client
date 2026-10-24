@@ -277,6 +277,7 @@ public partial class ThreadViewModel : ObservableObject
     private string PageContext => JsonSerializer.Serialize(new
     {
         ThemeManager.IsDark, _e.Config.RemoteImages, HoverDelay,
+        Typography = _e.Config.Typography.Clone(),
         Trusted = _e.Config.TrustedImageSenders.OrderBy(s => s, StringComparer.OrdinalIgnoreCase),
         Mine = _e.MyAddresses.OrderBy(s => s, StringComparer.OrdinalIgnoreCase),
     });
@@ -286,7 +287,7 @@ public partial class ThreadViewModel : ObservableObject
         Dictionary<long, (MessageBody? body, Dictionary<string, string> images)> bodies,
         bool allow, bool dark, Dictionary<long, string> errors, string? accountId = null, string deletes = "") =>
         ReaderPage.ContentFingerprint(subject, BuildRenderList(accountId ?? AccountId, rows, bodies, errors),
-            allow, dark, HoverDelay, DateTimeOffset.Now, _e.Store.BodyFingerprint) + (deletes.Length == 0 ? "" : "|" + deletes);
+            allow, dark, HoverDelay, DateTimeOffset.Now, _e.Store.BodyFingerprint, _e.Config.Typography.Clone()) + (deletes.Length == 0 ? "" : "|" + deletes);
 
     /// <summary>Design DD1 (R3): what the page shows of the delete times, so a cached page is rebuilt when the option,
     /// a timer or its rule changes.</summary>
@@ -308,6 +309,7 @@ public partial class ThreadViewModel : ObservableObject
         var subject = Subject;
         var allow = ImagesAllowed(rows);
         var dark = ThemeManager.IsDark;
+        var typography = _e.Config.Typography.Clone();
         var context = PageContext;
         var key = AccountId + "\n" + ThreadKey;
         var fp = Fingerprint(subject, rows, bodies, allow, dark, _loadErrors, deletes: DeleteState(AccountId, ThreadKey));
@@ -321,7 +323,7 @@ public partial class ThreadViewModel : ObservableObject
                     rows[^1].Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), dark, downloading: false));
             var list = BuildRenderList(AccountId, rows, bodies, _loadErrors);
             var hoverDelay = HoverDelay;
-            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay), ct);
+            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay, typography), ct);
             ct.ThrowIfCancellationRequested();
             if (context != PageContext) return;
             page = new ReaderPage(key, fp, result.Html, result.BlockedImages, context);
@@ -342,6 +344,7 @@ public partial class ThreadViewModel : ObservableObject
         try
         {
             var dark = ThemeManager.IsDark;
+            var typography = _e.Config.Typography.Clone();
             var context = PageContext;
             var neighbours = Neighbours.Take(8).ToArray();
             foreach (var t in neighbours)
@@ -367,7 +370,7 @@ public partial class ThreadViewModel : ObservableObject
                 if (prep == null) continue;
                 if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
-                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay), ct);
+                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay, typography), ct);
                 ct.ThrowIfCancellationRequested();
                 if (context != PageContext) return;
                 PutPage(key, prep.fp, result.Html, result.BlockedImages);

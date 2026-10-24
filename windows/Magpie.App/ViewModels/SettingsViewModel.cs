@@ -389,11 +389,14 @@ public partial class SettingsViewModel : ObservableObject
         ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
         ("Signature", "Signatures", "A signature for each account, with pictures; new messages and replies", "signature sign off logo picture name footer html rich", "RowSignatures"),
         ("Quick replies", "Signatures", "Short answers you send with one click under a conversation", "quick replies canned answers thanks one click send chips", "RowQuickReplies"),
+        ("Fonts & text", "Fonts", "Independent font family and size for every kind of app text", "fonts font typography family size type sender subject preview reader compose signature text", "RowTypography"),
+        ("AI reply settings", "AiReplies", "Generate drafts after Reply or Reply All; tone, purpose, length and language", "ai reply all response draft formal informal polite request order tone purpose language custom automatic", "RowAiReplySettings"),
         ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
     };
 
     private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
     {
+        ["Fonts"] = ("Fonts & text", "toolbar"), ["AiReplies"] = ("AI reply settings", "summarise"),
         ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"), ["Rules"] = ("Rules", "rules"), ["Signatures"] = ("Signatures & replies", "signature"),
         ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
         ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),
@@ -697,6 +700,8 @@ public partial class SettingsViewModel : ObservableObject
         _draft = ai.Draft;
         _rewrite = ai.Rewrite;
         _replies = ai.Replies;
+        LoadAiReplySettings(ai.ReplyDrafts);
+        LoadTypography(c.Typography);
         LoadAiConnections(ai);   // design AI2: fills the editor from the connection in use
         RefreshPreset();
 
@@ -881,24 +886,30 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
-        SaveCore();
-        Saved?.Invoke();
+        if (SaveCore()) Saved?.Invoke();
     }
 
     /// <summary>Apply: saves everything and keeps Settings open.</summary>
     [RelayCommand]
     private void Apply()
     {
-        SaveCore();
-        Applied?.Invoke();
+        if (SaveCore()) Applied?.Invoke();
     }
 
     /// <summary>Raised after Apply (the window stays open; it shows "Saved").</summary>
     public event Action? Applied;
 
-    private void SaveCore()
+    private bool SaveCore()
     {
+        if (HasTypographyErrors)
+        {
+            Page = "Fonts";
+            Ui.Error("Fonts & text", TypographyValidationMessage);
+            return false;
+        }
+        if (!ValidateAiReplySettings()) { Page = "AiReplies"; return false; }
         var c = _e.Config;
+        c.Typography = TypographyToSave();
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
         c.RemoteImages = RemoteImages;
@@ -924,6 +935,7 @@ public partial class SettingsViewModel : ObservableObject
         ai.Draft = Draft;
         ai.Rewrite = Rewrite;
         ai.Replies = Replies;
+        ai.ReplyDrafts = AiRepliesToSave();
         SaveAiConnections(ai);   // design AI2
 
         c.Appearance = new Appearance
@@ -954,5 +966,6 @@ public partial class SettingsViewModel : ObservableObject
         if (openGate) _e.OpenGate();
         _baseline = Snapshot();
         HasChanges = false;
+        return true;
     }
 }

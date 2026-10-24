@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 10.0.0 (24 Oct 2026)
+### New
+- **Fonts & text on Windows.** Choose a font and size independently for 53 types of text across navigation, the inbox, reading, writing, AI, Settings and the calendar. Search the roles, preview a change, reset one role or a whole area, then Apply. New writing and signatures start in Arial 18 px (13.5 pt), normal weight. Existing formatted drafts keep their appearance. Reading-font overrides are optional and leave the original email intact.
+- **AI drafts from Reply and Reply All on Windows.** Enable full reply drafts in Settings, with separate switches for each button. Choose tone, purpose, length, language, conversation context and custom instructions. A reply opens normally and generates a preview after its editor is ready. Review it, regenerate, discard or explicitly use it; existing typed text asks before appending or replacing. Recipients, signatures and quoted messages stay protected, and sending remains your action. Each cloud connection asks for this feature's consent; turning AI off cancels a pending result.
+<!-- closes: #103 #104 #105 -->
+
 ## 9.0.0 (24 Oct 2026)
 ### New
 - **Contacts.** A new **Contacts** page in the sidebar (Ctrl+3) shows the contacts saved in your Google accounts, plus the people you've written to (marked **Recent**). Search by name, email, company or phone, and switch between **All**, **Frequent** and **Groups**. Each person shows their emails, work, phone, groups, notes, and your **conversations**, **attachments** and **events** with them, with **New message** and **New event** buttons.

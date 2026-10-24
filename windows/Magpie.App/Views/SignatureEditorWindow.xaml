@@ -1,6 +1,7 @@
 <Window x:Class="Magpie.App.Views.SignatureEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ty="clr-namespace:Magpie.App.Services"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Style="{StaticResource Window.Dialog}" Width="640" Height="460" MinWidth="480" MinHeight="340"
         WindowStartupLocation="CenterOwner" Title="Signature — Magpie">
@@ -16,15 +17,15 @@
                    Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Ctrl+K adds a link." />
         <!-- Toolbar: B / I / U / Link / Picture / Font / Colour -->
         <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="6,4" Background="{DynamicResource Brush.Header.Background}">
-            <WrapPanel>
-                <Button Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
-                <Button Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
-                <Button Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)">
+            <WrapPanel ty:Typography.Role="editorToolbar">
+                <Button ty:Typography.Role="editorToolbar" Style="{StaticResource Button.Icon}" Content="B" FontWeight="Bold" FontFamily="Segoe UI" Width="28" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
+                <Button ty:Typography.Role="editorToolbar" Style="{StaticResource Button.Icon}" Content="I" FontStyle="Italic" FontFamily="Georgia" Width="28" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
+                <Button ty:Typography.Role="editorToolbar" Style="{StaticResource Button.Icon}" Width="28" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)">
                     <TextBlock Text="U" TextDecorations="Underline" FontFamily="Segoe UI" />
                 </Button>
-                <Button Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnLink" ToolTip="Add a link (Ctrl+K)" />
-                <Button Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
-                <ComboBox x:Name="FontBox" Width="140" Margin="6,0,0,0" SelectionChanged="OnFont" ToolTip="Font" AutomationProperties.Name="Font" />
+                <Button ty:Typography.Role="editorToolbar" Style="{StaticResource Button.Icon}" Content="Link" FontSize="12" Padding="8,0" Click="OnLink" ToolTip="Add a link (Ctrl+K)" />
+                <Button ty:Typography.Role="editorToolbar" Style="{StaticResource Button.Icon}" Content="Picture" FontSize="12" Padding="8,0" Click="OnImage" ToolTip="Add a picture (a logo) — it is sent inside the email" />
+                <ComboBox ty:Typography.Role="editorToolbar" x:Name="FontBox" Width="140" Margin="6,0,0,0" SelectionChanged="OnFont" ToolTip="Font" AutomationProperties.Name="Font" />
                 <ItemsControl x:Name="ColourList" Margin="8,0,0,0" VerticalAlignment="Center" Focusable="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
@@ -46,7 +47,7 @@
         <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="0,0,8,8">
             <Grid>
                 <wv2:WebView2 x:Name="Editor" />
-                <TextBox x:Name="Plain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8" />
+                <TextBox x:Name="Plain" Visibility="Collapsed" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="8" ty:Typography.Role="signature" />
             </Grid>
         </Border>
     </DockPanel>

@@ -1,0 +1,81 @@
+<UserControl x:Class="Magpie.App.Views.AiReplySettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:svc="clr-namespace:Magpie.App.Services" svc:Typography.Role="fieldLabel">
+    <StackPanel>
+        <TextBlock Text="AI reply settings" Style="{StaticResource Text.Serif}" FontSize="21" svc:Typography.Role="settingsTitle" />
+        <TextBlock Text="Choose when Reply and Reply All start a draft, and how it should sound. Your normal manual reply is always available." svc:Typography.Role="helper"
+                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <CheckBox Content="Enable AI features" IsChecked="{Binding AiEnabled, Mode=TwoWay}" FontWeight="SemiBold" />
+                <TextBlock Text="The existing master switch. Off stops all AI features." svc:Typography.Role="helper" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,14" />
+                <StackPanel IsEnabled="{Binding AiEnabled}">
+                    <CheckBox Content="Generate AI replies" IsChecked="{Binding ReplyDraftsEnabled, Mode=TwoWay}" FontWeight="SemiBold" />
+                    <TextBlock Text="Off until you enable it. Generated text appears as a preview; sending stays your action." svc:Typography.Role="helper"
+                               Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,12" />
+                    <StackPanel Margin="22,0,0,0" IsEnabled="{Binding ReplyDraftsEnabled}">
+                        <CheckBox Content="When I click Reply" IsChecked="{Binding ReplyOnReply, Mode=TwoWay}" Margin="0,0,0,10" />
+                        <CheckBox Content="When I click Reply All" IsChecked="{Binding ReplyOnReplyAll, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+            <StackPanel>
+                <TextBlock Text="Reply defaults" svc:Typography.Role="settingsSection" FontWeight="SemiBold" FontSize="15" />
+                <TextBlock Text="Combine a tone and a purpose, for example Formal + Make a request. You can change them for one draft without changing these defaults." svc:Typography.Role="helper"
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,14" />
+                <StackPanel IsEnabled="{Binding ReplyDraftsEnabled}">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="Tone" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyToneOptions}" SelectedItem="{Binding ReplyDefaultTone, Mode=TwoWay}" /></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="Purpose" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyPurposeOptions}" SelectedItem="{Binding ReplyDefaultPurpose, Mode=TwoWay}" /></StackPanel>
+                    </Grid>
+                    <StackPanel Margin="0,12,0,0" Visibility="{Binding ReplyDefaultTone, Converter={StaticResource EqualsToVis}, ConverterParameter=Custom}">
+                        <TextBlock Text="Custom tone" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                        <TextBox svc:Typography.Role="fieldValue" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyDefaultCustomTone, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" />
+                    </StackPanel>
+                    <StackPanel Margin="0,12,0,0" Visibility="{Binding ReplyDefaultPurpose, Converter={StaticResource EqualsToVis}, ConverterParameter=Custom}">
+                        <TextBlock Text="Custom purpose" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                        <TextBox svc:Typography.Role="fieldValue" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyDefaultCustomPurpose, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" />
+                    </StackPanel>
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="Length" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyLengthOptions}" SelectedItem="{Binding ReplyDefaultLength, Mode=TwoWay}" /></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="Language" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyLanguageOptions}" SelectedItem="{Binding ReplyDefaultLanguage, Mode=TwoWay}" /></StackPanel>
+                    </Grid>
+                    <TextBlock Text="Email context" Style="{StaticResource Text.Caption}" Margin="0,14,0,5" />
+                    <ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyContextOptions}" SelectedItem="{Binding ReplyDefaultContext, Mode=TwoWay}" />
+                    <TextBlock Text="Uses only the selected account and conversation. Attachments are excluded; a long conversation uses its newest messages." svc:Typography.Role="helper"
+                               Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,12" />
+                    <TextBlock Text="Additional instructions" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                    <TextBox svc:Typography.Role="fieldValue" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" MaxLength="4000" VerticalContentAlignment="Top" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+            <StackPanel>
+                <TextBlock Text="Example using these defaults" FontWeight="SemiBold" svc:Typography.Role="settingsSection" />
+                <TextBlock Text="{Binding ReplySettingsExample}" TextWrapping="Wrap" Margin="0,10,0,8" svc:Typography.Role="aiDraft" />
+                <TextBlock Text="Illustrative English text. The real draft uses your selected language and instructions. This example does not call a model."
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" svc:Typography.Role="helper" />
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+            <StackPanel>
+                <TextBlock Text="Other AI tools" svc:Typography.Role="settingsSection" FontSize="15" FontWeight="SemiBold" />
+                <TextBlock Text="These existing tools keep their own switches. Suggested reply chips are separate from full drafts triggered by Reply." svc:Typography.Role="helper"
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,12" />
+                <StackPanel IsEnabled="{Binding AiEnabled}">
+                    <CheckBox Content="Summarise thread" IsChecked="{Binding Summarise, Mode=TwoWay}" Margin="0,0,0,10" />
+                    <CheckBox Content="Write a draft from a prompt" IsChecked="{Binding Draft, Mode=TwoWay}" Margin="0,0,0,10" />
+                    <CheckBox Content="Rewrite selected text" IsChecked="{Binding Rewrite, Mode=TwoWay}" Margin="0,0,0,10" />
+                    <CheckBox Content="Suggested reply chips" IsChecked="{Binding Replies, Mode=TwoWay}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock Text="The active AI connection is reused. Cloud providers ask for consent for this feature, connection and endpoint before receiving email text. Apply saves these preferences." svc:Typography.Role="helper"
+                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,14,0,0" />
+    </StackPanel>
+</UserControl>
