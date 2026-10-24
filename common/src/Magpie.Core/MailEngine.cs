@@ -49,6 +49,17 @@ public sealed class MailEngine : IDisposable
     public event Action<IReadOnlyList<CalendarEvent>>? EventReminderDue;
     /// <summary>Design B2: the Google calendars of the Google accounts.</summary>
     public Calendar.CalendarService Calendar { get; }
+    /// <summary>Design B4: Google contacts of every Google account, kept on this PC.</summary>
+    public Contacts.ContactsService Contacts { get; }
+
+    /// <summary>Addresses of the saved Google contacts (design B4): known senders too, kept apart from the people written to so a deleted or changed contact stops counting.</summary>
+    private HashSet<string> _savedKnown = new(StringComparer.OrdinalIgnoreCase);
+
+    private void AddSavedContactsToKnown()
+    {
+        var emails = new HashSet<string>(Store.GetSavedContacts().SelectMany(c => c.Emails), StringComparer.OrdinalIgnoreCase);
+        lock (_knownGate) _savedKnown = emails;
+    }
 
     public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null,
         Func<Account, MimeMessage, CancellationToken, Task>? sendMessage = null)
@@ -75,6 +86,7 @@ public sealed class MailEngine : IDisposable
         _sendMessage = sendMessage ?? Connector.SendAsync;
         Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id))) { SaveSettings = () => Settings.Save(notify: false) };
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
+        Contacts = new Contacts.ContactsService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
     }
 
     public AppSettings Config => Settings.Current;
@@ -90,10 +102,13 @@ public sealed class MailEngine : IDisposable
         Store.RecoverStuckOutbox();
         try { MergeDuplicateAutoDeleteRules(); } catch (Exception ex) { Log.Warn("auto-delete rules: " + ex.Message); }
         lock (_knownGate) _known = Store.KnownContacts();
+        AddSavedContactsToKnown();
+        Contacts.Changed += AddSavedContactsToKnown;   // design B4: saved Google contacts are known senders (Gatekeeper, B7)
         foreach (var a in Accounts.Where(a => a.Enabled)) StartAccount(a);
         _timers = Task.Run(() => TimersAsync(_cts.Token));
         _rules = Task.Run(() => DeferredRulesLoopAsync(_cts.Token));
         Calendar.Start(_cts.Token);
+        Contacts.Start(_cts.Token);
     }
 
     private void StartAccount(Account a)
@@ -134,7 +149,7 @@ public sealed class MailEngine : IDisposable
 
     private bool IsKnownContact(string addr)
     {
-        lock (_knownGate) return _known.Contains(addr);
+        lock (_knownGate) return _known.Contains(addr) || _savedKnown.Contains(addr);
     }
 
     private Category? SenderOverride(string addr) =>
@@ -181,6 +196,7 @@ public sealed class MailEngine : IDisposable
         Settings.Save();
         StartAccount(a);
         Calendar.Poke();
+        Contacts.Poke();
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
@@ -196,6 +212,7 @@ public sealed class MailEngine : IDisposable
         if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
         if (a.Enabled) StartAccount(a);
         Calendar.Poke();   // a new sign-in may now allow the calendar (design B2)
+        Contacts.Poke();   // … and contacts (design B4)
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
@@ -207,6 +224,7 @@ public sealed class MailEngine : IDisposable
         Vault.RemovePrefix($"account:{accountId}:");
         OAuth.Forget(accountId);
         Calendar.ForgetAccount(accountId);
+        Contacts.ForgetAccount(accountId);
         Store.DeleteAccount(accountId);
         Store.DeleteLocalDraftsForAccount(accountId);
         try

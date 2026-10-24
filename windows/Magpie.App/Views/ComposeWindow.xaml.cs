@@ -403,9 +403,9 @@ public partial class ComposeWindow : Window
         if (sender is not TextBox box || !box.IsKeyboardFocusWithin) return;
         var token = LastToken(box.Text);
         if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { SuggestPopup.IsOpen = false; return; }
-        var hits = AppServices.Engine.Store.SearchContacts(token);
+        var hits = AppServices.Engine.Contacts.Suggest(token);
         if (hits.Count == 0) { SuggestPopup.IsOpen = false; return; }
-        SuggestList.ItemsSource = hits.Select(c => new { Name = string.IsNullOrEmpty(c.Name) ? c.Address : c.Name, c.Address, Contact = c }).ToList();
+        SuggestList.ItemsSource = hits;
         SuggestList.SelectedIndex = 0;
         _suggestTarget = box;
         SuggestPopup.PlacementTarget = box;
@@ -453,7 +453,7 @@ public partial class ComposeWindow : Window
     private void AcceptSuggestion()
     {
         if (_suggestTarget == null || SuggestList.SelectedItem == null) { SuggestPopup.IsOpen = false; return; }
-        var contact = (Contact)SuggestList.SelectedItem.GetType().GetProperty("Contact")!.GetValue(SuggestList.SelectedItem)!;
+        if (SuggestList.SelectedItem is not ContactSuggestion contact) { SuggestPopup.IsOpen = false; return; }
         var text = _suggestTarget.Text;
         var i = text.LastIndexOfAny(new[] { ',', ';' });
         var head = i >= 0 ? text[..(i + 1)] + " " : "";
