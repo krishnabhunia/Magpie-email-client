@@ -23,7 +23,8 @@ public sealed class GooglePeopleClient
 {
     public const string Api = "https://people.googleapis.com/v1/";
     public const string PersonFields = "names,emailAddresses,phoneNumbers,organizations,biographies,memberships,metadata";
-    private const string UpdateFields = "names,emailAddresses,phoneNumbers,organizations,biographies";
+    /// <summary>The fields Magpie edits; an update names only the ones that changed (Google replaces each named field whole).</summary>
+    internal static readonly string[] EditableFields = { "names", "emailAddresses", "phoneNumbers", "organizations", "biographies" };
 
     private readonly HttpClient _http;
     private readonly Func<CancellationToken, Task<string>> _token;
@@ -74,32 +75,107 @@ public sealed class GooglePeopleClient
         return Parse(root, c.AccountId, new Dictionary<string, string>());
     }
 
+    /// <summary>Sends the changed fields only (what Google has for the rest stays). Nothing changed: nothing is sent and Google's current copy is read.</summary>
     public async Task<SavedContact> UpdateAsync(SavedContact c, CancellationToken ct)
     {
-        var root = await SendAsync(HttpMethod.Patch, $"{c.Resource}:updateContact?updatePersonFields={UpdateFields}&personFields={PersonFields}", Body(c, withEtag: true), ct);
+        var body = Body(c, withEtag: true);
+        var changed = ChangedFields(c, body);
+        JsonElement root;
+        if (changed.Count == 0)
+            root = await SendAsync(HttpMethod.Get, $"{c.Resource}?personFields={PersonFields}", null, ct);
+        else
+        {
+            foreach (var f in EditableFields.Where(f => !changed.Contains(f))) body.Remove(f);
+            root = await SendAsync(HttpMethod.Patch, $"{c.Resource}:updateContact?updatePersonFields={string.Join(",", changed)}&personFields={PersonFields}", body, ct);
+        }
         var saved = Parse(root, c.AccountId, new Dictionary<string, string>());
         saved.Groups = c.Groups;   // groups aren't changed here; keep the names we had
         return saved;
+    }
+
+    /// <summary>
+    /// The editable fields whose value in <paramref name="body"/> differs from what Google sent (<see cref="SavedContact.Raw"/>) —
+    /// compared through the same shaping, so Magpie's own tidying (a duplicate address, the read-only display name) doesn't count as a change.
+    /// </summary>
+    internal static List<string> ChangedFields(SavedContact c, JsonObject body)
+    {
+        if (c.Raw.Length == 0 || c.Raw == "{}") return EditableFields.ToList();
+        SavedContact before;
+        try
+        {
+            using var doc = JsonDocument.Parse(c.Raw);
+            before = Parse(doc.RootElement, c.AccountId, new Dictionary<string, string>());
+        }
+        catch (JsonException) { return EditableFields.ToList(); }
+        before.Raw = c.Raw;
+        var baseline = Body(before, withEtag: false);
+        return EditableFields.Where(f => (body[f]?.ToJsonString() ?? "[]") != (baseline[f]?.ToJsonString() ?? "[]")).ToList();
+    }
+
+    private static JsonObject RawOf(SavedContact c)
+    {
+        try { if (c.Raw.Length > 0 && JsonNode.Parse(c.Raw) is JsonObject o) return o; } catch (JsonException) { }
+        return new JsonObject();
+    }
+
+    private static JsonObject? FirstOf(JsonObject raw, string field) => raw[field] is JsonArray { Count: > 0 } a && a[0] is JsonObject o ? (JsonObject)o.DeepClone() : null;
+
+    private static IEnumerable<JsonObject> RestOf(JsonObject raw, string field) =>
+        raw[field] is JsonArray a ? a.Skip(1).OfType<JsonObject>().Select(o => (JsonObject)o.DeepClone()) : Enumerable.Empty<JsonObject>();
+
+    /// <summary>Google's entry for this value (keeps its label and type), or a new plain one.</summary>
+    private static JsonObject EntryFor(JsonObject raw, string field, string value, Func<string, string, bool> same)
+    {
+        if (raw[field] is JsonArray a)
+            foreach (var o in a.OfType<JsonObject>())
+                if (o["value"]?.GetValue<string>() is { } v && same(v, value)) { var copy = (JsonObject)o.DeepClone(); copy["value"] = value; return copy; }
+        return new JsonObject { ["value"] = value };
     }
 
     public Task DeleteAsync(SavedContact c, CancellationToken ct) => SendAsync(HttpMethod.Delete, $"{c.Resource}:deleteContact", null, ct);
 
     // ───────────────────────── JSON ─────────────────────────
 
+    /// <summary>
+    /// The person to send. Starts from what Google has (<see cref="SavedContact.Raw"/>) so an email's label, a second
+    /// organization or a middle name survive an edit made here; only the values Magpie edits are set.
+    /// </summary>
     internal static JsonObject Body(SavedContact c, bool withEtag)
     {
+        var raw = RawOf(c);
+        var name = FirstOf(raw, "names") ?? new JsonObject();
+        name["givenName"] = c.GivenName;
+        name["familyName"] = c.FamilyName;
+        name["unstructuredName"] = c.Name.Length > 0 ? c.Name : (c.GivenName + " " + c.FamilyName).Trim();
+        foreach (var readOnly in new[] { "displayName", "displayNameLastFirst" }) name.Remove(readOnly);
+        var emails = new JsonArray(c.Emails.Where(e => e.Trim().Length > 0)
+            .Select(e => (JsonNode)EntryFor(raw, "emailAddresses", e.Trim(), (a, b) => string.Equals(a.Trim(), b, StringComparison.OrdinalIgnoreCase))).ToArray());
+        var phones = new JsonArray(c.Phones.Where(p => p.Trim().Length > 0)
+            .Select(p => (JsonNode)EntryFor(raw, "phoneNumbers", p.Trim(), (a, b) => Digits(a) == Digits(b) && Digits(b).Length > 0 || a.Trim() == b)).ToArray());
+        var orgs = new JsonArray();
+        if (c.Company.Length > 0 || c.Title.Length > 0)
+        {
+            var org = FirstOf(raw, "organizations") ?? new JsonObject();
+            org["name"] = c.Company;
+            org["title"] = c.Title;
+            orgs.Add(org);
+        }
+        foreach (var other in RestOf(raw, "organizations")) orgs.Add(other);
+        var bios = new JsonArray();
+        if (c.Notes.Length > 0)
+        {
+            var bio = FirstOf(raw, "biographies") ?? new JsonObject { ["contentType"] = "TEXT_PLAIN" };
+            bio["value"] = c.Notes;
+            bios.Add(bio);
+        }
+        foreach (var other in RestOf(raw, "biographies")) bios.Add(other);
         var o = new JsonObject
         {
-            ["names"] = new JsonArray(new JsonObject
-            {
-                ["givenName"] = c.GivenName, ["familyName"] = c.FamilyName,
-                ["unstructuredName"] = c.Name.Length > 0 ? c.Name : (c.GivenName + " " + c.FamilyName).Trim(),
-            }),
-            ["emailAddresses"] = new JsonArray(c.Emails.Where(e => e.Trim().Length > 0).Select(e => (JsonNode)new JsonObject { ["value"] = e.Trim() }).ToArray()),
-            ["phoneNumbers"] = new JsonArray(c.Phones.Where(p => p.Trim().Length > 0).Select(p => (JsonNode)new JsonObject { ["value"] = p.Trim() }).ToArray()),
-            ["organizations"] = c.Company.Length > 0 || c.Title.Length > 0
-                ? new JsonArray(new JsonObject { ["name"] = c.Company, ["title"] = c.Title }) : new JsonArray(),
-            ["biographies"] = c.Notes.Length > 0 ? new JsonArray(new JsonObject { ["value"] = c.Notes, ["contentType"] = "TEXT_PLAIN" }) : new JsonArray(),
+            ["names"] = new JsonArray(name),
+            ["emailAddresses"] = emails,
+            ["phoneNumbers"] = phones,
+            ["organizations"] = orgs,
+            ["biographies"] = bios,
         };
         if (withEtag)
         {
@@ -112,12 +188,19 @@ public sealed class GooglePeopleClient
         return o;
     }
 
+    private static string Digits(string s) => new(s.Where(char.IsDigit).ToArray());
+
     internal static SavedContact Parse(JsonElement p, string accountId, IReadOnlyDictionary<string, string> groups)
     {
         var c = new SavedContact { AccountId = accountId, Resource = Str(p, "resourceName"), Etag = Str(p, "etag"), Updated = DateTimeOffset.Now };
         if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object
             && meta.TryGetProperty("sources", out var src) && src.ValueKind == JsonValueKind.Array)
             c.Sources = src.GetRawText();
+        var raw = new JsonObject();
+        foreach (var f in EditableFields)
+            if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty(f, out var v) && v.ValueKind == JsonValueKind.Array)
+                raw[f] = JsonNode.Parse(v.GetRawText());
+        c.Raw = raw.Count > 0 ? raw.ToJsonString() : "{}";
         if (First(p, "names") is { } name)
         {
             c.GivenName = Str(name, "givenName");

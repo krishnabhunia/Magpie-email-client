@@ -157,9 +157,10 @@ public sealed class ContactsService
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.BadRequest)
             {
-                // Changed on another device since (etag no longer current) or refused: Google's copy wins at the next list.
+                // Changed on another device since (etag no longer current) or refused: Google's copy wins at the next list —
+                // unless it was changed again here meanwhile (that newer change is kept and sent next time).
                 Log.Warn($"[{a.Email}] contact \"{c.Display}\" not saved to Google: {ex.Message}");
-                ForActiveAccount(a.Id, () => { c.Pending = PendingContactOp.None; _store.SaveLocalContact(c); });
+                ForActiveAccount(a.Id, () => _store.ClearPendingIfUnchanged(c));
             }
         }
     }
@@ -175,7 +176,7 @@ public sealed class ContactsService
         if (!ForActiveAccount(c.AccountId, () =>
         {
             var current = c.Id == 0 ? null : _store.GetSavedContact(c.Id);
-            if (current != null) { c.Resource = current.Resource; c.Etag = current.Etag; c.Sources = current.Sources; c.Groups = current.Groups; }
+            if (current != null) { c.Resource = current.Resource; c.Etag = current.Etag; c.Sources = current.Sources; c.Raw = current.Raw; c.Groups = current.Groups; }
             else { c.Id = 0; c.Resource = ""; c.Etag = ""; }   // gone meanwhile (removed from Google by another device): saved as a new contact
             c.Pending = c.Resource.Length == 0 ? PendingContactOp.Create : PendingContactOp.Update;
             c.Updated = DateTimeOffset.Now;

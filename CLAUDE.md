@@ -33,7 +33,7 @@ Current release: **9.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 494 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 497 unit tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```

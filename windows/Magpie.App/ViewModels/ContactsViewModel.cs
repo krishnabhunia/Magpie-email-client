@@ -196,11 +196,11 @@ public partial class ContactsViewModel : ObservableObject
         {
             var now = DateTimeOffset.Now;
             var folders = e.AllMailFolderIds();
-            List<ThreadRow> Threads(string extra) =>
-                addresses.SelectMany(a => e.Store.ListThreads(new ListQuery { FolderIds = folders, Search = SearchQuery.Parse($"with:{a} {extra}"), Limit = 50 }, now))
+            List<ThreadRow> Threads(bool withFiles) =>
+                addresses.SelectMany(a => e.Store.ListThreads(new ListQuery { FolderIds = folders, Search = SearchQuery.WithMailbox(a, withFiles), Limit = 50 }, now))
                          .DistinctBy(t => t.AccountId + "|" + t.ThreadKey).OrderByDescending(t => t.Latest.Date).ToList();
-            var conversations = Threads("");
-            var files = Threads("has:attachment");
+            var conversations = Threads(false);
+            var files = Threads(true);
             var events = e.Calendar.Between(now.AddDays(-60), now.AddDays(400))
                 .Where(ev => ev.Attendees.Any(at => addresses.Contains(at.Email, StringComparer.OrdinalIgnoreCase))
                              || addresses.Contains(ev.Organizer, StringComparer.OrdinalIgnoreCase))

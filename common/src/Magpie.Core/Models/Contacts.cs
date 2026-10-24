@@ -14,6 +14,11 @@ public sealed class SavedContact
     public string Etag { get; set; } = "";
     /// <summary>Google's <c>metadata.sources</c> for this person, as it came (JSON array); an update must send it back (its CONTACT source carries the etag Google checks).</summary>
     public string Sources { get; set; } = "[]";
+    /// <summary>
+    /// The person's names, emailAddresses, phoneNumbers, organizations and biographies exactly as Google sent them (JSON object).
+    /// An update sends these back with only Magpie's fields changed, so labels, other organizations and the like survive.
+    /// </summary>
+    public string Raw { get; set; } = "{}";
     public string GivenName { get; set; } = "";
     public string FamilyName { get; set; } = "";
     /// <summary>The name as Google shows it ("Anita Rao").</summary>

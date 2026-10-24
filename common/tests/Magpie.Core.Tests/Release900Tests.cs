@@ -5,6 +5,7 @@ using Magpie.Core.Auth;
 using Magpie.Core.Contacts;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Storage;
 using Xunit;
 
 namespace Magpie.Core.Tests;
@@ -16,9 +17,9 @@ public class Release900Tests
         {"resourceName":"people/c1","etag":"e1",
          "metadata":{"sources":[{"type":"CONTACT","id":"1a2b","etag":"#src1"}],"objectType":"PERSON"},
          "names":[{"displayName":"Anita Rao","givenName":"Anita","familyName":"Rao"}],
-         "emailAddresses":[{"value":"anita@vendorco.in"},{"value":"ANITA@vendorco.in"},{"value":"anita.rao@gmail.com"}],
-         "phoneNumbers":[{"value":"+91 98450 12345"}],
-         "organizations":[{"name":"VendorCo","title":"Product manager"}],
+         "emailAddresses":[{"value":"anita@vendorco.in","type":"work","formattedType":"Work"},{"value":"ANITA@vendorco.in"},{"value":"anita.rao@gmail.com","type":"home"}],
+         "phoneNumbers":[{"value":"+91 98450 12345","type":"mobile"}],
+         "organizations":[{"name":"VendorCo","title":"Product manager"},{"name":"Rotary Club","type":"other"}],
          "biographies":[{"value":"Met at the Bengaluru expo"}],
          "memberships":[{"contactGroupMembership":{"contactGroupResourceName":"contactGroups/work1"}},
                         {"contactGroupMembership":{"contactGroupResourceName":"contactGroups/myContacts"}}]}
@@ -118,6 +119,84 @@ public class Release900Tests
         store.DeleteSavedContactRow(id);
         Assert.False(store.CompleteContactUpload(sent, new SavedContact { Resource = "people/c1" }));
         Assert.Single(store.GetSavedContacts("A"));   // Bela is still there
+    }
+
+    [Fact]
+    public void An_edit_keeps_what_Google_had_and_sends_only_the_changed_fields()
+    {
+        using var doc = JsonDocument.Parse(Anita);
+        var c = GooglePeopleClient.Parse(doc.RootElement, "A", new Dictionary<string, string>());
+        Assert.Contains("\"type\":\"work\"", c.Raw);
+
+        // Only the notes changed: only biographies go to Google.
+        c.Notes = "Met again in Pune";
+        var body = GooglePeopleClient.Body(c, withEtag: true);
+        Assert.Equal(new[] { "biographies" }, GooglePeopleClient.ChangedFields(c, body));
+        Assert.Equal("Met again in Pune", body["biographies"]![0]!["value"]!.GetValue<string>());
+
+        // Emails reordered + one added, title changed: the work label stays on anita@, the Rotary Club organization survives.
+        c.Emails = new List<string> { "anita.rao@gmail.com", "anita@vendorco.in", "new@x.in" };
+        c.Title = "Director";
+        body = GooglePeopleClient.Body(c, withEtag: true);
+        Assert.Equal(new[] { "emailAddresses", "organizations", "biographies" }, GooglePeopleClient.ChangedFields(c, body));
+        var emails = body["emailAddresses"]!.AsArray();
+        Assert.Equal(("home", "work"), (emails[0]!["type"]!.GetValue<string>(), emails[1]!["type"]!.GetValue<string>()));
+        Assert.Null(emails[2]!["type"]);
+        var orgs = body["organizations"]!.AsArray();
+        Assert.Equal(("Director", "Rotary Club"), (orgs[0]!["title"]!.GetValue<string>(), orgs[1]!["name"]!.GetValue<string>()));
+        Assert.Equal("mobile", body["phoneNumbers"]![0]!["type"]!.GetValue<string>());
+        Assert.Null(body["names"]![0]!["displayName"]);   // read-only, not sent back
+
+        // Nothing changed: nothing to send.
+        var same = GooglePeopleClient.Parse(doc.RootElement, "A", new Dictionary<string, string>());
+        Assert.Empty(GooglePeopleClient.ChangedFields(same, GooglePeopleClient.Body(same, withEtag: true)));
+    }
+
+    [Fact]
+    public void A_refused_upload_keeps_a_change_made_here_since()
+    {
+        using var dir = new TempDir();
+        var (store, _, _) = Rows.NewStore(dir);
+        store.ReplaceSavedContacts("A", new[] { new SavedContact { Resource = "people/c1", Name = "Anita", Emails = { "anita@x.in" } } });
+        var sent = store.GetSavedContacts("A").Single();
+        sent.Pending = PendingContactOp.Update; sent.Updated = DateTimeOffset.Now.AddSeconds(-3);
+        store.SaveLocalContact(sent);
+        store.ClearPendingIfUnchanged(sent);
+        Assert.Equal(PendingContactOp.None, store.GetSavedContact(sent.Id)!.Pending);   // refused, nothing newer: Google's copy wins
+
+        var newer = store.GetSavedContact(sent.Id)!;
+        newer.Pending = PendingContactOp.Update; newer.Updated = DateTimeOffset.Now; newer.Notes = "typed meanwhile";
+        store.SaveLocalContact(newer);
+        store.ClearPendingIfUnchanged(sent);
+        Assert.Equal(PendingContactOp.Update, store.GetSavedContact(sent.Id)!.Pending);   // the newer change is kept for the next round
+
+        // A new contact Google refused is not kept as a ghost after the next list.
+        store.SaveLocalContact(new SavedContact { AccountId = "A", Name = "Ghost", Emails = { "g@x.in" }, Pending = PendingContactOp.None });
+        store.ReplaceSavedContacts("A", new[] { new SavedContact { Resource = "people/c1", Name = "Anita", Emails = { "anita@x.in" } } });
+        Assert.DoesNotContain(store.GetSavedContacts("A"), c => c.Name == "Ghost");
+    }
+
+    [Fact]
+    public void The_contact_page_lists_only_emails_with_exactly_that_address()
+    {
+        using var dir = new TempDir();
+        var (s, inbox, sent) = Rows.NewStore(dir);
+        var fromAnn = Rows.Make("A", inbox, "t1", from: "ann@x.in", subject: "Hi");
+        var toAnn = Rows.Make("A", sent, "t2", from: "me@test.local", subject: "Re: Hi");
+        toAnn.To = "Ann <ann@x.in>, bob@x.in";
+        var ccBare = Rows.Make("A", sent, "t3", from: "me@test.local", subject: "Minutes");
+        ccBare.Cc = "bob@x.in, ann@x.in";
+        var joann = Rows.Make("A", inbox, "t4", from: "joann@x.in", subject: "Not Ann");
+        var toJoann = Rows.Make("A", sent, "t5", from: "me@test.local", subject: "Not Ann either");
+        toJoann.To = "Jo <joann@x.in>";
+        s.InsertMessages(new[] { fromAnn, toAnn, ccBare, joann, toJoann });
+        s.SaveBody(fromAnn.Id, new MessageBody { Text = "see file", Attachments = { new AttachmentInfo { Index = 1, FileName = "a.pdf", Size = 10 } } });
+        s.InsertMessages(new[] { Rows.Make("A", inbox, "t1", from: "ann@x.in", subject: "Hi") }); // second message, same thread
+
+        List<string> Find(SearchQuery q) => s.ListThreads(new ListQuery { FolderIds = new[] { inbox, sent }, Search = q }, DateTimeOffset.Now).Select(t => t.ThreadKey).OrderBy(k => k).ToList();
+        Assert.Equal(new[] { "t1", "t2", "t3" }, Find(SearchQuery.WithMailbox("ANN@x.in")));
+        Assert.Equal(new[] { "t1", "t2", "t3", "t4", "t5" }, Find(SearchQuery.Parse("with:ann@x.in")));   // the typed search stays loose
+        Assert.False(SearchQuery.WithMailbox("ann@x.in").IsEmpty);
     }
 
     private static readonly List<(string, string, int, DateTimeOffset, bool)> People = new()
