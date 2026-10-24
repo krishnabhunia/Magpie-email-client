@@ -174,8 +174,10 @@ public partial class ContactsViewModel : ObservableObject
 
     private static string Times(int n) => n == 1 ? "once" : $"{n:N0} times";
 
+    /// <summary>The person's email addresses, empty ones left out (a contact with only a phone number has none).</summary>
     private IEnumerable<string> Addresses() =>
-        _person?.Saved?.Emails is { Count: > 0 } es ? es : _person == null ? Enumerable.Empty<string>() : new[] { _person.Email };
+        (_person?.Saved?.Emails is { Count: > 0 } es ? es : _person == null ? Enumerable.Empty<string>() : new[] { _person.Email })
+        .Where(a => !string.IsNullOrWhiteSpace(a));
 
     private int _activityRun;
 
@@ -186,6 +188,7 @@ public partial class ContactsViewModel : ObservableObject
         var run = ++_activityRun;
         if (_person == null) return;
         var addresses = Addresses().ToList();
+        if (addresses.Count == 0) { ConversationsLabel = "Conversations 0"; AttachmentsLabel = "Attachments 0"; EventsLabel = "Events 0"; ActivityEmpty = "This contact has no email address."; return; }
         var tab = ActivityTab;
         ActivityEmpty = "Looking…";
         var e = _e;
@@ -246,16 +249,16 @@ public partial class ContactsViewModel : ObservableObject
     [RelayCommand]
     private void NewMessage()
     {
-        if (_person == null) return;
-        var to = Magpie.Core.Mail.HoverMenus.NameAndAddress(_person.Name, Addresses().First());
+        if (_person == null || Addresses().FirstOrDefault() is not { } address) return;
+        var to = Magpie.Core.Mail.HoverMenus.NameAndAddress(_person.Name, address);
         Views.ComposeWindow.OpenMailto("mailto:" + Uri.EscapeDataString(to));
     }
 
     [RelayCommand]
     private void NewEvent(MainViewModel? main)
     {
-        if (_person == null || main == null) return;
-        if (!main.Cal.NewEventWith("", new[] { (_person.Name, Addresses().First()) }))
+        if (_person == null || main == null || Addresses().FirstOrDefault() is not { } address) return;
+        if (!main.Cal.NewEventWith("", new[] { (_person.Name, address) }))
             Ui.Error("Calendar", "Sign in to a Google account (Settings → Accounts) so Magpie can add events to its calendar.");
     }
 

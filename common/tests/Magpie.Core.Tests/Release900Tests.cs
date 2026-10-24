@@ -14,6 +14,7 @@ public class Release900Tests
 {
     private const string Anita = """
         {"resourceName":"people/c1","etag":"e1",
+         "metadata":{"sources":[{"type":"CONTACT","id":"1a2b","etag":"#src1"}],"objectType":"PERSON"},
          "names":[{"displayName":"Anita Rao","givenName":"Anita","familyName":"Rao"}],
          "emailAddresses":[{"value":"anita@vendorco.in"},{"value":"ANITA@vendorco.in"},{"value":"anita.rao@gmail.com"}],
          "phoneNumbers":[{"value":"+91 98450 12345"}],
@@ -34,6 +35,7 @@ public class Release900Tests
         Assert.Equal("Product manager · VendorCo", c.Work);
         Assert.Equal("Met at the Bengaluru expo", c.Notes);
         Assert.Equal("Work", Assert.Single(c.Groups));                                    // system groups left out
+        Assert.Contains("\"etag\":\"#src1\"", c.Sources);                                   // kept for the update request
     }
 
     [Fact]
@@ -45,7 +47,12 @@ public class Release900Tests
         Assert.Contains("\"givenName\":\"Ravi\"", create);
         Assert.Contains("\"emailAddresses\":[{\"value\":\"ravi@x.in\"}]", create);
         Assert.Contains("\"organizations\":[{\"name\":\"X\",\"title\":\"\"}]", create);
-        Assert.Contains("\"etag\":\"e9\"", GooglePeopleClient.Body(c, withEtag: true).ToJsonString());
+        Assert.DoesNotContain("metadata", create);
+        var update = GooglePeopleClient.Body(c, withEtag: true).ToJsonString();
+        Assert.Contains("\"etag\":\"e9\"", update);
+        Assert.DoesNotContain("metadata", update);                                        // nothing known about the sources: left out
+        c.Sources = """[{"type":"CONTACT","id":"1a2b","etag":"#src1"}]""";
+        Assert.Contains("\"metadata\":{\"sources\":[{\"type\":\"CONTACT\",\"id\":\"1a2b\",\"etag\":\"#src1\"}]}", GooglePeopleClient.Body(c, withEtag: true).ToJsonString());   // updateContact needs it
     }
 
     [Fact]
@@ -91,6 +98,7 @@ public class Release900Tests
                                                 new SavedContact { Resource = "people/c2", Name = "Bela", Emails = { "bela@x.in" } } });
         var anita = store.GetSavedContact(id);
         Assert.Equal("Anita Rao", anita!.Name);   // same row, new name — the page's selection and an open edit window still point at it
+        Assert.Equal("[]", anita.Sources);
         Assert.Equal(2, store.GetSavedContacts("A").Count);
 
         // Sent as "Anita Rao", then deleted here before Google answered: the deletion stays, Google's id is remembered.
@@ -195,6 +203,7 @@ public class Release900Tests
         Assert.Empty(svc.Problems);
         var anita = Assert.Single(svc.All());
         Assert.Equal(("Anita Rao", "Work"), (anita.Name, anita.Groups.Single()));
+        Assert.Contains("#src1", anita.Sources);
 
         // Made here: listed at once, sent at the next sync, then carries Google's id.
         var ravi = svc.Save(new SavedContact { AccountId = acc.Id, GivenName = " Ravi ", FamilyName = "Kumar", Emails = { "ravi@vendorco.in" } });

@@ -12,6 +12,8 @@ public sealed class SavedContact
     /// <summary>Google's "people/c123…"; empty until a new contact has reached Google.</summary>
     public string Resource { get; set; } = "";
     public string Etag { get; set; } = "";
+    /// <summary>Google's <c>metadata.sources</c> for this person, as it came (JSON array); an update must send it back (its CONTACT source carries the etag Google checks).</summary>
+    public string Sources { get; set; } = "[]";
     public string GivenName { get; set; } = "";
     public string FamilyName { get; set; } = "";
     /// <summary>The name as Google shows it ("Anita Rao").</summary>

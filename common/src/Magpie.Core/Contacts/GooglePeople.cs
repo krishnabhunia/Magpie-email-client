@@ -22,7 +22,7 @@ public sealed class ContactsProblem : Exception
 public sealed class GooglePeopleClient
 {
     public const string Api = "https://people.googleapis.com/v1/";
-    public const string PersonFields = "names,emailAddresses,phoneNumbers,organizations,biographies,memberships";
+    public const string PersonFields = "names,emailAddresses,phoneNumbers,organizations,biographies,memberships,metadata";
     private const string UpdateFields = "names,emailAddresses,phoneNumbers,organizations,biographies";
 
     private readonly HttpClient _http;
@@ -101,13 +101,23 @@ public sealed class GooglePeopleClient
                 ? new JsonArray(new JsonObject { ["name"] = c.Company, ["title"] = c.Title }) : new JsonArray(),
             ["biographies"] = c.Notes.Length > 0 ? new JsonArray(new JsonObject { ["value"] = c.Notes, ["contentType"] = "TEXT_PLAIN" }) : new JsonArray(),
         };
-        if (withEtag) o["etag"] = c.Etag;
+        if (withEtag)
+        {
+            // updateContact refuses (400) a person without metadata.sources; the CONTACT source's etag is what Google compares.
+            o["etag"] = c.Etag;
+            JsonNode? sources = null;
+            try { sources = JsonNode.Parse(c.Sources.Length > 0 ? c.Sources : "[]"); } catch (JsonException) { }
+            if (sources is JsonArray { Count: > 0 }) o["metadata"] = new JsonObject { ["sources"] = sources };
+        }
         return o;
     }
 
     internal static SavedContact Parse(JsonElement p, string accountId, IReadOnlyDictionary<string, string> groups)
     {
         var c = new SavedContact { AccountId = accountId, Resource = Str(p, "resourceName"), Etag = Str(p, "etag"), Updated = DateTimeOffset.Now };
+        if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object
+            && meta.TryGetProperty("sources", out var src) && src.ValueKind == JsonValueKind.Array)
+            c.Sources = src.GetRawText();
         if (First(p, "names") is { } name)
         {
             c.GivenName = Str(name, "givenName");

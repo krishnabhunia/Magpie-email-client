@@ -20,12 +20,22 @@ public sealed partial class MailStore
               id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, resource TEXT NOT NULL DEFAULT '', etag TEXT NOT NULL DEFAULT '',
               given TEXT NOT NULL DEFAULT '', family TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
               emails TEXT NOT NULL DEFAULT '[]', phones TEXT NOT NULL DEFAULT '[]', company TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
-              notes TEXT NOT NULL DEFAULT '', groups TEXT NOT NULL DEFAULT '[]', pending INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0);
+              notes TEXT NOT NULL DEFAULT '', groups TEXT NOT NULL DEFAULT '[]', pending INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0,
+              sources TEXT NOT NULL DEFAULT '[]');
             CREATE INDEX IF NOT EXISTS ix_saved_contacts_account ON saved_contacts(account_id, resource);
             """);
+        // A table made by an earlier test build lacks the sources column: add it (presence check, like the productivity tables).
+        var hasSources = false;
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(saved_contacts)";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) if (r.GetString(1) == "sources") hasSources = true;
+        }
+        if (!hasSources) Exec(c, "ALTER TABLE saved_contacts ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'");
     }
 
-    private const string ContactColumns = "id,account_id,resource,etag,given,family,name,emails,phones,company,title,notes,groups,pending,updated";
+    private const string ContactColumns = "id,account_id,resource,etag,given,family,name,emails,phones,company,title,notes,groups,pending,updated,sources";
 
     private static SavedContact ReadContact(SqliteDataReader r) => new()
     {
@@ -33,7 +43,7 @@ public sealed partial class MailStore
         GivenName = r.GetString(4), FamilyName = r.GetString(5), Name = r.GetString(6),
         Emails = JsonList(r.GetString(7)), Phones = JsonList(r.GetString(8)), Company = r.GetString(9), Title = r.GetString(10),
         Notes = r.GetString(11), Groups = JsonList(r.GetString(12)), Pending = (PendingContactOp)r.GetInt32(13),
-        Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(14)),
+        Updated = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(14)), Sources = r.GetString(15),
     };
 
     private static List<string> JsonList(string json)
@@ -125,15 +135,15 @@ public sealed partial class MailStore
 
     private const string UpdateSql = """
         UPDATE saved_contacts SET account_id=$a,resource=$r,etag=$e,given=$g,family=$f,name=$n,emails=$em,phones=$ph,company=$co,
-          title=$ti,notes=$no,groups=$gr,pending=$p,updated=$u WHERE id=$id
+          title=$ti,notes=$no,groups=$gr,pending=$p,updated=$u,sources=$s WHERE id=$id
         """;
 
     private static void InsertContact(SqliteConnection c, SavedContact p)
     {
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO saved_contacts(account_id,resource,etag,given,family,name,emails,phones,company,title,notes,groups,pending,updated)
-            VALUES($a,$r,$e,$g,$f,$n,$em,$ph,$co,$ti,$no,$gr,$p,$u); SELECT last_insert_rowid();
+            INSERT INTO saved_contacts(account_id,resource,etag,given,family,name,emails,phones,company,title,notes,groups,pending,updated,sources)
+            VALUES($a,$r,$e,$g,$f,$n,$em,$ph,$co,$ti,$no,$gr,$p,$u,$s); SELECT last_insert_rowid();
             """;
         Bind(cmd, p);
         p.Id = Convert.ToInt64(cmd.ExecuteScalar());
@@ -155,6 +165,7 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$gr", JsonSerializer.Serialize(p.Groups));
         cmd.Parameters.AddWithValue("$p", (int)p.Pending);
         cmd.Parameters.AddWithValue("$u", p.Updated.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$s", p.Sources.Length > 0 ? p.Sources : "[]");
     }
 
     /// <summary>Saves a contact changed on this PC (new when Id is 0), keeping its pending mark. A row that is gone meanwhile is added again.</summary>
@@ -184,8 +195,8 @@ public sealed partial class MailStore
         if (row == null) return false;
         if (Convert.ToInt64(row) != sent.Updated.ToUnixTimeMilliseconds())
         {
-            Exec(c, "UPDATE saved_contacts SET resource=$r, etag=$e, pending=CASE WHEN pending=3 THEN 3 ELSE 2 END WHERE id=$id",
-                ("$r", fromGoogle.Resource), ("$e", fromGoogle.Etag), ("$id", sent.Id));
+            Exec(c, "UPDATE saved_contacts SET resource=$r, etag=$e, sources=$s, pending=CASE WHEN pending=3 THEN 3 ELSE 2 END WHERE id=$id",
+                ("$r", fromGoogle.Resource), ("$e", fromGoogle.Etag), ("$s", fromGoogle.Sources.Length > 0 ? fromGoogle.Sources : "[]"), ("$id", sent.Id));
             return true;
         }
         fromGoogle.Id = sent.Id;

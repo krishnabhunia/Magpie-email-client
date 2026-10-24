@@ -175,7 +175,7 @@ public sealed class ContactsService
         if (!ForActiveAccount(c.AccountId, () =>
         {
             var current = c.Id == 0 ? null : _store.GetSavedContact(c.Id);
-            if (current != null) { c.Resource = current.Resource; c.Etag = current.Etag; c.Groups = current.Groups; }
+            if (current != null) { c.Resource = current.Resource; c.Etag = current.Etag; c.Sources = current.Sources; c.Groups = current.Groups; }
             else { c.Id = 0; c.Resource = ""; c.Etag = ""; }   // gone meanwhile (removed from Google by another device): saved as a new contact
             c.Pending = c.Resource.Length == 0 ? PendingContactOp.Create : PendingContactOp.Update;
             c.Updated = DateTimeOffset.Now;

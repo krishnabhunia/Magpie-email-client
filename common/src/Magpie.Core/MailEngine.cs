@@ -52,10 +52,13 @@ public sealed class MailEngine : IDisposable
     /// <summary>Design B4: Google contacts of every Google account, kept on this PC.</summary>
     public Contacts.ContactsService Contacts { get; }
 
+    /// <summary>Addresses of the saved Google contacts (design B4): known senders too, kept apart from the people written to so a deleted or changed contact stops counting.</summary>
+    private HashSet<string> _savedKnown = new(StringComparer.OrdinalIgnoreCase);
+
     private void AddSavedContactsToKnown()
     {
-        var emails = Store.GetSavedContacts().SelectMany(c => c.Emails).ToList();
-        lock (_knownGate) foreach (var e in emails) _known.Add(e);
+        var emails = new HashSet<string>(Store.GetSavedContacts().SelectMany(c => c.Emails), StringComparer.OrdinalIgnoreCase);
+        lock (_knownGate) _savedKnown = emails;
     }
 
     public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null,
@@ -146,7 +149,7 @@ public sealed class MailEngine : IDisposable
 
     private bool IsKnownContact(string addr)
     {
-        lock (_knownGate) return _known.Contains(addr);
+        lock (_knownGate) return _known.Contains(addr) || _savedKnown.Contains(addr);
     }
 
     private Category? SenderOverride(string addr) =>
