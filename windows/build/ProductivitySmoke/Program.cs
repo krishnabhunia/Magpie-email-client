@@ -18,7 +18,7 @@ using Magpie.Core.Security;
 
 namespace ProductivitySmoke;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _assertions;
     [STAThread]
@@ -28,6 +28,7 @@ internal static class Program
         try
         {
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
             var http = new RejectHttp();
             using var engine = new MailEngine(new AppPaths(root), new TestProtector(), http);
             engine.Config.MarkReadOnOpen = false;
@@ -55,6 +56,7 @@ internal static class Program
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Magpie;component/Styles/Magpie.xaml") });
                 CheckMainWindow(expectStartupFailure);
                 if (expectStartupFailure) continue;
+                CheckFeatureSettings(owner, engine, output, theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
             }
@@ -77,6 +79,9 @@ internal static class Program
             Assert(vm.Threads.Count == 0, "Removed account does not broaden saved view");
             CheckCachedReader(vm, engine, inbox);
             Assert(http.Requests == 0, "Local workspace and cached reader made no HTTP calls");
+            CheckAiReplyFlow(root, engine);
+            CheckAiReplySentOnlyFallback(root, engine);
+            CheckEditorPage(root);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();
@@ -282,6 +287,10 @@ internal static class Program
         window.UpdateLayout();
         var target = (FrameworkElement)window.Content;
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(target.ActualWidth), (int)Math.Ceiling(target.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        var background = new DrawingVisual();
+        using (var drawing = background.RenderOpen())
+            drawing.DrawRectangle(window.Background, null, new Rect(0, 0, target.ActualWidth, target.ActualHeight));
+        bitmap.Render(background);
         bitmap.Render(target);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));

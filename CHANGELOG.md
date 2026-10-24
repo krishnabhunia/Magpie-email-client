@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 9.0.0 (24 Oct 2026)
+### New
+- **Fonts & text on Windows.** Choose a font and size independently for 53 types of text across navigation, the inbox, reading, writing, AI, Settings and the calendar. Search the roles, preview a change, reset one role or a whole area, then Apply. New writing and signatures start in Arial 18 px (13.5 pt), normal weight. Existing formatted drafts keep their appearance. Reading-font overrides are optional and leave the original email intact.
+- **AI drafts from Reply and Reply All on Windows.** Enable full reply drafts in Settings, with separate switches for each button. Choose tone, purpose, length, language, conversation context and custom instructions. A reply opens normally and generates a preview after its editor is ready. Review it, regenerate, discard or explicitly use it; existing typed text asks before appending or replacing. Recipients, signatures and quoted messages stay protected, and sending remains your action. Each cloud connection asks for this feature's consent; turning AI off cancels a pending result.
+<!-- closes: #103 #104 #105 -->
+
 ## 8.1.0 (22 Oct 2026)
 ### Changed
 - **Pick the AI model from a list.** Settings → AI asks your provider (Anthropic, OpenAI, Ollama or any OpenAI-compatible server) which models your key can use and shows them newest first, with "New" on anything added since Magpie last looked, so a new Claude appears by itself. You can still type a model id. The API key now sits above the model; the endpoint is under "Server (advanced)". A creativity (temperature) slider per connection.

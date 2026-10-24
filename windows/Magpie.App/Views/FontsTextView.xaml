@@ -1,0 +1,82 @@
+<UserControl x:Class="Magpie.App.Views.FontsTextView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:svc="clr-namespace:Magpie.App.Services">
+    <StackPanel>
+        <TextBlock Text="Fonts &amp; text" Style="{StaticResource Text.Serif}" FontSize="21" svc:Typography.Role="settingsTitle" />
+        <TextBlock svc:Typography.Role="helper" Text="Choose the typeface and size of every text role independently. Changes below are previews until you choose Apply."
+                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
+        <Border Style="{StaticResource Card}" Background="{DynamicResource Brush.Accent.Subtle}" Margin="0,0,0,18">
+            <TextBlock svc:Typography.Role="helper" Text="Writing defaults keep Arial, 18 px (13.5 pt), normal weight for message body and signature unless you change them. Windows-owned notifications and system dialogs use Windows typography."
+                       TextWrapping="Wrap" FontSize="12.5" />
+        </Border>
+        <Grid Margin="0,0,0,12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="200" /></Grid.ColumnDefinitions>
+            <TextBox svc:Typography.Role="search" Text="{Binding TextRoleSearch, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource TextBox.Field}"
+                     ToolTip="Find a text role, such as sender or signature" AutomationProperties.Name="Find a text role" Margin="0,0,10,0" />
+            <ComboBox svc:Typography.Role="fieldValue" Grid.Column="1" ItemsSource="{Binding TextAreas}" SelectedItem="{Binding TextArea}" AutomationProperties.Name="Text area" />
+        </Grid>
+        <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Card.Border}" Background="{DynamicResource Brush.Card.Background}" CornerRadius="8" Padding="10">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="185" /><ColumnDefinition Width="80" /><ColumnDefinition Width="35" /></Grid.ColumnDefinitions>
+                    <TextBlock svc:Typography.Role="settingsSection" Text="TEXT ROLE" Style="{StaticResource Text.SectionCaps}" />
+                    <TextBlock svc:Typography.Role="settingsSection" Grid.Column="1" Text="FONT FAMILY" Style="{StaticResource Text.SectionCaps}" />
+                    <TextBlock svc:Typography.Role="settingsSection" Grid.Column="2" Text="SIZE (PX)" Style="{StaticResource Text.SectionCaps}" />
+                </Grid>
+                <ItemsControl Grid.Row="1" ItemsSource="{Binding TextRoleView}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="185" /><ColumnDefinition Width="80" /><ColumnDefinition Width="35" /></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock svc:Typography.Role="fieldLabel" Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock svc:Typography.Role="helper" Text="{Binding Area}" Style="{StaticResource Text.Caption}" FontSize="11" TextWrapping="Wrap" />
+                                        <TextBlock svc:Typography.Role="helper" Text="{Binding State}" Style="{StaticResource Text.Caption}" FontSize="10.5" />
+                                    </StackPanel>
+                                    <ComboBox svc:Typography.Role="fieldValue" Grid.Column="1" ItemsSource="{Binding DataContext.TextFontFamilies, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              Text="{Binding Family, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" IsTextSearchEnabled="True" Style="{StaticResource ComboBox.Editable}"
+                                              AutomationProperties.Name="{Binding Name, StringFormat={}{0} font family}" Margin="0,0,9,0" VerticalAlignment="Top" />
+                                    <StackPanel Grid.Column="2" Margin="0,0,7,0">
+                                        <TextBox svc:Typography.Role="fieldValue" Text="{Binding SizeText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource TextBox.Field}"
+                                                 AutomationProperties.Name="{Binding Name, StringFormat={}{0} font size}" />
+                                        <TextBlock svc:Typography.Role="helper" Text="{Binding Points}" Style="{StaticResource Text.Caption}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="3" Content="↺" Style="{StaticResource Button.Ghost}" MinWidth="28" Padding="4"
+                                            Command="{Binding DataContext.ResetTextRoleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            AutomationProperties.Name="{Binding Name, StringFormat=Reset {0}}" ToolTip="Reset this text role" VerticalAlignment="Top" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </Border>
+        <DockPanel Margin="0,8,0,18">
+            <Button DockPanel.Dock="Right" Content="Reset this area" Style="{StaticResource Button.Link}" Command="{Binding ResetTextAreaCommand}" />
+            <TextBlock svc:Typography.Role="helper" Text="{Binding TextRoleCount}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+        </DockPanel>
+        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <StackPanel svc:Typography.IsSample="True">
+                <TextBlock svc:Typography.Role="settingsSection" Text="LIVE PREVIEW" Style="{StaticResource Text.SectionCaps}" />
+                <TextBlock svc:Typography.Role="helper" Text="{Binding SelectedTextRole.Name}" Foreground="{DynamicResource Brush.Accent.Text}" FontSize="12" Margin="0,7,0,8" />
+                <TextBlock svc:Typography.Role="helper" Text="{Binding SelectedTextRole.Sample}" FontFamily="{Binding SelectedTextRole.PreviewFamily}" FontSize="{Binding SelectedTextRole.PreviewSize}"
+                           TextWrapping="Wrap" FontWeight="Normal" MinHeight="45" />
+                <TextBlock svc:Typography.Role="helper" Text="{Binding SelectedTextRole.Points}" Style="{StaticResource Text.Caption}" Margin="0,9,0,0" />
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <StackPanel>
+                <CheckBox svc:Typography.Role="fieldLabel" Content="Use my reading fonts in received emails" IsChecked="{Binding UseReadingFonts}" />
+                <TextBlock svc:Typography.Role="helper" Text="When enabled, the reading pane uses your message body, heading and quote fonts even when the sender chose other fonts. This changes the reading display only; the original email is kept."
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="24,7,0,0" />
+            </StackPanel>
+        </Border>
+        <TextBlock Text="{Binding TypographyValidationMessage}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Danger}" svc:Typography.Role="validation" Margin="0,0,0,12" />
+        <TextBlock svc:Typography.Role="helper" Text="Sizes are Windows logical pixels, from 8 to 72 in steps of 0.5. Available fonts come from this PC and Magpie's bundled fonts. An unavailable saved font falls back safely. Reset restores built-in styles."
+                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12" />
+        <Button Content="Reset all text styles" Style="{StaticResource Button.Secondary}" Command="{Binding ResetAllTextStylesCommand}" HorizontalAlignment="Left" />
+    </StackPanel>
+</UserControl>

@@ -4,6 +4,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
+        xmlns:views="clr-namespace:Magpie.App.Views"
+        xmlns:svc="clr-namespace:Magpie.App.Services"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:ComposeViewModel}"
@@ -20,7 +22,7 @@
 
     <Grid Margin="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource MaxMargin}}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="38" />
+            <RowDefinition Height="Auto" MinHeight="38" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -33,7 +35,7 @@
                     <Button Style="{StaticResource Button.TitleBar.Close}" Content="&#xE8BB;" Click="OnCloseClick" ToolTip="Close" Height="30" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="Magpie" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource Brush.TitleBar.Text}" />
+                    <TextBlock Text="Magpie" svc:Typography.Role="appTitle" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource Brush.TitleBar.Text}" />
                     <TextBlock Text="{Binding WindowTitle}" FontSize="11.5" Foreground="{DynamicResource Brush.TitleBar.Muted}" Margin="12,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="600" />
                 </StackPanel>
             </DockPanel>
@@ -70,25 +72,25 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="From" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" Margin="0,0,0,6" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" svc:Typography.Role="composeAddress" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" Margin="0,0,0,6" />
 
                     <TextBlock Grid.Row="1" Text="To" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Cc / Bcc" FontSize="12" Margin="10,0,0,0" Command="{Binding ShowCcCommand}"
                                 Visibility="{Binding ShowCcBcc, Converter={StaticResource InvBoolToVis}}" />
-                        <TextBox x:Name="ToBox" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas"
+                        <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </DockPanel>
 
                     <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="CcBox" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                              Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="BccBox" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                              Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
 
                     <TextBlock Grid.Row="4" Text="Subject" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                    <TextBox Grid.Row="4" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" />
+                    <TextBox Grid.Row="4" Grid.Column="1" svc:Typography.Role="composeSubject" Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" />
 
                     <!-- Contact suggestions -->
                     <Popup x:Name="SuggestPopup" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
@@ -109,7 +111,7 @@
 
                 <!-- Formatting -->
                 <Border Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DD;" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DB;" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DC;" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)" />
@@ -124,8 +126,8 @@
                 <!-- Editor -->
                 <Grid Grid.Row="2">
                     <wv2:WebView2 x:Name="Editor" DefaultBackgroundColor="White" />
-                    <TextBox x:Name="PlainEditor" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12"
-                             VerticalScrollBarVisibility="Auto" FontSize="14" />
+                    <TextBox x:Name="PlainEditor" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12"
+                             VerticalScrollBarVisibility="Auto" FontFamily="Arial" FontSize="18" />
                 </Grid>
 
                 <!-- Attachments -->
@@ -210,6 +212,7 @@
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="16,0,16,16">
+                            <views:AiReplyDraftView />
                             <!-- Not configured -->
                             <Border Style="{StaticResource Card}" Padding="12" Margin="0,0,0,12" Visibility="{Binding AiNeedsSetup, Converter={StaticResource BoolToVis}}">
                                 <StackPanel>

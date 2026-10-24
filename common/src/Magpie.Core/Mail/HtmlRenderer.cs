@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Ganss.Xss;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 
 namespace Magpie.Core.Mail;
 
@@ -170,7 +171,7 @@ public static class HtmlRenderer
 
     /// <summary>The whole conversation page. <paramref name="dark"/> = the dark theme (design B1).</summary>
     public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false,
-        int hoverDelayMs = 600)
+        int hoverDelayMs = 600, TypographySettings? typography = null)
     {
         var p = dark ? DarkPalette : LightPalette;
         var sb = new StringBuilder();
@@ -301,6 +302,8 @@ public static class HtmlRenderer
             </script></head><body><div class="wrap">
             """);
         sb.Insert(sb.ToString().IndexOf("function post(", StringComparison.Ordinal), $"var HM_DELAY={Math.Clamp(hoverDelayMs, 50, 1000)};\n");
+        var styleEnd = sb.ToString().IndexOf("</style>", StringComparison.Ordinal);
+        if (styleEnd >= 0) sb.Insert(styleEnd, TypographyCss.ReaderChrome(typography));
 
         foreach (var m in messages)
         {
@@ -314,7 +317,7 @@ public static class HtmlRenderer
             // Dark theme: a message with its own colours keeps them, on a white card; plain ones follow the theme.
             var paper = dark && m.Body != null && m.LoadError == null && HasOwnColours(bodyHtml);
             var frameDoc = "<!doctype html><html><head><meta charset=\"utf-8\"><base target=\"_blank\"><style>"
-                + FrameStyle(paper ? LightPalette : p) + "</style></head><body>" + bodyHtml + "</body></html>";
+                + FrameStyle(paper ? LightPalette : p) + TypographyCss.ReaderBody(typography) + "</style></head><body>" + TypographyCss.ReaderContent(bodyHtml, typography) + "</body></html>";
 
             var cls = "msg" + (m.Expanded ? " open" : "") + (row.IsSeen ? "" : " unread");
             sb.Append($"<div class=\"{cls}\" id=\"m{row.Id}\">");
@@ -350,7 +353,7 @@ public static class HtmlRenderer
             {
                 sb.Append("<div class=\"atts\">");
                 foreach (var a in m.Body.Attachments.Where(a => !a.Inline))
-                    sb.Append($"<div class=\"att hm-f\" tabindex=\"0\" data-m=\"{row.Id}\" data-i=\"{a.Index}\" data-f=\"{Esc(a.FileName)}\" onclick=\"post({{t:'att',id:{row.Id},i:{a.Index}}})\" onkeydown=\"if(event.key==='Enter')post({{t:'att',id:{row.Id},i:{a.Index}}})\">📎 {Esc(a.FileName)} <span class=\"sz\">{Esc(FormatSize(a.Size))}</span></div>");
+                    sb.Append($"<div class=\"att hm-f\" tabindex=\"0\" data-m=\"{row.Id}\" data-i=\"{a.Index}\" data-f=\"{Esc(a.FileName)}\" onclick=\"post({{t:'att',id:{row.Id},i:{a.Index}}})\" onkeydown=\"if(event.key==='Enter')post({{t:'att',id:{row.Id},i:{a.Index}}})\"><span aria-hidden=\"true\">📎</span> <span class=\"filename\">{Esc(a.FileName)}</span> <span class=\"sz\">{Esc(FormatSize(a.Size))}</span></div>");
                 sb.Append("</div>");
             }
             sb.Append("</div></div>");

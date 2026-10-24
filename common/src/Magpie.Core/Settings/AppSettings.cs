@@ -8,10 +8,10 @@ public enum RemoteImages { Ask = 0, Always = 1, Never = 2 }
 
 public enum AiProviderKind { OpenAI = 0, Anthropic = 1, Ollama = 2, Custom = 3 }
 
-public enum AiFeature { Summarise, Draft, Rewrite, Replies }
+public enum AiFeature { Summarise, Draft, Rewrite, Replies, ReplyDraft }
 
 /// <summary>
-/// The unified AI toggle model (designs S1–S5): one master switch, one provider, four feature switches.
+/// The unified AI toggle model: one master switch, one provider, and independent feature switches.
 /// A feature is live only when the master is on, the provider is configured, and its own switch is on.
 /// </summary>
 public sealed class AiSettings
@@ -25,6 +25,7 @@ public sealed class AiSettings
     public bool Draft { get; set; }
     public bool Rewrite { get; set; }
     public bool Replies { get; set; }
+    public AiReplySettings ReplyDrafts { get; set; } = new();
 
     /// <summary>Consents scoped to the feature, connection and full endpoint; changing any asks again.</summary>
     public List<string> Consents { get; set; } = new();
@@ -35,6 +36,7 @@ public sealed class AiSettings
         AiFeature.Draft => Draft,
         AiFeature.Rewrite => Rewrite,
         AiFeature.Replies => Replies,
+        AiFeature.ReplyDraft => ReplyDrafts?.Enabled == true,
         _ => false,
     };
 
@@ -46,6 +48,7 @@ public sealed class AiSettings
             case AiFeature.Draft: Draft = on; break;
             case AiFeature.Rewrite: Rewrite = on; break;
             case AiFeature.Replies: Replies = on; break;
+            case AiFeature.ReplyDraft: (ReplyDrafts ??= new()).Enabled = on; break;
         }
     }
 
@@ -81,6 +84,7 @@ public sealed class AiSettings
     /// <summary>Old settings (one provider) become the first connection; every connection gets a name and an endpoint.</summary>
     public void NormaliseConnections()
     {
+        (ReplyDrafts ??= new()).Normalise();
         Connections ??= new();
         if (Connections.Count == 0)
             Connections.Add(new AiConnection { Id = AiConnection.FirstId, Name = ProviderName(Provider), Provider = Provider, Endpoint = Endpoint, Model = Model });
@@ -99,6 +103,7 @@ public sealed class AiSettings
     {
         var c = (AiSettings)MemberwiseClone();
         c.Consents = new List<string>(Consents ?? new());
+        c.ReplyDrafts = (ReplyDrafts ?? new()).Clone();
         c.Connections = (Connections ?? new()).Select(x => x.Clone()).ToList();
         return c;
     }
@@ -435,6 +440,7 @@ public sealed class AppSettings
     public WindowPlacement Window { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
+    public TypographySettings Typography { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
     /// <summary>Gatekeeper (design B7): new senders wait at the door; allowed / blocked addresses.</summary>
     public GatekeeperSettings Gatekeeper { get; set; } = new();
@@ -518,6 +524,7 @@ public sealed class SettingsStore
         s.Sidebar.OpenFolders ??= new();
         s.Appearance ??= new();
         s.Appearance.Normalise();
+        (s.Typography ??= new()).Normalise();
         s.Updates ??= new();
         s.Updates.SkippedVersion ??= "";
         s.Updates.AutoUpdate ??= s.Updates.AutoCheck && s.Updates.AutoDownload;

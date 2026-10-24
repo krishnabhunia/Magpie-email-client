@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 
 namespace Magpie.Core.Mail;
 
@@ -24,11 +25,13 @@ public sealed record ReaderPage(string Key, string Fingerprint, string Html, int
 
     /// <summary>Content, rather than HTML length, determines whether a prepared page can be reused.</summary>
     public static string ContentFingerprint(string subject, IReadOnlyList<RenderMessage> messages,
-        bool allow, bool dark, int hoverDelayMs, DateTimeOffset now, Func<long, MessageBody, string?>? bodyFingerprint = null)
+        bool allow, bool dark, int hoverDelayMs, DateTimeOffset now, Func<long, MessageBody, string?>? bodyFingerprint = null,
+        TypographySettings? typography = null)
     {
         var json = JsonSerializer.Serialize(new
         {
             subject, allow, dark, hoverDelayMs, TimeBucket = now.ToUnixTimeSeconds() / 600,
+            Typography = new { Chrome = TypographyCss.ReaderChrome(typography), Body = TypographyCss.ReaderBody(typography) },
             Messages = messages.Select(m => new
             {
                 Row = new { m.Row.Id, m.Row.FromName, m.Row.FromAddress, m.Row.To, m.Row.Cc, m.Row.Preview, m.Row.Date },

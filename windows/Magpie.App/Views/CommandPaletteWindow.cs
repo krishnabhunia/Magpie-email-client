@@ -32,6 +32,7 @@ public sealed class CommandPaletteWindow : Window
         SetResourceReference(ForegroundProperty, "Brush.Text.Primary");
         var panel = new DockPanel { Margin = new Thickness(20) };
         var heading = new TextBlock { Text = "Commands", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) };
+        Services.Typography.SetRole(heading, "dialogTitle");
         DockPanel.SetDock(heading, Dock.Top); panel.Children.Add(heading);
         _query.SetResourceReference(StyleProperty, "TextBox.Search");
         _query.ToolTip = "Type an action, folder, saved view or shortcut";

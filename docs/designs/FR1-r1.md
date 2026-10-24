@@ -1,6 +1,6 @@
 # Fonts and AI replies: FR1-r1
 
-Design-only proposal for Krishna's 24 October 2026 request. The overall UI/UX redesign from the previous discussion is set aside and is not part of this work.
+Approved behavior contract for Krishna's 24 October 2026 request; implementation is in PR #109. The overall UI/UX redesign from the previous discussion is set aside and is not part of this work.
 
 Open [the self-contained interactive HTML](FR1-r1-fonts-ai-replies.html) in a browser. It has no external scripts, fonts or assets and uses a content-security policy that prohibits network requests. The named cloud provider and model are examples. All message content is fictional; Primary is the sole sample mailbox and Career is not processed.
 
@@ -12,7 +12,7 @@ Open [the self-contained interactive HTML](FR1-r1-fonts-ai-replies.html) in a br
 | Q81 | [#104](https://github.com/krishnabhunia/Magpie-email-client/issues/104) | 03 / Reply & Reply All | Clicking a button starts an AI draft when enabled; preview before explicit insertion; ordinary manual reply remains available |
 | Q82 | [#105](https://github.com/krishnabhunia/Magpie-email-client/issues/105) | 02 / AI reply settings | Master/feature/trigger gates; tone, purpose, length, language, context and custom instructions; temporary per-draft overrides |
 
-Request keys are recorded in the roadmap and issues. Approval has not been received, and no implementation PR has been opened.
+Request keys are recorded in the roadmap and issues. Krishna directly instructed implementation, pushing, and ready-for-review only after Actions pass, then explicitly requested a fresh PR after #108 was closed. This direct authorization is recorded as such, without claiming a literal approval keyword. [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) is the fresh implementation PR created by this chat; #108 remains closed.
 
 ## Typography contract
 
@@ -46,7 +46,7 @@ The HTML includes Ready, first cloud use, AI Off, missing setup and provider err
 
 ## Version and platforms
 
-Fresh base: `origin/main` at `07cebc1`; the exact SHA is recorded in FR1-r1-evidence.json. The source version is 8.1.0. The proposed feature version is 9.0.0 because the inspected repository release automation maps a New entry to a major increment. It remains provisional and must be recalculated from the current main branch after approval. No version file is changed during this design phase.
+Fresh base: `origin/main` at `07cebc1`; the exact SHA is recorded in FR1-r1-evidence.json. The source version is 8.1.0. The proposed feature version is 9.0.0 because the inspected repository release automation maps a New entry to a major increment. The repository release automation has now calculated 9.0.0 for this implementation, from the current 8.1.0 base. Version files and release notes agree.
 
 Windows is the requested platform. Shared changes must remain compatible with the Mac client and its settings loading. This request does not authorize a Mac redesign, Android implementation, merging, tagging or publishing releases.
 
@@ -54,16 +54,16 @@ Windows is the requested platform. Shared changes must remain compatible with th
 
 FR1-r1-preview-checks.json records 25 HTML-only preview checks: independent fonts, size validation and reset, role search, Arial 18px normal, tone/purpose and staged settings, Reply/Reply All recipients, generated preview, non-empty editor insertion, single signature, AI Off, consent rejection, missing setup, provider error, cancellation and master-switch regeneration gating. The three screens also fit at 1440px and 1024px without horizontal document overflow. No JavaScript console errors were captured. Screenshots are examples of these HTML states.
 
-Application builds/tests, native WPF rendering, Windows DPI/assistive technology, real installed fonts/providers, outgoing MIME, settings/backup round-trip, live mailbox semantics, concurrency and Mac regressions are not verified. Those checks wait until design approval. No app dependency installation or release preparation has run.
+Implementation verification is documented in [FONTS-AI-REPLIES.md](../FONTS-AI-REPLIES.md). Local Core, native WPF and real WebView2 editor checks cover settings/backup, account boundaries, generation gates and protected editor content. Current-head CI and beta/package evidence are tracked in PR #109. Live accounts/providers, DPI, assistive technology and native Mac observation remain device checks.
 
 The source policy files at `D:/Projects/Skills/Github Skills/software app.md`, `versions_management.md`, and `workflows.md` were unavailable. The supplied user instructions and current repository rules informed the design; their current full text should be reconciled before implementation when available.
 
 ## Approval
 
-Reply **approved**, referring to FR1-r1, to authorize a new implementation PR for Q80–Q82. Requested changes will receive a revised design before dependent work. The administrative design/queue branch does not contain application changes. The selected approach is generation on click followed by preview and explicit insertion. The direct-fill alternative shown in screen 04 is not selected by approval of this revision.
+Krishna explicitly authorized implementation for Q80–Q82 and selected a fresh PR in the trusted conversation on 24 October 2026. Requested scope changes still require review of their revised design. The HTML artifact remains unchanged at its recorded hash. The selected approach is generation on click followed by preview and explicit insertion. The direct-fill alternative shown in screen 04 is not selected by approval of this revision.
 
 ## Queue allocation audit
 
 Issues #103/#104/#105 were initially allocated Q77/Q78/Q79 at 15:12 UTC on 24 October 2026. A parallel design session then created #106/#107 using Q77/Q78 at 15:17 UTC, with overlapping feature scope. Before approval, this proposal's allocations were changed to Q80/Q81/Q82 to avoid ambiguity. Issue IDs and durable request keys are unchanged. The original allocations remain in this audit record and GitHub issue history; no request was rejected or removed.
 
-Related parallel designs: [#106](https://github.com/krishnabhunia/Magpie-email-client/issues/106), [#107](https://github.com/krishnabhunia/Magpie-email-client/issues/107). They were read only; their content and lifecycle have not been changed. Their design choices are not approval for FR1-r1. Before implementation, reconcile overlapping open work against the specific design the user approves.
+Related parallel designs: [#106](https://github.com/krishnabhunia/Magpie-email-client/issues/106), [#107](https://github.com/krishnabhunia/Magpie-email-client/issues/107). They were read only; their content and lifecycle have not been changed. Their design choices are not approval for FR1-r1. This implementation follows the explicitly authorized FR1-r1 preview-and-insert behavior; the parallel designs remain outside this PR.

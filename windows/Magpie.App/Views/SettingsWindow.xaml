@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:Magpie.App.ViewModels"
         xmlns:set="clr-namespace:Magpie.Core.Settings;assembly=Magpie.Core"
         xmlns:svc="clr-namespace:Magpie.App.Services"
+        xmlns:views="clr-namespace:Magpie.App.Views"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
@@ -24,7 +25,7 @@
         </Style>
         <Style x:Key="Nav.Settings" TargetType="RadioButton" BasedOn="{StaticResource Button.Folder}">
             <Setter Property="GroupName" Value="SettingsNav" />
-            <Setter Property="Height" Value="38" />
+            <Setter Property="MinHeight" Value="38" />
         </Style>
         <Style x:Key="FeatureRow" TargetType="Border">
             <Setter Property="Padding" Value="22,14" />
@@ -54,6 +55,7 @@
                                  FontSize="13" Foreground="{DynamicResource Brush.Text.Primary}" Padding="0" PreviewKeyDown="OnSearchKey" AutomationProperties.Name="Search settings" ToolTip="Search settings (Ctrl+F)" />
                     </DockPanel>
                 </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="General"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=General}">
@@ -79,6 +81,14 @@
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Toolbar}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="toolbar" Size="24" Margin="0,0,10,0" /><TextBlock Text="Appearance" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsToolbar, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsToolbar}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Fonts"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Fonts}">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="Aa" FontSize="19" Width="24" Margin="0,0,10,0" VerticalAlignment="Center" /><TextBlock Text="Fonts &amp; text" VerticalAlignment="Center" TextWrapping="Wrap" /></StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="AiReplies"
+                                 IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=AiReplies}">
+                        <StackPanel Orientation="Horizontal"><svc:IconChip Icon="summarise" Size="24" Margin="0,0,10,0" /><TextBlock Text="AI reply settings" VerticalAlignment="Center" TextWrapping="Wrap" /></StackPanel>
+                    </RadioButton>
                     <RadioButton Style="{StaticResource Nav.Settings}" Command="{Binding GoCommand}" CommandParameter="Notifications"
                                  IsChecked="{Binding Page, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=Notifications}">
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="notifications" Size="24" Margin="0,0,10,0" /><TextBlock Text="Notifications" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsNotifications, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsNotifications}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
@@ -100,6 +110,7 @@
                         <StackPanel Orientation="Horizontal"><svc:IconChip Icon="about" Size="24" Margin="0,0,10,0" /><TextBlock Text="About" VerticalAlignment="Center" /><Border Background="{DynamicResource Brush.Accent}" CornerRadius="9" Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HitsAbout, Converter={StaticResource BoolToVis}}"><TextBlock Text="{Binding HitsAbout}" Foreground="{DynamicResource Brush.Text.OnAccent}" FontSize="10.5" FontWeight="Bold" /></Border></StackPanel>
                     </RadioButton>
                 </StackPanel>
+                </ScrollViewer>
             </DockPanel>
         </Border>
 
@@ -110,9 +121,9 @@
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <!-- Design AP1: Apply (the default button) and Apply and Close come alive only when something changed -->
                         <Button Style="{StaticResource Button.Secondary}" Content="Close" IsCancel="True" Margin="0,0,8,0" Click="OnCancel" ToolTip="Close Settings without applying the changes" />
-                        <Button Style="{StaticResource Button.Primary}" Content="Apply" IsDefault="True" Padding="24,7" Margin="0,0,8,0" Click="OnApply" IsEnabled="{Binding HasChanges}"
+                        <Button Style="{StaticResource Button.Primary}" Content="Apply" IsDefault="True" Padding="24,7" Margin="0,0,8,0" Click="OnApply" IsEnabled="{Binding CanApplySettings}"
                                 ToolTip="Save the changes and keep Settings open (Enter)" ToolTipService.ShowOnDisabled="True" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Apply and Close" Click="OnSave" IsEnabled="{Binding HasChanges}"
+                        <Button Style="{StaticResource Button.Secondary}" Content="Apply and Close" Click="OnSave" IsEnabled="{Binding CanApplySettings}"
                                 ToolTip="Save the changes and close Settings" ToolTipService.ShowOnDisabled="True" />
                     </StackPanel>
                     <TextBlock x:Name="AppliedNote" Text="✓ Saved" Foreground="{DynamicResource Brush.Success}" VerticalAlignment="Center" Visibility="Collapsed" />
@@ -122,9 +133,12 @@
             <ScrollViewer x:Name="PagesScroll" VerticalScrollBarVisibility="Auto">
                 <Grid Margin="40,30,40,30" MaxWidth="780" HorizontalAlignment="Left">
 
+                    <views:FontsTextView x:Name="RowTypography" Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Fonts}" />
+                    <views:AiReplySettingsView x:Name="RowAiReplySettings" Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=AiReplies}" />
+
                     <!-- ═══════════ Search results (design SS1) ═══════════ -->
                     <StackPanel Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Text="{Binding SearchHeading}" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="{Binding SearchHeading}" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="{Binding SearchSub}" Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
                         <ItemsControl ItemsSource="{Binding SearchHits}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -151,7 +165,7 @@
 
                     <!-- ═══════════ General ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=General}">
-                        <TextBlock Text="General" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="General" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="How Magpie shows and handles your mail." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
 
                         <Border Style="{StaticResource Card}" Padding="0">
@@ -339,7 +353,7 @@
                         <DockPanel>
                             <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="Add account" Click="OnAddAccount" VerticalAlignment="Top" />
                             <StackPanel>
-                                <TextBlock Text="Accounts" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock svc:Typography.Role="settingsTitle" Text="Accounts" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Text="Gmail, Outlook / Microsoft 365 and any IMAP mailbox." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
                             </StackPanel>
                         </DockPanel>
@@ -361,7 +375,7 @@
                                                 <StackPanel VerticalAlignment="Center">
                                                     <StackPanel Orientation="Horizontal">
                                                         <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource HexBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                                        <TextBlock Text="{Binding Email}" FontWeight="SemiBold" FontSize="14" />
+                                                        <TextBlock Text="{Binding Email}" svc:Typography.Role="accountAddress" FontWeight="SemiBold" FontSize="14" />
                                                         <TextBlock Text="· sign-in expired" Foreground="{DynamicResource Brush.Warning}" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"
                                                                    Visibility="{Binding NeedsSignIn, Converter={StaticResource BoolToVis}}" />
                                                     </StackPanel>
@@ -400,7 +414,7 @@
                                                     <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                                                <TextBox Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                                <TextBox Grid.Column="1" svc:Typography.Role="accountName" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
                                                 <TextBlock Grid.Row="1" Text="Signature" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,0,8" />
                                                 <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource Button.Link}" Content="Edit in Signatures &amp; replies →" HorizontalAlignment="Left" Padding="0,2" Margin="0,0,0,8"
                                                         Command="{Binding DataContext.GoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Signatures" />
@@ -480,7 +494,7 @@
 
                     <!-- ═══════════ AI features (S1 / S2 / S3) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=AI}">
-                        <TextBlock Text="AI features" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="AI features" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Connect an AI provider and choose which features use it. Mail works normally whether this is on or off." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
 
                         <!-- Quick setup presets (design Q1): Off · A · B · C · Custom -->
@@ -775,7 +789,7 @@
 
                     <!-- ═══════════ Notifications ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Notifications}">
-                        <TextBlock Text="Notifications" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Notifications" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Alerts for new mail, reminders and snoozed conversations." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
                         <Border Style="{StaticResource Card}" Padding="0">
                             <StackPanel>
@@ -813,7 +827,7 @@
                     <!-- ═══════════ Templates ═══════════ -->
                     <!-- ═══════════ Rules (design B5) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Rules}">
-                        <TextBlock Text="Rules" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Rules" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Rules sort new mail as it arrives: they run top to bottom, on this PC, before you are notified. A message a rule moves or deletes isn't seen by the rules below it."
                                    Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,12" />
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
@@ -1019,7 +1033,7 @@
 
                     <!-- ═══════════ Signatures & replies (design B6) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Signatures}">
-                        <TextBlock Text="Signatures &amp; replies" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Signatures &amp; replies" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="A signature for each account, and short replies you can send with one click." Style="{StaticResource Text.Caption}" Margin="0,4,0,16" />
 
                         <TextBlock Text="SIGNATURES" Style="{StaticResource Text.SectionCaps}" Margin="0,0,0,10" />
@@ -1091,7 +1105,7 @@
                     </StackPanel>
 
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
-                        <TextBlock Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
                             <ItemsControl.ItemTemplate>
@@ -1122,7 +1136,7 @@
 
                     <!-- ═══════════ Keyboard ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Keys}">
-                        <TextBlock Text="Keyboard shortcuts" Style="{StaticResource Text.Serif}" FontSize="21" Margin="0,0,0,20" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Keyboard shortcuts" Style="{StaticResource Text.Serif}" FontSize="21" Margin="0,0,0,20" />
                         <Border x:Name="RowKeys" Style="{StaticResource Card}">
                             <Grid x:Name="KeysGrid">
                                 <Grid.ColumnDefinitions>
@@ -1135,7 +1149,7 @@
 
                     <!-- ═══════════ Toolbar & buttons (design C3) ═══════════ -->
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Toolbar}">
-                        <TextBlock Text="Appearance" Style="{StaticResource Text.Serif}" FontSize="21" />
+                        <TextBlock svc:Typography.Role="settingsTitle" Text="Appearance" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Light or dark, and which buttons sit above a conversation, their order and how they look. Hidden ones stay in ··· More." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
 
                         <!-- Theme (design B1) -->
@@ -1428,7 +1442,7 @@
                         <StackPanel Orientation="Horizontal">
                             <svc:IconChip Icon="update" Size="44" Margin="0,0,14,0" />
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Updates" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock svc:Typography.Role="settingsTitle" Text="Updates" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Style="{StaticResource Text.Caption}">
                                     <Run Text="You have " /><Run Text="{Binding Version, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding UpdateSource, Mode=OneWay}" />
                                 </TextBlock>
@@ -1486,7 +1500,7 @@
                         <StackPanel Orientation="Horizontal">
                             <Image Source="pack://application:,,,/Assets/app-256.png" Width="48" Height="48" Margin="0,0,14,0" />
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
+                                <TextBlock svc:Typography.Role="settingsTitle" Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Text="A local-first mail app for Windows." Style="{StaticResource Text.Caption}" />
                                 <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
                                         Command="{Binding GoCommand}" CommandParameter="Updates" />

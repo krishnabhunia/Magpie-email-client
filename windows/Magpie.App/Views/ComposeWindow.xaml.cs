@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Web;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,6 +21,9 @@ public partial class ComposeWindow : Window
     private bool _plain;
     private bool _forceClose;
     private TextBox? _suggestTarget;
+    private readonly bool _preserveDraftFormatting;
+    private readonly Action _settingsChanged;
+    private string _plainProtectedTail = "";
 
     // ───────────────────────── opening ─────────────────────────
 
@@ -133,12 +137,17 @@ public partial class ComposeWindow : Window
         _vm = new ComposeViewModel(draft, prefill);
         DataContext = _vm;
         _vm.GetHtml = GetHtmlAsync;
+        _vm.GetNewText = GetNewTextAsync;
+        _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
         _vm.EditorCommand = EditorCommandAsync;
+        _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
+        _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
+        AppServices.Engine.Settings.Changed += _settingsChanged;
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
         Loaded += async (_, _) => await InitEditorAsync();
         Closing += OnClosing;
-        Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; };
+        Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
         Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
         ThemeManager.Changed += OnThemeChanged;
         _vm.PropertyChanged += (_, a) =>
@@ -196,9 +205,13 @@ public partial class ComposeWindow : Window
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
+        var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
+        _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
+        _ = ApplyEditorTypographyAsync();
+        _ = _vm.ReplyEditorReadyAsync();
     }
 
     private async void OnEditorMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -213,9 +226,11 @@ public partial class ComposeWindow : Window
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
                     _editorReady = true;
+                    await ApplyEditorTypographyAsync();
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
                     if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
                     if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
+                    await _vm.ReplyEditorReadyAsync();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
@@ -233,12 +248,61 @@ public partial class ComposeWindow : Window
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
 
+    private async Task ApplyEditorTypographyAsync()
+    {
+        if (!_editorReady) return;
+        try
+        {
+            var style = AppServices.Engine.Config.Typography.Resolve("composeBody");
+            if (_plain)
+            {
+                PlainEditor.FontFamily = Services.Typography.ResolveFont(style.Family);
+                PlainEditor.FontSize = style.Size;
+                PlainEditor.FontWeight = FontWeights.Normal;
+                return;
+            }
+            if (Editor.CoreWebView2 != null)
+                await Editor.CoreWebView2.ExecuteScriptAsync(EditorPage.TypographyScript(AppServices.Engine.Config.Typography, _preserveDraftFormatting));
+        }
+        catch (Exception ex) { Log.Warn("editor typography: " + ex.Message); }
+    }
+
+    private string PlainNewText()
+    {
+        var text = PlainEditor.Text;
+        return _plainProtectedTail.Length > 0 && text.EndsWith(_plainProtectedTail, StringComparison.Ordinal)
+            ? text[..^_plainProtectedTail.Length].TrimEnd() : text;
+    }
+
+    private async Task<string> GetNewTextAsync()
+    {
+        if (_plain) return PlainNewText();
+        if (!_editorReady || Editor.CoreWebView2 == null) return "";
+        var value = await Editor.CoreWebView2.ExecuteScriptAsync("getNewText()");
+        return JsonSerializer.Deserialize<string>(value) ?? "";
+    }
+
     private (int Start, int Length, string Text)? _plainRewrite;
 
     private async Task EditorCommandAsync(string mode, string text)
     {
         if (_plain)
         {
+            if (mode == "replyDraft")
+            {
+                using var payload = JsonDocument.Parse(text);
+                var root = payload.RootElement;
+                var expected = root.GetProperty("expectedNewText").GetString() ?? "";
+                if (PlainNewText() != expected) throw new InvalidOperationException("Your reply changed. Review the draft and choose Use draft again.");
+                var insertion = root.GetProperty("text").GetString() ?? "";
+                var how = root.GetProperty("mode").GetString();
+                if (how is not ("replaceBody" or "appendBody")) throw new InvalidOperationException("Choose how to use the draft again.");
+                if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
+                var body = how == "appendBody" && expected.Trim().Length > 0 ? expected.TrimEnd() + "\n\n" + insertion : insertion;
+                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+                return;
+            }
             if (mode == "captureRewrite")
             {
                 if (PlainEditor.SelectionLength == 0 || PlainEditor.SelectedText != text)
@@ -254,13 +318,19 @@ public partial class ComposeWindow : Window
                 PlainEditor.SelectedText = text;
                 _plainRewrite = null;
             }
-            else if (mode == "replaceBody") PlainEditor.Text = text + "\n\n" + PlainEditor.Text;
+            else if (mode is "replaceBody" or "appendBody")
+            {
+                if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
+                var body = mode == "appendBody" ? PlainNewText().TrimEnd() + "\n\n" + text : text;
+                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+            }
             else PlainEditor.SelectedText = text;
             return;
         }
         var result = await Editor.CoreWebView2.ExecuteScriptAsync($"cmd({JsonSerializer.Serialize(mode)}, {JsonSerializer.Serialize(text)})");
         if (result == "false")
-            throw new InvalidOperationException("Your message or selection changed. Select the text and rewrite it again.");
+            throw new InvalidOperationException(mode == "replyDraft" ? "Your reply changed. Review the draft and choose Use draft again." : "Your message or selection changed. Select the text and rewrite it again.");
     }
 
     private async void OnFormat(object sender, RoutedEventArgs e)
