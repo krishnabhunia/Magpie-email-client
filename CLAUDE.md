@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **9.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **10.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -33,7 +33,7 @@ Current release: **9.0.0** (see CHANGELOG.md). Next: whatever is queued — the 
 
 ```powershell
 # Windows (this laptop) — needs .NET 8 SDK + Python 3; Inno Setup only for the installer
-dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # 484 unit tests
+dotnet test common/tests/Magpie.Core.Tests -c Release --filter "Category!=Integration"   # Core unit/regression tests
 windows/build/publish.ps1        # tests → build → DpDump → xaml_check.py + check-refs (BLOCKING) → publish/Magpie.exe + .sha256
 python windows/build/xaml_check.py --dps windows/build/app-types.json   # static XAML check (WPF only validates XAML at run time)
 ```
@@ -75,6 +75,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Trash / Spam, selection (TB1, SL1) | `MailEngine.EmptyFolder` (pending op `EmptyFolder`, sync skips that folder until it reached the server), `Restore` (`MailStore.Trash.cs` remembers the folder), `NotSpam`, `AutoEmptyTrash` (`EmptyTrashAfterDays`); `Mail/Selection.cs` (Select ▾ filters); `MainViewModel` `SelectBy`, `AllInView` / `ViewTotal` (Select all N), `IsBinView`, `EmptyBin` |
 | Delete three ways (DX1; was AD1–AD4 + DP1) | Direct: `MailEngine.DeleteForeverAsync` / `CountDeleteForever` (every copy by Message-ID via `MailStore.CopiesOf`, pending op `Delete`, no undo), `MainViewModel.DeleteForeverAsync` (asks once; Shift+Del, Delete ▾, right-click, Trash/Spam bulk bar). Past + future: `MailEngine.ApplyDeleteFrom(DeleteFromRequest)` → `DeleteFromResult` (past rows for the caller to trash after the undo wait, the one rule per sender + account, timers on the not-yet-due existing mail in every folder `PastFrom` covers — `ExistingFor`), `PastSummary` (dialog counts), `PastFrom(pattern, olderThan, accountId)`, `TrashEmails`; `AutoDelete.KeepChoices` / `KeepLabel` / `KeepSince` / `ButtonText` / `PastLine` / `FutureLine` / `ToastText`; `MainViewModel.RunDeleteFrom` (toast: Undo also removes a rule the run created, Edit rule); `Views/AutoDeleteDialog` (the "Delete emails from…" dialog — file kept its AD2 name; `Show(owner, rule, editing, past, future, keepNothing)`); `MainWindow.DeleteMenu` / `AddDeleteFromItems`; a rule's Delete action trashes every copy (`ApplyRule`); one rule per sender (`MergeDuplicateAutoDeleteRules`); only setting `AutoDeleteIncludePast` (FUTURE-only runs: do the not-yet-due existing emails get the timer) |
 | Deletion dates (DD1) | `Core/Mail/DeleteDates.cs` (texts), `Appearance.DeleteDates` (`DeleteDateLook`: Hover H1–H3, List L1–L4, Reader R1–R3; trial switch in Settings → Appearance), `ThreadItem` (row: pill / day / edge / ring, H1 tooltip), `Services/HoverCard.cs` (H2 row card, R2 chip card in `MainWindow`), `ThreadViewModel.RefreshDeleteBar` (R1 banner, R2 chip), `RenderMessage.DeleteNote` (R3) |
+| Contacts (B4, 9.0.0) | `common/src/Magpie.Core/Contacts/` — `GooglePeople.cs` (People API: connections, contact groups, create / update with etag / delete; errors → plain messages, `ContactsProblem.NeedsSignIn`), `ContactsService.cs` (poll 30 min + `Poke`, local-first `Save` / `Delete`, pending pushed next round, `Suggest`, `GoogleAccounts`, `Problems`), `ContactSuggest.cs` (recipient ranking `Rank`, page lists `Entries` All / `Frequent` / `Groups`, Recent = people in `contacts` with sent=1); `Models/Contacts.cs` (`SavedContact`, `ContactSuggestion`); `Storage/MailStore.SavedContacts.cs` (`saved_contacts`, created on every start, not tied to the schema number); Windows: `ViewModels/ContactsViewModel.cs`, `Views/ContactsView.xaml`, `Views/ContactEditWindow.cs`; `MainViewModel.IsContactsView` / `IsMailView` / `People` / `OpenContact` (Ctrl+3); compose To/Cc suggestions (`ComposeWindow.ShowSuggestions`); address card E6 in `ReaderHover`; saved contacts are known senders (`MailEngine.AddSavedContactsToKnown`). The Mac compose keeps `MailStore.SearchContacts` (people seen in mail) — no Mac contacts UI yet |
 | Download window (DS1, Q40) | `AccountSync.PrefetchWindowAsync` (every round until complete, 25 per request via `GetStreamsAsync`), `WantBodies`, `MailStore.WindowProgress` / `ShareBodiesWithCopies` |
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
@@ -103,6 +104,6 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 
 - 1.1.1 / 1.1.2 have not been smoke-tested on this laptop yet — do that first (`docs/ROADMAP-1.2.0.md` → "Smoke test").
 - Google Calendar API + People API must be enabled in his Google Cloud project (the one used for Gmail sign-in) before the 1.2.0 calendar/contacts items; re-sign-in needed for the new scopes.
-- `magpie.log` review (queue #5) — ask him to look at `%APPDATA%\Magpie\magpie.log` after real use.
+- `magpie.log` review (queue #5) — the 29 Sep – 10 Oct log is fixed in 8.1.1 (offline noise, certificate soft-fail, queued changes found by Message-ID in `pending_ops.message_id`, `FetchTolerantAsync` for Gmail's FETCH NO, `AccountSync.Describe` in log lines); ask him for the next `%APPDATA%\Magpie\magpie.log` after real use.
 - Code signing: parked (unsigned by choice).
 - CI/CD (E1) needs no setup. Branch protection on `main` (require the **build** check) is recommended so a red PR can't be merged and released (`docs/CI-CD.md`).

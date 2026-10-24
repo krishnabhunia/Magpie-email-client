@@ -1,6 +1,6 @@
 # Fonts and AI replies on Windows
 
-Version 9.0.0 implements Q80–Q82 / issues #103–#105, using the [FR1-r1 contract](designs/FR1-r1.md). [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) contains the implementation and live verification evidence. The previous #108 stays closed.
+Version 10.0.0 implements Q80–Q82 / issues #103–#105, using the [FR1-r1 contract](designs/FR1-r1.md). [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) contains the implementation and live verification evidence. The previous #108 stays closed.
 
 Settings → Fonts & text edits 53 independent font family/size roles. Search across areas, change a role and use the live sample, reset a role/area/all, then Apply. Sizes are 8–72 logical pixels in half-pixel steps. Invalid rows prevent Apply. Missing local fonts fall back safely. Existing built-in appearance is retained when a role has no override; icons and Windows-owned dialogs/notification balloons keep their own typography. Received-email body/heading/quote overrides require the separate reading-font switch and change only the display copy.
 

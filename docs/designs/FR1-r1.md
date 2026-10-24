@@ -46,7 +46,7 @@ The HTML includes Ready, first cloud use, AI Off, missing setup and provider err
 
 ## Version and platforms
 
-Fresh base: `origin/main` at `07cebc1`; the exact SHA is recorded in FR1-r1-evidence.json. The source version is 8.1.0. The proposed feature version is 9.0.0 because the inspected repository release automation maps a New entry to a major increment. The repository release automation has now calculated 9.0.0 for this implementation, from the current 8.1.0 base. Version files and release notes agree.
+Fresh base: `origin/main` at `07cebc1`; the exact SHA is recorded in FR1-r1-evidence.json. The source version is 8.1.0. The proposed feature version is 9.0.0 because the inspected repository release automation maps a New entry to a major increment. After Contacts merged as 9.0.0, this PR was integrated with main at 043c444. The repository release automation now calculates 10.0.0 for these added features. The approved HTML remains unchanged; this version adjustment follows the existing release rule. Version files and release notes agree.
 
 Windows is the requested platform. Shared changes must remain compatible with the Mac client and its settings loading. This request does not authorize a Mac redesign, Android implementation, merging, tagging or publishing releases.
 

@@ -1,0 +1,190 @@
+<UserControl x:Class="Magpie.App.Views.ContactsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:Magpie.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:ContactsViewModel}"
+             Background="{DynamicResource Brush.Card.Background}">
+    <!-- Design B4: list (360 px) on the left, the chosen person on the right -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="360" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ─── Left: search, tabs, alphabetical list ─── -->
+        <Border Grid.Column="0" BorderBrush="{DynamicResource Brush.Sidebar.Border}" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel Margin="16,14,14,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="New contact" MinHeight="28" Padding="10,2"
+                            Command="{Binding NewContactCommand}" IsEnabled="{Binding CanSave}" ToolTip="Save a new contact to your Google account" />
+                    <TextBlock Text="Contacts" Style="{StaticResource Text.Serif}" FontSize="20" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBox Grid.Row="1" Style="{StaticResource TextBox.Search}" Margin="14,0,14,6" Tag="Search name, email, company"
+                         Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search contacts" />
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="8,0,8,4">
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactsTab" Content="{Binding AllLabel}" Command="{Binding SetTabCommand}" CommandParameter="all"
+                                 IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=all}" />
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactsTab" Content="Frequent" Command="{Binding SetTabCommand}" CommandParameter="frequent"
+                                 IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=frequent}" />
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactsTab" Content="Groups" Command="{Binding SetTabCommand}" CommandParameter="groups"
+                                 IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=groups}" />
+                </StackPanel>
+                <Border Grid.Row="3" Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="10,6" Margin="14,0,14,6"
+                        Visibility="{Binding Problem, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Problem}" FontSize="12" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" />
+                        <Button Style="{StaticResource Button.Link}" Content="Sign in again" FontSize="12" HorizontalAlignment="Left" Padding="0,2" MinHeight="20"
+                                Click="OnSignInAgain" Visibility="{Binding ProblemNeedsSignIn, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </Border>
+                <ListBox Grid.Row="4" Style="{StaticResource ListBox.Flat}" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="Contacts">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ContactListItem}">
+                            <Grid>
+                                <TextBlock Text="{Binding Header}" Style="{StaticResource Text.SectionCaps}" Margin="8,10,0,2"
+                                           Visibility="{Binding IsHeader, Converter={StaticResource BoolToVis}}" />
+                                <DockPanel Margin="4,5" Visibility="{Binding IsHeader, Converter={StaticResource InvBoolToVis}}">
+                                    <Border DockPanel.Dock="Left" Width="32" Height="32" CornerRadius="16" Background="{Binding Avatar}" Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <Border DockPanel.Dock="Right" CornerRadius="8" Padding="6,0" VerticalAlignment="Center" Background="{DynamicResource Brush.Badge.Local.Background}"
+                                            Visibility="{Binding IsRecent, Converter={StaticResource BoolToVis}}" ToolTip="Someone you wrote to; not saved in Google Contacts">
+                                        <TextBlock Text="Recent" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Badge.Local.Text}" />
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="13.5" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Email}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- ─── Right: the chosen person ─── -->
+        <TextBlock Grid.Column="1" Text="Pick someone on the left." Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{Binding HasPerson, Converter={StaticResource InvBoolToVis}}" />
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Visibility="{Binding HasPerson, Converter={StaticResource BoolToVis}}">
+            <StackPanel Margin="28,22,28,24" MaxWidth="860" HorizontalAlignment="Stretch">
+                <!-- Header: big avatar, name, title · company, buttons -->
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="64" Height="64" CornerRadius="32" Background="{Binding Avatar}" Margin="0,0,16,0" VerticalAlignment="Top">
+                        <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" Style="{StaticResource Text.Serif}" FontSize="24" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Work}" FontSize="13" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,2,0,0"
+                                   Visibility="{Binding Work, Converter={StaticResource BoolToVis}}" />
+                        <WrapPanel Margin="0,10,0,0">
+                            <Button Style="{StaticResource Button.Primary}" Content="New message" MinHeight="30" Padding="14,4" Margin="0,0,8,4" Command="{Binding NewMessageCommand}" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="New event" MinHeight="30" Padding="14,4" Margin="0,0,8,4"
+                                    Command="{Binding NewEventCommand}" CommandParameter="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="Edit" MinHeight="30" Padding="14,4" Margin="0,0,8,4" Command="{Binding EditCommand}"
+                                    Visibility="{Binding IsSaved, Converter={StaticResource BoolToVis}}" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="Add to contacts" MinHeight="30" Padding="14,4" Margin="0,0,8,4" Command="{Binding EditCommand}"
+                                    IsEnabled="{Binding CanSave}" Visibility="{Binding IsSaved, Converter={StaticResource InvBoolToVis}}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- DETAILS -->
+                <TextBlock Text="DETAILS" Style="{StaticResource Text.SectionCaps}" Margin="0,22,0,8" />
+                <Border Style="{StaticResource Card}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Email" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,4" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding EmailsText, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" Margin="0,4" />
+                        <TextBlock Grid.Row="1" Text="Work" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,4" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Work}" TextWrapping="Wrap" Margin="2,4" />
+                        <TextBlock Grid.Row="2" Text="Phone" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,4" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PhonesText, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" TextWrapping="Wrap" Margin="0,4" />
+                        <TextBlock Grid.Row="3" Text="Groups" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,4" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding GroupsText}" TextWrapping="Wrap" Margin="2,4" />
+                        <TextBlock Grid.Row="4" Text="Saved in" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,4" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SavedIn}" TextWrapping="Wrap" Margin="2,4" />
+                    </Grid>
+                </Border>
+
+                <!-- NOTES -->
+                <TextBlock Text="NOTES" Style="{StaticResource Text.SectionCaps}" Margin="0,22,0,8" Visibility="{Binding IsSaved, Converter={StaticResource BoolToVis}}" />
+                <Border Style="{StaticResource Card}" Visibility="{Binding IsSaved, Converter={StaticResource BoolToVis}}">
+                    <TextBlock TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="{Binding Notes}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Notes}" Value="">
+                                        <Setter Property="Text" Value="No notes. Edit adds some." />
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Tertiary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+
+                <!-- Conversations / Attachments / Events -->
+                <StackPanel Orientation="Horizontal" Margin="0,18,0,4">
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactActivity" Content="{Binding ConversationsLabel}" Command="{Binding SetActivityTabCommand}" CommandParameter="conversations"
+                                 IsChecked="{Binding ActivityTab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=conversations}" />
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactActivity" Content="{Binding AttachmentsLabel}" Command="{Binding SetActivityTabCommand}" CommandParameter="attachments"
+                                 IsChecked="{Binding ActivityTab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=attachments}" />
+                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="ContactActivity" Content="{Binding EventsLabel}" Command="{Binding SetActivityTabCommand}" CommandParameter="events"
+                                 IsChecked="{Binding ActivityTab, Mode=OneWay, Converter={StaticResource EqualsToBool}, ConverterParameter=events}" />
+                </StackPanel>
+                <TextBlock Text="{Binding ActivityEmpty}" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="4,8">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Activity.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <ItemsControl ItemsSource="{Binding Activity}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ContactActivity}">
+                            <Button Style="{StaticResource Button.Ghost}" HorizontalContentAlignment="Stretch" Padding="8,7" Margin="0,1"
+                                    Command="{Binding DataContext.OpenActivityCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding When}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="12,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Sub}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

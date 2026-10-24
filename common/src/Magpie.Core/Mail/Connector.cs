@@ -140,29 +140,36 @@ public sealed class Connector
 
     /// <summary>The server certificate check. A valid certificate whose revocation status could not be found out is
     /// accepted, as browsers do ("soft fail"): on a Mac the system check can't read the CRL-only certificates Google
-    /// now issues (WR2), so every Gmail connection failed. Anything else — wrong name, untrusted or expired chain, a
-    /// certificate reported as revoked — is still refused.</summary>
+    /// now issues (WR2), so every Gmail connection failed; on Windows the same happens right after the PC wakes up,
+    /// when the revocation server can't be reached yet (magpie.log: every account failed with "the revocation server
+    /// was offline"). Anything else — wrong name, untrusted or expired chain, a certificate reported as revoked, or a
+    /// chain error with no reason given — is still refused. The rule itself is <see cref="AcceptCertificate"/>.</summary>
     public static bool ValidateCertificate(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
     {
         if (errors == SslPolicyErrors.None) return true;
-        const X509ChainStatusFlags unknownRevocation = X509ChainStatusFlags.RevocationStatusUnknown | X509ChainStatusFlags.OfflineRevocation;
-        var only = errors == SslPolicyErrors.RemoteCertificateChainErrors && chain != null && OnlyUnknownRevocation(chain, unknownRevocation);
-        if (only) return true;
+        if (chain != null && AcceptCertificate(errors, ChainStatus(chain))) return true;
         var flags = chain == null ? "" : string.Join(", ", chain.ChainElements.Cast<X509ChainElement>()
             .Select(e => $"{e.Certificate.GetNameInfo(X509NameType.SimpleName, false)}: {string.Join("+", e.ChainElementStatus.Select(x => x.Status))}"));
         Log.Warn($"Refused the certificate of {certificate?.Subject}: {errors}; {flags}");
         return false;
     }
 
-    internal static bool OnlyUnknownRevocation(X509Chain chain, X509ChainStatusFlags allowed)
+    private const X509ChainStatusFlags UnknownRevocation = X509ChainStatusFlags.RevocationStatusUnknown | X509ChainStatusFlags.OfflineRevocation;
+
+    /// <summary>Every status flag the chain and its certificates report.</summary>
+    internal static IEnumerable<X509ChainStatusFlags> ChainStatus(X509Chain chain) =>
+        chain.ChainStatus.Select(s => s.Status)
+            .Concat(chain.ChainElements.Cast<X509ChainElement>().SelectMany(e => e.ChainElementStatus.Select(s => s.Status)));
+
+    /// <summary>The decision, kept free of X509Chain so it can be tested: accepted when there is no error, or when the
+    /// only errors are chain errors and the only problems reported are that the revocation status is unknown or the
+    /// revocation server was offline. A chain error with nothing reported is refused.</summary>
+    public static bool AcceptCertificate(SslPolicyErrors errors, IEnumerable<X509ChainStatusFlags> chainStatus)
     {
-        if (chain.ChainStatus.Length == 0 && chain.ChainElements.Count == 0) return false;
-        foreach (var st in chain.ChainStatus)
-            if ((st.Status & ~allowed) != 0) return false;
-        foreach (var e in chain.ChainElements)
-            foreach (var st in e.ChainElementStatus)
-                if ((st.Status & ~allowed) != 0) return false;
-        return true;
+        if (errors == SslPolicyErrors.None) return true;
+        if (errors != SslPolicyErrors.RemoteCertificateChainErrors) return false;   // wrong name, or no certificate at all
+        var flags = chainStatus.Aggregate(X509ChainStatusFlags.NoError, (a, f) => a | f);
+        return flags != X509ChainStatusFlags.NoError && (flags & ~UnknownRevocation) == X509ChainStatusFlags.NoError;
     }
 
     /// <summary>A failed TLS handshake: without a server certificate the port / security setting is the likely cause;

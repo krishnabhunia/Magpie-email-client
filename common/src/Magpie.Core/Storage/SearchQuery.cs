@@ -17,6 +17,11 @@ public sealed class SearchQuery
     public List<string> Subject { get; } = new();
     /// <summary>with: — the person is the sender or among To / Cc (design HM1, E5).</summary>
     public List<string> With { get; } = new();
+    /// <summary>
+    /// The whole address is the sender or one of the To / Cc mailboxes (design B4, the Contacts page): "ann@x.in" doesn't
+    /// match "joann@x.in". Not typed in the search box; set in code, e.g. <see cref="WithMailbox"/>.
+    /// </summary>
+    public List<string> Mailbox { get; } = new();
     /// <summary>file: — an attachment's name contains this (emails whose text is on this PC; design HM1, A9).</summary>
     public List<string> File { get; } = new();
     /// <summary>Exact sender domain; domain:example.com does not match subdomains.</summary>
@@ -30,7 +35,15 @@ public sealed class SearchQuery
     public DateTimeOffset? After { get; private set; }
 
     public bool IsEmpty => Terms.Count == 0 && Phrases.Count == 0 && From.Count == 0 && To.Count == 0 && Subject.Count == 0 && With.Count == 0 && File.Count == 0
-                           && Domain.Count == 0 && Labels.Count == 0 && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
+                           && Mailbox.Count == 0 && Domain.Count == 0 && Labels.Count == 0 && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
+
+    /// <summary>Emails exchanged with exactly this address (sender, To or Cc), optionally only those with files.</summary>
+    public static SearchQuery WithMailbox(string address, bool withAttachment = false)
+    {
+        var q = new SearchQuery { HasAttachment = withAttachment };
+        q.Mailbox.Add(address.Trim().ToLowerInvariant());
+        return q;
+    }
 
     public static SearchQuery Parse(string? text)
     {
@@ -146,6 +159,15 @@ public sealed class SearchQuery
         {
             cmd.Parameters.AddWithValue($"$sq_w{i}", Like(w));
             preds.Add($"({m}.from_addr LIKE $sq_w{i} ESCAPE '\\' OR {m}.from_name LIKE $sq_w{i} ESCAPE '\\' OR {m}.to_list LIKE $sq_w{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_w{i} ESCAPE '\\')");
+            i++;
+        }
+        foreach (var box in Mailbox)
+        {
+            // to_list / cc_list hold "Name <addr>, addr2, …": a bracketed address, or a bare one between commas (spaces removed).
+            cmd.Parameters.AddWithValue($"$sq_m{i}", box.ToLowerInvariant());
+            preds.Add($"(lower({m}.from_addr)=$sq_m{i}"
+                      + $" OR instr(lower({m}.to_list),'<'||$sq_m{i}||'>')>0 OR instr(','||replace(lower({m}.to_list),' ','')||',',','||$sq_m{i}||',')>0"
+                      + $" OR instr(lower({m}.cc_list),'<'||$sq_m{i}||'>')>0 OR instr(','||replace(lower({m}.cc_list),' ','')||',',','||$sq_m{i}||',')>0)");
             i++;
         }
         foreach (var f in File)

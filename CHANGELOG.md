@@ -7,11 +7,29 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 9.0.0 (24 Oct 2026)
+## 10.0.0 (24 Oct 2026)
 ### New
 - **Fonts & text on Windows.** Choose a font and size independently for 53 types of text across navigation, the inbox, reading, writing, AI, Settings and the calendar. Search the roles, preview a change, reset one role or a whole area, then Apply. New writing and signatures start in Arial 18 px (13.5 pt), normal weight. Existing formatted drafts keep their appearance. Reading-font overrides are optional and leave the original email intact.
 - **AI drafts from Reply and Reply All on Windows.** Enable full reply drafts in Settings, with separate switches for each button. Choose tone, purpose, length, language, conversation context and custom instructions. A reply opens normally and generates a preview after its editor is ready. Review it, regenerate, discard or explicitly use it; existing typed text asks before appending or replacing. Recipients, signatures and quoted messages stay protected, and sending remains your action. Each cloud connection asks for this feature's consent; turning AI off cancels a pending result.
 <!-- closes: #103 #104 #105 -->
+
+## 9.0.0 (24 Oct 2026)
+### New
+- **Contacts.** A new **Contacts** page in the sidebar (Ctrl+3) shows the contacts saved in your Google accounts, plus the people you've written to (marked **Recent**). Search by name, email, company or phone, and switch between **All**, **Frequent** and **Groups**. Each person shows their emails, work, phone, groups, notes, and your **conversations**, **attachments** and **events** with them, with **New message** and **New event** buttons.
+- **Add and edit contacts** from Magpie: **New contact**, **Edit**, **Add to contacts** for someone you wrote to, or **Add to contacts** on the card that opens when you point at an email address. Changes are saved on this PC at once and reach Google in the background.
+- **Better suggestions while typing a recipient**: saved contacts and people you've mailed, the ones you write to most first. Unsaved people are marked **Recent**.
+- Saved contacts count as known senders, so the Gatekeeper lets them straight in.
+- **Before it works:** the Google People API must be turned on in the Google Cloud project Magpie signs in with (APIs & Services → Library → Google People API), and each Google account signs in again once so Magpie may read and save its contacts — the Contacts page says so and offers **Sign in again**. Until then the page lists only the people you wrote to (Recent). Windows only for now; the Mac keeps its suggestions from people seen in mail.
+<!-- closes: #5 -->
+
+## 8.1.1 (24 Oct 2026)
+### Fixed
+- **No internet no longer fills the log with errors.** An account that can't reach its server shows "Offline" and writes one line when it goes offline and one when it's back, instead of an error with a full stack trace at every retry.
+- **Accounts no longer stop after the PC wakes up** because Windows couldn't yet reach the server that checks whether certificates were withdrawn (the 8.0.0 certificate rule covers this case too; it is now tested, and a certificate reported as broken with no reason given is refused).
+- **Reads, pins and moves made on this PC are no longer lost** when the server renumbers a folder. Magpie now finds the email by its ID. Changes Gmail refuses with "System Error" are tried again at the next checks (up to 5 times) instead of being dropped.
+- **A folder keeps updating when Gmail refuses a few of its emails** ("Some messages could not be fetched"); only those emails are left out. This happened in Gmail's Bin.
+- **An email that can't be read no longer stops the other downloads.** The log now also says what was wrong with it.
+<!-- closes: #1 -->
 
 ## 8.1.0 (22 Oct 2026)
 ### Changed
