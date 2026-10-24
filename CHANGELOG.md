@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 8.1.1 (24 Oct 2026)
 ### Fixed
 - **No internet no longer fills the log with errors.** An account that can't reach its server shows "Offline" and writes one line when it goes offline and one when it's back, instead of an error with a full stack trace at every retry.
 - **Accounts no longer stop after the PC wakes up** because Windows couldn't yet reach the server that checks whether certificates were withdrawn (the 8.0.0 certificate rule covers this case too; it is now tested, and a certificate reported as broken with no reason given is refused).
