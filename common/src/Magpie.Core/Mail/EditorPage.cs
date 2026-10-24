@@ -49,13 +49,27 @@ const ed = document.getElementById('ed');
 let saved = null;
 let rewrite = null;
 let typography = null;
+const protectedFonts = new WeakMap();
 function fontCss(style){ return 'font-family:' + JSON.stringify(style.family) + ';font-size:' + style.size + 'px;font-weight:400'; }
 function applyFont(el, style, normal){ el.style.fontFamily=style.family; el.style.fontSize=style.size+'px'; if(normal!==false) el.style.fontWeight='400'; }
 function applyProtectedFont(el, style){
   // A saved rich signature and a received quote keep their own formatting and emphasis.
+  const nodes=[el].concat(Array.from(el.querySelectorAll('*')));
   if(style.overrideExisting){
-    applyFont(el,style,false);el.querySelectorAll('*').forEach(function(n){applyFont(n,style,false);});
+    nodes.forEach(function(n){
+      if(!protectedFonts.has(n)) protectedFonts.set(n,{
+        family:n.style.getPropertyValue('font-family'),familyPriority:n.style.getPropertyPriority('font-family'),
+        size:n.style.getPropertyValue('font-size'),sizePriority:n.style.getPropertyPriority('font-size')
+      });
+      n.style.setProperty('font-family',style.family,'important');n.style.setProperty('font-size',style.size+'px','important');
+    });
   }else{
+    nodes.forEach(function(n){
+      const original=protectedFonts.get(n);if(!original) return;
+      if(original.family) n.style.setProperty('font-family',original.family,original.familyPriority);else n.style.removeProperty('font-family');
+      if(original.size) n.style.setProperty('font-size',original.size,original.sizePriority);else n.style.removeProperty('font-size');
+      protectedFonts.delete(n);
+    });
     if(!el.style.fontFamily) el.style.fontFamily=style.family;
     if(!el.style.fontSize) el.style.fontSize=style.size+'px';
   }
@@ -66,8 +80,11 @@ function preserveFont(el){
 }
 function setTypography(body, signature, quote, preserveExisting){
   // Freeze old text's current appearance before changing inherited defaults; never reformat an existing styled draft.
-  if(preserveExisting){
-    Array.from(ed.querySelectorAll('*')).forEach(preserveFont);
+  const subsequent=typography!==null;
+  if(preserveExisting || subsequent){
+    Array.from(ed.querySelectorAll('*')).forEach(function(el){
+      if(preserveExisting || !el.closest('.magpie-signature,.magpie-quote')) preserveFont(el);
+    });
     Array.from(ed.childNodes).forEach(function(n){
       if(n.nodeType===Node.TEXT_NODE && n.textContent){ const span=document.createElement('span'); preserveFont(ed); span.style.fontFamily=ed.style.fontFamily; span.style.fontSize=ed.style.fontSize; span.style.fontWeight=ed.style.fontWeight; n.replaceWith(span); span.appendChild(n); }
     });
@@ -76,15 +93,16 @@ function setTypography(body, signature, quote, preserveExisting){
   applyFont(ed,body);
   if(!preserveExisting){
     Array.from(ed.children).forEach(function(el){
-      if(el.matches('.magpie-signature')) applyProtectedFont(el,signature);
-      else if(el.matches('.magpie-quote')) applyProtectedFont(el,quote);
-      else applyFont(el,body);
+      if(!subsequent && !el.matches('.magpie-signature,.magpie-quote')) applyFont(el,body);
     });
+    ed.querySelectorAll('.magpie-signature').forEach(function(el){applyProtectedFont(el,signature);});
+    ed.querySelectorAll('.magpie-quote').forEach(function(el){applyProtectedFont(el,quote);});
   }
 }
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
 function setHtml(h){
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
+  typography=null;
   const r = document.createRange();
   const first = ed.firstChild || ed;
   r.setStart(first, 0); r.collapse(true);

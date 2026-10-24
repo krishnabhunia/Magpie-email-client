@@ -63,6 +63,20 @@ internal static partial class Program
             Script(EditorPage.TypographyScript(new TypographySettings(), false));
             Assert(Script("getComputedStyle(ed.querySelector('.magpie-signature b')).fontWeight") == "\"700\""
                 && Script("getComputedStyle(ed.querySelector('.magpie-quote b')).fontWeight") == "\"700\"", "Reply defaults preserve existing rich signature and quote emphasis");
+            Script("setHtml('<p style=\"font-weight:700\">Typed bold opening</p><div class=\"magpie-signature\"><span style=\"font-family:Georgia;font-size:24px;font-weight:700\">Custom signature</span></div><div class=\"magpie-quote\"><span style=\"font-family:Tahoma;font-size:11px\">Custom quote</span></div>')");
+            Script(EditorPage.TypographyScript(new TypographySettings(), false));
+            var changed = new TypographySettings();
+            changed.Styles["signature"] = new TextStyle { Family = "Arial", Size = 20 };
+            changed.Styles["composeQuote"] = new TextStyle { Family = "Arial", Size = 21 };
+            Script(EditorPage.TypographyScript(changed, false));
+            Assert(Script("getComputedStyle(ed.querySelector('.magpie-signature span')).fontSize") == "\"20px\""
+                && Script("getComputedStyle(ed.querySelector('.magpie-quote span')).fontSize") == "\"21px\"", "Open composer applies independent protected-role overrides");
+            Script(EditorPage.TypographyScript(new TypographySettings(), false));
+            Assert(Script("getComputedStyle(ed.querySelector('.magpie-signature span')).fontSize") == "\"24px\""
+                && Script("getComputedStyle(ed.querySelector('.magpie-quote span')).fontSize") == "\"11px\"", "Reset restores original rich signature and quote fonts in the open editor");
+            Script("ed.firstElementChild.style.fontWeight='700'");
+            Script(EditorPage.TypographyScript(new TypographySettings(), false));
+            Assert(Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Settings refresh preserves newly typed bold formatting");
         }
         finally { view.Dispose(); window.Close(); }
     }
