@@ -455,6 +455,36 @@ public class IntegrationTests
         Assert.Equal("", pc3.AccountsCopy.Problem);
         Assert.True(pc3.Config.AccountsCopy.Enabled);
         Assert.Equal(2, AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.Accounts);
+
+        // A spare copy a move left in a mailbox that held an old "moved" note: that note comes back in its place.
+        async Task<int> CopiesIn(string user)
+        {
+            using var c = await Raw(user);
+            var f = await CopyMailbox.FindFolderAsync(c, CancellationToken.None);
+            if (f == null) return 0;
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+        await pc1.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
+        using (var c = await Raw(workUser)) { if (await CopyMailbox.FindFolderAsync(c, CancellationToken.None) is { } f) await CopyMailbox.DeleteAsync(c, CancellationToken.None); await c.DisconnectAsync(true); }
+        var pointerNote = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddHours(-1), FromPc = "OLD-PC", MovedTo = "elsewhere@test.local" }, "another sync password");
+        var spareCopy = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = pc1.AccountsCopy.PcName, Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        using (var c = await Raw(workUser)) { await c.GetFolder(c.PersonalNamespaces[0]).CreateAsync(AccountsCopy.FolderName, true); await c.DisconnectAsync(true); }
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, pointerNote, AccountsCopy.Peek(pointerNote)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true, Restore = Convert.ToBase64String(pointerNote) });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
+        Assert.Equal(1, await CopiesIn(workUser));
+        // When the old note already came back on top, only the spare copy goes.
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, pointerNote, AccountsCopy.Peek(pointerNote)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.Equal(2, await CopiesIn(workUser));   // the two notes stay, the spare went
+        Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
     }
 
     [Fact]

@@ -92,6 +92,9 @@ public sealed class SpareCopy
     public string Old { get; set; } = "";
     /// <summary>Known to be unused (the "moved" note never got to the old home): it goes on its time alone.</summary>
     public bool Unused { get; set; }
+    /// <summary>The note that mailbox held before (a small locked "moved" note other PCs may still follow, base64): put back
+    /// in place of the spare. Empty = nothing (the folder goes).</summary>
+    public string Restore { get; set; } = "";
 }
 
 public sealed class CopyStamp

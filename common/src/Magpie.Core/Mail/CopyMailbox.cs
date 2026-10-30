@@ -176,6 +176,25 @@ public static class CopyMailbox
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
+    /// <summary>Removes only the copy emails written at <paramref name="updated"/> (their time inside), wherever they are in
+    /// the folder; the rest stay.</summary>
+    public static async Task RemoveCopyAsync(ImapClient client, DateTimeOffset updated, CancellationToken ct)
+    {
+        var folder = await FindFolderAsync(client, ct);
+        if (folder == null) return;
+        await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+        try
+        {
+            var mine = new List<CopyEmail>();
+            foreach (var copy in await CopiesAsync(client, folder, ct))
+                if (await FileOfAsync(folder, copy, ct) is { } file && AccountsCopy.Peek(file)?.Updated == updated) mine.Add(copy);
+            if (mine.Count == 0) return;
+            var ids = mine.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
+            await RemoveAsync(client, folder, mine, (id, _) => ids.Contains(id), ct);
+        }
+        finally { try { await folder.CloseAsync(false, ct); } catch { } }
+    }
+
     /// <summary>Every copy email in the folder goes, then the folder itself (when nothing else is in it).</summary>
     public static async Task DeleteAsync(ImapClient client, CancellationToken ct)
     {

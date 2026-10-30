@@ -66,8 +66,7 @@ public static class AccountsCopyUi
         {
             // The copy lives in it: removing it is done in Settings, which asks where the copy goes.
             Ui.Error("Removed on another PC", $"{account.Email} holds the accounts copy on this PC. To remove it here too, use Settings → Accounts → Remove: Magpie then asks where the copy goes.", ShowMain());
-            Asked.Remove(account.Email);
-            return;
+            return;   // answered for this session (not asked again at every check)
         }
         try
         {

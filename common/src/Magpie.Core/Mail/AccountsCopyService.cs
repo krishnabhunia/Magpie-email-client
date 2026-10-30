@@ -160,9 +160,13 @@ public sealed class AccountsCopyService
             using var client = await _e.Connector.OpenImapAsync(at!, ct);
             if (await CopyMailbox.ReadAsync(client, ct) is { } file && AccountsCopy.Peek(file)?.Updated == spare.Updated)
             {
-                await CopyMailbox.DeleteAsync(client, ct);
-                Log.Info("accounts copy: spare copy removed from " + spare.At);
+                // What the mailbox held before (an old "moved" note) comes back in its place; else the folder goes.
+                if (spare.Restore.Length > 0) await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct);
+                else await CopyMailbox.DeleteAsync(client, ct);
             }
+            // No longer the newest (e.g. a take-back put the old note back but couldn't clear it): only that one goes.
+            else await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct);
+            Log.Info("accounts copy: spare copy removed from " + spare.At);
             try { await client.DisconnectAsync(true, ct); } catch { }
         }
         else Log.Info($"accounts copy: the copy in {spare.At} is in use; it stays");
@@ -192,10 +196,13 @@ public sealed class AccountsCopyService
     {
         var key = AccountsCopy.Key(email);
         var o = Options;
-        if (!o.CleanUp.Contains(key) && o.Spares.All(x => x.At != key && x.Old != key)) return true;
         await _busy.WaitAsync(ct);
         try
         {
+            // Read on the UI thread, where these lists change.
+            var needed = false;
+            await RunOnUi(() => needed = o.CleanUp.Contains(key) || o.Spares.Any(x => x.At == key || x.Old == key));
+            if (!needed) return true;
             var done = true;
             if (o.CleanUp.Contains(key))
                 try { await CleanOneAsync(key, ct); }
@@ -221,9 +228,11 @@ public sealed class AccountsCopyService
         try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
     }
 
-    private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account? old, bool unused) => RunOnUi(() =>
+    private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account? old, bool unused, byte[]? before) => RunOnUi(() =>
     {
-        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = old != null ? AccountsCopy.Key(old.Email) : "", Unused = unused });
+        // A small note held there before is kept to put back (a full copy there before was a spare itself: it goes).
+        var restore = before != null && before.Length <= 64 * 1024 && AccountsCopy.Peek(before) is { IsNote: true } ? Convert.ToBase64String(before) : "";
+        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = old != null ? AccountsCopy.Key(old.Email) : "", Unused = unused, Restore = restore });
         _e.Settings.Save(notify: false);
     });
 
@@ -638,7 +647,7 @@ public sealed class AccountsCopyService
                     catch (Exception undoEx)
                     {
                         Log.Warn("accounts copy: couldn't check the new home after a failed write: " + undoEx.Message);
-                        await NoteSpareAsync(to, built!, old, unused: true);
+                        await NoteSpareAsync(to, built!, old, unused: true, before);
                     }
                 if (ex is OperationCanceledException && ct.IsCancellationRequested) throw;
                 throw new InvalidOperationException(Connector.Friendly(ex) + $" The copy couldn't be written to {to.Email}; nothing has moved.", ex);
@@ -677,7 +686,7 @@ public sealed class AccountsCopyService
                     {
                         // Can't tell: both copies stay (nothing is deleted on a guess). The one written to the new home goes
                         // later only once the old home is seen not to point at it.
-                        await NoteSpareAsync(to, built!, old, unused: false);
+                        await NoteSpareAsync(to, built!, old, unused: false, before);
                         throw new InvalidOperationException(Connector.Friendly(ex) + $" Magpie couldn't check {old.Email} afterwards, so the copy stays there; the one just written to {to.Email} goes at a later check if nothing uses it (keep {old.Email} in Magpie until then).", ex);
                     }
                     else
@@ -686,7 +695,7 @@ public sealed class AccountsCopyService
                         catch (Exception undoEx)
                         {
                             Log.Warn("accounts copy: couldn't take back the copy written to " + to.Email + ": " + undoEx.Message);
-                            await NoteSpareAsync(to, built!, old, unused: true);   // the note isn't there: nothing points at it
+                            await NoteSpareAsync(to, built!, old, unused: true, before);   // the note isn't there: nothing points at it
                             throw new InvalidOperationException(Connector.Friendly(ex) + $" A spare copy is left in {to.Email}'s mailbox for now; Magpie removes it at a later check.", ex);
                         }
                         throw;
