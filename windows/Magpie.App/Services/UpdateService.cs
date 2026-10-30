@@ -189,7 +189,8 @@ public sealed partial class UpdateService : ObservableObject
         {
             case UpdateState.Checking: return;
             case UpdateState.Ready: await RestartAsync(); return;
-            case UpdateState.Available or UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
+            case UpdateState.Available: await OpenVersionHistory(); return;
+            case UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
             default:
                 await CheckNowAsync();
                 OpenFlyout();
