@@ -52,6 +52,9 @@ public sealed class AccountsCopySettings
     /// <summary>Spare copies a move that didn't finish may have left in the new home: one goes only when it is still the
     /// newest there and the old home is seen to hold no "moved" note pointing at it (no PC uses it).</summary>
     public List<SpareCopy> Spares { get; set; } = new();
+    /// <summary>Shown in Settings → Accounts until dismissed: a move that didn't finish may have left two copies in use
+    /// (plain words, naming the mailboxes). Empty = none.</summary>
+    public string TwoCopies { get; set; } = "";
     /// <summary>The time of the "stopped" note this PC wrote (its own stop, also when it didn't finish).</summary>
     public DateTimeOffset? MyStopNote { get; set; }
 
@@ -69,6 +72,7 @@ public sealed class AccountsCopySettings
         CleanUp = (CleanUp ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         Spares = (Spares ?? new()).Where(x => x != null && !string.IsNullOrWhiteSpace(x.At)).ToList();
         foreach (var x in Spares) { x.At = x.At.Trim().ToLowerInvariant(); x.Old = (x.Old ?? "").Trim().ToLowerInvariant(); x.Restore ??= ""; }
+        TwoCopies ??= "";
         Adopt = (Adopt ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;

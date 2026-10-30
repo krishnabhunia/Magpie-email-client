@@ -86,9 +86,17 @@ public static class CopyMailbox
     /// plus the base64 of the attachment).</summary>
     private const long MaxEmailBytes = AccountsCopy.MaxBytes * 2L;
 
+    /// <summary>The newest copy in the mailbox isn't the one the round read (another PC wrote meanwhile): nothing was written.</summary>
+    public sealed class ChangedMeanwhileException : Exception
+    {
+        public ChangedMeanwhileException() : base("The copy changed on another PC meanwhile.") { }
+    }
+
     /// <summary>Writes the copy: the new email first, then the ones that were there before go (never without a copy).
-    /// <paramref name="appended"/> runs as soon as the new email is in the mailbox (before the old ones go).</summary>
-    public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct, Action? appended = null)
+    /// <paramref name="appended"/> runs as soon as the new email is in the mailbox (before the old ones go).
+    /// <paramref name="stillSame"/> (given the newest copy's file there now, or null) says whether it is still the one
+    /// the round read; when not, nothing is written (<see cref="ChangedMeanwhileException"/>).</summary>
+    public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct, Action? appended = null, Func<byte[]?, bool>? stillSame = null)
     {
         var folder = await EnsureFolderAsync(client, ct);
         var summary = AccountsCopy.Peek(file) ?? new AccountsCopy.Summary("", 0, DateTimeOffset.Now);
@@ -96,6 +104,12 @@ public static class CopyMailbox
         try
         {
             var before = await CopiesAsync(client, folder, ct);
+            if (stillSame != null)
+            {
+                byte[]? newest = null;
+                foreach (var c in before.AsEnumerable().Reverse()) if ((newest = await FileOfAsync(folder, c, ct)) != null) break;
+                if (!stillSame(newest)) throw new ChangedMeanwhileException();
+            }
             await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
             if (AnswerLostForTests?.Invoke(address) is { } lost) throw lost;   // tests: the server kept it, its answer was lost
             appended?.Invoke();

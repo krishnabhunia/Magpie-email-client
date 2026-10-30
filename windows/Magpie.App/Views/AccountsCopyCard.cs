@@ -125,6 +125,16 @@ public sealed class AccountsCopyCard : Border
         else status.Text = "Making the copy… (it's written within a minute)";
         _root.Children.Add(status);
         if (svc.HeldBack) _root.Children.Add(Caption("Changes from your other PCs come in when this Settings window is closed."));
+        if (o.TwoCopies.Length > 0)
+        {
+            var warn = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+            var ok = new Button { Content = "OK", Style = S("Button.Link"), Padding = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top };
+            ok.Click += (_, _) => { o.TwoCopies = ""; E.Settings.Save(notify: false); Build(); };
+            DockPanel.SetDock(ok, Dock.Right);
+            warn.Children.Add(ok);
+            warn.Children.Add(new TextBlock { Text = "⚠ " + o.TwoCopies, TextWrapping = TextWrapping.Wrap, FontSize = 13, Foreground = (Brush)Application.Current.FindResource("Brush.Warning") });
+            _root.Children.Add(warn);
+        }
         _root.Children.Add(Caption($"Home account: {o.HomeEmail} · this PC is called {svc.PcName} in the copy."));
 
         var settings = new CheckBox { Content = "Settings come along (rules, signatures, quick replies, templates, tags, Gatekeeper lists, look)", IsChecked = o.IncludeSettings, Margin = new Thickness(0, 2, 0, 2) };

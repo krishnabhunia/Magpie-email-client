@@ -170,8 +170,20 @@ public sealed class AccountsCopyService
                 // PC wrote there since): only that one email goes. Whatever is on top now may be in use, so it is never
                 // written over or deleted here.
                 if (await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct) > 0) Log.Info("accounts copy: spare copy removed from " + spare.At);
-                if (spare.Restore.Length > 0 && await CopyMailbox.ReadAsync(client, ct) is { } top && AccountsCopy.Peek(top) is not { IsNote: true })
-                    Log.Warn($"accounts copy: {spare.At} now holds a copy written after a move that didn't finish; left as it is");
+                // A full copy there now that isn't another spare of this PC: some PC uses it, maybe apart from the one in the
+                // home. Never written over; the user is told.
+                if (await CopyMailbox.ReadAsync(client, ct) is { } top && AccountsCopy.Peek(top) is { IsNote: false } t
+                    && !o.Spares.Any(x => x != spare && x.At == spare.At && x.Updated == t.Updated))
+                {
+                    Log.Warn($"accounts copy: {spare.At} holds a copy written after a move that didn't finish; left as it is");
+                    var where = spare.At;
+                    await RunOnUi(() =>
+                    {
+                        o.TwoCopies = $"There may be two copies of your accounts now: a move to {where} didn't finish, and Magpie on another PC has been using the copy there since. Choose the same home account on every PC (Settings → Accounts) so they come together again.";
+                        _e.Settings.Save(notify: false);
+                    });
+                    StatusChanged?.Invoke();
+                }
             }
             try { await client.DisconnectAsync(true, ct); } catch { }
         }
@@ -275,6 +287,7 @@ public sealed class AccountsCopyService
 
             using var client = await _e.Connector.OpenImapAsync(home, ct);
             var file = await CopyMailbox.ReadAsync(client, ct);
+            var readTime = file != null ? AccountsCopy.Peek(file)?.Updated : null;   // what this round read (checked again before writing)
             AccountsCopy.Contents? copy = null;
             // The "stopped" note found when the copy was turned on here again is written over, never followed (exactly that
             // one: any other note is another PC's).
@@ -334,7 +347,9 @@ public sealed class AccountsCopyService
             HeldBack = copy != null && !await TakeAsync(copy);
 
             var now = DateTimeOffset.Now;
-            var write = newPassword != null;
+            // A PC that just turned the copy on (or joined one) writes once at once, so the newest copy there is never one
+            // another PC could take for unused (a spare) while this PC uses it.
+            var write = newPassword != null || Options.CopyUpdated == null;
             await RunOnUi(() => write |= AccountsCopy.NeedsWrite(_e.Config, _e.Vault, copy, PcName, now));
             if (write)
             {
@@ -344,7 +359,18 @@ public sealed class AccountsCopyService
                 var locked = await Task.Run(() => AccountsCopy.Lock(built!, lockWith), ct);
                 // The new password is the sync password as soon as the copy locked with it is in the mailbox (even if
                 // removing the old copies fails after that).
-                await CopyMailbox.WriteAsync(client, home.Email, locked, ct, appended: () => { if (newPassword != null) Promote(newPassword); });
+                try
+                {
+                    await CopyMailbox.WriteAsync(client, home.Email, locked, ct, appended: () => { if (newPassword != null) Promote(newPassword); },
+                        stillSame: f => (f != null ? AccountsCopy.Peek(f)?.Updated : null) == readTime);
+                }
+                catch (CopyMailbox.ChangedMeanwhileException)
+                {
+                    // Another PC wrote (or left a note) while this round worked: look again before writing anything.
+                    Log.Info("accounts copy: changed on another PC meanwhile; looking again");
+                    Poke();
+                    return;
+                }
                 if (newPassword != null) Log.Info("accounts copy: locked with the new sync password");
                 copy = built;
                 file = locked;
