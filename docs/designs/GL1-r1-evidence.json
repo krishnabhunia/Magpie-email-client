@@ -1,0 +1,58 @@
+{
+  "revision": "GL1-r1",
+  "state": "design_prepared_awaiting_user_approval",
+  "date_india": "2026-10-30",
+  "request_key": "magpie-gmail-label-section-20261030-01a16e5a",
+  "queue": "Q84",
+  "issue": 112,
+  "issue_url": "https://github.com/krishnabhunia/Magpie-email-client/issues/112",
+  "base_commit": "8290cad731061da59cbb4344a7f090b3273750e2",
+  "base_version": "10.0.0",
+  "proposed_version": "10.1.0 (provisional; Changed existing Windows label navigation; automation recalculates after approval)",
+  "branch": "chat-gpt-gmail-label-collapse",
+  "artifact": "docs/designs/GL1-r1-gmail-label-section.html",
+  "artifact_sha256": "156f5c56cb6abb50622de76fcb340643c9e521e948ec224f6d1c6e90c6000c88",
+  "selected_scope": "Only the whole Labels section per Gmail account; individual nested-label changes excluded",
+  "scope_selection_source": "Trusted current-chat answer to whole-section versus nested-branches question",
+  "approval": null,
+  "implementation_pr": null,
+  "app_source_changed": false,
+  "app_dependency_installation": false,
+  "app_builds_or_tests_run": false,
+  "version_files_changed": false,
+  "html_preview_checks_passed": 33,
+  "html_preview_checks": "GL1-r1-preview-checks.json",
+  "preview_widths": [
+    1440,
+    1024,
+    820
+  ],
+  "browser_script_errors": 0,
+  "browser_console_errors": 0,
+  "browser_console_warnings": 0,
+  "external_requests": 0,
+  "screenshots": [
+    "GL1-r1-light-expanded.png",
+    "GL1-r1-light-collapsed.png",
+    "GL1-r1-dark-collapsed.png",
+    "GL1-r1-overview.png"
+  ],
+  "sample_data": "Fictional Primary and optional Example account only; no real mailbox accessed",
+  "prototype_storage": "Demo expansion booleans only, in this browser tab session storage",
+  "worktree_note": "Managed worktree creation rejected a nested sourceRoot that is not a registered workspace folder; isolated git worktree created from the inspected Magpie checkout instead.",
+  "not_verified": [
+    "Native WPF behavior and accessibility/DPI",
+    "Real Gmail label classification, counts and sync",
+    "Actual app settings migration/persistence/backup",
+    "Application regressions and supported-platform CI"
+  ],
+  "unavailable_policy_files": [
+    "D:/Projects/Skills/Github Skills/software app.md",
+    "D:/Projects/Skills/Github Skills/versions_management.md",
+    "D:/Projects/Skills/Github Skills/workflows.md"
+  ],
+  "original_unapproved_allocation": "Q83",
+  "parallel_design_issue": 110,
+  "parallel_design_pr": 111,
+  "html_preview_checks_note": "33 interaction checks passed before queue-label renumbering only; interaction code unchanged. Screenshots refreshed for Q84."
+}
