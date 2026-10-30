@@ -51,13 +51,13 @@ public partial class AddAccountViewModel : ObservableObject
     public event Action? Done;
     /// <summary>Design SY1·3: after signing in, the window looks for an accounts copy in the mailbox and, when the user
     /// opens it, adds this account with the others (true). False = add only this account as usual.</summary>
-    public Func<Account, string?, OAuthTokens?, Task<bool>>? OfferCopy { get; set; }
+    public Func<Account, string?, OAuthTokens?, CancellationToken, Task<bool>>? OfferCopy { get; set; }
 
     private async Task<bool> TryCopyAsync(Account a, string? password, OAuthTokens? tokens)
     {
         if (IsReauth || OfferCopy == null) return false;
         Status = "Looking for your other accounts…";
-        return await OfferCopy(a, password, tokens);
+        return await OfferCopy(a, password, tokens, _cts?.Token ?? CancellationToken.None);
     }
 
     public List<Choice<AccountChoice>> Choices { get; } = new()

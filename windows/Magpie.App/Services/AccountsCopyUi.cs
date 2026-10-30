@@ -21,6 +21,10 @@ public static class AccountsCopyUi
         var svc = e.AccountsCopy;
         svc.AppVersion = appVersion;
         svc.RunOnUi = a => Ui.Dispatcher.InvokeAsync(a).Task;
+        // An open Settings window would write its older values back over what the copy brings: wait until it closes.
+        svc.Paused = () => Ui.Dispatcher.Invoke(() => Application.Current.Windows.OfType<SettingsWindow>().Any());
+        svc.StoppedElsewhere += pc => Ui.Post(() =>
+            AppServices.Tray?.ShowBalloon("Accounts copy stopped", $"Magpie on {(pc.Length > 0 ? pc : "another PC")} stopped the accounts copy. Your accounts here stay as they are.", () => ShowMain()));
         svc.AccountsAdded += added => Ui.Post(() =>
         {
             AddingAccountsWindow.ShowFor(added);
@@ -58,7 +62,7 @@ public static class AccountsCopyUi
     public static void AskPassword(Window? owner)
     {
         var p = PasswordDialog.Ask(owner, "Sync password",
-            "Type the sync password of your accounts copy (it was chosen or changed on one of your PCs).", confirm: false, 1, "OK");
+            "Type the sync password of your accounts copy (it was chosen or changed on one of your PCs).", confirm: false, AccountsCopy.MinPasswordLength, "OK");
         if (p != null) { _passwordAsked = false; AppServices.Engine.AccountsCopy.SetPassword(p); }
     }
 
@@ -67,14 +71,16 @@ public static class AccountsCopyUi
     /// a copy. When there is one and the user opens it, the account and the ticked ones are added and true is returned;
     /// false = add only this account as usual (no copy, "Not now", or the copy couldn't be read).
     /// </summary>
-    public static async Task<bool> OfferAsync(Window? owner, Account account, string? password, OAuthTokens? tokens)
+    public static async Task<bool> OfferAsync(Window? owner, Account account, string? password, OAuthTokens? tokens, CancellationToken ct)
     {
         var e = AppServices.Engine;
         if (e.Config.AccountsCopy.Enabled) return false;   // this PC keeps its own copy already
         byte[]? file;
-        try { file = await e.AccountsCopy.FindAsync(account, password, CancellationToken.None); }
+        try { file = await e.AccountsCopy.FindAsync(account, password, ct); }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex) { Log.Warn("accounts copy: looking for a copy failed: " + ex.Message); return false; }
-        if (file == null) return false;
+        ct.ThrowIfCancellationRequested();   // the window was closed meanwhile: add nothing
+        if (file == null || AccountsCopy.Peek(file) is not { Accounts: > 0 }) return false;   // none, or only a "stopped" / "moved" note
         var choice = AccountsFoundDialog.Ask(owner, file, account.Email, e.Accounts.Select(a => a.Email).ToList());
         if (choice == null) return false;
         e.AddAccount(account, password, tokens);

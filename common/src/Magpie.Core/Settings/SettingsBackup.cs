@@ -118,6 +118,8 @@ public static class SettingsBackup
         var kdf = n["kdf"]!;
         var salt = Convert.FromBase64String(kdf["salt"]!.GetValue<string>());
         var iterations = kdf["iterations"]!.GetValue<int>();
+        // A file from somewhere else (the accounts copy lives in a mailbox) mustn't hang Magpie for hours or skip the work.
+        if (iterations < 100_000 || iterations > 5_000_000) throw new InvalidDataException(notThisFormat);
         var nonce = Convert.FromBase64String(n["nonce"]!.GetValue<string>());
         var tag = Convert.FromBase64String(n["tag"]!.GetValue<string>());
         var cipher = Convert.FromBase64String(n["data"]!.GetValue<string>());

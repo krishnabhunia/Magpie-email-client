@@ -23,8 +23,11 @@ public static class AccountsCopy
     public const string FolderName = "Magpie Sync";
     public const string Header = "X-Magpie-Accounts-Copy";
     public const string FileName = "accounts.magpie-copy";
+    public const string Subject = "Magpie accounts copy: please don't delete";
     /// <summary>The sync password, kept for this Windows user (DPAPI) so the copy can be updated without asking.</summary>
     public const string VaultPassword = "sync:password";
+    /// <summary>A new sync password chosen here, used for the next write once the copy has been opened with the old one.</summary>
+    public const string VaultNewPassword = "sync:password-new";
     internal const string SettingsStamp = "\u0001settings";
     internal const string AiStamp = "\u0001ai";
 
@@ -41,10 +44,16 @@ public static class AccountsCopy
         public SharedSettings? Settings { get; set; }
         public SharedAi? Ai { get; set; }
         public SignInApps Apps { get; set; } = new();
+        /// <summary>What comes along, for every PC (the newest choice wins): settings, AI connections and keys.</summary>
+        public bool ShareSettings { get; set; } = true;
+        public bool ShareAi { get; set; }
+        public DateTimeOffset ChoicesChanged { get; set; }
         /// <summary>PCs that used the copy (name → last time).</summary>
         public Dictionary<string, DateTimeOffset> UsedBy { get; set; } = new();
         /// <summary>The home account was changed on some PC: the copy now lives in this mailbox (a last note left in the old one).</summary>
         public string MovedTo { get; set; } = "";
+        /// <summary>"Stop and delete the copy" on <see cref="FromPc"/>: the other PCs stop too (their accounts stay).</summary>
+        public bool Stopped { get; set; }
     }
 
     public sealed class CopiedAccount
@@ -52,6 +61,8 @@ public static class AccountsCopy
         public Account Account { get; set; } = new();
         public string Password { get; set; } = "";
         public string Refresh { get; set; } = "";
+        /// <summary>The sign-in app (client ID) that issued <see cref="Refresh"/>; a refresh token only works with that app.</summary>
+        public string Client { get; set; } = "";
         public DateTimeOffset? SignedIn { get; set; }
         public string Hash { get; set; } = "";
         public DateTimeOffset Changed { get; set; }
@@ -65,7 +76,7 @@ public static class AccountsCopy
     }
 
     /// <summary>The settings that come along (design SY1·1): rules, signatures (they are on the accounts), quick replies,
-    /// templates, tags, Gatekeeper lists, look, and the smart-inbox choices.</summary>
+    /// templates, tags, Gatekeeper lists, look, and the smart-inbox choices. Rules name their account by email here.</summary>
     public sealed class SharedSettings
     {
         public List<Mail.MailRule> Rules { get; set; } = new();
@@ -89,7 +100,8 @@ public static class AccountsCopy
         public DateTimeOffset Changed { get; set; }
     }
 
-    /// <summary>The sign-in apps the copied sign-ins belong to: a refresh token only works with the app that issued it.</summary>
+    /// <summary>The sign-in apps set in Settings on the PC that wrote the copy (never taken over by itself: tokens already
+    /// on a PC belong to its own app).</summary>
     public sealed class SignInApps
     {
         public string GoogleClientId { get; set; } = "";
@@ -116,8 +128,10 @@ public static class AccountsCopy
         public List<(Account Account, RemovedAccount Removed)> RemovedElsewhere { get; } = new();
         public bool SettingsNewer { get; set; }
         public bool AiNewer { get; set; }
-        public bool AdoptApps { get; set; }
-        public bool Any => Add.Count + Update.Count + RemovedElsewhere.Count > 0 || SettingsNewer || AiNewer || AdoptApps;
+        /// <summary>Another PC chose more recently what comes along.</summary>
+        public bool ChoicesNewer { get; set; }
+        /// <summary>Applying the plan changes something here (so settings are saved and the window told).</summary>
+        public bool Changes => Add.Count + Update.Count > 0 || SettingsNewer || AiNewer || ChoicesNewer;
     }
 
     public static string Key(string email) => (email ?? "").Trim().ToLowerInvariant();
@@ -126,13 +140,14 @@ public static class AccountsCopy
     private static T Copy<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, Json), Json)!;
     private static string Sha(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    /// <summary>An account's fingerprint: its settings (not its id on this PC), password, and when it last signed in again.
-    /// The refresh token itself is left out: Microsoft hands out a new one every hour.</summary>
-    internal static string AccountHash(Account a, string? password, DateTimeOffset? signedIn)
+    /// <summary>An account's fingerprint: its settings (not its id on this PC) and when it last signed in again or got a
+    /// new password (MailEngine.UpdateAccount notes that). Neither the password nor the refresh token is in it:
+    /// settings.json keeps the fingerprint unlocked, and Microsoft hands out a new refresh token every hour.</summary>
+    internal static string AccountHash(Account a, DateTimeOffset? signedIn)
     {
         var c = a.Clone();
         c.Id = "";
-        return Sha(JsonSerializer.Serialize(c, Json) + "\n" + (password ?? "") + "\n" + (signedIn?.ToUnixTimeMilliseconds() ?? 0));
+        return Sha(JsonSerializer.Serialize(c, Json) + "\n" + (signedIn?.ToUnixTimeMilliseconds() ?? 0));
     }
 
     private static string StampFree<T>(T value, Action<T> clear) { var c = Copy(value); clear(c); return Sha(JsonSerializer.Serialize(c, Json)); }
@@ -144,6 +159,9 @@ public static class AccountsCopy
             Rules = s.Rules, QuickReplies = s.QuickReplies, Templates = s.Templates, Tags = s.Tags, Gatekeeper = s.Gatekeeper,
             Appearance = s.Appearance, Typography = s.Typography, SenderCategories = new Dictionary<string, Category>(s.SenderCategories),
         });
+        // A rule for one account names it by email in the copy: the account has another id on every PC.
+        var emails = s.Accounts.GroupBy(a => a.Id).ToDictionary(g => g.Key, g => Key(g.First().Email));
+        foreach (var r in shared.Rules) if (r.AccountId.Length > 0 && emails.TryGetValue(r.AccountId, out var e)) r.AccountId = "@" + e;
         shared.Hash = StampFree(shared, c => { c.Hash = ""; c.Changed = default; });
         return shared;
     }
@@ -151,6 +169,9 @@ public static class AccountsCopy
     public static void ApplyShared(AppSettings s, SharedSettings shared)
     {
         var c = Copy(shared);
+        var ids = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First().Id);
+        foreach (var r in c.Rules)
+            if (r.AccountId.StartsWith('@')) r.AccountId = ids.TryGetValue(r.AccountId[1..], out var id) ? id : r.AccountId;
         s.Rules = c.Rules; s.QuickReplies = c.QuickReplies; s.Templates = c.Templates; s.Tags = c.Tags; s.Gatekeeper = c.Gatekeeper;
         s.Appearance = c.Appearance; s.Typography = c.Typography;
         s.SenderCategories = new Dictionary<string, Category>(c.SenderCategories, StringComparer.OrdinalIgnoreCase);
@@ -173,21 +194,24 @@ public static class AccountsCopy
 
     private static DateTimeOffset? SignedIn(AccountsCopySettings o, string key) => o.SignedIn.TryGetValue(key, out var t) ? t : null;
 
-    private static string HashOf(Account a, SecretVault v, AccountsCopySettings o) =>
-        AccountHash(a, v.Get(SecretVault.PasswordKey(a.Id)), SignedIn(o, Key(a.Email)));
+    private static string HashOf(Account a, AccountsCopySettings o) => AccountHash(a, SignedIn(o, Key(a.Email)));
 
-    /// <summary>Notes on this PC what changed since the last look (fingerprints and times). True when anything did.</summary>
+    private static CopyStamp Fresh(string hash, DateTimeOffset now) => new() { Hash = hash, Local = hash, Changed = now };
+
+    /// <summary>Notes what changed on this PC since the last look (fingerprints and times). True when anything did.
+    /// A fingerprint taken over from the copy counts as unchanged while this PC's own one stays the same: another Magpie
+    /// version may write an account a little differently, and that must not make two PCs overwrite each other.</summary>
     public static bool Track(AppSettings s, SecretVault vault, DateTimeOffset now)
     {
         var o = s.AccountsCopy;
         var changed = false;
         void Stamp(string key, string hash)
         {
-            if (o.Stamps.TryGetValue(key, out var st) && st.Hash == hash) return;
-            o.Stamps[key] = new CopyStamp { Hash = hash, Changed = now };
+            if (o.Stamps.TryGetValue(key, out var st) && (st.Local.Length > 0 ? st.Local == hash : st.Hash == hash)) return;
+            o.Stamps[key] = Fresh(hash, now);
             changed = true;
         }
-        foreach (var a in s.Accounts) Stamp(Key(a.Email), HashOf(a, vault, o));
+        foreach (var a in s.Accounts) Stamp(Key(a.Email), HashOf(a, o));
         // Settings count as changed here only once this PC has started them (StartHere) or taken them from the copy:
         // a new PC's untouched settings must not win over the ones in the copy.
         if (o.IncludeSettings && o.Stamps.ContainsKey(SettingsStamp)) Stamp(SettingsStamp, SharedOf(s).Hash);
@@ -195,14 +219,33 @@ public static class AccountsCopy
         return changed;
     }
 
-    /// <summary>The copy was turned on here (Settings → Accounts): this PC's settings and AI block go into it.</summary>
+    /// <summary>The copy was turned on here and there was none yet: this PC's settings, AI block and choices go into it.</summary>
     public static void StartHere(AppSettings s, SecretVault vault, DateTimeOffset now)
     {
         var o = s.AccountsCopy;
-        if (o.IncludeSettings && !o.Stamps.ContainsKey(SettingsStamp)) o.Stamps[SettingsStamp] = new CopyStamp { Hash = SharedOf(s).Hash, Changed = now };
-        if (o.IncludeAiKeys && !o.Stamps.ContainsKey(AiStamp)) o.Stamps[AiStamp] = new CopyStamp { Hash = AiOf(s, vault).Hash, Changed = now };
+        if (o.IncludeSettings && !o.Stamps.ContainsKey(SettingsStamp)) o.Stamps[SettingsStamp] = Fresh(SharedOf(s).Hash, now);
+        if (o.IncludeAiKeys && !o.Stamps.ContainsKey(AiStamp)) o.Stamps[AiStamp] = Fresh(AiOf(s, vault).Hash, now);
+        o.ChoicesChanged = now;
         Track(s, vault, now);
     }
+
+    /// <summary>The copy was turned on here and the home mailbox already has one (another PC made it): join it. Accounts
+    /// both have keep this PC's version until either side changes them; the copy's settings and choices win.</summary>
+    public static void Join(AppSettings s, SecretVault vault, Contents copy, DateTimeOffset now)
+    {
+        var o = s.AccountsCopy;
+        o.Stamps.Remove(SettingsStamp);
+        o.Stamps.Remove(AiStamp);
+        o.ChoicesChanged = default;
+        var inCopy = copy.Accounts.ToDictionary(a => a.Email);
+        foreach (var a in s.Accounts)
+            if (inCopy.TryGetValue(Key(a.Email), out var c))
+                o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = HashOf(a, o), Changed = c.Changed };
+        Track(s, vault, now);
+    }
+
+    /// <summary>This PC's sign-in app for an account kind (Settings, else the built-in one); set by MailEngine.</summary>
+    public static Func<AccountKind, string> ClientFor { get; set; } = _ => "";
 
     /// <summary>The copy to write: the one read before, with this PC's newer changes and removals laid over it. Accounts
     /// only another PC has stay in it (this PC may have chosen not to add them).</summary>
@@ -211,16 +254,29 @@ public static class AccountsCopy
         var o = s.AccountsCopy;
         Track(s, vault, now);
         var c = new Contents { Updated = now, FromPc = pc, AppVersion = appVersion };
+        // What comes along: the newest choice of any PC.
+        if (previous == null || o.ChoicesChanged > previous.ChoicesChanged)
+            (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (o.IncludeSettings, o.IncludeAiKeys, o.ChoicesChanged);
+        else (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (previous.ShareSettings, previous.ShareAi, previous.ChoicesChanged);
+
         var accounts = new Dictionary<string, CopiedAccount>();
         foreach (var x in previous?.Accounts ?? new()) accounts[x.Email] = x;
         foreach (var a in s.Accounts)
         {
             var key = Key(a.Email);
             var stamp = o.Stamps[key];
-            if (accounts.TryGetValue(key, out var old) && old.Changed >= stamp.Changed) continue;
+            var refresh = vault.Get(SecretVault.RefreshKey(a.Id)) ?? "";
+            var client = a.Auth == AuthMethod.OAuth2 ? ClientFor(a.Kind) : "";
+            if (accounts.TryGetValue(key, out var old) && old.Changed >= stamp.Changed)
+            {
+                // Not newer here, but this PC's working sign-in keeps the copy's one fresh (Microsoft tokens expire when
+                // unused), when it is from the same sign-in app and no newer sign-in elsewhere replaced it.
+                if (refresh.Length > 0 && old.Client == client && (old.SignedIn ?? default) <= (SignedIn(o, key) ?? default)) old.Refresh = refresh;
+                continue;
+            }
             accounts[key] = new CopiedAccount
             {
-                Account = Copy(a), Password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "", Refresh = vault.Get(SecretVault.RefreshKey(a.Id)) ?? "",
+                Account = Copy(a), Password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "", Refresh = refresh, Client = client,
                 SignedIn = SignedIn(o, key), Hash = stamp.Hash, Changed = stamp.Changed,
             };
         }
@@ -237,14 +293,15 @@ public static class AccountsCopy
         c.Accounts = accounts.Values.OrderBy(x => x.Email, StringComparer.Ordinal).ToList();
         c.Removed = removed;
 
-        c.Settings = previous?.Settings;
-        if (o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (c.Settings == null || c.Settings.Changed < ss.Changed))
+        c.Settings = c.ShareSettings ? previous?.Settings : null;
+        if (c.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (c.Settings == null || c.Settings.Changed < ss.Changed))
         {
             c.Settings = SharedOf(s);
             c.Settings.Changed = ss.Changed;
         }
-        c.Ai = previous?.Ai;
-        if (o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (c.Ai == null || c.Ai.Changed < ai.Changed))
+        // Unticked (the newest choice of any PC): the AI keys leave the copy.
+        c.Ai = c.ShareAi ? previous?.Ai : null;
+        if (c.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (c.Ai == null || c.Ai.Changed < ai.Changed))
         {
             c.Ai = AiOf(s, vault);
             c.Ai.Changed = ai.Changed;
@@ -263,18 +320,20 @@ public static class AccountsCopy
         if (copy == null) return true;
         var o = s.AccountsCopy;
         Track(s, vault, now);
+        if (o.ChoicesChanged > copy.ChoicesChanged) return true;
         var inCopy = copy.Accounts.ToDictionary(a => a.Email);
         foreach (var a in s.Accounts)
         {
             var key = Key(a.Email);
             var st = o.Stamps[key];
-            if (copy.Removed.TryGetValue(key, out var r) && r.When >= st.Changed) continue;   // waits for the user's answer
+            if (copy.Removed.TryGetValue(key, out var r) && r.When >= st.Changed && !o.RemovedHere.ContainsKey(key)) continue;   // waits for the user's answer
             if (!inCopy.TryGetValue(key, out var c) || (c.Changed < st.Changed && c.Hash != st.Hash)) return true;
         }
         foreach (var (k, when) in o.RemovedHere)
             if (inCopy.ContainsKey(k) || !copy.Removed.TryGetValue(k, out var r) || r.When < when) return true;
-        if (o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (copy.Settings == null || (copy.Settings.Changed < ss.Changed && copy.Settings.Hash != ss.Hash))) return true;
-        if (o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (copy.Ai == null || (copy.Ai.Changed < ai.Changed && copy.Ai.Hash != ai.Hash))) return true;
+        if (copy.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (copy.Settings == null || (copy.Settings.Changed < ss.Changed && copy.Settings.Hash != ss.Hash))) return true;
+        if (copy.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (copy.Ai == null || (copy.Ai.Changed < ai.Changed && copy.Ai.Hash != ai.Hash))) return true;
+        if (!copy.ShareAi && copy.Ai != null) return true;
         if (copy.Apps.IsEmpty && !AppsOf(s).IsEmpty) return true;
         return !copy.UsedBy.TryGetValue(pc, out var seen) || now - seen > TimeSpan.FromDays(1);
     }
@@ -283,26 +342,28 @@ public static class AccountsCopy
     {
         var o = s.AccountsCopy;
         Track(s, vault, now);
-        var plan = new Plan();
+        var plan = new Plan { ChoicesNewer = copy.ChoicesChanged > o.ChoicesChanged };
+        var shareSettings = plan.ChoicesNewer ? copy.ShareSettings : o.IncludeSettings;
+        var shareAi = plan.ChoicesNewer ? copy.ShareAi : o.IncludeAiKeys;
         var local = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First());
         foreach (var c in copy.Accounts)
         {
-            if (local.TryGetValue(c.Email, out _))
+            if (local.ContainsKey(c.Email))
             {
                 var st = o.Stamps[c.Email];
                 if (c.Changed > st.Changed && c.Hash != st.Hash) plan.Update.Add(c);
             }
+            else if (o.RemovedHere.ContainsKey(c.Email)) continue;   // removed here; the copy learns it at the next write
             else if (o.NotHere.Contains(c.Email) || !o.AutoAdd) plan.Available.Add(c);
             else plan.Add.Add(c);
         }
         foreach (var (key, a) in local)
             if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key))
                 plan.RemovedElsewhere.Add((a, r));
-        if (o.IncludeSettings && copy.Settings is { } cs)
+        if (shareSettings && copy.Settings is { } cs)
             plan.SettingsNewer = !o.Stamps.TryGetValue(SettingsStamp, out var ss) || (cs.Changed > ss.Changed && cs.Hash != ss.Hash);
-        if (o.IncludeAiKeys && copy.Ai is { } ca)
+        if (shareAi && copy.Ai is { } ca)
             plan.AiNewer = !o.Stamps.TryGetValue(AiStamp, out var st2) || (ca.Changed > st2.Changed && ca.Hash != st2.Hash);
-        plan.AdoptApps = AppsOf(s).IsEmpty && !copy.Apps.IsEmpty;
         return plan;
     }
 
@@ -311,6 +372,12 @@ public static class AccountsCopy
     public static List<Account> ApplyUpdates(AppSettings s, SecretVault vault, Contents copy, Plan plan)
     {
         var o = s.AccountsCopy;
+        if (plan.ChoicesNewer)
+        {
+            o.IncludeSettings = copy.ShareSettings;
+            o.IncludeAiKeys = copy.ShareAi;
+            o.ChoicesChanged = copy.ChoicesChanged;
+        }
         var changed = new List<Account>();
         foreach (var c in plan.Update)
         {
@@ -325,7 +392,7 @@ public static class AccountsCopy
         if (plan.SettingsNewer && copy.Settings is { } cs)
         {
             ApplyShared(s, cs);
-            o.Stamps[SettingsStamp] = new CopyStamp { Hash = cs.Hash, Changed = cs.Changed };
+            o.Stamps[SettingsStamp] = new CopyStamp { Hash = cs.Hash, Local = SharedOf(s).Hash, Changed = cs.Changed };
         }
         if (plan.AiNewer && copy.Ai is { } ca)
         {
@@ -333,13 +400,7 @@ public static class AccountsCopy
             s.Ai = Copy(ca.Settings);
             s.Ai.Consents = consents ?? new();
             foreach (var (id, key) in ca.Keys) vault.Set(SecretVault.AiKeyFor(id), key);
-            o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Changed = ca.Changed };
-        }
-        if (plan.AdoptApps)
-        {
-            s.GoogleClientId = copy.Apps.GoogleClientId;
-            s.GoogleClientSecret = copy.Apps.GoogleClientSecret;
-            s.MicrosoftClientId = copy.Apps.MicrosoftClientId;
+            o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Local = AiOf(s, vault).Hash, Changed = ca.Changed };
         }
         return changed;
     }
@@ -353,17 +414,27 @@ public static class AccountsCopy
     }
 
     /// <summary>After adding or updating an account from the copy: its secrets here, and the copy's fingerprint and time,
-    /// so it isn't written back as a change of this PC.</summary>
-    public static void Remember(AppSettings s, SecretVault vault, Account a, CopiedAccount c)
+    /// so it isn't written back as a change of this PC. A copied sign-in replaces this PC's only when it is newer, and a
+    /// refresh token only when it is from this PC's sign-in app (it doesn't work with another one).</summary>
+    public static void Remember(AppSettings s, SecretVault vault, Account a, CopiedAccount c, bool keepSecrets = false)
     {
         var o = s.AccountsCopy;
-        if (c.Password.Length > 0) vault.Set(SecretVault.PasswordKey(a.Id), c.Password);
-        if (c.Refresh.Length > 0) vault.Set(SecretVault.RefreshKey(a.Id), c.Refresh);
-        if (c.SignedIn is { } t) o.SignedIn[c.Email] = t; else o.SignedIn.Remove(c.Email);
-        o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Changed = c.Changed };
+        var localSignIn = SignedIn(o, c.Email);
+        var newer = localSignIn == null || (c.SignedIn ?? default) >= localSignIn;
+        if (!keepSecrets && newer)
+        {
+            if (c.Password.Length > 0) vault.Set(SecretVault.PasswordKey(a.Id), c.Password);
+            if (c.Refresh.Length > 0 && !OtherApp(c)) vault.Set(SecretVault.RefreshKey(a.Id), c.Refresh);
+            if (c.SignedIn is { } t) o.SignedIn[c.Email] = t;
+        }
+        o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = HashOf(a, o), Changed = c.Changed };
         o.NotHere.Remove(c.Email);
         o.RemovedHere.Remove(c.Email);
     }
+
+    /// <summary>A copied Google / Microsoft sign-in from another sign-in app than this PC uses: it can't be used here, so
+    /// that account asks to sign in again (and the token isn't copied over this PC's own).</summary>
+    public static bool OtherApp(CopiedAccount c) => c.Account.Auth == AuthMethod.OAuth2 && c.Client.Length > 0 && c.Client != ClientFor(c.Account.Kind);
 
     // ───────────────────────── the locked file ─────────────────────────
 
@@ -380,14 +451,19 @@ public static class AccountsCopy
 
     public static Contents Unlock(byte[] file, string password)
     {
+        if (file.Length > MaxBytes * 2) throw new InvalidDataException("This copy is too big to be a Magpie accounts copy.");
         var plain = SettingsBackup.UnlockBytes(file, password, Format, "This isn't a Magpie accounts copy.",
             "This copy was made by a newer Magpie. Update Magpie, then try again.", () => new WrongPasswordException());
-        var c = JsonSerializer.Deserialize<Contents>(plain, Json) ?? throw new InvalidDataException("The copy is empty.");
-        c.Accounts ??= new();
-        c.Removed = (c.Removed ?? new()).ToDictionary(kv => Key(kv.Key), kv => kv.Value);
+        Contents c;
+        try { c = JsonSerializer.Deserialize<Contents>(plain, Json) ?? throw new InvalidDataException("The copy is empty."); }
+        catch (JsonException ex) { throw new InvalidDataException("The copy can't be read: " + ex.Message); }
+        c.Accounts = (c.Accounts ?? new()).Where(a => a?.Account != null && Key(a.Account.Email).Contains('@')).ToList();
+        foreach (var a in c.Accounts) { a.Password ??= ""; a.Refresh ??= ""; a.Client ??= ""; a.Hash ??= ""; }
+        c.Removed = (c.Removed ?? new()).Where(kv => kv.Value != null).ToDictionary(kv => Key(kv.Key), kv => kv.Value);
         c.UsedBy ??= new();
         c.Apps ??= new();
         c.MovedTo ??= "";
+        c.FromPc ??= "";
         return c;
     }
 

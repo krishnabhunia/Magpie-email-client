@@ -301,7 +301,7 @@ public class IntegrationTests
         pc1.AddAccount(AccountFor(homeUser), "secret", null);
         pc1.AddAccount(AccountFor(workUser), "secret", null);
         pc1.Config.QuickReplies = new() { "Copied reply" };
-        pc1.AccountsCopy.Enable(homeUser, "sync password 2026", includeSettings: true, includeAi: false, autoAdd: true);
+        await pc1.AccountsCopy.EnableAsync(homeUser, "sync password 2026", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
         await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
         Assert.Equal("", pc1.AccountsCopy.Problem);
         Assert.Equal(2, pc1.Config.AccountsCopy.CopyAccounts);
@@ -357,13 +357,28 @@ public class IntegrationTests
         Assert.Equal(workUser, Assert.Single(asked));
         Assert.Contains(pc1.Accounts, a => a.Email == workUser);
 
-        // Stop and delete the copy: the folder is gone.
+        // A new sync password chosen on PC 1: the copy is opened with the old one and locked with the new one.
+        pc1.AccountsCopy.ChangePassword("a brand new sync password");
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        var relocked = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.Throws<AccountsCopy.WrongPasswordException>(() => AccountsCopy.Unlock(relocked!, "sync password 2026"));
+        Assert.NotEmpty(AccountsCopy.Unlock(relocked!, "a brand new sync password").Accounts);
+        // PC 2 is asked for it once, then keeps in step again.
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.True(pc2.AccountsCopy.NeedsPassword);
+        pc2.AccountsCopy.SetPassword("a brand new sync password");
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.False(pc2.AccountsCopy.NeedsPassword);
+
+        // Stop and delete the copy on PC 1: the accounts leave the mailbox (a "stopped" note stays) and PC 2 stops too.
         await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
-        using (var c = await Raw(homeUser))
-        {
-            Assert.Null(await CopyMailbox.FindFolderAsync(c, CancellationToken.None));
-            await c.DisconnectAsync(true);
-        }
+        var note = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.Equal(0, AccountsCopy.Peek(note!)!.Accounts);
+        Assert.Empty(AccountsCopy.Unlock(note!, "a brand new sync password").Accounts);
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.False(pc2.Config.AccountsCopy.Enabled);
+        Assert.Contains(pc2.Accounts, a => a.Email == homeUser);   // its accounts stay
     }
 
     [Fact]

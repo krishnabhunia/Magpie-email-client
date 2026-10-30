@@ -16,6 +16,8 @@ public sealed class AccountsCopySettings
     public bool IncludeAiKeys { get; set; }
     /// <summary>Accounts added on another PC are added here by themselves.</summary>
     public bool AutoAdd { get; set; } = true;
+    /// <summary>When "what comes along" was last chosen on this PC (the newest choice of any PC wins).</summary>
+    public DateTimeOffset ChoicesChanged { get; set; }
     /// <summary>This PC's name in the copy ("used by HP-OMEN, NEW-PC"); empty = the computer name.</summary>
     public string PcName { get; set; } = "";
 
@@ -42,6 +44,7 @@ public sealed class AccountsCopySettings
         PcName ??= "";
         UsedBy ??= new();
         Stamps = Lower(Stamps);
+        foreach (var st in Stamps.Values) { st.Hash ??= ""; st.Local ??= ""; }
         RemovedHere = Lower(RemovedHere);
         SignedIn = Lower(SignedIn);
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
@@ -58,6 +61,10 @@ public sealed class AccountsCopySettings
 
 public sealed class CopyStamp
 {
+    /// <summary>The fingerprint as it is in the copy.</summary>
     public string Hash { get; set; } = "";
+    /// <summary>This PC's own fingerprint of the same thing (another Magpie version may differ a little); a change here
+    /// is a change of this one.</summary>
+    public string Local { get; set; } = "";
     public DateTimeOffset Changed { get; set; }
 }

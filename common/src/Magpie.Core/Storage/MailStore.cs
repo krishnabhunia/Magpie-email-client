@@ -409,6 +409,19 @@ public sealed partial class MailStore
         }
     }
 
+    /// <summary>Design SY1: removes rows of the accounts copy email an older Magpie listed (subject and sender are Magpie's own).</summary>
+    public void DeleteRowsBySubjectFrom(string accountId, string subject, string fromAddress)
+    {
+        lock (_bodyGate)
+        {
+            using var c = Open();
+            Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a AND subject=$s AND from_addr=$f COLLATE NOCASE)",
+                ("$a", accountId), ("$s", subject), ("$f", fromAddress));
+            var n = Exec(c, "DELETE FROM messages WHERE account_id=$a AND subject=$s AND from_addr=$f COLLATE NOCASE", ("$a", accountId), ("$s", subject), ("$f", fromAddress));
+            if (n > 0) _bodyCache.Clear();
+        }
+    }
+
     public void WipeFolderMessages(long folderId)
     {
 

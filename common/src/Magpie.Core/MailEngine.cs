@@ -92,6 +92,8 @@ public sealed class MailEngine : IDisposable
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
         Contacts = new Contacts.ContactsService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
         AccountsCopy = new AccountsCopyService(this);
+        // Design SA1: which sign-in app this PC uses, so a copied Google / Microsoft sign-in from another app isn't used here.
+        Magpie.Core.Settings.AccountsCopy.ClientFor = kind => OAuth.ConfigFor(kind)?.ClientId ?? "";
     }
 
     public AppSettings Config => Settings.Current;
@@ -105,6 +107,9 @@ public sealed class MailEngine : IDisposable
     {
         _cts = new CancellationTokenSource();
         Store.RecoverStuckOutbox();
+        // Design SY1: an older Magpie may have listed the accounts copy email (Gmail All Mail) before it was hidden.
+        try { foreach (var a in Accounts) Store.DeleteRowsBySubjectFrom(a.Id, Magpie.Core.Settings.AccountsCopy.Subject, a.Email); }
+        catch (Exception ex) { Log.Warn("accounts copy rows: " + ex.Message); }
         try { MergeDuplicateAutoDeleteRules(); } catch (Exception ex) { Log.Warn("auto-delete rules: " + ex.Message); }
         lock (_knownGate) _known = Store.KnownContacts();
         AddSavedContactsToKnown();
@@ -206,6 +211,7 @@ public sealed class MailEngine : IDisposable
             throw new InvalidOperationException($"{a.Email} is already added.");
         if (password != null) Vault.Set(SecretVault.PasswordKey(a.Id), password);
         if (tokens != null) OAuth.Remember(a.Id, tokens);
+        Forgive(a.Email);
         Settings.Current.Accounts.Add(a);
         Settings.Save();
         StartAccount(a);
@@ -216,7 +222,7 @@ public sealed class MailEngine : IDisposable
 
     /// <summary>Design SY1: adds accounts from the accounts copy in one step (one settings save); their secrets are already
     /// in the vault. They take turns for the first download. Accounts already here are skipped.</summary>
-    public List<Account> AddAccounts(IEnumerable<Account> accounts)
+    public List<Account> AddAccounts(IEnumerable<Account> accounts, bool fromCopy = false)
     {
         var added = new List<Account>();
         foreach (var a in accounts)
@@ -227,11 +233,20 @@ public sealed class MailEngine : IDisposable
         }
         if (added.Count == 0) return added;
         Settings.Save();
+        if (!fromCopy) foreach (var a in added) Forgive(a.Email);
         foreach (var a in added.Where(a => a.Enabled)) StartAccount(a, takeTurns: true);
         Calendar.Poke();
         Contacts.Poke();
         foreach (var a in added) Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
         return added;
+    }
+
+    /// <summary>Design SY1: an account added here again after it was removed here: it isn't "removed" for the copy any more.</summary>
+    private void Forgive(string email)
+    {
+        var key = Magpie.Core.Settings.AccountsCopy.Key(email);
+        Settings.Current.AccountsCopy.RemovedHere.Remove(key);
+        Settings.Current.AccountsCopy.NotHere.Remove(key);
     }
 
     /// <summary>Design SY1: an account changed by another PC (through the copy): saved already, its sync starts again.</summary>

@@ -83,15 +83,24 @@ public sealed class AccountsCopyCard : Border
         }
         p1.PasswordChanged += (_, _) => Check();
         p2.PasswordChanged += (_, _) => Check();
-        turnOn.Click += (_, _) =>
+        turnOn.Click += async (_, _) =>
         {
+            if (home.SelectedItem is not string homeEmail) return;
+            turnOn.IsEnabled = false;
+            turnOn.Content = "Looking in the mailbox…";
             try
             {
-                E.AccountsCopy.Enable((string)home.SelectedItem, p1.Password, settings.IsChecked == true, ai.IsChecked == true, auto.IsChecked == true);
+                // When the mailbox already has a copy (made on another PC), this PC joins it with that copy's password.
+                await E.AccountsCopy.EnableAsync(homeEmail, p1.Password, settings.IsChecked == true, ai.IsChecked == true, auto.IsChecked == true, CancellationToken.None);
                 Log.Info("accounts copy turned on");
                 Build();
             }
-            catch (Exception ex) { Ui.Error("Bring my accounts to other PCs", ex.Message, Window.GetWindow(this)); }
+            catch (Exception ex)
+            {
+                Ui.Error("Bring my accounts to other PCs", ex is InvalidOperationException or ArgumentException ? ex.Message : Core.Mail.Connector.Friendly(ex), Window.GetWindow(this));
+                turnOn.Content = "Turn on";
+                Check();
+            }
         };
     }
 
@@ -120,11 +129,7 @@ public sealed class AccountsCopyCard : Border
         var settings = new CheckBox { Content = "Settings come along (rules, signatures, quick replies, templates, tags, Gatekeeper lists, look)", IsChecked = o.IncludeSettings, Margin = new Thickness(0, 2, 0, 2) };
         var ai = new CheckBox { Content = "AI connections and their keys come along", IsChecked = o.IncludeAiKeys, Margin = new Thickness(0, 2, 0, 2) };
         var auto = new CheckBox { Content = "Add accounts from my other PCs here by themselves", IsChecked = o.AutoAdd, Margin = new Thickness(0, 2, 0, 12) };
-        void Choices()
-        {
-            if (E.Vault.Get(AccountsCopy.VaultPassword) is not { Length: > 0 } pwd) return;
-            E.AccountsCopy.Enable(o.HomeEmail, pwd, settings.IsChecked == true, ai.IsChecked == true, auto.IsChecked == true);
-        }
+        void Choices() => E.AccountsCopy.SetChoices(settings.IsChecked == true, ai.IsChecked == true, auto.IsChecked == true);
         foreach (var box in new[] { settings, ai, auto }) { box.Checked += (_, _) => Choices(); box.Unchecked += (_, _) => Choices(); }
         _root.Children.Add(settings);
         _root.Children.Add(ai);
@@ -161,11 +166,11 @@ public sealed class AccountsCopyCard : Border
         }
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-        var now = new Button { Content = "Update the copy now", Style = S("Button.Secondary"), Margin = new Thickness(0, 0, 8, 6) };
+        var now = new Button { Content = svc.Missing ? "Make a new copy from this PC" : "Update the copy now", Style = S(svc.Missing ? "Button.Primary" : "Button.Secondary"), Margin = new Thickness(0, 0, 8, 6) };
         now.Click += async (_, _) =>
         {
             now.IsEnabled = false;
-            try { await E.AccountsCopy.RunOnceAsync(CancellationToken.None); }
+            try { await E.AccountsCopy.RunOnceAsync(CancellationToken.None, rebuild: svc.Missing); }
             catch (Exception ex) { Ui.Error("Update the copy now", Core.Mail.Connector.Friendly(ex), Window.GetWindow(this)); }
             finally { Build(); }
         };
@@ -175,13 +180,13 @@ public sealed class AccountsCopyCard : Border
             var p = PasswordDialog.Ask(Window.GetWindow(this), "Change the sync password",
                 "The copy is locked with the new password from its next update. Magpie on your other PCs asks for it once.",
                 confirm: true, AccountsCopy.MinPasswordLength, "Change");
-            if (p != null) E.AccountsCopy.SetPassword(p);
+            if (p != null) { E.AccountsCopy.ChangePassword(p); Log.Info("accounts copy: new sync password chosen"); }
         };
         var stop = new Button { Content = "Stop and delete the copy", Style = S("Button.Secondary"), Margin = new Thickness(0, 0, 8, 6) };
         stop.Click += async (_, _) =>
         {
             if (!Ui.Confirm("Stop and delete the copy",
-                "The copy is deleted from the home mailbox. Magpie on your other PCs keeps its accounts but stops staying in step. Your accounts on this PC stay as they are.",
+                "Your accounts and sign-ins are taken out of the home mailbox (a short \"stopped\" note stays, with nothing else in it). Magpie on your other PCs stops too and keeps its accounts. Your accounts on this PC stay as they are.",
                 Window.GetWindow(this))) return;
             stop.IsEnabled = false;
             try { await E.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None); }

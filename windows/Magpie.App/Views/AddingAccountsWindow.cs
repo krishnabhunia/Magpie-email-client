@@ -45,7 +45,7 @@ public sealed class AddingAccountsWindow : Window
             if (_open == null) return "";
             var e = AppServices.Engine;
             var ready = _open._accounts.Count(a => e.IsReady(a.Id));
-            return ready >= _open._accounts.Count ? "" : $"Adding accounts · {ready} of {_open._accounts.Count} ready";
+            return _open._accounts.All(Settled) ? "" : $"Adding accounts · {ready} of {_open._accounts.Count} ready";
         }
     }
 
@@ -79,13 +79,15 @@ public sealed class AddingAccountsWindow : Window
     internal static (string Text, string Action) Line(Account a)
     {
         var e = AppServices.Engine;
+        var now = e.AccountById(a.Id) ?? a;
+        if (!now.Enabled) return ("Off (switched off in Settings)", "");
         if (e.IsReady(a.Id)) return ("✓ Ready", "");
         if (e.IsWaiting(a.Id)) return ("Waiting", "");
         var st = e.StatusOf(a.Id);
         return st?.State switch
         {
-            SyncState.NeedsSignIn => (a.Auth == AuthMethod.OAuth2 ? "Google or Microsoft refused the copied sign-in" : "The saved password no longer works",
-                                      a.Auth == AuthMethod.OAuth2 ? "Sign in again" : "Type password"),
+            SyncState.NeedsSignIn => (now.Auth == AuthMethod.OAuth2 ? "Google or Microsoft refused the copied sign-in" : "The saved password no longer works",
+                                      now.Auth == AuthMethod.OAuth2 ? "Sign in again" : "Type password"),
             SyncState.Offline => ("Offline — tries again by itself", ""),
             SyncState.Error => (st.Message, ""),
             _ when st is { Total: > 0 } => ($"Getting {(st.Folder.Length > 0 ? st.Folder : "Inbox")} · {st.Done:#,0} of {st.Total:#,0}", ""),
@@ -93,30 +95,52 @@ public sealed class AddingAccountsWindow : Window
         };
     }
 
+    /// <summary>Done = ready, switched off, or waiting for the user (sign in again): nothing more happens by itself.</summary>
+    private static bool Settled(Account a)
+    {
+        var e = AppServices.Engine;
+        var now = e.AccountById(a.Id);
+        return now == null || !now.Enabled || e.IsReady(a.Id) || e.StatusOf(a.Id)?.State == SyncState.NeedsSignIn;
+    }
+
+    private sealed class Row
+    {
+        public DockPanel Panel = new() { Margin = new Thickness(0, 3, 0, 3) };
+        public TextBlock Status = new() { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        public Button Action = new() { Padding = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
+    }
+
+    private readonly Dictionary<string, Row> _rows = new();
+
+    // Rows are made once and only their words change, so a click on "Sign in again" is never lost to a redraw.
     private void Refresh()
     {
         var e = AppServices.Engine;
         _accounts.RemoveAll(a => e.AccountById(a.Id) == null);
-        var ready = _accounts.Count(a => e.IsReady(a.Id));
-        _title.Text = ready >= _accounts.Count ? $"{_accounts.Count} account(s) added" : $"Adding accounts · {ready} of {_accounts.Count} ready";
-        _list.Children.Clear();
+        foreach (var gone in _rows.Keys.Where(id => _accounts.All(a => a.Id != id)).ToList()) { _list.Children.Remove(_rows[gone].Panel); _rows.Remove(gone); }
         foreach (var a in _accounts)
         {
-            var (text, action) = Line(a);
-            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-            if (action.Length > 0)
+            if (!_rows.TryGetValue(a.Id, out var row))
             {
-                var b = new Button { Content = action, Style = (Style)Application.Current.FindResource("Button.Link"), Padding = new Thickness(6, 0, 0, 0) };
-                var acc = e.AccountById(a.Id) ?? a;
-                b.Click += (_, _) => AddAccountWindow.ShowReauth(this, acc);
-                DockPanel.SetDock(b, Dock.Right);
-                row.Children.Add(b);
+                row = new Row();
+                row.Status.Style = (Style)Application.Current.FindResource("Text.Caption");
+                row.Action.Style = (Style)Application.Current.FindResource("Button.Link");
+                var id = a.Id;
+                row.Action.Click += (_, _) => { if (e.AccountById(id) is { } acc) AddAccountWindow.ShowReauth(this, acc); };
+                DockPanel.SetDock(row.Action, Dock.Right);
+                DockPanel.SetDock(row.Status, Dock.Right);
+                row.Panel.Children.Add(row.Action);
+                row.Panel.Children.Add(row.Status);
+                row.Panel.Children.Add(new TextBlock { Text = a.Email, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+                _rows[a.Id] = row;
+                _list.Children.Add(row.Panel);
             }
-            var status = new TextBlock { Text = text, Style = (Style)Application.Current.FindResource("Text.Caption"), Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            DockPanel.SetDock(status, Dock.Right);
-            row.Children.Add(status);
-            row.Children.Add(new TextBlock { Text = a.Email, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-            _list.Children.Add(row);
+            var (text, action) = Line(a);
+            if (!Equals(row.Status.Text, text)) row.Status.Text = text;
+            row.Action.Content = action;
+            row.Action.Visibility = action.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
+        var ready = _accounts.Count(a => e.IsReady(a.Id));
+        _title.Text = _accounts.All(Settled) ? $"{_accounts.Count} account(s) added" : $"Adding accounts · {ready} of {_accounts.Count} ready";
     }
 }

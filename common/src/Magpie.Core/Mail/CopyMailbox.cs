@@ -9,20 +9,24 @@ namespace Magpie.Core.Mail;
 
 /// <summary>
 /// Design SY1 (choice A): the accounts copy lives as one email in a folder "Magpie Sync" at the top of the home
-/// account's mailbox (Gmail shows it as a label with one email). The email carries the header
-/// <see cref="AccountsCopy.Header"/> and the locked file as its attachment. Writing appends the new email, then removes
-/// the older ones; on Gmail they are moved to Trash and deleted there, since removing a label alone keeps the email in
-/// All Mail. Magpie leaves the folder and the email out of its own lists (AccountSync).
+/// account's mailbox (Gmail shows it as a label with one email; servers that keep every folder under INBOX get
+/// "INBOX.Magpie Sync"). The email carries the header <see cref="AccountsCopy.Header"/> and the locked file as its
+/// attachment. The folder holds only Magpie's copies, so they are found by reading the headers of every email in it
+/// (no header search: Gmail and Exchange don't all do that). Writing appends the new email, then removes the ones that
+/// were there before; on Gmail they go through Trash and are deleted there, since a label removed alone keeps the email
+/// in All Mail. Magpie leaves the folder and the email out of its own lists (AccountSync).
 /// </summary>
 public static class CopyMailbox
 {
-    /// <summary>The copy folder if it exists (any case of the name, top level of the personal namespace).</summary>
+    private static IMailFolder Top(ImapClient client) =>
+        client.GetFolder(client.PersonalNamespaces.Count > 0 ? client.PersonalNamespaces[0] : new FolderNamespace('/', ""));
+
+    /// <summary>The copy folder if it exists (any case of the name, at the top of the personal namespace).</summary>
     public static async Task<IMailFolder?> FindFolderAsync(ImapClient client, CancellationToken ct)
     {
-        var ns = client.PersonalNamespaces.Count > 0 ? client.PersonalNamespaces[0] : new FolderNamespace('/', "");
-        var top = await client.GetFolderAsync(ns.Path, ct);
-        foreach (var f in await top.GetSubfoldersAsync(false, ct))
-            if (f.Name.Equals(AccountsCopy.FolderName, StringComparison.OrdinalIgnoreCase) && !f.Attributes.HasFlag(FolderAttributes.NonExistent))
+        foreach (var f in await Top(client).GetSubfoldersAsync(false, ct))
+            if (f.Name.Equals(AccountsCopy.FolderName, StringComparison.OrdinalIgnoreCase) && !f.Attributes.HasFlag(FolderAttributes.NonExistent)
+                && !f.Attributes.HasFlag(FolderAttributes.NoSelect))
                 return f;
         return null;
     }
@@ -30,14 +34,11 @@ public static class CopyMailbox
     private static async Task<IMailFolder> EnsureFolderAsync(ImapClient client, CancellationToken ct)
     {
         if (await FindFolderAsync(client, ct) is { } found) return found;
-        var ns = client.PersonalNamespaces.Count > 0 ? client.PersonalNamespaces[0] : new FolderNamespace('/', "");
-        var top = await client.GetFolderAsync(ns.Path, ct);
-        try { return await top.CreateAsync(AccountsCopy.FolderName, true, ct) ?? throw new ImapCommandException(ImapCommandResponse.No, "create failed"); }
+        try { return await Top(client).CreateAsync(AccountsCopy.FolderName, true, ct) ?? throw new ImapCommandException(ImapCommandResponse.No, "create failed"); }
         catch (ImapCommandException)
         {
-            // Made by someone else meanwhile, or the server wants the full name.
-            return await FindFolderAsync(client, ct)
-                ?? await client.GetFolderAsync(string.IsNullOrEmpty(ns.Path) ? AccountsCopy.FolderName : ns.Path + ns.DirectorySeparator + AccountsCopy.FolderName, ct);
+            // Made by another PC meanwhile.
+            return await FindFolderAsync(client, ct) ?? throw new InvalidOperationException("The \"Magpie Sync\" folder couldn't be made in this mailbox.");
         }
     }
 
@@ -47,7 +48,7 @@ public static class CopyMailbox
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress("Magpie", address));
         msg.To.Add(new MailboxAddress("", address));
-        msg.Subject = "Magpie accounts copy: please don't delete";
+        msg.Subject = AccountsCopy.Subject;
         msg.Date = summary.Updated == default ? DateTimeOffset.Now : summary.Updated;
         msg.Headers.Add(AccountsCopy.Header, "1");
         var body = new TextPart("plain")
@@ -67,20 +68,31 @@ public static class CopyMailbox
         return msg;
     }
 
-    /// <summary>Writes the copy: the new email first, then the older ones go (never without a copy in between).</summary>
+    /// <summary>The copy emails in an open folder (by their header), oldest first.</summary>
+    private static async Task<List<UniqueId>> CopiesAsync(IMailFolder folder, CancellationToken ct)
+    {
+        if (folder.Count == 0) return new();
+        var items = await folder.FetchAsync(0, -1, new FetchRequest(MessageSummaryItems.UniqueId) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
+        return items.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true).Select(s => s.UniqueId).OrderBy(u => u.Id).ToList();
+    }
+
+    /// <summary>Writes the copy: the new email first, then the ones that were there before go (never without a copy).</summary>
     public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct)
     {
         var folder = await EnsureFolderAsync(client, ct);
         var summary = AccountsCopy.Peek(file) ?? new AccountsCopy.Summary("", 0, DateTimeOffset.Now);
         await folder.OpenAsync(FolderAccess.ReadWrite, ct);
-        var before = await folder.SearchAsync(KitSearch.HeaderContains(AccountsCopy.Header, ""), ct);
-        var appended = await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
-        var old = before.Where(u => appended == null || u != appended.Value).ToList();
-        if (old.Count > 0) await RemoveAsync(client, folder, old, ct);
-        try { await folder.CloseAsync(false, ct); } catch { }
+        try
+        {
+            var before = await CopiesAsync(folder, ct);
+            await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
+            if (before.Count > 0) await RemoveAsync(client, folder, before, ct);
+        }
+        finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
-    /// <summary>The newest copy's file, or null when the mailbox has none.</summary>
+    /// <summary>The newest copy's file. Null only when the mailbox has no "Magpie Sync" folder or no copy in it; a read
+    /// that fails throws (it never counts as "no copy", which would write a copy from this PC alone).</summary>
     public static async Task<byte[]?> ReadAsync(ImapClient client, CancellationToken ct)
     {
         var folder = await FindFolderAsync(client, ct);
@@ -88,8 +100,7 @@ public static class CopyMailbox
         await folder.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
-            var uids = await folder.SearchAsync(KitSearch.HeaderContains(AccountsCopy.Header, ""), ct);
-            foreach (var uid in uids.OrderByDescending(u => u.Id))
+            foreach (var uid in (await CopiesAsync(folder, ct)).AsEnumerable().Reverse())
             {
                 var msg = await folder.GetMessageAsync(uid, ct);
                 if (msg.Attachments.OfType<MimePart>().FirstOrDefault(p => p.FileName == AccountsCopy.FileName) is not { Content: { } content }) continue;
@@ -102,7 +113,7 @@ public static class CopyMailbox
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
-    /// <summary>"Stop and delete the copy": every copy email goes, then the folder.</summary>
+    /// <summary>Every email in the copy folder goes, then the folder itself.</summary>
     public static async Task DeleteAsync(ImapClient client, CancellationToken ct)
     {
         var folder = await FindFolderAsync(client, ct);
@@ -116,27 +127,49 @@ public static class CopyMailbox
 
     private static async Task RemoveAsync(ImapClient client, IMailFolder folder, IList<UniqueId> uids, CancellationToken ct)
     {
-        if (client.Capabilities.HasFlag(ImapCapabilities.GMailExt1) && client.GetFolder(SpecialFolder.Trash) is { } trash)
+        if (client.Capabilities.HasFlag(ImapCapabilities.GMailExt1))
         {
-            // Gmail: a label removed from an email leaves it in All Mail. Through Trash, then deleted there for good.
-            await folder.MoveToAsync(uids, trash, ct);
-            await trash.OpenAsync(FolderAccess.ReadWrite, ct);
-            try
+            // Gmail: removing the label keeps the email in All Mail. Through Trash, deleted there for good.
+            await client.GetFoldersAsync(client.PersonalNamespaces[0], cancellationToken: ct);   // loads the special folders (Trash, All Mail)
+            var trash = client.GetFolder(SpecialFolder.Trash);
+            if (trash != null)
             {
-                var inTrash = await trash.SearchAsync(KitSearch.HeaderContains(AccountsCopy.Header, ""), ct);
-                if (inTrash.Count > 0)
-                {
-                    await trash.StoreAsync(inTrash, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
-                    if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await trash.ExpungeAsync(inTrash, ct);
-                }
+                await folder.MoveToAsync(uids, trash, ct);
+                await DeleteCopiesInAsync(trash, ct);
+                await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+                return;
             }
-            finally { try { await trash.CloseAsync(false, ct); } catch { } }
+            // Trash hidden from IMAP: delete the label's copies, then the same emails in All Mail (Gmail moves them to Trash).
+            await ExpungeAsync(client, folder, uids, ct);
+            if (client.GetFolder(SpecialFolder.All) is { } all) await DeleteCopiesInAsync(all, ct);
             await folder.OpenAsync(FolderAccess.ReadWrite, ct);
             return;
         }
+        await ExpungeAsync(client, folder, uids, ct);
+    }
+
+    private static async Task ExpungeAsync(ImapClient client, IMailFolder folder, IList<UniqueId> uids, CancellationToken ct)
+    {
         await folder.StoreAsync(uids, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
         // The folder holds only Magpie's copies, so expunging all of it is safe without UIDPLUS.
         if (client.Capabilities.HasFlag(ImapCapabilities.UidPlus)) await folder.ExpungeAsync(uids, ct);
         else await folder.ExpungeAsync(ct);
+    }
+
+    /// <summary>Deletes the copy emails in a Gmail folder (Trash or All Mail): found by the subject, checked by the header.</summary>
+    private static async Task DeleteCopiesInAsync(IMailFolder f, CancellationToken ct)
+    {
+        await f.OpenAsync(FolderAccess.ReadWrite, ct);
+        try
+        {
+            var candidates = await f.SearchAsync(KitSearch.SubjectContains(AccountsCopy.Subject), ct);
+            if (candidates.Count == 0) return;
+            var summaries = await f.FetchAsync(candidates, new FetchRequest(MessageSummaryItems.UniqueId) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
+            var mine = summaries.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true).Select(s => s.UniqueId).ToList();
+            if (mine.Count == 0) return;
+            await f.StoreAsync(mine, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
+            await f.ExpungeAsync(mine, ct);
+        }
+        finally { try { await f.CloseAsync(false, ct); } catch { } }
     }
 }
