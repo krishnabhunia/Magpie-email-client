@@ -158,11 +158,15 @@ public sealed class AccountsCopyService
         else if (inUse == false)
         {
             using var client = await _e.Connector.OpenImapAsync(at!, ct);
-            if (await CopyMailbox.ReadAsync(client, ct) is { } file && AccountsCopy.Peek(file)?.Updated == spare.Updated)
+            var (file, top0) = await CopyMailbox.ReadNewestAsync(client, ct);
+            if (file != null && AccountsCopy.Peek(file)?.Updated == spare.Updated)
             {
-                // What the mailbox held before (an old "moved" note) comes back in its place; else the folder goes.
-                if (spare.Restore.Length > 0) await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct);
-                else await CopyMailbox.DeleteAsync(client, ct);
+                // What the mailbox held before (an old "moved" note) comes back in its place (only if nobody wrote there
+                // meanwhile); else only the spare's own email goes, never another PC's that may have just arrived.
+                if (spare.Restore.Length > 0)
+                    try { await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct, stillSame: top => top == top0); }
+                    catch (CopyMailbox.ChangedMeanwhileException) { await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct); }
+                else await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct);
             }
             else
             {
@@ -176,13 +180,17 @@ public sealed class AccountsCopyService
                     && !o.Spares.Any(x => x != spare && x.At == spare.At && x.Updated == t.Updated))
                 {
                     Log.Warn($"accounts copy: {spare.At} holds a copy written after a move that didn't finish; left as it is");
-                    var where = spare.At;
-                    await RunOnUi(() =>
+                    // Told only while this PC uses the copy, and not when its home points there (a real move: it follows).
+                    if (o.Enabled && o.HomeEmail != spare.At && Home is { } here && await PointsAtAsync(here, spare.At, ct) == false)
                     {
-                        o.TwoCopies = $"There may be two copies of your accounts now: a move to {where} didn't finish, and Magpie on another PC has been using the copy there since. Choose the same home account on every PC (Settings → Accounts) so they come together again.";
-                        _e.Settings.Save(notify: false);
-                    });
-                    StatusChanged?.Invoke();
+                        var (where, mine) = (spare.At, here.Email);
+                        await RunOnUi(() =>
+                        {
+                            o.TwoCopies = $"There may be two copies of your accounts now: this PC keeps its copy in {mine}, but a move to {where} didn't finish and Magpie on another PC has been using the copy there since. On the PC(s) that use {where}: Settings → Accounts → Stop and delete the copy (that only stops the copy in {where}; the accounts stay), then turn it on again with {mine} as the home account.";
+                            _e.Settings.Save(notify: false);
+                        });
+                        StatusChanged?.Invoke();
+                    }
                 }
             }
             try { await client.DisconnectAsync(true, ct); } catch { }
@@ -286,8 +294,7 @@ public sealed class AccountsCopyService
             var newPassword = _e.Vault.Get(AccountsCopy.VaultNewPassword);
 
             using var client = await _e.Connector.OpenImapAsync(home, ct);
-            var file = await CopyMailbox.ReadAsync(client, ct);
-            var readTime = file != null ? AccountsCopy.Peek(file)?.Updated : null;   // what this round read (checked again before writing)
+            var (file, readTop) = await CopyMailbox.ReadNewestAsync(client, ct);   // what this round read (checked again before writing)
             AccountsCopy.Contents? copy = null;
             // The "stopped" note found when the copy was turned on here again is written over, never followed (exactly that
             // one: any other note is another PC's).
@@ -349,7 +356,7 @@ public sealed class AccountsCopyService
             var now = DateTimeOffset.Now;
             // A PC that just turned the copy on (or joined one) writes once at once, so the newest copy there is never one
             // another PC could take for unused (a spare) while this PC uses it.
-            var write = newPassword != null || Options.CopyUpdated == null;
+            var write = newPassword != null || Options.CopyUpdated == null || Options.WriteFirst;
             await RunOnUi(() => write |= AccountsCopy.NeedsWrite(_e.Config, _e.Vault, copy, PcName, now));
             if (write)
             {
@@ -362,7 +369,7 @@ public sealed class AccountsCopyService
                 try
                 {
                     await CopyMailbox.WriteAsync(client, home.Email, locked, ct, appended: () => { if (newPassword != null) Promote(newPassword); },
-                        stillSame: f => (f != null ? AccountsCopy.Peek(f)?.Updated : null) == readTime);
+                        stillSame: top => top == readTop);
                 }
                 catch (CopyMailbox.ChangedMeanwhileException)
                 {
@@ -390,7 +397,7 @@ public sealed class AccountsCopyService
                     AccountsCopy.Settle(_e.Config, copy);
                 }
                 if (file != null) o.CopySize = file.Length;
-                if (write) o.OverwriteNote = null;   // written over now
+                if (write) { o.OverwriteNote = null; o.WriteFirst = false; }   // written over now
                 _e.Settings.Save(notify: false);
             });
             Problem = "";
@@ -478,7 +485,7 @@ public sealed class AccountsCopyService
         var mine = Options.MyStopNote == noteTime;
         // This PC's own stop whose clean-up didn't finish: the older copies (with the sign-ins) go now, or at a later check.
         if (mine)
-            try { await CopyMailbox.KeepOnlyNewestAsync(client, ct, newestIsNote: true); }
+            try { await CopyMailbox.KeepOnlyNewestAsync(client, ct, note: noteTime); }
             catch (Exception ex) when (!ct.IsCancellationRequested) { Log.Warn("accounts copy: clean-up after stopping: " + ex.Message); await CleanUpLaterAsync(home.Email); }
         await RunOnUi(() => TurnOff());
         Log.Info("accounts copy: stopped on " + byPc);
@@ -498,6 +505,7 @@ public sealed class AccountsCopyService
         o.Stamps = new();
         o.RemovedHere = new();
         o.Adopt = new();
+        o.TwoCopies = "";
         o.OverwriteNote = null;
         Available = Array.Empty<AccountsCopy.CopiedAccount>();
         _e.Vault.Set(AccountsCopy.VaultPassword, null);
@@ -559,7 +567,11 @@ public sealed class AccountsCopyService
                 o.AutoAdd = autoAdd;
                 o.IncludeSettings = includeSettings;
                 o.IncludeAiKeys = includeAi;
-                o.CopyUpdated = null;
+                // Joined: the copy it joined is the one it uses (if it vanishes before this PC wrote, that's "missing", never
+                // a new copy from this PC alone); it writes once at once either way.
+                o.CopyUpdated = existing?.Updated;
+                o.WriteFirst = true;
+                o.TwoCopies = "";
                 o.OverwriteNote = overwrite;
                 Available = Array.Empty<AccountsCopy.CopiedAccount>();
                 _e.Vault.Set(AccountsCopy.VaultPassword, password);
@@ -698,7 +710,7 @@ public sealed class AccountsCopyService
                     var noteFile = await Task.Run(() => AccountsCopy.Lock(note, lockWith), ct);
                     using var client = await _e.Connector.OpenImapAsync(old, ct);
                     await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct, appended: () => noteIn = true);
-                    await CopyMailbox.KeepOnlyNewestAsync(client, ct, newestIsNote: true);   // also leftovers of earlier rounds (it may be removed next)
+                    await CopyMailbox.KeepOnlyNewestAsync(client, ct, note: note.Updated);   // also leftovers of earlier rounds (it may be removed next)
                     try { await client.DisconnectAsync(true, ct); } catch { }
                 }
                 catch (Exception ex) when (!noteIn)
@@ -711,7 +723,7 @@ public sealed class AccountsCopyService
                         arrived = await CopyMailbox.ReadAsync(check, CancellationToken.None) is { } newest && AccountsCopy.Peek(newest) is { IsMoved: true } p && p.Updated == note.Updated;
                         // Moved after all: the older copies there go now (that mailbox may be removed from Magpie next).
                         if (arrived == true)
-                            try { await CopyMailbox.KeepOnlyNewestAsync(check, CancellationToken.None, newestIsNote: true); }
+                            try { await CopyMailbox.KeepOnlyNewestAsync(check, CancellationToken.None, note: note.Updated); }
                             catch (Exception cleanEx) { Log.Warn("accounts copy: moved; clearing the old copies failed: " + cleanEx.Message); await CleanUpLaterAsync(old.Email); }
                         try { await check.DisconnectAsync(true, CancellationToken.None); } catch { }
                     }
@@ -802,7 +814,7 @@ public sealed class AccountsCopyService
                 if (peek is { IsStopped: true } || current is { Stopped: true })
                 {
                     // Nothing to write; older copies a stop left behind go now.
-                    try { await CopyMailbox.KeepOnlyNewestAsync(client, ct, newestIsNote: true); }
+                    try { await CopyMailbox.KeepOnlyNewestAsync(client, ct, note: peek?.Updated ?? current!.Updated); }
                     catch (Exception ex) when (!ct.IsCancellationRequested) { Log.Warn("accounts copy: clean-up after stopping: " + ex.Message); await CleanUpLaterAsync(source.Email); }
                 }
                 else if (KnowsPassword)
@@ -820,7 +832,7 @@ public sealed class AccountsCopyService
                     try
                     {
                         await CopyMailbox.WriteAsync(client, source.Email, locked, ct, appended: () => noteIn = true);
-                        await CopyMailbox.KeepOnlyNewestAsync(client, ct, newestIsNote: true);   // also leftovers of earlier rounds
+                        await CopyMailbox.KeepOnlyNewestAsync(client, ct, note: stopped.Updated);   // also leftovers of earlier rounds
                         await RunOnUi(() => { Options.CleanUp.Remove(AccountsCopy.Key(source.Email)); _e.Settings.Save(notify: false); });
                     }
                     catch (Exception ex) when (noteIn && !ct.IsCancellationRequested)
@@ -837,7 +849,7 @@ public sealed class AccountsCopyService
                             arrived = await CopyMailbox.ReadAsync(check, CancellationToken.None) is { } newest && AccountsCopy.Peek(newest) is { IsStopped: true } p && p.Updated == stopped.Updated;
                             if (arrived == true)
                             {
-                                await CopyMailbox.KeepOnlyNewestAsync(check, CancellationToken.None, newestIsNote: true);
+                                await CopyMailbox.KeepOnlyNewestAsync(check, CancellationToken.None, note: stopped.Updated);
                                 await RunOnUi(() => { Options.CleanUp.Remove(AccountsCopy.Key(source.Email)); _e.Settings.Save(notify: false); });
                             }
                             try { await check.DisconnectAsync(true, CancellationToken.None); } catch { }
@@ -905,7 +917,9 @@ public sealed class AccountsCopyService
         o.IncludeSettings = copy.ShareSettings;
         o.IncludeAiKeys = copy.ShareAi;
         o.OverwriteNote = null;
-        o.CopyUpdated = null;
+        o.CopyUpdated = copy.Updated;
+        o.WriteFirst = true;
+        o.TwoCopies = "";
         _e.Vault.Set(AccountsCopy.VaultPassword, password);
         _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
         // Accounts this PC already has keep its own version until either side changes them (as when joining in Settings).

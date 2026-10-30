@@ -55,6 +55,8 @@ public sealed class AccountsCopySettings
     /// <summary>Shown in Settings → Accounts until dismissed: a move that didn't finish may have left two copies in use
     /// (plain words, naming the mailboxes). Empty = none.</summary>
     public string TwoCopies { get; set; } = "";
+    /// <summary>Just turned on or joined here: the next round writes once, even with nothing new.</summary>
+    public bool WriteFirst { get; set; }
     /// <summary>The time of the "stopped" note this PC wrote (its own stop, also when it didn't finish).</summary>
     public DateTimeOffset? MyStopNote { get; set; }
 

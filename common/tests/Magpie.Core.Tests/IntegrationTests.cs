@@ -493,13 +493,13 @@ public class IntegrationTests
         Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
         Assert.Equal("OFFLINE-PC", AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.Pc);
         Assert.Equal(3, await CopiesIn(workUser));   // the two notes and that copy; the spare went
-        Assert.Contains(AccountsCopy.Key(workUser), pc1.Config.AccountsCopy.TwoCopies);   // the user is told (Settings → Accounts)
+        Assert.Equal("", pc1.Config.AccountsCopy.TwoCopies);   // the copy is off on this PC: nothing to tell it
 
         // A write whose round read an older copy than the one there now writes nothing (another PC wrote meanwhile).
         using (var c = await Raw(workUser))
         {
             await Assert.ThrowsAsync<CopyMailbox.ChangedMeanwhileException>(() =>
-                CopyMailbox.WriteAsync(c, workUser, spareCopy, CancellationToken.None, stillSame: newest => newest != null && AccountsCopy.Peek(newest)!.Pc == "SOMEONE-ELSE"));
+                CopyMailbox.WriteAsync(c, workUser, spareCopy, CancellationToken.None, stillSame: top => top == "1:1"));
             await c.DisconnectAsync(true);
         }
         Assert.Equal(3, await CopiesIn(workUser));

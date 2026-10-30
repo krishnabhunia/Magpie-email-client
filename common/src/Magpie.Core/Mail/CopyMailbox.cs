@@ -94,9 +94,9 @@ public static class CopyMailbox
 
     /// <summary>Writes the copy: the new email first, then the ones that were there before go (never without a copy).
     /// <paramref name="appended"/> runs as soon as the new email is in the mailbox (before the old ones go).
-    /// <paramref name="stillSame"/> (given the newest copy's file there now, or null) says whether it is still the one
-    /// the round read; when not, nothing is written (<see cref="ChangedMeanwhileException"/>).</summary>
-    public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct, Action? appended = null, Func<byte[]?, bool>? stillSame = null)
+    /// <paramref name="stillSame"/> (given the id of the newest copy email there now, or null) says whether it is still
+    /// the one the round read (<see cref="ReadNewestAsync"/>); when not, nothing is written (<see cref="ChangedMeanwhileException"/>).</summary>
+    public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct, Action? appended = null, Func<string?, bool>? stillSame = null)
     {
         var folder = await EnsureFolderAsync(client, ct);
         var summary = AccountsCopy.Peek(file) ?? new AccountsCopy.Summary("", 0, DateTimeOffset.Now);
@@ -104,12 +104,7 @@ public static class CopyMailbox
         try
         {
             var before = await CopiesAsync(client, folder, ct);
-            if (stillSame != null)
-            {
-                byte[]? newest = null;
-                foreach (var c in before.AsEnumerable().Reverse()) if ((newest = await FileOfAsync(folder, c, ct)) != null) break;
-                if (!stillSame(newest)) throw new ChangedMeanwhileException();
-            }
+            if (stillSame != null && !stillSame(TopId(folder, before))) throw new ChangedMeanwhileException();
             await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
             if (AnswerLostForTests?.Invoke(address) is { } lost) throw lost;   // tests: the server kept it, its answer was lost
             appended?.Invoke();
@@ -138,19 +133,28 @@ public static class CopyMailbox
 
     /// <summary>The newest copy's file. Null only when the mailbox has no "Magpie Sync" folder or no copy in it; a read
     /// that fails throws (it never counts as "no copy", which would write a copy from this PC alone).</summary>
-    public static async Task<byte[]?> ReadAsync(ImapClient client, CancellationToken ct)
+    public static async Task<byte[]?> ReadAsync(ImapClient client, CancellationToken ct) => (await ReadNewestAsync(client, ct)).File;
+
+    /// <summary><see cref="ReadAsync"/>, and the id of the newest copy email (null when none), to check before a write
+    /// that nobody wrote meanwhile.</summary>
+    public static async Task<(byte[]? File, string? Top)> ReadNewestAsync(ImapClient client, CancellationToken ct)
     {
         var folder = await FindFolderAsync(client, ct);
-        if (folder == null) return null;
+        if (folder == null) return (null, null);
         await folder.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
-            foreach (var copy in (await CopiesAsync(client, folder, ct)).AsEnumerable().Reverse())
-                if (await FileOfAsync(folder, copy, ct) is { } file) return file;
-            return null;
+            var copies = await CopiesAsync(client, folder, ct);
+            var top = TopId(folder, copies);
+            foreach (var copy in copies.AsEnumerable().Reverse())
+                if (await FileOfAsync(folder, copy, ct) is { } file) return (file, top);
+            return (null, top);
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
+
+    private static string? TopId(IMailFolder folder, IList<CopyEmail> copies) =>
+        copies.Count == 0 ? null : $"{folder.UidValidity}:{copies[^1].Uid.Id}";
 
     private static async Task<byte[]?> FileOfAsync(IMailFolder folder, CopyEmail copy, CancellationToken ct)
     {
@@ -163,11 +167,11 @@ public static class CopyMailbox
         return ms.ToArray();
     }
 
-    /// <summary>Only the newest copy email stays: every older copy goes, also on Gmail from Trash / All Mail. For a stop
-    /// or move whose clean-up didn't finish the first time. When the newest is a "stopped" / "moved" note
-    /// (<paramref name="newestIsNote"/>; null = look), every other copy goes; when it is a live copy, only the older ones
-    /// (another PC may be writing one right now).</summary>
-    public static async Task KeepOnlyNewestAsync(ImapClient client, CancellationToken ct, bool? newestIsNote = null)
+    /// <summary>Older copies go, also on Gmail from Trash / All Mail: for a stop or move whose clean-up didn't finish.
+    /// With <paramref name="note"/> (the time of the "stopped" / "moved" note this PC wrote) that note and anything written
+    /// after it stay (another PC may have written since) and everything below it goes; nothing goes when the note isn't
+    /// found. Without it, only copies older than the newest go (the newest may be a live copy being used).</summary>
+    public static async Task KeepOnlyNewestAsync(ImapClient client, CancellationToken ct, DateTimeOffset? note = null)
     {
         var folder = await FindFolderAsync(client, ct);
         if (folder == null) return;
@@ -176,16 +180,18 @@ public static class CopyMailbox
         {
             var copies = await CopiesAsync(client, folder, ct);
             if (copies.Count == 0) return;
-            var newest = copies[^1];
-            var older = copies.Take(copies.Count - 1).ToList();
-            if (older.Count == 0 && !client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) return;
-            newestIsNote ??= await FileOfAsync(folder, newest, ct) is { } file && AccountsCopy.Peek(file) is { IsNote: true };
-            var olderIds = older.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
-            var cut = newest.Date?.AddSeconds(-5);
-            // After a note every other copy goes (also leftovers dated ahead by a fast clock); one in the label right now stays.
-            await RemoveAsync(client, folder, older, newestIsNote == true
-                ? (id, _) => id != newest.GmailId
-                : (id, date) => id != newest.GmailId && (olderIds.Contains(id) || date < cut), ct);
+            var at = copies.Count - 1;
+            if (note != null)
+            {
+                while (at >= 0 && !(await FileOfAsync(folder, copies[at], ct) is { } f && AccountsCopy.Peek(f)?.Updated == note)) at--;
+                if (at < 0) { Log.Warn("accounts copy: the note to keep isn't in the copy folder; nothing cleared"); return; }
+            }
+            var keep = copies.Skip(at).Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
+            var below = copies.Take(at).ToList();
+            if (below.Count == 0 && !client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) return;
+            var belowIds = below.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
+            var cut = copies[at].Date?.AddSeconds(-5);
+            await RemoveAsync(client, folder, below, (id, date) => !keep.Contains(id) && (belowIds.Contains(id) || date < cut), ct);
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
