@@ -450,6 +450,8 @@ public sealed class AppSettings
     public bool AutoDeleteIncludePast { get; set; } = true;
     /// <summary>Rules / filters (design B5), run top to bottom on new Inbox mail.</summary>
     public List<Mail.MailRule> Rules { get; set; } = new();
+    /// <summary>Design SY1: a locked copy of the accounts (and settings) in the home mailbox, for Magpie on other PCs.</summary>
+    public AccountsCopySettings AccountsCopy { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -536,6 +538,7 @@ public sealed class SettingsStore
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);
         if (string.IsNullOrWhiteSpace(s.Ai.Endpoint)) (s.Ai.Endpoint, _) = AiSettings.Preset(s.Ai.Provider);
         s.Ai.NormaliseConnections();
+        (s.AccountsCopy ??= new()).Normalise();
     }
 
     /// <summary>Writes settings.json. <paramref name="notify"/> false = UI-state only (sidebar, window size): no Changed event.</summary>
