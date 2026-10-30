@@ -485,6 +485,14 @@ public class IntegrationTests
         Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
         Assert.Equal(2, await CopiesIn(workUser));   // the two notes stay, the spare went
         Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
+        // A PC that took the spare for the live copy wrote its own on top: the spare goes and the old note goes back on top.
+        var offlineCopy = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddMinutes(1), FromPc = "OFFLINE-PC", Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, offlineCopy, AccountsCopy.Peek(offlineCopy)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true, Restore = Convert.ToBase64String(pointerNote) });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
+        Assert.Equal(1, await CopiesIn(workUser));
     }
 
     [Fact]

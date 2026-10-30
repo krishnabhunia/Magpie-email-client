@@ -164,9 +164,18 @@ public sealed class AccountsCopyService
                 if (spare.Restore.Length > 0) await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct);
                 else await CopyMailbox.DeleteAsync(client, ct);
             }
-            // No longer the newest (e.g. a take-back put the old note back but couldn't clear it): only that one goes.
-            else await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct);
-            Log.Info("accounts copy: spare copy removed from " + spare.At);
+            else
+            {
+                // No longer the newest (a take-back put the old note back but couldn't clear it, another spare, or a PC
+                // that took it for the live copy wrote on): only that one goes. A full copy left on top there isn't the
+                // live one (that is in the old home): the old note goes back on top, so that PC follows it there.
+                if (await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct) > 0) Log.Info("accounts copy: spare copy removed from " + spare.At);
+                if (spare.Restore.Length > 0 && await CopyMailbox.ReadAsync(client, ct) is { } top && AccountsCopy.Peek(top) is not { IsNote: true })
+                {
+                    await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct);
+                    Log.Info("accounts copy: the old note is back in " + spare.At);
+                }
+            }
             try { await client.DisconnectAsync(true, ct); } catch { }
         }
         else Log.Info($"accounts copy: the copy in {spare.At} is in use; it stays");
@@ -231,8 +240,11 @@ public sealed class AccountsCopyService
     private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account? old, bool unused, byte[]? before) => RunOnUi(() =>
     {
         // A small note held there before is kept to put back (a full copy there before was a spare itself: it goes).
+        var key = AccountsCopy.Key(at.Email);
         var restore = before != null && before.Length <= 64 * 1024 && AccountsCopy.Peek(before) is { IsNote: true } ? Convert.ToBase64String(before) : "";
-        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = old != null ? AccountsCopy.Key(old.Email) : "", Unused = unused, Restore = restore });
+        // A spare noted there earlier keeps the note that mailbox held first (the one before was that spare itself).
+        if (restore.Length == 0) restore = Options.Spares.LastOrDefault(x => x.At == key && x.Restore.Length > 0)?.Restore ?? "";
+        Options.Spares.Add(new SpareCopy { At = key, Updated = copy.Updated, Old = old != null ? AccountsCopy.Key(old.Email) : "", Unused = unused, Restore = restore });
         _e.Settings.Save(notify: false);
     });
 

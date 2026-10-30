@@ -68,7 +68,7 @@ public sealed class AccountsCopySettings
             .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().ToLowerInvariant());
         CleanUp = (CleanUp ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         Spares = (Spares ?? new()).Where(x => x != null && !string.IsNullOrWhiteSpace(x.At)).ToList();
-        foreach (var x in Spares) { x.At = x.At.Trim().ToLowerInvariant(); x.Old = (x.Old ?? "").Trim().ToLowerInvariant(); }
+        foreach (var x in Spares) { x.At = x.At.Trim().ToLowerInvariant(); x.Old = (x.Old ?? "").Trim().ToLowerInvariant(); x.Restore ??= ""; }
         Adopt = (Adopt ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;
