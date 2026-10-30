@@ -470,6 +470,8 @@ public sealed class SettingsStore
     private readonly object _gate = new();
     public AppSettings Current { get; private set; } = new();
     public event Action? Changed;
+    /// <summary>Just before every write (also the quiet ones), under the save lock.</summary>
+    public event Action<AppSettings>? Saving;
 
     public SettingsStore(string path) { _path = path; }
 
@@ -548,6 +550,8 @@ public sealed class SettingsStore
         {
             if (s != null) Current = s;
             Normalise(Current);
+            // Design SY1: the accounts copy notes what changed (and when) in the same write, so the time survives a crash.
+            try { Saving?.Invoke(Current); } catch (Exception ex) { Log.Warn("settings: " + ex.Message); }
             var tmp = _path + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(Current, AppSettings.Json));
             File.Move(tmp, _path, true);

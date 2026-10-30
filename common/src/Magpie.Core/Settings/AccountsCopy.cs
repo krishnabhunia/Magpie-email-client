@@ -30,6 +30,8 @@ public static class AccountsCopy
     public const string VaultNewPassword = "sync:password-new";
     internal const string SettingsStamp = "\u0001settings";
     internal const string AiStamp = "\u0001ai";
+    /// <summary>Saves can come from any thread (the copy notes changes on each one): one of these steps at a time.</summary>
+    private static readonly object Gate = new();
 
     public sealed class Contents
     {
@@ -169,12 +171,19 @@ public static class AccountsCopy
     public static void ApplyShared(AppSettings s, SharedSettings shared)
     {
         var c = Copy(shared);
-        var ids = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First().Id);
-        foreach (var r in c.Rules)
-            if (r.AccountId.StartsWith('@')) r.AccountId = ids.TryGetValue(r.AccountId[1..], out var id) ? id : r.AccountId;
-        s.Rules = c.Rules; s.QuickReplies = c.QuickReplies; s.Templates = c.Templates; s.Tags = c.Tags; s.Gatekeeper = c.Gatekeeper;
+        s.Rules = c.Rules;
+        ResolveRules(s); s.QuickReplies = c.QuickReplies; s.Templates = c.Templates; s.Tags = c.Tags; s.Gatekeeper = c.Gatekeeper;
         s.Appearance = c.Appearance; s.Typography = c.Typography;
         s.SenderCategories = new Dictionary<string, Category>(c.SenderCategories, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Rules that name their account by email ("@email": from the copy, or the account was removed here) point at
+    /// that account's id on this PC once it is here. The rest keep the email until it is added.</summary>
+    public static void ResolveRules(AppSettings s)
+    {
+        var ids = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First().Id);
+        foreach (var r in s.Rules)
+            if (r.AccountId.StartsWith('@') && ids.TryGetValue(r.AccountId[1..], out var id)) r.AccountId = id;
     }
 
     public static SharedAi AiOf(AppSettings s, SecretVault vault)
@@ -206,212 +215,254 @@ public static class AccountsCopy
     /// version may write an account a little differently, and that must not make two PCs overwrite each other.</summary>
     public static bool Track(AppSettings s, SecretVault vault, DateTimeOffset now)
     {
-        var o = s.AccountsCopy;
-        var changed = false;
-        void Stamp(string key, string hash)
+        lock (Gate)
         {
-            if (o.Stamps.TryGetValue(key, out var st) && (st.Local.Length > 0 ? st.Local == hash : st.Hash == hash)) return;
-            o.Stamps[key] = Fresh(hash, now);
-            changed = true;
+            var o = s.AccountsCopy;
+            var changed = false;
+            void Stamp(string key, string hash)
+            {
+                if (o.Stamps.TryGetValue(key, out var st) && (st.Local.Length > 0 ? st.Local == hash : st.Hash == hash)) return;
+                o.Stamps[key] = Fresh(hash, now);
+                changed = true;
+            }
+            foreach (var a in s.Accounts) Stamp(Key(a.Email), HashOf(a, o));
+            // Settings count as changed here only once this PC has started them (StartHere) or taken them from the copy:
+            // a new PC's untouched settings must not win over the ones in the copy.
+            if (o.IncludeSettings && o.Stamps.ContainsKey(SettingsStamp)) Stamp(SettingsStamp, SharedOf(s).Hash);
+            if (o.IncludeAiKeys && o.Stamps.ContainsKey(AiStamp)) Stamp(AiStamp, AiOf(s, vault).Hash);
+            return changed;
         }
-        foreach (var a in s.Accounts) Stamp(Key(a.Email), HashOf(a, o));
-        // Settings count as changed here only once this PC has started them (StartHere) or taken them from the copy:
-        // a new PC's untouched settings must not win over the ones in the copy.
-        if (o.IncludeSettings && o.Stamps.ContainsKey(SettingsStamp)) Stamp(SettingsStamp, SharedOf(s).Hash);
-        if (o.IncludeAiKeys && o.Stamps.ContainsKey(AiStamp)) Stamp(AiStamp, AiOf(s, vault).Hash);
-        return changed;
     }
 
     /// <summary>The copy was turned on here and there was none yet: this PC's settings, AI block and choices go into it.</summary>
     public static void StartHere(AppSettings s, SecretVault vault, DateTimeOffset now)
     {
-        var o = s.AccountsCopy;
-        if (o.IncludeSettings && !o.Stamps.ContainsKey(SettingsStamp)) o.Stamps[SettingsStamp] = Fresh(SharedOf(s).Hash, now);
-        if (o.IncludeAiKeys && !o.Stamps.ContainsKey(AiStamp)) o.Stamps[AiStamp] = Fresh(AiOf(s, vault).Hash, now);
-        o.ChoicesChanged = now;
-        Track(s, vault, now);
+        lock (Gate)
+        {
+            var o = s.AccountsCopy;
+            if (o.IncludeSettings && !o.Stamps.ContainsKey(SettingsStamp)) o.Stamps[SettingsStamp] = Fresh(SharedOf(s).Hash, now);
+            if (o.IncludeAiKeys && !o.Stamps.ContainsKey(AiStamp)) o.Stamps[AiStamp] = Fresh(AiOf(s, vault).Hash, now);
+            o.ChoicesChanged = now;
+            Track(s, vault, now);
+        }
     }
 
     /// <summary>The copy was turned on here and the home mailbox already has one (another PC made it): join it. Accounts
     /// both have keep this PC's version until either side changes them; the copy's settings and choices win.</summary>
     public static void Join(AppSettings s, SecretVault vault, Contents copy, DateTimeOffset now)
     {
-        var o = s.AccountsCopy;
-        o.Stamps.Remove(SettingsStamp);
-        o.Stamps.Remove(AiStamp);
-        o.ChoicesChanged = default;
-        var inCopy = copy.Accounts.ToDictionary(a => a.Email);
-        foreach (var a in s.Accounts)
-            if (inCopy.TryGetValue(Key(a.Email), out var c))
-                o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = HashOf(a, o), Changed = c.Changed };
-        Track(s, vault, now);
+        lock (Gate)
+        {
+            var o = s.AccountsCopy;
+            o.Stamps.Remove(SettingsStamp);
+            o.Stamps.Remove(AiStamp);
+            o.ChoicesChanged = default;
+            var inCopy = copy.Accounts.ToDictionary(a => a.Email);
+            foreach (var a in s.Accounts)
+                if (inCopy.TryGetValue(Key(a.Email), out var c))
+                    o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = HashOf(a, o), Changed = c.Changed };
+            Track(s, vault, now);
+        }
     }
 
     /// <summary>This PC's sign-in app for an account kind (Settings, else the built-in one); set by MailEngine.</summary>
     public static Func<AccountKind, string> ClientFor { get; set; } = _ => "";
+    /// <summary>True when an account's sign-in no longer works here (by its id): its token isn't put in the copy.</summary>
+    public static Func<string, bool> SignInBroken { get; set; } = _ => false;
 
     /// <summary>The copy to write: the one read before, with this PC's newer changes and removals laid over it. Accounts
     /// only another PC has stay in it (this PC may have chosen not to add them).</summary>
     public static Contents Build(AppSettings s, SecretVault vault, Contents? previous, string pc, string appVersion, DateTimeOffset now)
     {
-        var o = s.AccountsCopy;
-        Track(s, vault, now);
-        var c = new Contents { Updated = now, FromPc = pc, AppVersion = appVersion };
-        // What comes along: the newest choice of any PC.
-        if (previous == null || o.ChoicesChanged > previous.ChoicesChanged)
-            (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (o.IncludeSettings, o.IncludeAiKeys, o.ChoicesChanged);
-        else (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (previous.ShareSettings, previous.ShareAi, previous.ChoicesChanged);
-
-        var accounts = new Dictionary<string, CopiedAccount>();
-        foreach (var x in previous?.Accounts ?? new()) accounts[x.Email] = x;
-        foreach (var a in s.Accounts)
+        lock (Gate)
         {
-            var key = Key(a.Email);
-            var stamp = o.Stamps[key];
-            var refresh = vault.Get(SecretVault.RefreshKey(a.Id)) ?? "";
-            var client = a.Auth == AuthMethod.OAuth2 ? ClientFor(a.Kind) : "";
-            if (accounts.TryGetValue(key, out var old) && old.Changed >= stamp.Changed)
+            var o = s.AccountsCopy;
+            Track(s, vault, now);
+            var c = new Contents { Updated = now, FromPc = pc, AppVersion = appVersion };
+            // What comes along: the newest choice of any PC.
+            if (previous == null || o.ChoicesChanged > previous.ChoicesChanged)
+                (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (o.IncludeSettings, o.IncludeAiKeys, o.ChoicesChanged);
+            else (c.ShareSettings, c.ShareAi, c.ChoicesChanged) = (previous.ShareSettings, previous.ShareAi, previous.ChoicesChanged);
+
+            var accounts = new Dictionary<string, CopiedAccount>();
+            foreach (var x in previous?.Accounts ?? new()) accounts[x.Email] = x;
+            foreach (var a in s.Accounts)
             {
-                // Not newer here, but this PC's working sign-in keeps the copy's one fresh (Microsoft tokens expire when
-                // unused), when it is from the same sign-in app and no newer sign-in elsewhere replaced it.
-                if (refresh.Length > 0 && old.Client == client && (old.SignedIn ?? default) <= (SignedIn(o, key) ?? default)) old.Refresh = refresh;
-                continue;
+                var key = Key(a.Email);
+                var stamp = o.Stamps[key];
+                // A token that no longer works here never replaces the one in the copy (another PC's may still work).
+                var refresh = SignInBroken(a.Id) ? "" : vault.Get(SecretVault.RefreshKey(a.Id)) ?? "";
+                var client = a.Auth == AuthMethod.OAuth2 ? ClientFor(a.Kind) : "";
+                if (accounts.TryGetValue(key, out var old) && old.Changed >= stamp.Changed)
+                {
+                    // Not newer here, but this PC's working sign-in keeps the copy's one fresh (Microsoft tokens expire when
+                    // unused), when it is from the same sign-in app and no newer sign-in elsewhere replaced it.
+                    if (refresh.Length > 0 && old.Client == client && (old.SignedIn ?? default) <= (SignedIn(o, key) ?? default)) old.Refresh = refresh;
+                    continue;
+                }
+                accounts[key] = new CopiedAccount
+                {
+                    Account = Copy(a), Password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "",
+                    Refresh = refresh.Length == 0 && old != null && old.Client == client ? old.Refresh : refresh, Client = client,
+                    SignedIn = SignedIn(o, key), Hash = stamp.Hash, Changed = stamp.Changed,
+                };
             }
-            accounts[key] = new CopiedAccount
+            var removed = new Dictionary<string, RemovedAccount>();
+            foreach (var (k, r) in previous?.Removed ?? new()) removed[Key(k)] = r;
+            foreach (var (k, when) in o.RemovedHere)
+                if (!removed.TryGetValue(k, out var r) || r.When < when) removed[k] = new RemovedAccount { When = when, ByPc = pc };
+            foreach (var (k, r) in removed.ToList())
             {
-                Account = Copy(a), Password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "", Refresh = refresh, Client = client,
-                SignedIn = SignedIn(o, key), Hash = stamp.Hash, Changed = stamp.Changed,
-            };
-        }
-        var removed = new Dictionary<string, RemovedAccount>();
-        foreach (var (k, r) in previous?.Removed ?? new()) removed[Key(k)] = r;
-        foreach (var (k, when) in o.RemovedHere)
-            if (!removed.TryGetValue(k, out var r) || r.When < when) removed[k] = new RemovedAccount { When = when, ByPc = pc };
-        foreach (var (k, r) in removed.ToList())
-        {
-            if (!accounts.TryGetValue(k, out var acc)) continue;
-            if (acc.Changed > r.When) removed.Remove(k);   // kept (or added again) after it was removed somewhere
-            else accounts.Remove(k);
-        }
-        c.Accounts = accounts.Values.OrderBy(x => x.Email, StringComparer.Ordinal).ToList();
-        c.Removed = removed;
+                if (!accounts.TryGetValue(k, out var acc)) continue;
+                if (acc.Changed > r.When) removed.Remove(k);   // kept (or added again) after it was removed somewhere
+                else accounts.Remove(k);
+            }
+            c.Accounts = accounts.Values.OrderBy(x => x.Email, StringComparer.Ordinal).ToList();
+            c.Removed = removed;
 
-        c.Settings = c.ShareSettings ? previous?.Settings : null;
-        if (c.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (c.Settings == null || c.Settings.Changed < ss.Changed))
-        {
-            c.Settings = SharedOf(s);
-            c.Settings.Changed = ss.Changed;
+            c.Settings = c.ShareSettings ? previous?.Settings : null;
+            if (c.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (c.Settings == null || c.Settings.Changed < ss.Changed))
+            {
+                c.Settings = SharedOf(s);
+                c.Settings.Changed = ss.Changed;
+            }
+            // Unticked (the newest choice of any PC): the AI keys leave the copy.
+            c.Ai = c.ShareAi ? previous?.Ai : null;
+            if (c.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (c.Ai == null || c.Ai.Changed < ai.Changed))
+            {
+                c.Ai = AiOf(s, vault);
+                c.Ai.Changed = ai.Changed;
+            }
+            var apps = AppsOf(s);
+            c.Apps = apps.IsEmpty ? previous?.Apps ?? new() : apps;
+            c.UsedBy = new Dictionary<string, DateTimeOffset>(previous?.UsedBy ?? new());
+            foreach (var k in c.UsedBy.Where(u => now - u.Value > TimeSpan.FromDays(90)).Select(u => u.Key).ToList()) c.UsedBy.Remove(k);
+            c.UsedBy[pc] = now;
+            return c;
         }
-        // Unticked (the newest choice of any PC): the AI keys leave the copy.
-        c.Ai = c.ShareAi ? previous?.Ai : null;
-        if (c.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (c.Ai == null || c.Ai.Changed < ai.Changed))
-        {
-            c.Ai = AiOf(s, vault);
-            c.Ai.Changed = ai.Changed;
-        }
-        var apps = AppsOf(s);
-        c.Apps = apps.IsEmpty ? previous?.Apps ?? new() : apps;
-        c.UsedBy = new Dictionary<string, DateTimeOffset>(previous?.UsedBy ?? new());
-        foreach (var k in c.UsedBy.Where(u => now - u.Value > TimeSpan.FromDays(90)).Select(u => u.Key).ToList()) c.UsedBy.Remove(k);
-        c.UsedBy[pc] = now;
-        return c;
     }
 
     /// <summary>True when the copy lacks something this PC has newer (or this PC hasn't been noted in it today).</summary>
     public static bool NeedsWrite(AppSettings s, SecretVault vault, Contents? copy, string pc, DateTimeOffset now)
     {
-        if (copy == null) return true;
-        var o = s.AccountsCopy;
-        Track(s, vault, now);
-        if (o.ChoicesChanged > copy.ChoicesChanged) return true;
-        var inCopy = copy.Accounts.ToDictionary(a => a.Email);
-        foreach (var a in s.Accounts)
+        lock (Gate)
         {
-            var key = Key(a.Email);
-            var st = o.Stamps[key];
-            if (copy.Removed.TryGetValue(key, out var r) && r.When >= st.Changed && !o.RemovedHere.ContainsKey(key)) continue;   // waits for the user's answer
-            if (!inCopy.TryGetValue(key, out var c) || (c.Changed < st.Changed && c.Hash != st.Hash)) return true;
+            if (copy == null) return true;
+            var o = s.AccountsCopy;
+            Track(s, vault, now);
+            if (o.ChoicesChanged > copy.ChoicesChanged) return true;
+            var inCopy = copy.Accounts.ToDictionary(a => a.Email);
+            foreach (var a in s.Accounts)
+            {
+                var key = Key(a.Email);
+                var st = o.Stamps[key];
+                if (copy.Removed.TryGetValue(key, out var r) && r.When >= st.Changed && !o.RemovedHere.ContainsKey(key)) continue;   // waits for the user's answer
+                if (!inCopy.TryGetValue(key, out var c) || (c.Changed < st.Changed && c.Hash != st.Hash)) return true;
+            }
+            foreach (var (k, when) in o.RemovedHere)
+            {
+                // The copy has it changed after the removal here (another PC kept it): nothing to write, it waits here.
+                if (inCopy.TryGetValue(k, out var c)) { if (c.Changed <= when) return true; continue; }
+                if (!copy.Removed.TryGetValue(k, out var r) || r.When < when) return true;
+            }
+            if (copy.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (copy.Settings == null || (copy.Settings.Changed < ss.Changed && copy.Settings.Hash != ss.Hash))) return true;
+            if (copy.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (copy.Ai == null || (copy.Ai.Changed < ai.Changed && copy.Ai.Hash != ai.Hash))) return true;
+            if (!copy.ShareAi && copy.Ai != null) return true;
+            if (copy.Apps.IsEmpty && !AppsOf(s).IsEmpty) return true;
+            return !copy.UsedBy.TryGetValue(pc, out var seen) || now - seen > TimeSpan.FromDays(1);
         }
-        foreach (var (k, when) in o.RemovedHere)
-            if (inCopy.ContainsKey(k) || !copy.Removed.TryGetValue(k, out var r) || r.When < when) return true;
-        if (copy.ShareSettings && o.IncludeSettings && o.Stamps.TryGetValue(SettingsStamp, out var ss) && (copy.Settings == null || (copy.Settings.Changed < ss.Changed && copy.Settings.Hash != ss.Hash))) return true;
-        if (copy.ShareAi && o.IncludeAiKeys && o.Stamps.TryGetValue(AiStamp, out var ai) && (copy.Ai == null || (copy.Ai.Changed < ai.Changed && copy.Ai.Hash != ai.Hash))) return true;
-        if (!copy.ShareAi && copy.Ai != null) return true;
-        if (copy.Apps.IsEmpty && !AppsOf(s).IsEmpty) return true;
-        return !copy.UsedBy.TryGetValue(pc, out var seen) || now - seen > TimeSpan.FromDays(1);
+    }
+
+    /// <summary>After a round: removals here that the copy holds now, or that another PC overrode (it kept or changed the
+    /// account later), are the copy's from now on. The overridden ones wait here like any account from another PC.</summary>
+    public static void Settle(AppSettings s, Contents copy)
+    {
+        lock (Gate)
+        {
+            var o = s.AccountsCopy;
+            var inCopy = copy.Accounts.ToDictionary(a => a.Email);
+            foreach (var (k, when) in o.RemovedHere.ToList())
+                if (copy.Removed.ContainsKey(k) || (inCopy.TryGetValue(k, out var c) && c.Changed > when)) o.RemovedHere.Remove(k);
+        }
     }
 
     public static Plan Compare(AppSettings s, SecretVault vault, Contents copy, DateTimeOffset now)
     {
-        var o = s.AccountsCopy;
-        Track(s, vault, now);
-        var plan = new Plan { ChoicesNewer = copy.ChoicesChanged > o.ChoicesChanged };
-        var shareSettings = plan.ChoicesNewer ? copy.ShareSettings : o.IncludeSettings;
-        var shareAi = plan.ChoicesNewer ? copy.ShareAi : o.IncludeAiKeys;
-        var local = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First());
-        foreach (var c in copy.Accounts)
+        lock (Gate)
         {
-            if (local.ContainsKey(c.Email))
+            var o = s.AccountsCopy;
+            Track(s, vault, now);
+            var plan = new Plan { ChoicesNewer = copy.ChoicesChanged > o.ChoicesChanged };
+            var shareSettings = plan.ChoicesNewer ? copy.ShareSettings : o.IncludeSettings;
+            var shareAi = plan.ChoicesNewer ? copy.ShareAi : o.IncludeAiKeys;
+            var local = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First());
+            foreach (var c in copy.Accounts)
             {
-                var st = o.Stamps[c.Email];
-                if (c.Changed > st.Changed && c.Hash != st.Hash) plan.Update.Add(c);
+                if (local.ContainsKey(c.Email))
+                {
+                    var st = o.Stamps[c.Email];
+                    if (c.Changed > st.Changed && c.Hash != st.Hash) plan.Update.Add(c);
+                }
+                else if (o.RemovedHere.ContainsKey(c.Email)) continue;   // removed here; the copy learns it at the next write
+                else if (o.NotHere.Contains(c.Email) || !o.AutoAdd) plan.Available.Add(c);
+                else plan.Add.Add(c);
             }
-            else if (o.RemovedHere.ContainsKey(c.Email)) continue;   // removed here; the copy learns it at the next write
-            else if (o.NotHere.Contains(c.Email) || !o.AutoAdd) plan.Available.Add(c);
-            else plan.Add.Add(c);
+            foreach (var (key, a) in local)
+                if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key))
+                    plan.RemovedElsewhere.Add((a, r));
+            if (shareSettings && copy.Settings is { } cs)
+                plan.SettingsNewer = !o.Stamps.TryGetValue(SettingsStamp, out var ss) || (cs.Changed > ss.Changed && cs.Hash != ss.Hash);
+            if (shareAi && copy.Ai is { } ca)
+                plan.AiNewer = !o.Stamps.TryGetValue(AiStamp, out var st2) || (ca.Changed > st2.Changed && ca.Hash != st2.Hash);
+            return plan;
         }
-        foreach (var (key, a) in local)
-            if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key))
-                plan.RemovedElsewhere.Add((a, r));
-        if (shareSettings && copy.Settings is { } cs)
-            plan.SettingsNewer = !o.Stamps.TryGetValue(SettingsStamp, out var ss) || (cs.Changed > ss.Changed && cs.Hash != ss.Hash);
-        if (shareAi && copy.Ai is { } ca)
-            plan.AiNewer = !o.Stamps.TryGetValue(AiStamp, out var st2) || (ca.Changed > st2.Changed && ca.Hash != st2.Hash);
-        return plan;
     }
 
     /// <summary>Takes the newer accounts, settings and AI block from the copy (adding and removing are the caller's,
     /// so it can start and stop syncs). Returns the accounts changed here, to be restarted.</summary>
     public static List<Account> ApplyUpdates(AppSettings s, SecretVault vault, Contents copy, Plan plan)
     {
-        var o = s.AccountsCopy;
-        if (plan.ChoicesNewer)
+        lock (Gate)
         {
-            o.IncludeSettings = copy.ShareSettings;
-            o.IncludeAiKeys = copy.ShareAi;
-            o.ChoicesChanged = copy.ChoicesChanged;
+            var o = s.AccountsCopy;
+            if (plan.ChoicesNewer)
+            {
+                o.IncludeSettings = copy.ShareSettings;
+                o.IncludeAiKeys = copy.ShareAi;
+                o.ChoicesChanged = copy.ChoicesChanged;
+            }
+            var changed = new List<Account>();
+            foreach (var c in plan.Update)
+            {
+                var i = s.Accounts.FindIndex(a => Key(a.Email) == c.Email);
+                if (i < 0) continue;
+                var a = Copy(c.Account);
+                a.Id = s.Accounts[i].Id;
+                s.Accounts[i] = a;
+                Remember(s, vault, a, c);
+                changed.Add(a);
+            }
+            if (plan.SettingsNewer && copy.Settings is { } cs)
+            {
+                ApplyShared(s, cs);
+                o.Stamps[SettingsStamp] = new CopyStamp { Hash = cs.Hash, Local = SharedOf(s).Hash, Changed = cs.Changed };
+            }
+            if (plan.AiNewer && copy.Ai is { } ca)
+            {
+                var consents = s.Ai.Consents;
+                var learned = s.Ai.Connections.ToDictionary(x => x.Id);
+                s.Ai = Copy(ca.Settings);
+                s.Ai.Consents = consents ?? new();
+                // Keep what this PC learned by itself about a connection it already had.
+                foreach (var conn in s.Ai.Connections)
+                    if (learned.TryGetValue(conn.Id, out var old) && old.Provider == conn.Provider && old.Endpoint == conn.Endpoint)
+                        (conn.Models, conn.ModelsCheckedAt, conn.Unsupported, conn.DismissedNewModel) = (old.Models, old.ModelsCheckedAt, old.Unsupported, old.DismissedNewModel);
+                s.Ai.NormaliseConnections();
+                foreach (var (id, key) in ca.Keys) vault.Set(SecretVault.AiKeyFor(id), key);
+                o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Local = AiOf(s, vault).Hash, Changed = ca.Changed };
+            }
+            return changed;
         }
-        var changed = new List<Account>();
-        foreach (var c in plan.Update)
-        {
-            var i = s.Accounts.FindIndex(a => Key(a.Email) == c.Email);
-            if (i < 0) continue;
-            var a = Copy(c.Account);
-            a.Id = s.Accounts[i].Id;
-            s.Accounts[i] = a;
-            Remember(s, vault, a, c);
-            changed.Add(a);
-        }
-        if (plan.SettingsNewer && copy.Settings is { } cs)
-        {
-            ApplyShared(s, cs);
-            o.Stamps[SettingsStamp] = new CopyStamp { Hash = cs.Hash, Local = SharedOf(s).Hash, Changed = cs.Changed };
-        }
-        if (plan.AiNewer && copy.Ai is { } ca)
-        {
-            var consents = s.Ai.Consents;
-            var learned = s.Ai.Connections.ToDictionary(x => x.Id);
-            s.Ai = Copy(ca.Settings);
-            s.Ai.Consents = consents ?? new();
-            // Keep what this PC learned by itself about a connection it already had.
-            foreach (var conn in s.Ai.Connections)
-                if (learned.TryGetValue(conn.Id, out var old))
-                    (conn.Models, conn.ModelsCheckedAt, conn.Unsupported, conn.DismissedNewModel) = (old.Models, old.ModelsCheckedAt, old.Unsupported, old.DismissedNewModel);
-            s.Ai.NormaliseConnections();
-            foreach (var (id, key) in ca.Keys) vault.Set(SecretVault.AiKeyFor(id), key);
-            o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Local = AiOf(s, vault).Hash, Changed = ca.Changed };
-        }
-        return changed;
     }
 
     /// <summary>An account from the copy, ready to add here: its own id on this PC when that one is taken.</summary>
@@ -427,18 +478,28 @@ public static class AccountsCopy
     /// refresh token only when it is from this PC's sign-in app (it doesn't work with another one).</summary>
     public static void Remember(AppSettings s, SecretVault vault, Account a, CopiedAccount c, bool keepSecrets = false)
     {
-        var o = s.AccountsCopy;
-        var localSignIn = SignedIn(o, c.Email);
-        var newer = localSignIn == null || (c.SignedIn ?? default) >= localSignIn;
-        if (!keepSecrets && newer)
+        lock (Gate)
         {
-            if (c.Password.Length > 0) vault.Set(SecretVault.PasswordKey(a.Id), c.Password);
-            if (c.Refresh.Length > 0 && !OtherApp(c)) vault.Set(SecretVault.RefreshKey(a.Id), c.Refresh);
-            if (c.SignedIn is { } t) o.SignedIn[c.Email] = t;
+            var o = s.AccountsCopy;
+            var localSignIn = SignedIn(o, c.Email);
+            // Nothing to sign in with here yet (a new account): the copy's sign-in is the one to use.
+            var noSecret = string.IsNullOrEmpty(vault.Get(SecretVault.PasswordKey(a.Id))) && string.IsNullOrEmpty(vault.Get(SecretVault.RefreshKey(a.Id)));
+            var newer = localSignIn == null || (c.SignedIn ?? default) >= localSignIn || (noSecret && !keepSecrets);
+            if (!keepSecrets && newer)
+            {
+                if (c.Password.Length > 0) vault.Set(SecretVault.PasswordKey(a.Id), c.Password);
+                if (c.Refresh.Length > 0 && !OtherApp(c)) vault.Set(SecretVault.RefreshKey(a.Id), c.Refresh);
+                if (c.SignedIn is { } t) o.SignedIn[c.Email] = t; else o.SignedIn.Remove(c.Email);
+            }
+            var local = HashOf(a, o);
+            // This PC kept its own newer sign-in: the account (the copy's settings, this PC's sign-in) counts as changed here
+            // just after the copy's version, so the next write brings the newer sign-in to the other PCs.
+            if (!newer)
+                o.Stamps[c.Email] = new CopyStamp { Hash = local, Local = local, Changed = c.Changed.AddTicks(1) };
+            else o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = local, Changed = c.Changed };
+            o.NotHere.Remove(c.Email);
+            o.RemovedHere.Remove(c.Email);
         }
-        o.Stamps[c.Email] = new CopyStamp { Hash = c.Hash, Local = HashOf(a, o), Changed = c.Changed };
-        o.NotHere.Remove(c.Email);
-        o.RemovedHere.Remove(c.Email);
     }
 
     /// <summary>A copied Google / Microsoft sign-in from another sign-in app than this PC uses: it can't be used here, so

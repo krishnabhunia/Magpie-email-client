@@ -18,6 +18,9 @@ public sealed class AccountsCopySettings
     public bool AutoAdd { get; set; } = true;
     /// <summary>When "what comes along" was last chosen on this PC (the newest choice of any PC wins).</summary>
     public DateTimeOffset ChoicesChanged { get; set; }
+    /// <summary>When the copy was last turned on here: a "stopped" or "moved" note older than that is left over from before
+    /// and is written over, never followed.</summary>
+    public DateTimeOffset? EnabledAt { get; set; }
     /// <summary>This PC's name in the copy ("used by HP-OMEN, NEW-PC"); empty = the computer name.</summary>
     public string PcName { get; set; } = "";
 

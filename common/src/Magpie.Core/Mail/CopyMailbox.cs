@@ -68,13 +68,23 @@ public static class CopyMailbox
         return msg;
     }
 
+    /// <summary>One copy email: its UID, size, and on Gmail its message id (the same in every label and All Mail).</summary>
+    private sealed record CopyEmail(UniqueId Uid, uint Size, ulong? GmailId);
+
     /// <summary>The copy emails in an open folder (by their header), oldest first.</summary>
-    private static async Task<List<UniqueId>> CopiesAsync(IMailFolder folder, CancellationToken ct)
+    private static async Task<List<CopyEmail>> CopiesAsync(ImapClient client, IMailFolder folder, CancellationToken ct)
     {
         if (folder.Count == 0) return new();
-        var items = await folder.FetchAsync(0, -1, new FetchRequest(MessageSummaryItems.UniqueId) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
-        return items.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true).Select(s => s.UniqueId).OrderBy(u => u.Id).ToList();
+        var what = MessageSummaryItems.UniqueId | MessageSummaryItems.Size;
+        if (client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) what |= MessageSummaryItems.GMailMessageId;
+        var items = await folder.FetchAsync(0, -1, new FetchRequest(what) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
+        return items.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true)
+            .Select(s => new CopyEmail(s.UniqueId, s.Size ?? 0, s.GMailMessageId)).OrderBy(c => c.Uid.Id).ToList();
     }
+
+    /// <summary>A copy email bigger than this isn't downloaded (a real copy is at most <see cref="AccountsCopy.MaxBytes"/>,
+    /// plus the base64 of the attachment).</summary>
+    private const long MaxEmailBytes = AccountsCopy.MaxBytes * 2L;
 
     /// <summary>Writes the copy: the new email first, then the ones that were there before go (never without a copy).</summary>
     public static async Task WriteAsync(ImapClient client, string address, byte[] file, CancellationToken ct)
@@ -84,7 +94,7 @@ public static class CopyMailbox
         await folder.OpenAsync(FolderAccess.ReadWrite, ct);
         try
         {
-            var before = await CopiesAsync(folder, ct);
+            var before = await CopiesAsync(client, folder, ct);
             await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
             if (before.Count > 0) await RemoveAsync(client, folder, before, ct);
         }
@@ -100,9 +110,11 @@ public static class CopyMailbox
         await folder.OpenAsync(FolderAccess.ReadOnly, ct);
         try
         {
-            foreach (var uid in (await CopiesAsync(folder, ct)).AsEnumerable().Reverse())
+            foreach (var copy in (await CopiesAsync(client, folder, ct)).AsEnumerable().Reverse())
             {
-                var msg = await folder.GetMessageAsync(uid, ct);
+                // Never downloaded when too big: it isn't Magpie's (and could fill the memory).
+                if (copy.Size > MaxEmailBytes) { Log.Warn($"accounts copy: skipped an email of {copy.Size / 1024 / 1024} MB in the copy folder"); continue; }
+                var msg = await folder.GetMessageAsync(copy.Uid, ct);
                 if (msg.Attachments.OfType<MimePart>().FirstOrDefault(p => p.FileName == AccountsCopy.FileName) is not { Content: { } content }) continue;
                 using var ms = new MemoryStream();
                 await content.DecodeToAsync(ms, ct);
@@ -113,35 +125,43 @@ public static class CopyMailbox
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
-    /// <summary>Every email in the copy folder goes, then the folder itself.</summary>
+    /// <summary>Every copy email in the folder goes, then the folder itself (when nothing else is in it).</summary>
     public static async Task DeleteAsync(ImapClient client, CancellationToken ct)
     {
         var folder = await FindFolderAsync(client, ct);
         if (folder == null) return;
         await folder.OpenAsync(FolderAccess.ReadWrite, ct);
-        var all = await folder.SearchAsync(KitSearch.All, ct);
-        if (all.Count > 0) await RemoveAsync(client, folder, all.ToList(), ct);
+        var all = await CopiesAsync(client, folder, ct);
+        if (all.Count > 0) await RemoveAsync(client, folder, all, ct);
+        // Emails that aren't Magpie's (moved there by hand) stay, and so does the folder then.
+        var rest = (await folder.SearchAsync(KitSearch.All, ct)).Count;
         try { await folder.CloseAsync(false, ct); } catch { }
+        if (rest > 0) return;
         try { await folder.DeleteAsync(ct); } catch (ImapCommandException) { }   // emptied is enough when the server keeps it
     }
 
-    private static async Task RemoveAsync(ImapClient client, IMailFolder folder, IList<UniqueId> uids, CancellationToken ct)
+    /// <summary>Removes these copy emails (only these: the one just written stays).</summary>
+    private static async Task RemoveAsync(ImapClient client, IMailFolder folder, IList<CopyEmail> copies, CancellationToken ct)
     {
+        var uids = copies.Select(c => c.Uid).ToList();
         if (client.Capabilities.HasFlag(ImapCapabilities.GMailExt1))
         {
             // Gmail: removing the label keeps the email in All Mail. Through Trash, deleted there for good.
             await client.GetFoldersAsync(client.PersonalNamespaces[0], cancellationToken: ct);   // loads the special folders (Trash, All Mail)
+            var ids = copies.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
             var trash = client.GetFolder(SpecialFolder.Trash);
             if (trash != null)
             {
                 await folder.MoveToAsync(uids, trash, ct);
-                await DeleteCopiesInAsync(trash, ct);
+                await DeleteCopiesInAsync(trash, ids, ct);
                 await folder.OpenAsync(FolderAccess.ReadWrite, ct);
                 return;
             }
-            // Trash hidden from IMAP: delete the label's copies, then the same emails in All Mail (Gmail moves them to Trash).
+            // Trash hidden from IMAP: delete the label's copies, then the same emails (by Gmail's message id) in All Mail,
+            // which Gmail moves to its Trash.
             await ExpungeAsync(client, folder, uids, ct);
-            if (client.GetFolder(SpecialFolder.All) is { } all) await DeleteCopiesInAsync(all, ct);
+            if (client.GetFolder(SpecialFolder.All) is { } all) await DeleteCopiesInAsync(all, ids, ct);
+            else Log.Warn("accounts copy: Gmail shows neither Trash nor All Mail to IMAP; old copies stay in All Mail");
             await folder.OpenAsync(FolderAccess.ReadWrite, ct);
             return;
         }
@@ -156,16 +176,19 @@ public static class CopyMailbox
         else await folder.ExpungeAsync(ct);
     }
 
-    /// <summary>Deletes the copy emails in a Gmail folder (Trash or All Mail): found by the subject, checked by the header.</summary>
-    private static async Task DeleteCopiesInAsync(IMailFolder f, CancellationToken ct)
+    /// <summary>Deletes these copy emails in a Gmail folder (Trash or All Mail): found by the subject, checked by the header
+    /// and Gmail's message id (so a copy that must stay, like the one just written, is never one of them).</summary>
+    private static async Task DeleteCopiesInAsync(IMailFolder f, IReadOnlySet<ulong> gmailIds, CancellationToken ct)
     {
+        if (gmailIds.Count == 0) return;
         await f.OpenAsync(FolderAccess.ReadWrite, ct);
         try
         {
             var candidates = await f.SearchAsync(KitSearch.SubjectContains(AccountsCopy.Subject), ct);
             if (candidates.Count == 0) return;
-            var summaries = await f.FetchAsync(candidates, new FetchRequest(MessageSummaryItems.UniqueId) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
-            var mine = summaries.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true).Select(s => s.UniqueId).ToList();
+            var summaries = await f.FetchAsync(candidates, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.GMailMessageId) { Headers = new HeaderSet(new[] { AccountsCopy.Header }) }, ct);
+            var mine = summaries.Where(s => s.Headers?.Contains(AccountsCopy.Header) == true && s.GMailMessageId is { } id && gmailIds.Contains(id))
+                .Select(s => s.UniqueId).ToList();
             if (mine.Count == 0) return;
             await f.StoreAsync(mine, new StoreFlagsRequest(StoreAction.Add, KitFlags.Deleted) { Silent = true }, ct);
             await f.ExpungeAsync(mine, ct);

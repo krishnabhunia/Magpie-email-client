@@ -379,6 +379,24 @@ public class IntegrationTests
         await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
         Assert.False(pc2.Config.AccountsCopy.Enabled);
         Assert.Contains(pc2.Accounts, a => a.Email == homeUser);   // its accounts stay
+
+        // Turned on again later on PC 1 (same mailbox, another password): the old note is written over, not followed.
+        var home1 = pc1.Accounts.Single(a => a.Email == homeUser);
+        await pc1.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.True(pc1.Config.AccountsCopy.Enabled);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        Assert.Equal(2, AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!)!.Accounts);
+
+        // Moving the copy to the work account: the work mailbox gets the full copy, then the old one points there.
+        await pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None);
+        Assert.Equal(AccountsCopy.Key(workUser), pc1.Config.AccountsCopy.HomeEmail);
+        var work1 = pc1.Accounts.Single(a => a.Email == workUser);
+        Assert.Equal(2, AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Accounts.Count);
+        var pointer = AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!, "another sync password");
+        Assert.Equal((AccountsCopy.Key(workUser), 0), (pointer.MovedTo, pointer.Accounts.Count));
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
     }
 
     [Fact]

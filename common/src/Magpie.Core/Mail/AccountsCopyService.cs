@@ -47,6 +47,8 @@ public sealed class AccountsCopyService
     /// <summary>The copy that was there is missing from the home mailbox: nothing is written until "Update the copy now".</summary>
     public bool Missing { get; private set; }
     public IReadOnlyList<AccountsCopy.CopiedAccount> Available { get; private set; } = Array.Empty<AccountsCopy.CopiedAccount>();
+    /// <summary>The last round couldn't take another PC's changes because Settings was open: they come in when it closes.</summary>
+    public bool HeldBack { get; private set; }
 
     private AccountsCopySettings Options => _e.Config.AccountsCopy;
     public string PcName => Options.PcName.Length > 0 ? Options.PcName : Environment.MachineName;
@@ -55,13 +57,13 @@ public sealed class AccountsCopyService
     public void Start(CancellationToken ct)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _e.Settings.Changed += SoonAfterChange;
+        _e.Settings.Saving += SoonAfterChange;
         _ = Task.Run(() => LoopAsync(_cts.Token));
     }
 
     public void Stop()
     {
-        _e.Settings.Changed -= SoonAfterChange;
+        _e.Settings.Saving -= SoonAfterChange;
         _cts?.Cancel();
         _debounce?.Dispose();
     }
@@ -69,11 +71,12 @@ public sealed class AccountsCopyService
     /// <summary>Check now (Settings → "Update the copy now", or after a change).</summary>
     public void Poke() => _wake.Release();
 
-    // A change is noted at once (so its time is when it was made, also offline); several saves in a row make one write.
-    private void SoonAfterChange()
+    // Every save (also the quiet ones, like blocking a sender) notes what changed at once, in the same write: its time is
+    // when it was made, also offline or if Magpie stops before the next round. Several changes in a row make one write.
+    private void SoonAfterChange(AppSettings s)
     {
-        if (!Options.Enabled) return;
-        try { AccountsCopy.Track(_e.Config, _e.Vault, DateTimeOffset.Now); } catch (Exception ex) { Log.Warn("accounts copy: " + ex.Message); }
+        if (!s.AccountsCopy.Enabled) return;
+        if (!AccountsCopy.Track(s, _e.Vault, DateTimeOffset.Now)) return;
         _debounce ??= new System.Threading.Timer(_ => Poke());
         _debounce.Change(TimeSpan.FromSeconds(20), Timeout.InfiniteTimeSpan);
     }
@@ -121,21 +124,25 @@ public sealed class AccountsCopyService
             AccountsCopy.Contents? copy = null;
             if (file != null)
             {
-                try { copy = AccountsCopy.Unlock(file, password); }
-                catch (AccountsCopy.WrongPasswordException) when (!string.IsNullOrEmpty(newPassword))
+                try
                 {
-                    // The new password chosen here already locks it (written by an earlier round that didn't finish).
-                    copy = AccountsCopy.Unlock(file, newPassword);
-                    _e.Vault.Set(AccountsCopy.VaultPassword, newPassword);
-                    _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
-                    (password, newPassword) = (newPassword, null);
+                    copy = OpenWithKnownPassword(file);
+                    (password, newPassword) = (_e.Vault.Get(AccountsCopy.VaultPassword)!, _e.Vault.Get(AccountsCopy.VaultNewPassword));
                 }
+                catch (AccountsCopy.WrongPasswordException) when (IsOldNote(file)) { file = null; }   // left from before; written over
                 catch (AccountsCopy.WrongPasswordException)
                 {
                     // Another PC chose a new sync password: ask for it once; nothing is written meanwhile.
-                    AskForPassword("The copy has a new sync password. Type it once on this PC.");
+                    if (!string.IsNullOrEmpty(newPassword))
+                    {
+                        _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
+                        AskForPassword("Another PC changed the sync password meanwhile. Type that one on this PC; you can change it again afterwards.");
+                    }
+                    else AskForPassword("The copy has a new sync password. Type it once on this PC.");
                     return;
                 }
+                // A "stopped" or "moved" note from before this PC turned the copy on (again) is written over, never followed.
+                if (copy is { Stopped: true } or { MovedTo.Length: > 0 } && Options.EnabledAt is { } at && copy.Updated < at) { copy = null; file = null; }
             }
             NeedsPassword = false;
 
@@ -163,7 +170,7 @@ public sealed class AccountsCopyService
                 return;
             }
             Missing = false;
-            if (copy != null && !Paused()) await TakeAsync(copy);
+            HeldBack = copy != null && !await TakeAsync(copy);
 
             var now = DateTimeOffset.Now;
             var write = newPassword != null;
@@ -196,8 +203,7 @@ public sealed class AccountsCopyService
                     o.CopyUpdated = copy.Updated;
                     o.CopyAccounts = copy.Accounts.Count;
                     o.UsedBy = copy.UsedBy.OrderByDescending(u => u.Value).Select(u => u.Key).ToList();
-                    // Written ones are in the copy now; the copy remembers them from here on.
-                    foreach (var k in o.RemovedHere.Keys.Where(k => copy.Removed.ContainsKey(k)).ToList()) o.RemovedHere.Remove(k);
+                    AccountsCopy.Settle(_e.Config, copy);
                 }
                 if (file != null) o.CopySize = file.Length;
                 _e.Settings.Save(notify: false);
@@ -208,6 +214,25 @@ public sealed class AccountsCopyService
         finally { _busy.Release(); }
     }
 
+    /// <summary>The copy opened with the sync password kept here, or with the new one chosen here (an earlier round
+    /// already locked it with that one: it becomes the sync password).</summary>
+    private AccountsCopy.Contents OpenWithKnownPassword(byte[] file)
+    {
+        var password = _e.Vault.Get(AccountsCopy.VaultPassword);
+        var newPassword = _e.Vault.Get(AccountsCopy.VaultNewPassword);
+        if (!string.IsNullOrEmpty(password))
+            try { return AccountsCopy.Unlock(file, password); }
+            catch (AccountsCopy.WrongPasswordException) when (!string.IsNullOrEmpty(newPassword)) { }
+        if (string.IsNullOrEmpty(newPassword)) throw new AccountsCopy.WrongPasswordException();
+        var copy = AccountsCopy.Unlock(file, newPassword);
+        _e.Vault.Set(AccountsCopy.VaultPassword, newPassword);
+        _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
+        return copy;
+    }
+
+    /// <summary>Only a "stopped" / "moved" note (no accounts) written before the copy was turned on here.</summary>
+    private bool IsOldNote(byte[] file) => AccountsCopy.Peek(file) is { Accounts: 0 } p && Options.EnabledAt is { } at && p.Updated < at;
+
     private void AskForPassword(string why)
     {
         NeedsPassword = true;
@@ -215,13 +240,17 @@ public sealed class AccountsCopyService
         PasswordNeeded?.Invoke();
     }
 
-    private async Task TakeAsync(AccountsCopy.Contents copy)
+    /// <summary>Takes the copy's newer changes; false when they wait (Settings is open: checked on the UI thread, right
+    /// where they are applied, so a window opened meanwhile can't write its older values back over them).</summary>
+    private async Task<bool> TakeAsync(AccountsCopy.Contents copy)
     {
         AccountsCopy.Plan? plan = null;
         var changed = new List<Account>();
         var added = new List<Account>();
+        var paused = false;
         await RunOnUi(() =>
         {
+            if (Paused()) { paused = true; return; }
             plan = AccountsCopy.Compare(_e.Config, _e.Vault, copy, DateTimeOffset.Now);
             if (!plan.Changes) return;
             changed = AccountsCopy.ApplyUpdates(_e.Config, _e.Vault, copy, plan);
@@ -237,11 +266,13 @@ public sealed class AccountsCopyService
             added = _e.AddAccounts(toAdd, fromCopy: true);
             if (changed.Count > 0 || plan.SettingsNewer) Log.Info($"accounts copy: took {changed.Count} account change(s){(plan.SettingsNewer ? " and settings" : "")} from {copy.FromPc}");
         });
-        if (plan == null) return;
+        if (paused) return false;
+        if (plan == null) return true;
         if (added.Count > 0) { Log.Info($"accounts copy: added {added.Count} account(s) from {copy.FromPc}"); AccountsAdded?.Invoke(added); }
         Available = plan.Available;
         if (plan.Available.Count > 0) AccountsAvailable?.Invoke(plan.Available);
         foreach (var (a, r) in plan.RemovedElsewhere) RemovedElsewhere?.Invoke(a, r);
+        return true;
     }
 
     private async Task StopHereAsync(string byPc)
@@ -282,11 +313,12 @@ public sealed class AccountsCopyService
         if (file != null)
         {
             try { existing = AccountsCopy.Unlock(file, password); }
+            catch (AccountsCopy.WrongPasswordException) when (AccountsCopy.Peek(file) is { Accounts: 0 }) { }   // an old note: written over
             catch (AccountsCopy.WrongPasswordException)
             {
                 throw new InvalidOperationException($"{home.Email} already has a copy made on another PC, locked with another password. Type that password to join it.");
             }
-            if (existing.Stopped || existing.MovedTo.Length > 0) existing = null;   // a note only: start a new copy
+            if (existing is { Stopped: true } or { MovedTo.Length: > 0 }) existing = null;   // a note only: start a new copy
         }
         await _busy.WaitAsync(ct);
         try
@@ -300,6 +332,7 @@ public sealed class AccountsCopyService
                 o.IncludeSettings = includeSettings;
                 o.IncludeAiKeys = includeAi;
                 o.CopyUpdated = null;
+                o.EnabledAt = DateTimeOffset.Now;
                 _e.Vault.Set(AccountsCopy.VaultPassword, password);
                 _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
                 if (existing != null) AccountsCopy.Join(_e.Config, _e.Vault, existing, DateTimeOffset.Now);
@@ -344,61 +377,111 @@ public sealed class AccountsCopyService
         Poke();
     }
 
-    /// <summary>The home account is being removed (or changed): the copy moves to another account. The old mailbox keeps a
-    /// short note "moved to …" (nothing else in it), so the other PCs follow; the new home gets the full copy at once.</summary>
+    /// <summary>The home account is being removed (or changed): the copy moves to another account. The new home gets the
+    /// full copy first; only then the old mailbox keeps a short note "moved to …" (nothing else in it), so the other PCs
+    /// follow. When anything fails, nothing has moved: the copy stays where it was (the error says why).</summary>
     public async Task MoveHomeAsync(string newHomeEmail, CancellationToken ct)
     {
         await _busy.WaitAsync(ct);
         try
         {
             var old = Home;
-            var password = _e.Vault.Get(AccountsCopy.VaultPassword);
+            var to = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == AccountsCopy.Key(newHomeEmail))
+                     ?? throw new ArgumentException("Choose an account that is in Magpie on this PC.");
+            if (string.IsNullOrEmpty(_e.Vault.Get(AccountsCopy.VaultPassword)) && string.IsNullOrEmpty(_e.Vault.Get(AccountsCopy.VaultNewPassword)))
+                throw new InvalidOperationException("Type the sync password first (Settings → Accounts), then try again.");
             AccountsCopy.Contents? current = null;
-            if (old != null && !string.IsNullOrEmpty(password))
+            if (old != null)
             {
                 using var client = await _e.Connector.OpenImapAsync(old, ct);
                 if (await CopyMailbox.ReadAsync(client, ct) is { } file)
-                    try { current = AccountsCopy.Unlock(file, password); } catch (AccountsCopy.WrongPasswordException) { }
-                var note = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, MovedTo = AccountsCopy.Key(newHomeEmail) };
-                var locked = await Task.Run(() => AccountsCopy.Lock(note, password), ct);
-                await CopyMailbox.WriteAsync(client, old.Email, locked, ct);
+                {
+                    try { current = OpenWithKnownPassword(file); }
+                    catch (AccountsCopy.WrongPasswordException) when (AccountsCopy.Peek(file) is { Accounts: 0 }) { }
+                    catch (AccountsCopy.WrongPasswordException)
+                    {
+                        // Moving it now would lose the other PCs' accounts and lock the note with a password they don't use.
+                        AskForPassword("The copy has a new sync password. Type it once on this PC.");
+                        throw new InvalidOperationException("Another PC changed the sync password. Type the new one first (Settings → Accounts), then try again.");
+                    }
+                    if (current is { Stopped: true } or { MovedTo.Length: > 0 }) current = null;   // only a note: nothing to carry over
+                }
                 try { await client.DisconnectAsync(true, ct); } catch { }
             }
-            // The new home starts from the full copy that was in the old one (other PCs' accounts and removals stay).
-            var to = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == AccountsCopy.Key(newHomeEmail));
-            if (to != null && !string.IsNullOrEmpty(password))
+            var password = _e.Vault.Get(AccountsCopy.VaultPassword) ?? "";
+            var newPassword = _e.Vault.Get(AccountsCopy.VaultNewPassword);
+            var lockWith = string.IsNullOrEmpty(newPassword) ? password : newPassword;
+            // 1. The new home starts from the full copy that was in the old one (other PCs' accounts and removals stay).
+            AccountsCopy.Contents? built = null;
+            var now = DateTimeOffset.Now;
+            await RunOnUi(() => built = AccountsCopy.Build(_e.Config, _e.Vault, current, PcName, AppVersion, now));
+            var locked = await Task.Run(() => AccountsCopy.Lock(built!, lockWith), ct);
+            using (var client = await _e.Connector.OpenImapAsync(to, ct))
             {
-                AccountsCopy.Contents? built = null;
-                var now = DateTimeOffset.Now;
-                await RunOnUi(() => built = AccountsCopy.Build(_e.Config, _e.Vault, current, PcName, AppVersion, now));
-                var locked = await Task.Run(() => AccountsCopy.Lock(built!, password), ct);
-                using var client = await _e.Connector.OpenImapAsync(to, ct);
                 await CopyMailbox.WriteAsync(client, to.Email, locked, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
             }
-            await RunOnUi(() => { Options.HomeEmail = AccountsCopy.Key(newHomeEmail); _e.Settings.Save(notify: false); });
+            // 2. Only now the old mailbox points there.
+            if (old != null && AccountsCopy.Key(old.Email) != AccountsCopy.Key(to.Email))
+            {
+                var note = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, MovedTo = AccountsCopy.Key(to.Email) };
+                var noteFile = await Task.Run(() => AccountsCopy.Lock(note, lockWith), ct);
+                using var client = await _e.Connector.OpenImapAsync(old, ct);
+                await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct);
+                try { await client.DisconnectAsync(true, ct); } catch { }
+            }
+            if (!string.IsNullOrEmpty(newPassword))
+            {
+                _e.Vault.Set(AccountsCopy.VaultPassword, newPassword);
+                _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
+            }
+            await RunOnUi(() =>
+            {
+                var o = Options;
+                o.HomeEmail = AccountsCopy.Key(to.Email);
+                o.CopyUpdated = built!.Updated;
+                o.CopyAccounts = built.Accounts.Count;
+                o.CopySize = locked.Length;
+                AccountsCopy.Settle(_e.Config, built);
+                _e.Settings.Save(notify: false);
+            });
         }
         finally { _busy.Release(); }
         Poke();
     }
 
     /// <summary>"Stop and delete the copy": the accounts and sign-ins leave the mailbox, replaced by a short "stopped" note
-    /// (nothing else in it) so the other PCs stop too instead of writing it back; their accounts stay. With
-    /// <paramref name="deleteCopy"/> false it only stops on this PC.</summary>
+    /// (nothing else in it) so the other PCs stop too instead of writing it back; their accounts stay. The note is locked
+    /// with the password that opens the copy there now (another PC may have changed it: then it must be typed first).
+    /// With <paramref name="deleteCopy"/> false it only stops on this PC.</summary>
     public async Task DisableAsync(bool deleteCopy, CancellationToken ct)
     {
         await _busy.WaitAsync(ct);
         try
         {
             var home = Home;
-            var password = _e.Vault.Get(AccountsCopy.VaultPassword);
             if (deleteCopy && home != null)
             {
                 using var client = await _e.Connector.OpenImapAsync(home, ct);
-                if (!string.IsNullOrEmpty(password))
+                var file = await CopyMailbox.ReadAsync(client, ct);
+                var known = !string.IsNullOrEmpty(_e.Vault.Get(AccountsCopy.VaultPassword)) || !string.IsNullOrEmpty(_e.Vault.Get(AccountsCopy.VaultNewPassword));
+                var note = known;
+                if (file != null && known)
                 {
-                    var note = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, Stopped = true };
-                    var locked = await Task.Run(() => AccountsCopy.Lock(note, password), ct);
+                    try { OpenWithKnownPassword(file); }
+                    catch (AccountsCopy.WrongPasswordException) when (AccountsCopy.Peek(file) is { Accounts: 0 }) { note = false; }   // only an old note: deleted
+                    catch (AccountsCopy.WrongPasswordException)
+                    {
+                        AskForPassword("The copy has a new sync password. Type it once on this PC.");
+                        throw new InvalidOperationException("Another PC changed the sync password. Type the new one first (Settings → Accounts), then stop the copy; until then it stays as it is.");
+                    }
+                }
+                if (note)
+                {
+                    var password = _e.Vault.Get(AccountsCopy.VaultPassword);
+                    var lockWith = string.IsNullOrEmpty(password) ? _e.Vault.Get(AccountsCopy.VaultNewPassword)! : password;
+                    var stopped = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, Stopped = true };
+                    var locked = await Task.Run(() => AccountsCopy.Lock(stopped, lockWith), ct);
                     await CopyMailbox.WriteAsync(client, home.Email, locked, ct);
                 }
                 else await CopyMailbox.DeleteAsync(client, ct);
@@ -409,6 +492,8 @@ public sealed class AccountsCopyService
         finally { _busy.Release(); }
         Problem = "";
         Missing = false;
+        NeedsPassword = false;
+        HeldBack = false;
         StatusChanged?.Invoke();
     }
 
@@ -436,8 +521,13 @@ public sealed class AccountsCopyService
         o.HomeEmail = homeKey;
         o.IncludeSettings = copy.ShareSettings;
         o.IncludeAiKeys = copy.ShareAi;
-        o.ChoicesChanged = copy.ChoicesChanged;
+        o.EnabledAt = DateTimeOffset.Now;
+        o.CopyUpdated = null;
         _e.Vault.Set(AccountsCopy.VaultPassword, password);
+        _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
+        // Accounts this PC already has keep its own version until either side changes them (as when joining in Settings).
+        AccountsCopy.Join(_e.Config, _e.Vault, copy, DateTimeOffset.Now);
+        o.ChoicesChanged = copy.ChoicesChanged;
         // Accounts not ticked stay in the copy and wait (Settings → Accounts lists them).
         foreach (var c in copy.Accounts.Where(c => c.Email != homeKey && !wanted.Contains(c.Email) && !o.NotHere.Contains(c.Email))) o.NotHere.Add(c.Email);
 

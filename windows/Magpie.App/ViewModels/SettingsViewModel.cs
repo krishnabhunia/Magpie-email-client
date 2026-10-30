@@ -882,9 +882,10 @@ public partial class SettingsViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                Ui.Error("The accounts copy", Core.Mail.Connector.Friendly(ex) + "\n\nThe account is removed anyway; the copy stays in its mailbox for now.");
-                if (!(next != null && pick == 0)) await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
-                else { copy.HomeEmail = Core.Settings.AccountsCopy.Key(next.Email); _e.Settings.Save(notify: false); }
+                // Nothing moved or was deleted: the copy is still in this mailbox. Removing the account anyway stops it here.
+                if (!Ui.Confirm("The accounts copy", Core.Mail.Connector.Friendly(ex) +
+                    $"\n\nThe copy is still in {a.Email}'s mailbox. Remove the account anyway? Magpie on this PC then stops keeping the copy; your other PCs keep using it.")) return;
+                await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
             }
         }
         _e.RemoveAccount(a.Original.Id);

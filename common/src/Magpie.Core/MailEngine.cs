@@ -94,6 +94,7 @@ public sealed class MailEngine : IDisposable
         AccountsCopy = new AccountsCopyService(this);
         // Design SA1: which sign-in app this PC uses, so a copied Google / Microsoft sign-in from another app isn't used here.
         Magpie.Core.Settings.AccountsCopy.ClientFor = kind => OAuth.ConfigFor(kind)?.ClientId ?? "";
+        Magpie.Core.Settings.AccountsCopy.SignInBroken = id => StatusOf(id)?.State == SyncState.NeedsSignIn;
     }
 
     public AppSettings Config => Settings.Current;
@@ -212,7 +213,10 @@ public sealed class MailEngine : IDisposable
         if (password != null) Vault.Set(SecretVault.PasswordKey(a.Id), password);
         if (tokens != null) OAuth.Remember(a.Id, tokens);
         Forgive(a.Email);
+        // Design SY1: typed or signed in here just now, so this sign-in is the newest for the copy.
+        if (password != null || tokens != null) Settings.Current.AccountsCopy.SignedIn[Magpie.Core.Settings.AccountsCopy.Key(a.Email)] = DateTimeOffset.Now;
         Settings.Current.Accounts.Add(a);
+        Magpie.Core.Settings.AccountsCopy.ResolveRules(Settings.Current);
         Settings.Save();
         StartAccount(a);
         Calendar.Poke();
@@ -232,8 +236,10 @@ public sealed class MailEngine : IDisposable
             added.Add(a);
         }
         if (added.Count == 0) return added;
-        Settings.Save();
         if (!fromCopy) foreach (var a in added) Forgive(a.Email);
+        // Rules from the copy that name these accounts by email now point at them.
+        Magpie.Core.Settings.AccountsCopy.ResolveRules(Settings.Current);
+        Settings.Save();
         foreach (var a in added.Where(a => a.Enabled)) StartAccount(a, takeTurns: true);
         Calendar.Poke();
         Contacts.Poke();
@@ -241,12 +247,15 @@ public sealed class MailEngine : IDisposable
         return added;
     }
 
-    /// <summary>Design SY1: an account added here again after it was removed here: it isn't "removed" for the copy any more.</summary>
+    /// <summary>Design SY1: an account added here again after it was removed here: it isn't "removed" for the copy any more,
+    /// and it starts with a new fingerprint and time (so it wins over its removal in the copy).</summary>
     private void Forgive(string email)
     {
+        var o = Settings.Current.AccountsCopy;
         var key = Magpie.Core.Settings.AccountsCopy.Key(email);
-        Settings.Current.AccountsCopy.RemovedHere.Remove(key);
-        Settings.Current.AccountsCopy.NotHere.Remove(key);
+        o.RemovedHere.Remove(key);
+        o.NotHere.Remove(key);
+        o.Stamps.Remove(key);
     }
 
     /// <summary>Design SY1: an account changed by another PC (through the copy): saved already, its sync starts again.</summary>
@@ -279,11 +288,20 @@ public sealed class MailEngine : IDisposable
     {
         if (_syncs.TryRemove(accountId, out var s)) s.Dispose();
         // Design SY1: the copy notes the removal (other PCs ask before removing it there) and this PC doesn't add it back.
-        if (AccountById(accountId) is { } gone && Settings.Current.AccountsCopy.Enabled)
+        if (AccountById(accountId) is { } gone)
         {
+            var o = Settings.Current.AccountsCopy;
             var key = Magpie.Core.Settings.AccountsCopy.Key(gone.Email);
-            Settings.Current.AccountsCopy.RemovedHere[key] = DateTimeOffset.Now;
-            if (!Settings.Current.AccountsCopy.NotHere.Contains(key)) Settings.Current.AccountsCopy.NotHere.Add(key);
+            if (o.Enabled)
+            {
+                o.RemovedHere[key] = DateTimeOffset.Now;
+                if (!o.NotHere.Contains(key)) o.NotHere.Add(key);
+            }
+            // Its fingerprint and sign-in time go with it: added again, it starts afresh (and takes the copy's sign-in).
+            o.Stamps.Remove(key);
+            o.SignedIn.Remove(key);
+            // Its rules keep naming it by email: they still work on the PCs that keep it, and here again if it is added back.
+            foreach (var r in Settings.Current.Rules.Where(r => r.AccountId == accountId)) r.AccountId = "@" + key;
         }
         Settings.Current.Accounts.RemoveAll(a => a.Id == accountId);
         Settings.Save();

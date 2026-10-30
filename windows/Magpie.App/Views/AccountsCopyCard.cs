@@ -124,6 +124,7 @@ public sealed class AccountsCopyCard : Border
         }
         else status.Text = "Making the copy… (it's written within a minute)";
         _root.Children.Add(status);
+        if (svc.HeldBack) _root.Children.Add(Caption("Changes from your other PCs come in when this Settings window is closed."));
         _root.Children.Add(Caption($"Home account: {o.HomeEmail} · this PC is called {svc.PcName} in the copy."));
 
         var settings = new CheckBox { Content = "Settings come along (rules, signatures, quick replies, templates, tags, Gatekeeper lists, look)", IsChecked = o.IncludeSettings, Margin = new Thickness(0, 2, 0, 2) };
@@ -192,9 +193,9 @@ public sealed class AccountsCopyCard : Border
             try { await E.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None); }
             catch (Exception ex)
             {
-                // Offline: stop here anyway; the copy stays in the mailbox until stopped again online.
-                Ui.Error("Stop and delete the copy", Core.Mail.Connector.Friendly(ex) + "\n\nThe copy could not be deleted now; it stopped on this PC.", Window.GetWindow(this));
-                await E.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
+                // Offline, or another PC changed the sync password: the copy stays as it is. Stop here only, if wanted.
+                if (Ui.Confirm("Stop and delete the copy", Core.Mail.Connector.Friendly(ex) + "\n\nThe copy couldn't be deleted now. Stop it on this PC only? It stays in the mailbox for your other PCs.", Window.GetWindow(this)))
+                    await E.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
             }
             Build();
         };

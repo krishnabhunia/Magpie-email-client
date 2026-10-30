@@ -76,7 +76,11 @@ public static class AccountsCopyUi
         var e = AppServices.Engine;
         if (e.Config.AccountsCopy.Enabled) return false;   // this PC keeps its own copy already
         byte[]? file;
-        try { file = await e.AccountsCopy.FindAsync(account, password, ct); }
+        // Its own time limit: a slow server means "no copy found" (the account is added as usual), not a failed sign-in.
+        using var lookup = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        lookup.CancelAfter(TimeSpan.FromSeconds(45));
+        try { file = await e.AccountsCopy.FindAsync(account, password, lookup.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { Log.Warn("accounts copy: looking for a copy took too long"); return false; }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) { Log.Warn("accounts copy: looking for a copy failed: " + ex.Message); return false; }
         ct.ThrowIfCancellationRequested();   // the window was closed meanwhile: add nothing

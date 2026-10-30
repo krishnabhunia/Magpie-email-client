@@ -54,7 +54,13 @@ public partial class SettingsWindow : Window
         _vm.HighlightRequested += Highlight;
         Action onAutoDelete = () => Ui.Post(_vm.LoadAutoDelete);
         AppServices.Engine.AutoDeleteChanged += onAutoDelete;
-        Closed += (_, _) => { AppServices.Engine.AutoDeleteChanged -= onAutoDelete; _vm.Detach(); };
+        Closed += (_, _) =>
+        {
+            AppServices.Engine.AutoDeleteChanged -= onAutoDelete;
+            _vm.Detach();
+            // Design SY1: changes from the other PCs waited while Settings was open; bring them in now.
+            if (AppServices.Engine.Config.AccountsCopy.Enabled) AppServices.Engine.AccountsCopy.Poke();
+        };
         PreviewKeyDown += (_, e) =>
         {
             var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;

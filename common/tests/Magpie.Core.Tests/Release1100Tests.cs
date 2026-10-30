@@ -324,6 +324,151 @@ public class Release1100Tests
         Assert.Equal("fresh-here", pc2.V.Get(SecretVault.RefreshKey(pc2.S.Accounts[1].Id)));
     }
 
+    /// <summary>What MailEngine.RemoveAccount notes for the copy.</summary>
+    private static void RemoveHere(Pc pc, string email, DateTimeOffset when)
+    {
+        var a = pc.S.Accounts.Single(x => x.Email == email);
+        pc.S.Accounts.Remove(a);
+        var o = pc.S.AccountsCopy;
+        o.RemovedHere[email] = when;
+        o.NotHere.Add(email);
+        o.Stamps.Remove(email);
+        o.SignedIn.Remove(email);
+        foreach (var r in pc.S.Rules.Where(r => r.AccountId == a.Id)) r.AccountId = "@" + email;
+    }
+
+    [Fact]
+    public void An_account_added_again_after_its_removal_was_written_comes_back_everywhere()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(5));
+        copy = pc1.Write(copy, T0.AddMinutes(5));
+        AccountsCopy.Settle(pc1.S, copy);
+        Assert.Empty(pc1.S.AccountsCopy.RemovedHere);
+        // Added again by hand (MailEngine.AddAccount forgets the removal and the old fingerprint).
+        pc1.S.AccountsCopy.NotHere.Remove("work@x.test");
+        pc1.Add("work@x.test", password: null, refresh: "refresh-work");
+        Assert.True(AccountsCopy.NeedsWrite(pc1.S, pc1.V, copy, pc1.Name, T0.AddMinutes(10)));
+        var back = pc1.Write(copy, T0.AddMinutes(10));
+        Assert.Contains(back.Accounts, a => a.Email == "work@x.test");
+        Assert.False(back.Removed.ContainsKey("work@x.test"));
+        Assert.Empty(AccountsCopy.Compare(pc1.S, pc1.V, back, T0.AddMinutes(11)).RemovedElsewhere);   // never asks about itself
+    }
+
+    [Fact]
+    public void A_removal_another_PC_overrode_is_not_written_again_and_waits_here()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // PC 1 removes work@ while offline; PC 2 changes it later and writes first.
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(5));
+        pc2.S.Accounts[1].SignatureHtml = "<p>Kept</p>";
+        copy = pc2.Write(copy, T0.AddMinutes(7));
+        Assert.False(AccountsCopy.NeedsWrite(pc1.S, pc1.V, copy, pc1.Name, T0.AddMinutes(8)));
+        AccountsCopy.Settle(pc1.S, copy);
+        Assert.Empty(pc1.S.AccountsCopy.RemovedHere);
+        Assert.Equal("work@x.test", Assert.Single(AccountsCopy.Compare(pc1.S, pc1.V, copy, T0.AddMinutes(8)).Available).Email);
+    }
+
+    [Fact]
+    public void Rules_for_accounts_added_in_the_same_step_or_removed_on_one_PC_keep_working()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Rules = new() { new Mail.MailRule { Name = "Work only", AccountId = pc1.S.Accounts[1].Id } };
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        // A new PC takes the settings before the accounts are added (AddFromCopy, TakeAsync).
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("@work@x.test", pc2.S.Rules.Single().AccountId);
+        foreach (var c in plan.Add) { var a = AccountsCopy.ForAdd(pc2.S, c); AccountsCopy.Remember(pc2.S, pc2.V, a, c); pc2.S.Accounts.Add(a); }
+        AccountsCopy.ResolveRules(pc2.S);   // MailEngine.AddAccounts does this
+        Assert.Equal(pc2.S.Accounts.Single(a => a.Email == "work@x.test").Id, pc2.S.Rules.Single().AccountId);
+        // Removing work@ on PC 1 doesn't change the shared settings: PC 2's rule keeps pointing at its work@.
+        var before = AccountsCopy.SharedOf(pc1.S).Hash;
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(3));
+        Assert.Equal(before, AccountsCopy.SharedOf(pc1.S).Hash);
+        // Added back on PC 1: the rule is its own again.
+        pc1.Add("work@x.test");
+        AccountsCopy.ResolveRules(pc1.S);
+        Assert.Equal(pc1.S.Accounts[1].Id, pc1.S.Rules.Single().AccountId);
+    }
+
+    [Fact]
+    public void Sign_ins_a_new_account_needs_come_along_and_a_newer_one_here_goes_back_into_the_copy()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        // An old sign-in time left on PC 2 from long ago never keeps the copy's password from a new account.
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        pc2.S.AccountsCopy.SignedIn["home@x.test"] = T0.AddDays(-30);
+        var c = copy.Accounts.Single(x => x.Email == "home@x.test");
+        var added = AccountsCopy.ForAdd(pc2.S, c);
+        AccountsCopy.Remember(pc2.S, pc2.V, added, c);
+        Assert.Equal("pw-x", pc2.V.Get(SecretVault.PasswordKey(added.Id)));
+
+        // PC 3 types a new password for work@ (T+2); PC 1 changes work@'s signature later (T+3) and writes first.
+        using var pc3 = FirstPc();
+        AccountsCopy.Join(pc3.S, pc3.V, copy, T0);
+        var work3 = pc3.S.Accounts[1];
+        pc3.V.Set(SecretVault.PasswordKey(work3.Id), "new-password");
+        pc3.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(2);
+        AccountsCopy.Track(pc3.S, pc3.V, T0.AddMinutes(2));
+        pc1.S.Accounts[1].SignatureHtml = "<p>From PC 1</p>";
+        copy = pc1.Write(copy, T0.AddMinutes(3));
+        var plan = AccountsCopy.Compare(pc3.S, pc3.V, copy, T0.AddMinutes(4));
+        AccountsCopy.ApplyUpdates(pc3.S, pc3.V, copy, plan);
+        Assert.Equal("new-password", pc3.V.Get(SecretVault.PasswordKey(work3.Id)));   // kept: newer here
+        Assert.True(AccountsCopy.NeedsWrite(pc3.S, pc3.V, copy, pc3.Name, T0.AddMinutes(4)));
+        var merged = pc3.Write(copy, T0.AddMinutes(4)).Accounts.Single(x => x.Email == "work@x.test");
+        Assert.Equal(("<p>From PC 1</p>", "new-password"), (merged.Account.SignatureHtml, merged.Password));
+        Assert.Equal(T0.AddMinutes(2), merged.SignedIn);
+    }
+
+    [Fact]
+    public void A_sign_in_that_stopped_working_here_never_replaces_the_copys_token()
+    {
+        var before = AccountsCopy.SignInBroken;
+        try
+        {
+            using var pc1 = FirstPc();
+            var copy = pc1.Write(null, T0);
+            using var pc2 = FirstPc();
+            AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+            pc2.V.Set(SecretVault.RefreshKey(pc2.S.Accounts[1].Id), "dead-token");
+            AccountsCopy.SignInBroken = id => id == pc2.S.Accounts[1].Id;
+            var written = pc2.Write(copy, T0.AddDays(2));
+            Assert.Equal("refresh-work", written.Accounts.Single(x => x.Email == "work@x.test").Refresh);
+        }
+        finally { AccountsCopy.SignInBroken = before; }
+    }
+
+    [Fact]
+    public void What_a_PC_learned_about_its_AI_connection_stays_only_when_it_is_the_same_provider()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.S.Ai.Connections[0].Provider = AiProviderKind.OpenAI;
+        pc1.S.Ai.Connections[0].Endpoint = "https://api.openai.com/v1";
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        var mine = pc2.S.Ai.Connections[0];
+        (mine.Provider, mine.Endpoint) = (AiProviderKind.Anthropic, "https://api.anthropic.com/v1");
+        mine.Unsupported = new() { "claude-x:temperature" };
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal(AiProviderKind.OpenAI, pc2.S.Ai.Connections[0].Provider);
+        Assert.Empty(pc2.S.Ai.Connections[0].Unsupported);
+    }
+
     [Fact]
     public void The_copy_folder_and_email_stay_out_of_the_mail_lists()
     {
