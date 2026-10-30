@@ -470,6 +470,54 @@ public class Release1100Tests
     }
 
     [Fact]
+    public void A_rule_written_back_with_a_removed_accounts_id_names_it_by_email_again()
+    {
+        using var pc = FirstPc();
+        var work = pc.S.Accounts[1];
+        pc.S.Rules = new() { new Mail.MailRule { Name = "Work only", AccountId = work.Id } };
+        pc.S.AccountsCopy.FormerIds[work.Id] = "work@x.test";   // MailEngine.RemoveAccount notes it
+        pc.S.Accounts.Remove(work);
+        // An open Settings window saves the rules it loaded earlier (the old id): every save puts it right.
+        AccountsCopy.ResolveRules(pc.S);
+        Assert.Equal("@work@x.test", pc.S.Rules.Single().AccountId);
+        pc.Add("work@x.test");
+        AccountsCopy.ResolveRules(pc.S);
+        Assert.Equal(pc.S.Accounts[1].Id, pc.S.Rules.Single().AccountId);
+    }
+
+    [Fact]
+    public void An_account_added_by_hand_while_it_waits_in_the_copy_takes_the_copys_version_and_keeps_its_new_sign_in()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Accounts[1].SignatureHtml = "<p>Kept on PC 1</p>";
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        // Added by hand with a password typed just now (MailEngine.AddAccount notes the sign-in time).
+        var typed = pc2.Add("work@x.test", password: "typed-here");
+        typed.ImapHost = "imap.typed.test";
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        var merged = AccountsCopy.MergeKeepingSignIn(pc2.S, pc2.V, copy.Accounts.Single(a => a.Email == "work@x.test"), typed);
+        Assert.Equal(("<p>Kept on PC 1</p>", "imap.typed.test", typed.Id), (merged.SignatureHtml, merged.ImapHost, merged.Id));
+        Assert.Same(merged, pc2.S.Accounts.Single());
+        Assert.Equal("typed-here", pc2.V.Get(SecretVault.PasswordKey(typed.Id)));
+        // Its newer sign-in goes into the copy; the copy's signature stays.
+        var written = pc2.Write(copy, T0.AddMinutes(6)).Accounts.Single(a => a.Email == "work@x.test");
+        Assert.Equal(("<p>Kept on PC 1</p>", "typed-here"), (written.Account.SignatureHtml, written.Password));
+    }
+
+    [Fact]
+    public void A_note_says_what_it_is_without_the_password_and_never_where_it_moved()
+    {
+        var stopped = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = T0, FromPc = "HP-OMEN", Stopped = true }, Pwd);
+        var moved = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = T0, FromPc = "HP-OMEN", MovedTo = "secret-new-home@x.test" }, Pwd);
+        Assert.Equal((true, false, T0), (AccountsCopy.Peek(stopped)!.IsNote, AccountsCopy.Peek(stopped)!.IsMoved, AccountsCopy.Peek(stopped)!.Updated));
+        Assert.True(AccountsCopy.Peek(moved)!.IsMoved);
+        Assert.DoesNotContain("secret-new-home", System.Text.Encoding.UTF8.GetString(moved));
+    }
+
+    [Fact]
     public void The_copy_folder_and_email_stay_out_of_the_mail_lists()
     {
         Assert.True(AccountSync.IsCopyFolder("Magpie Sync", '/'));

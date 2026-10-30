@@ -15,8 +15,8 @@ public partial class AddAccountViewModel : ObservableObject
     private readonly MailEngine _e = AppServices.Engine;
     private readonly Account? _reauth;
     private CancellationTokenSource? _cts;
-    /// <summary>Cancelled only by the user (Cancel, or closing the window) — never by a time limit.</summary>
-    private readonly CancellationTokenSource _userCancel = new();
+    /// <summary>Cancelled only by the user (Cancel, or closing the window) — never by a time limit. A new one per try.</summary>
+    private CancellationTokenSource _userCancel = new();
     private string _lastLookup = "";
 
     public bool IsReauth => _reauth != null;
@@ -203,6 +203,7 @@ public partial class AddAccountViewModel : ObservableObject
         Busy = true;
         Status = "Checking the incoming and outgoing servers…";
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        _userCancel = new CancellationTokenSource();
         try
         {
             var err = await Task.Run(() => _e.Connector.TestAsync(a, Password, _cts.Token));
@@ -233,6 +234,7 @@ public partial class AddAccountViewModel : ObservableObject
         Busy = true;
         Status = "Finish signing in in your browser…";
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        _userCancel = new CancellationTokenSource();
         Account? remembered = null;
         try
         {
@@ -254,13 +256,13 @@ public partial class AddAccountViewModel : ObservableObject
             remembered = null;
             Done?.Invoke();
         }
-        catch (OperationCanceledException)
-        {
-            Error = "Sign-in was cancelled or timed out.";
-            // Not added: its tokens don't stay behind under an id nobody uses.
-            if (remembered != null && !IsReauth && _e.AccountById(remembered.Id) == null) _e.OAuth.Forget(remembered.Id);
-        }
+        catch (OperationCanceledException) { Error = "Sign-in was cancelled or timed out."; }
         catch (Exception ex) { Error = ex is ReauthRequiredException or InvalidOperationException or TimeoutException ? ex.Message : Connector.Friendly(ex); }
-        finally { Busy = false; Status = ""; }
+        finally
+        {
+            // Not added (cancelled, the check failed, or an error): its tokens don't stay behind under an id nobody uses.
+            if (remembered != null && !IsReauth && _e.AccountById(remembered.Id) == null) _e.OAuth.Forget(remembered.Id);
+            Busy = false; Status = "";
+        }
     }
 }

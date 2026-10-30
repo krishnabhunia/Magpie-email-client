@@ -18,9 +18,9 @@ public sealed class AccountsCopySettings
     public bool AutoAdd { get; set; } = true;
     /// <summary>When "what comes along" was last chosen on this PC (the newest choice of any PC wins).</summary>
     public DateTimeOffset ChoicesChanged { get; set; }
-    /// <summary>When the copy was last turned on here: a "stopped" or "moved" note older than that is left over from before
-    /// and is written over, never followed.</summary>
-    public DateTimeOffset? EnabledAt { get; set; }
+    /// <summary>The "stopped" note (its time) found in the home mailbox when the copy was turned on here again: exactly
+    /// that note is written over at the first round, never followed. Any other note is another PC's and is followed.</summary>
+    public DateTimeOffset? OverwriteNote { get; set; }
     /// <summary>This PC's name in the copy ("used by HP-OMEN, NEW-PC"); empty = the computer name.</summary>
     public string PcName { get; set; } = "";
 
@@ -40,6 +40,9 @@ public sealed class AccountsCopySettings
     public List<string> NotHere { get; set; } = new();
     /// <summary>When each account last signed in again on any PC (part of its fingerprint, so a new sign-in travels).</summary>
     public Dictionary<string, DateTimeOffset> SignedIn { get; set; } = new();
+    /// <summary>Accounts removed on this PC: their id here → email. A rule still naming one by id (an open Settings window
+    /// writes back the rules it loaded) is turned back into "@email" at every save.</summary>
+    public Dictionary<string, string> FormerIds { get; set; } = new();
 
     public void Normalise()
     {
@@ -50,6 +53,8 @@ public sealed class AccountsCopySettings
         foreach (var st in Stamps.Values) { st.Hash ??= ""; st.Local ??= ""; }
         RemovedHere = Lower(RemovedHere);
         SignedIn = Lower(SignedIn);
+        FormerIds = (FormerIds ?? new()).Where(kv => !string.IsNullOrEmpty(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+            .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().ToLowerInvariant());
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;
     }

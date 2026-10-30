@@ -216,6 +216,7 @@ public sealed class MailEngine : IDisposable
         // Design SY1: typed or signed in here just now, so this sign-in is the newest for the copy.
         if (password != null || tokens != null) Settings.Current.AccountsCopy.SignedIn[Magpie.Core.Settings.AccountsCopy.Key(a.Email)] = DateTimeOffset.Now;
         Settings.Current.Accounts.Add(a);
+        a = AccountsCopy.AdoptWaiting(a);
         Magpie.Core.Settings.AccountsCopy.ResolveRules(Settings.Current);
         Settings.Save();
         StartAccount(a);
@@ -301,6 +302,7 @@ public sealed class MailEngine : IDisposable
             o.Stamps.Remove(key);
             o.SignedIn.Remove(key);
             // Its rules keep naming it by email: they still work on the PCs that keep it, and here again if it is added back.
+            o.FormerIds[accountId] = key;
             foreach (var r in Settings.Current.Rules.Where(r => r.AccountId == accountId)) r.AccountId = "@" + key;
         }
         Settings.Current.Accounts.RemoveAll(a => a.Id == accountId);

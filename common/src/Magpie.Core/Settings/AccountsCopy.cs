@@ -182,8 +182,13 @@ public static class AccountsCopy
     public static void ResolveRules(AppSettings s)
     {
         var ids = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First().Id);
+        var here = s.Accounts.Select(a => a.Id).ToHashSet();
         foreach (var r in s.Rules)
+        {
+            // Still the id of an account removed here: by its email again.
+            if (r.AccountId.Length > 0 && !here.Contains(r.AccountId) && s.AccountsCopy.FormerIds.TryGetValue(r.AccountId, out var email)) r.AccountId = "@" + email;
             if (r.AccountId.StartsWith('@') && ids.TryGetValue(r.AccountId[1..], out var id)) r.AccountId = id;
+        }
     }
 
     public static SharedAi AiOf(AppSettings s, SecretVault vault)
@@ -502,6 +507,26 @@ public static class AccountsCopy
         }
     }
 
+    /// <summary>An account from the copy that this PC has just signed in to itself (the new-PC home account, or one added
+    /// by hand while it waited in the copy): it takes the copy's version (signature, name, colour…) but keeps how this
+    /// PC signs in to it and its sign-in here. Replaces the account in the list; returns the merged one.</summary>
+    public static Account MergeKeepingSignIn(AppSettings s, SecretVault vault, CopiedAccount c, Account local)
+    {
+        lock (Gate)
+        {
+            var merged = ForAdd(s, c);
+            merged.Id = local.Id;
+            merged.Kind = local.Kind; merged.Auth = local.Auth; merged.UserName = local.UserName;
+            merged.ImapHost = local.ImapHost; merged.ImapPort = local.ImapPort; merged.ImapSecurity = local.ImapSecurity;
+            merged.SmtpHost = local.SmtpHost; merged.SmtpPort = local.SmtpPort; merged.SmtpSecurity = local.SmtpSecurity;
+            merged.ServerSavesSent = local.ServerSavesSent;
+            var i = s.Accounts.FindIndex(a => a.Id == local.Id);
+            if (i >= 0) s.Accounts[i] = merged;
+            Remember(s, vault, merged, c, keepSecrets: true);
+            return merged;
+        }
+    }
+
     /// <summary>A copied Google / Microsoft sign-in from another sign-in app than this PC uses: it can't be used here, so
     /// that account asks to sign in again (and the token isn't copied over this PC's own).</summary>
     public static bool OtherApp(CopiedAccount c) => c.Account.Auth == AuthMethod.OAuth2 && c.Client.Length > 0 && c.Client != ClientFor(c.Account.Kind);
@@ -513,6 +538,9 @@ public static class AccountsCopy
         if (password.Length < MinPasswordLength) throw new ArgumentException($"Use at least {MinPasswordLength} characters.");
         var plain = JsonSerializer.SerializeToUtf8Bytes(c, Json);
         var extra = new JsonObject { ["pc"] = c.FromPc, ["accounts"] = c.Accounts.Count, ["updated"] = c.Updated.ToString("o") };
+        // What kind of note it is (never where it moved to), so a PC without the password still knows.
+        if (c.Stopped) extra["note"] = NoteStopped;
+        else if (c.MovedTo.Length > 0) extra["note"] = NoteMoved;
         var file = SettingsBackup.LockBytes(plain, password, Format, c.AppVersion, c.Updated, extra);
         if (file.Length > MaxBytes)
             throw new InvalidOperationException($"The copy would be {file.Length / 1024 / 1024} MB; the limit is {MaxBytes / 1024 / 1024} MB. Pictures in signatures are the usual reason.");
@@ -538,7 +566,15 @@ public static class AccountsCopy
     }
 
     /// <summary>What the copy says about itself without its password (shown before asking for it).</summary>
-    public sealed record Summary(string Pc, int Accounts, DateTimeOffset Updated);
+    public sealed record Summary(string Pc, int Accounts, DateTimeOffset Updated, string Note = "")
+    {
+        /// <summary>A "stopped" or "moved" note: no accounts in it.</summary>
+        public bool IsNote => Accounts == 0;
+        public bool IsMoved => Note == NoteMoved;
+    }
+
+    public const string NoteStopped = "stopped";
+    public const string NoteMoved = "moved";
 
     public static Summary? Peek(byte[] file)
     {
@@ -547,7 +583,8 @@ public static class AccountsCopy
             var n = JsonNode.Parse(file);
             if (n?["format"]?.GetValue<string>() != Format) return null;
             return new Summary(n["pc"]?.GetValue<string>() ?? "", n["accounts"]?.GetValue<int>() ?? 0,
-                DateTimeOffset.TryParse(n["updated"]?.GetValue<string>(), out var t) ? t : default);
+                DateTimeOffset.TryParse(n["updated"]?.GetValue<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t : default,
+                n["note"]?.GetValue<string>() ?? "");
         }
         catch { return null; }
     }

@@ -397,6 +397,19 @@ public class IntegrationTests
         Assert.Equal((AccountsCopy.Key(workUser), 0), (pointer.MovedTo, pointer.Accounts.Count));
         await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
         Assert.Equal("", pc1.AccountsCopy.Problem);
+        // Turning it on with the old home now is refused: the copy moved, and the pointer is never written over.
+        using var dir3 = new TempDir();
+        using var pc3 = NewEngine(dir3);
+        pc3.Start();
+        pc3.AddAccount(AccountFor(homeUser), "secret", null);
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            pc3.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None));
+        Assert.Contains(AccountsCopy.Key(workUser), refused.Message);
+        Assert.True(AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.IsMoved);
+
+        // Stop and delete after the move: the stopped note goes where the copy is now.
+        await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
+        Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
     }
 
     [Fact]
