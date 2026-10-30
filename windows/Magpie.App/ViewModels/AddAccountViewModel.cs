@@ -96,8 +96,9 @@ public partial class AddAccountViewModel : ObservableObject
     public bool ShowGoogle => EffectiveKind == AccountKind.Gmail && !UseAppPassword;
     public bool ShowMicrosoft => EffectiveKind == AccountKind.Microsoft;
     public bool ShowPassword => EffectiveKind == AccountKind.Imap || (EffectiveKind == AccountKind.Gmail && UseAppPassword);
-    public bool GoogleReady => !string.IsNullOrWhiteSpace(_e.Config.GoogleClientId);
-    public bool MicrosoftReady => !string.IsNullOrWhiteSpace(_e.Config.MicrosoftClientId);
+    // Design SA1: also ready with the sign-in apps built into the release.
+    public bool GoogleReady => !string.IsNullOrWhiteSpace(_e.OAuth.ConfigFor(AccountKind.Gmail)?.ClientId);
+    public bool MicrosoftReady => !string.IsNullOrWhiteSpace(_e.OAuth.ConfigFor(AccountKind.Microsoft)?.ClientId);
     public string PasswordLabel => EffectiveKind == AccountKind.Gmail ? "App password (16 letters from myaccount.google.com → Security → App passwords)" : "Password";
 
     private void Refresh()

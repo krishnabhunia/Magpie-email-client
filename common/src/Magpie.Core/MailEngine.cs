@@ -51,6 +51,8 @@ public sealed class MailEngine : IDisposable
     public Calendar.CalendarService Calendar { get; }
     /// <summary>Design B4: Google contacts of every Google account, kept on this PC.</summary>
     public Contacts.ContactsService Contacts { get; }
+    /// <summary>Design SY1: the accounts copy in the home mailbox (bring my accounts to other PCs).</summary>
+    public AccountsCopyService AccountsCopy { get; }
 
     /// <summary>Addresses of the saved Google contacts (design B4): known senders too, kept apart from the people written to so a deleted or changed contact stops counting.</summary>
     private HashSet<string> _savedKnown = new(StringComparer.OrdinalIgnoreCase);
@@ -77,8 +79,10 @@ public sealed class MailEngine : IDisposable
         {
             ConfigFor = kind => kind switch
             {
-                AccountKind.Gmail => OAuthService.Google(Settings.Current.GoogleClientId, Settings.Current.GoogleClientSecret),
-                AccountKind.Microsoft => OAuthService.Microsoft(Settings.Current.MicrosoftClientId),
+                // Design SA1: the app set in Settings, else the one built into the release.
+                AccountKind.Gmail => BuiltInSignIn.Google(Settings.Current.GoogleClientId, Settings.Current.GoogleClientSecret) is var (id, secret)
+                    ? OAuthService.Google(id, secret) : null,
+                AccountKind.Microsoft => OAuthService.Microsoft(BuiltInSignIn.Microsoft(Settings.Current.MicrosoftClientId)),
                 _ => null,
             },
         };
@@ -87,6 +91,7 @@ public sealed class MailEngine : IDisposable
         Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id))) { SaveSettings = () => Settings.Save(notify: false) };
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
         Contacts = new Contacts.ContactsService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
+        AccountsCopy = new AccountsCopyService(this);
     }
 
     public AppSettings Config => Settings.Current;
@@ -109,14 +114,19 @@ public sealed class MailEngine : IDisposable
         _rules = Task.Run(() => DeferredRulesLoopAsync(_cts.Token));
         Calendar.Start(_cts.Token);
         Contacts.Start(_cts.Token);
+        AccountsCopy.Start(_cts.Token);
     }
 
-    private void StartAccount(Account a)
+    /// <summary>Design SY1: accounts added together download their first mail 4 at a time, Inbox first.</summary>
+    private readonly SemaphoreSlim _firstSyncs = new(4, 4);
+
+    private void StartAccount(Account a, bool takeTurns = false)
     {
         var sync = new AccountSync(a, Store, Connector, IsKnownContact, SenderOverride)
         {
             MimePathFor = Paths.MimePath,
             PollInterval = TimeSpan.FromMinutes(Settings.Current.SyncIntervalMinutes),
+            FirstSyncGate = takeTurns ? _firstSyncs : null,
         };
         sync.Changed += cs =>
         {
@@ -146,6 +156,10 @@ public sealed class MailEngine : IDisposable
     }
 
     public SyncStatus? StatusOf(string accountId) => _syncs.TryGetValue(accountId, out var s) ? s.Status : null;
+    /// <summary>Design SY1 (adding window): the account's first check is done.</summary>
+    public bool IsReady(string accountId) => _syncs.TryGetValue(accountId, out var s) && s.Ready;
+    /// <summary>Design SY1: waiting for its turn to download (accounts added together).</summary>
+    public bool IsWaiting(string accountId) => _syncs.TryGetValue(accountId, out var s) && s.Waiting;
 
     private bool IsKnownContact(string addr)
     {
@@ -200,6 +214,34 @@ public sealed class MailEngine : IDisposable
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
+    /// <summary>Design SY1: adds accounts from the accounts copy in one step (one settings save); their secrets are already
+    /// in the vault. They take turns for the first download. Accounts already here are skipped.</summary>
+    public List<Account> AddAccounts(IEnumerable<Account> accounts)
+    {
+        var added = new List<Account>();
+        foreach (var a in accounts)
+        {
+            if (Accounts.Any(x => x.Email.Equals(a.Email, StringComparison.OrdinalIgnoreCase) || x.Id == a.Id)) continue;
+            Settings.Current.Accounts.Add(a);
+            added.Add(a);
+        }
+        if (added.Count == 0) return added;
+        Settings.Save();
+        foreach (var a in added.Where(a => a.Enabled)) StartAccount(a, takeTurns: true);
+        Calendar.Poke();
+        Contacts.Poke();
+        foreach (var a in added) Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
+        return added;
+    }
+
+    /// <summary>Design SY1: an account changed by another PC (through the copy): saved already, its sync starts again.</summary>
+    internal void RestartAccount(Account a)
+    {
+        if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
+        if (a.Enabled) StartAccount(a);
+        Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
+    }
+
     public void UpdateAccount(Account a, string? newPassword = null, OAuthTokens? tokens = null)
     {
         var list = Settings.Current.Accounts;
@@ -208,6 +250,8 @@ public sealed class MailEngine : IDisposable
         list[i] = a;
         if (newPassword != null) Vault.Set(SecretVault.PasswordKey(a.Id), newPassword);
         if (tokens != null) OAuth.Remember(a.Id, tokens);
+        // Design SY1: a new sign-in travels to the other PCs (it is part of the account's fingerprint in the copy).
+        if (tokens != null || newPassword != null) Settings.Current.AccountsCopy.SignedIn[Magpie.Core.Settings.AccountsCopy.Key(a.Email)] = DateTimeOffset.Now;
         Settings.Save();
         if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
         if (a.Enabled) StartAccount(a);
@@ -219,6 +263,13 @@ public sealed class MailEngine : IDisposable
     public void RemoveAccount(string accountId)
     {
         if (_syncs.TryRemove(accountId, out var s)) s.Dispose();
+        // Design SY1: the copy notes the removal (other PCs ask before removing it there) and this PC doesn't add it back.
+        if (AccountById(accountId) is { } gone && Settings.Current.AccountsCopy.Enabled)
+        {
+            var key = Magpie.Core.Settings.AccountsCopy.Key(gone.Email);
+            Settings.Current.AccountsCopy.RemovedHere[key] = DateTimeOffset.Now;
+            if (!Settings.Current.AccountsCopy.NotHere.Contains(key)) Settings.Current.AccountsCopy.NotHere.Add(key);
+        }
         Settings.Current.Accounts.RemoveAll(a => a.Id == accountId);
         Settings.Save();
         Vault.RemovePrefix($"account:{accountId}:");
@@ -1606,6 +1657,7 @@ public sealed class MailEngine : IDisposable
     public void Dispose()
     {
         try { _cts?.Cancel(); } catch { }
+        AccountsCopy.Stop();
         foreach (var s in _syncs.Values) s.Dispose();
         _syncs.Clear();
     }

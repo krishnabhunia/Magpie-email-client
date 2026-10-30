@@ -4,6 +4,7 @@ using MailKit.Net.Imap;
 using MailKit.Search;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 using Magpie.Core.Storage;
 using MimeKit;
 using KitFlags = MailKit.MessageFlags;
@@ -284,6 +285,85 @@ public class IntegrationTests
         e.EmptyFolder(acc.Id, FolderRole.Trash);
         await WaitUntilAsync(async () => await ServerCount("Trash") == 0, "server Trash empty");
         Assert.Equal(2, await ServerCount("INBOX"));
+    }
+
+    [Fact]
+    public async Task Accounts_copy_brings_every_account_to_a_new_PC_after_one_sign_in()
+    {
+        if (!ServersUp()) return;
+        // Design SY1: PC 1 has a home account and a work account; a new PC signs in to the home account only.
+        var homeUser = NewUser();
+        var workUser = NewUser();
+        await Append(workUser, "INBOX", Msg("boss@other.test", workUser, "Quarterly plan", "see attached"));
+        using var dir1 = new TempDir();
+        using var pc1 = NewEngine(dir1);
+        pc1.Start();
+        pc1.AddAccount(AccountFor(homeUser), "secret", null);
+        pc1.AddAccount(AccountFor(workUser), "secret", null);
+        pc1.Config.QuickReplies = new() { "Copied reply" };
+        pc1.AccountsCopy.Enable(homeUser, "sync password 2026", includeSettings: true, includeAi: false, autoAdd: true);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        Assert.Equal(2, pc1.Config.AccountsCopy.CopyAccounts);
+
+        // The copy is one email in "Magpie Sync" that Magpie itself never lists.
+        using (var c = await Raw(homeUser))
+        {
+            var folder = await CopyMailbox.FindFolderAsync(c, CancellationToken.None);
+            Assert.NotNull(folder);
+            await folder!.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+        await WaitUntil(() => pc1.Folders(pc1.Accounts[0].Id).Any(f => f.Role == FolderRole.Inbox), "home folders listed");
+        Assert.DoesNotContain(pc1.Folders(pc1.Accounts[0].Id), f => f.Name == AccountsCopy.FolderName);
+
+        // A second write replaces the email instead of adding one.
+        pc1.Config.QuickReplies = new() { "Copied reply", "Second" };
+        pc1.Settings.Save();
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        using (var c = await Raw(homeUser))
+        {
+            var folder = (await CopyMailbox.FindFolderAsync(c, CancellationToken.None))!;
+            await folder.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+
+        // New PC: sign in to the home account → Magpie finds the copy → sync password → every account comes along.
+        using var dir2 = new TempDir();
+        using var pc2 = NewEngine(dir2);
+        pc2.Start();
+        var home2 = AccountFor(homeUser);
+        var file = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.NotNull(file);
+        Assert.Equal(2, AccountsCopy.Peek(file!)!.Accounts);
+        Assert.Throws<AccountsCopy.WrongPasswordException>(() => AccountsCopy.Unlock(file!, "wrong password!"));
+        var copy = AccountsCopy.Unlock(file!, "sync password 2026");
+        pc2.AddAccount(home2, "secret", null);
+        var added = pc2.AccountsCopy.AddFromCopy(copy, home2, "sync password 2026", new[] { workUser });
+        Assert.Equal(workUser, Assert.Single(added).Email);
+        Assert.Equal(new[] { "Copied reply", "Second" }, pc2.Config.QuickReplies);
+        var work2 = pc2.Accounts.Single(a => a.Email == workUser);
+        await WaitUntil(() => pc2.IsReady(work2.Id), "the copied work account signs in with the copied password and syncs");
+        await WaitUntil(() => Inbox(pc2).Any(t => t.Latest.Subject == "Quarterly plan"), "work mail on the new PC");
+
+        // The new PC removes the work account: PC 1 is asked, nothing is removed there by itself.
+        pc2.RemoveAccount(work2.Id);
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        var asked = new List<string>();
+        pc1.AccountsCopy.RemovedElsewhere += (a, _) => asked.Add(a.Email);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(workUser, Assert.Single(asked));
+        Assert.Contains(pc1.Accounts, a => a.Email == workUser);
+
+        // Stop and delete the copy: the folder is gone.
+        await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
+        using (var c = await Raw(homeUser))
+        {
+            Assert.Null(await CopyMailbox.FindFolderAsync(c, CancellationToken.None));
+            await c.DisconnectAsync(true);
+        }
     }
 
     [Fact]
