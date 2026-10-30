@@ -11,7 +11,7 @@
   "proposed_version": "10.1.0 (provisional; Changed existing Windows label navigation; automation recalculates after approval)",
   "branch": "chat-gpt-gmail-label-collapse",
   "artifact": "docs/designs/GL1-r1-gmail-label-section.html",
-  "artifact_sha256": "156f5c56cb6abb50622de76fcb340643c9e521e948ec224f6d1c6e90c6000c88",
+  "artifact_sha256": "2de6f2cae067faf37e5dd6eb2efd043aebff8dcbe0899730309676c1272b64d3",
   "selected_scope": "Only the whole Labels section per Gmail account; individual nested-label changes excluded",
   "scope_selection_source": "Trusted current-chat answer to whole-section versus nested-branches question",
   "approval": null,
@@ -54,5 +54,6 @@
   "original_unapproved_allocation": "Q83",
   "parallel_design_issue": 110,
   "parallel_design_pr": 111,
-  "html_preview_checks_note": "33 interaction checks passed before queue-label renumbering only; interaction code unchanged. Screenshots refreshed for Q84."
+  "html_preview_checks_note": "33 interaction checks passed before queue-label renumbering only; interaction code unchanged. Screenshots refreshed for Q84.",
+  "artifact_hash_note": "Exact committed HTML bytes (LF); local preview normalized to the identical bytes."
 }
