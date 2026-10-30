@@ -370,6 +370,10 @@
                                                                             </MultiDataTrigger.Conditions>
                                                                             <Setter Property="Visibility" Value="Collapsed" />
                                                                         </MultiDataTrigger>
+                                                                        <!-- Their own radio group: clicking one must not untick the open view's row. -->
+                                                                        <DataTrigger Binding="{Binding IsFold}" Value="True">
+                                                                            <Setter Property="GroupName" Value="LabelFolds" />
+                                                                        </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
                                                             </RadioButton.Style>

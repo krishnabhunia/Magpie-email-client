@@ -17,6 +17,8 @@ public sealed class LabelLayoutState
     /// <summary>When each folder was last opened or first seen; a folder missing here is treated as just seen.</summary>
     public IReadOnlyDictionary<string, DateTimeOffset> Opened { get; init; } = new Dictionary<string, DateTimeOffset>();
     public IReadOnlySet<string> AlwaysShow { get; init; } = new HashSet<string>();
+    /// <summary>Paths that must stay shown in their place now (the open label), whatever the filter or More labels say.</summary>
+    public IReadOnlySet<string> Keep { get; init; } = new HashSet<string>();
     public bool OnlyUnread { get; init; }
     public DateTimeOffset Now { get; init; } = DateTimeOffset.Now;
 }
@@ -53,7 +55,8 @@ public static class LabelLayout
         {
             if (f.Delimiter == '\0' || f.Role == FolderRole.Inbox) continue;
             var parts = f.Path.Split(f.Delimiter);
-            if (parts.Length < 2 || IsGmailContainer(parts[0])) continue;
+            // Odd server data ("/Receipts", "a//b") would make a container with an empty name or path: leave those flat.
+            if (parts.Length < 2 || parts.Any(p => p.Length == 0) || IsGmailContainer(parts[0])) continue;
             // An INBOX.* server (every folder under INBOX) keeps its folders as they are.
             if (real.Any(r => r.Role == FolderRole.Inbox && r.Path == parts[0])) continue;
             for (var i = 1; i < parts.Length; i++)
@@ -72,12 +75,14 @@ public static class LabelLayout
         bool IsLabel(MailFolder f) => byPath.TryGetValue(top[f.Path], out var t) && t.Role == FolderRole.Other;
 
         var children = tree.GroupBy(x => x.Parent).ToDictionary(g => g.Key, g => g.Select(x => x.Folder.Path).ToList(), StringComparer.Ordinal);
-        int UnreadOf(string path) => state.Unread.TryGetValue(path, out var n) ? n : 0;
+        // The open label counts as having mail, so it neither hides (only unread) nor moves into More labels under the reader.
+        int UnreadOf(string path) => Math.Max(state.Unread.TryGetValue(path, out var n) ? n : 0, state.Keep.Contains(path) ? 1 : 0);
         var subtreeUnread = new Dictionary<string, int>(StringComparer.Ordinal);
         int SubtreeUnread(string path)
         {
             if (subtreeUnread.TryGetValue(path, out var n)) return n;
-            n = UnreadOf(path) + (children.TryGetValue(path, out var kids) ? kids.Sum(SubtreeUnread) : 0);
+            subtreeUnread[path] = 0;   // guards against a folder listed as its own child
+            n = UnreadOf(path) + (children.TryGetValue(path, out var kids) ? kids.Where(k => k != path).Sum(SubtreeUnread) : 0);
             return subtreeUnread[path] = n;
         }
         bool Quiet(MailFolder f) =>
@@ -88,7 +93,8 @@ public static class LabelLayout
         bool InMore(string path)
         {
             if (inMore.TryGetValue(path, out var b)) return b;
-            var kids = children.TryGetValue(path, out var k) ? k : new List<string>();
+            inMore[path] = false;   // guards against a folder listed as its own child
+            var kids = children.TryGetValue(path, out var k) ? k.Where(x => x != path).ToList() : new List<string>();
             var f = byPath[path];
             b = containers.Contains(path) ? kids.Count > 0 && kids.All(InMore) : Quiet(f) && kids.All(InMore);
             return inMore[path] = b;
@@ -97,7 +103,11 @@ public static class LabelLayout
         var rows = new List<SidebarRow>();
         var labels = tree.Where(x => IsLabel(x.Folder)).ToList();
         foreach (var (f, depth, parent) in tree.Where(x => !IsLabel(x.Folder)))
-            rows.Add(new SidebarRow(SidebarRowKind.Folder, f, f.Path, parent, depth, f.Name, children.ContainsKey(f.Path)));
+        {
+            // A missing parent under the account's own folders ("Archive/2023" of "Archive/2023/Jan") only folds too.
+            var kind = containers.Contains(f.Path) ? SidebarRowKind.Container : SidebarRowKind.Folder;
+            rows.Add(new SidebarRow(kind, kind == SidebarRowKind.Folder ? f : null, f.Path, parent, depth, f.Name, children.ContainsKey(f.Path)));
+        }
         if (labels.Count == 0) return rows;
 
         bool Shown(string path) => !state.OnlyUnread || SubtreeUnread(path) > 0;

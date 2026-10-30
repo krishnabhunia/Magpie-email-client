@@ -61,6 +61,8 @@ public partial class SettingsViewModel
     private string Snapshot()
     {
         var c = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_e.Config, AppSettings.Json), AppSettings.Json) ?? new AppSettings();
+        // Sidebar state changes as the main window is used (open folders, design LB1's label dates): never a settings change.
+        c.Sidebar = new SidebarState();
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
         c.RemoteImages = RemoteImages;

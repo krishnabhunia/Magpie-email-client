@@ -129,4 +129,40 @@ public class Release1010Tests
         Assert.NotNull(s.Sidebar.LabelOpened);
         Assert.Equal("a|x", Assert.Single(s.Sidebar.OpenFolders));
     }
+
+    [Fact]
+    public void A_missing_parent_under_the_accounts_own_folders_only_folds()
+    {
+        var list = new[] { F("INBOX", FolderRole.Inbox), F("Archive", FolderRole.Archive), F("Archive/2023/Jan") };
+        var rows = LabelLayout.Layout(list, false, State(opened: list.ToDictionary(f => f.Path, _ => Now)));
+        var mid = Assert.Single(rows, r => r.Path == "Archive/2023");
+        Assert.Equal(SidebarRowKind.Container, mid.Kind);
+        Assert.Null(mid.Folder);
+        Assert.Equal("Archive", mid.ParentPath);
+        Assert.DoesNotContain(rows, r => r.Kind == SidebarRowKind.Group);
+    }
+
+    [Fact]
+    public void Odd_paths_with_empty_parts_stay_flat_and_never_loop()
+    {
+        var list = new[] { F("INBOX", FolderRole.Inbox), F("/Receipts"), F("a//b") };
+        var opened = list.ToDictionary(f => f.Path, _ => Now.AddDays(-90));
+        foreach (var only in new[] { false, true })
+        {
+            var rows = LabelLayout.Layout(list, true, State(new() { ["a//b"] = 1 }, opened, onlyUnread: only));
+            Assert.DoesNotContain(rows, r => r.Kind == SidebarRowKind.Container);
+            Assert.DoesNotContain(rows, r => r.Path.Length == 0);
+        }
+    }
+
+    [Fact]
+    public void The_open_label_stays_in_its_place_under_the_filter_and_More()
+    {
+        var opened = Gmail().ToDictionary(f => f.Path, _ => Now.AddDays(-90));
+        var keep = new HashSet<string> { "Receipts" };
+        var rows = LabelLayout.Layout(Gmail(), true, new LabelLayoutState { Opened = opened, Keep = keep, Now = Now });
+        Assert.Contains(rows, r => r.Path == "Receipts" && r.ParentPath == LabelLayout.GroupKey);
+        var filtered = LabelLayout.Layout(Gmail(), true, new LabelLayoutState { Opened = opened, Keep = keep, OnlyUnread = true, Now = Now });
+        Assert.Equal(new[] { "Receipts" }, LabelLayout.Under(filtered, LabelLayout.GroupKey).Select(r => r.Path));
+    }
 }
