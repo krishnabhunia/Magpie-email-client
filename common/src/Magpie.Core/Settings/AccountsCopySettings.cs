@@ -43,6 +43,9 @@ public sealed class AccountsCopySettings
     /// <summary>Accounts removed on this PC: their id here → email. A rule still naming one by id (an open Settings window
     /// writes back the rules it loaded) is turned back into "@email" at every save.</summary>
     public Dictionary<string, string> FormerIds { get; set; } = new();
+    /// <summary>Accounts added by hand while the copy is on, before this PC saw whether the copy has them: at the next
+    /// round they take the copy's version (another PC's signature, name…) and keep the sign-in made here.</summary>
+    public List<string> Adopt { get; set; } = new();
 
     public void Normalise()
     {
@@ -55,6 +58,7 @@ public sealed class AccountsCopySettings
         SignedIn = Lower(SignedIn);
         FormerIds = (FormerIds ?? new()).Where(kv => !string.IsNullOrEmpty(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
             .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().ToLowerInvariant());
+        Adopt = (Adopt ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;
     }

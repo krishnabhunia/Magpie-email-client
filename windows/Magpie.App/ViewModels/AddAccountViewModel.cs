@@ -261,7 +261,11 @@ public partial class AddAccountViewModel : ObservableObject
         finally
         {
             // Not added (cancelled, the check failed, or an error): its tokens don't stay behind under an id nobody uses.
-            if (remembered != null && !IsReauth && _e.AccountById(remembered.Id) == null) _e.OAuth.Forget(remembered.Id);
+            if (remembered != null && !IsReauth && _e.AccountById(remembered.Id) == null)
+            {
+                _e.OAuth.Forget(remembered.Id);
+                _e.Vault.RemovePrefix($"account:{remembered.Id}:");   // the saved refresh token too
+            }
             Busy = false; Status = "";
         }
     }

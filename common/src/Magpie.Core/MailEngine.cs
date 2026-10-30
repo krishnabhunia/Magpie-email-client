@@ -219,7 +219,7 @@ public sealed class MailEngine : IDisposable
         a = AccountsCopy.AdoptWaiting(a);
         Magpie.Core.Settings.AccountsCopy.ResolveRules(Settings.Current);
         Settings.Save();
-        StartAccount(a);
+        if (a.Enabled) StartAccount(a);   // the copy's version may have it switched off
         Calendar.Poke();
         Contacts.Poke();
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });

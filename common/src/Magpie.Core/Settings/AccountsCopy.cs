@@ -132,8 +132,10 @@ public static class AccountsCopy
         public bool AiNewer { get; set; }
         /// <summary>Another PC chose more recently what comes along.</summary>
         public bool ChoicesNewer { get; set; }
+        /// <summary>Accounts added here by hand wait to take the copy's version (<see cref="AccountsCopySettings.Adopt"/>).</summary>
+        public bool Adopting { get; set; }
         /// <summary>Applying the plan changes something here (so settings are saved and the window told).</summary>
-        public bool Changes => Add.Count + Update.Count > 0 || SettingsNewer || AiNewer || ChoicesNewer;
+        public bool Changes => Add.Count + Update.Count > 0 || SettingsNewer || AiNewer || ChoicesNewer || Adopting;
     }
 
     public static string Key(string email) => (email ?? "").Trim().ToLowerInvariant();
@@ -227,6 +229,8 @@ public static class AccountsCopy
             void Stamp(string key, string hash)
             {
                 if (o.Stamps.TryGetValue(key, out var st) && (st.Local.Length > 0 ? st.Local == hash : st.Hash == hash)) return;
+                // Added by hand, the copy not looked at yet: older than any version in the copy, so the copy's wins.
+                if (st == null && o.Adopt.Contains(key)) { o.Stamps[key] = new CopyStamp { Hash = hash, Local = hash, Changed = DateTimeOffset.MinValue }; changed = true; return; }
                 o.Stamps[key] = Fresh(hash, now);
                 changed = true;
             }
@@ -294,6 +298,7 @@ public static class AccountsCopy
             foreach (var a in s.Accounts)
             {
                 var key = Key(a.Email);
+                if (o.Adopt.Contains(key)) continue;   // takes the copy's version first (next look at the copy)
                 var stamp = o.Stamps[key];
                 // A token that no longer works here never replaces the one in the copy (another PC's may still work).
                 var refresh = SignInBroken(a.Id) ? "" : vault.Get(SecretVault.RefreshKey(a.Id)) ?? "";
@@ -360,6 +365,7 @@ public static class AccountsCopy
             foreach (var a in s.Accounts)
             {
                 var key = Key(a.Email);
+                if (o.Adopt.Contains(key)) continue;
                 var st = o.Stamps[key];
                 if (copy.Removed.TryGetValue(key, out var r) && r.When >= st.Changed && !o.RemovedHere.ContainsKey(key)) continue;   // waits for the user's answer
                 if (!inCopy.TryGetValue(key, out var c) || (c.Changed < st.Changed && c.Hash != st.Hash)) return true;
@@ -397,7 +403,7 @@ public static class AccountsCopy
         {
             var o = s.AccountsCopy;
             Track(s, vault, now);
-            var plan = new Plan { ChoicesNewer = copy.ChoicesChanged > o.ChoicesChanged };
+            var plan = new Plan { ChoicesNewer = copy.ChoicesChanged > o.ChoicesChanged, Adopting = o.Adopt.Count > 0 };
             var shareSettings = plan.ChoicesNewer ? copy.ShareSettings : o.IncludeSettings;
             var shareAi = plan.ChoicesNewer ? copy.ShareAi : o.IncludeAiKeys;
             var local = s.Accounts.GroupBy(a => Key(a.Email)).ToDictionary(g => g.Key, g => g.First());
@@ -413,7 +419,7 @@ public static class AccountsCopy
                 else plan.Add.Add(c);
             }
             foreach (var (key, a) in local)
-                if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key))
+                if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key) && !o.Adopt.Contains(key))
                     plan.RemovedElsewhere.Add((a, r));
             if (shareSettings && copy.Settings is { } cs)
                 plan.SettingsNewer = !o.Stamps.TryGetValue(SettingsStamp, out var ss) || (cs.Changed > ss.Changed && cs.Hash != ss.Hash);
@@ -441,11 +447,19 @@ public static class AccountsCopy
             {
                 var i = s.Accounts.FindIndex(a => Key(a.Email) == c.Email);
                 if (i < 0) continue;
+                // Added here by hand: the copy's version, keeping how this PC signs in to it.
+                if (o.Adopt.Remove(c.Email)) { changed.Add(MergeKeepingSignIn(s, vault, c, s.Accounts[i])); continue; }
                 var a = Copy(c.Account);
                 a.Id = s.Accounts[i].Id;
                 s.Accounts[i] = a;
                 Remember(s, vault, a, c);
                 changed.Add(a);
+            }
+            // Added by hand and not in the copy (or the same there): it is this PC's own from now on.
+            foreach (var key in o.Adopt.ToList())
+            {
+                o.Adopt.Remove(key);
+                if (o.Stamps.TryGetValue(key, out var st) && st.Changed == DateTimeOffset.MinValue) st.Changed = DateTimeOffset.Now;
             }
             if (plan.SettingsNewer && copy.Settings is { } cs)
             {
@@ -571,6 +585,8 @@ public static class AccountsCopy
         /// <summary>A "stopped" or "moved" note: no accounts in it.</summary>
         public bool IsNote => Accounts == 0;
         public bool IsMoved => Note == NoteMoved;
+        /// <summary>A "stopped" note (it says so in its open part).</summary>
+        public bool IsStopped => IsNote && Note == NoteStopped;
     }
 
     public const string NoteStopped = "stopped";

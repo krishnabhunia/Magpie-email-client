@@ -410,6 +410,15 @@ public class IntegrationTests
         // Stop and delete after the move: the stopped note goes where the copy is now.
         await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
         Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
+
+        // The old home's pointer is left over now (the copy it points to was stopped): with that account here, turning
+        // on with the old home starts a new copy over the pointer instead of refusing for good.
+        pc3.AddAccount(AccountFor(workUser), "secret", null);
+        await pc3.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
+        await pc3.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc3.AccountsCopy.Problem);
+        Assert.True(pc3.Config.AccountsCopy.Enabled);
+        Assert.Equal(2, AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.Accounts);
     }
 
     [Fact]

@@ -139,6 +139,25 @@ public static class CopyMailbox
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
+    /// <summary>Only the newest copy email stays (a "stopped" note just written): every older copy goes, also on Gmail
+    /// from Trash / All Mail. For a stop whose clean-up didn't finish the first time.</summary>
+    public static async Task KeepOnlyNewestAsync(ImapClient client, CancellationToken ct)
+    {
+        var folder = await FindFolderAsync(client, ct);
+        if (folder == null) return;
+        await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+        try
+        {
+            var copies = await CopiesAsync(client, folder, ct);
+            if (copies.Count == 0) return;
+            var newest = copies[^1];
+            var older = copies.Take(copies.Count - 1).ToList();
+            if (older.Count == 0 && !client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) return;
+            await RemoveAsync(client, folder, older, id => id != newest.GmailId, ct);
+        }
+        finally { try { await folder.CloseAsync(false, ct); } catch { } }
+    }
+
     /// <summary>Every copy email in the folder goes, then the folder itself (when nothing else is in it).</summary>
     public static async Task DeleteAsync(ImapClient client, CancellationToken ct)
     {
@@ -175,7 +194,9 @@ public static class CopyMailbox
             // Trash hidden from IMAP: delete the label's copies, then the same emails (by Gmail's message id) in All Mail,
             // which Gmail moves to its Trash.
             if (uids.Count > 0) await ExpungeAsync(client, folder, uids, ct);
-            if (client.GetFolder(SpecialFolder.All) is { } all) await DeleteCopiesInAsync(all, gone, ct);
+            // Never one that is in the label right now (another PC may have just written its copy).
+            var inLabel = (await CopiesAsync(client, folder, ct)).Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
+            if (client.GetFolder(SpecialFolder.All) is { } all) await DeleteCopiesInAsync(all, id => gone(id) && !inLabel.Contains(id), ct);
             else Log.Warn("accounts copy: Gmail shows neither Trash nor All Mail to IMAP; old copies stay in All Mail");
             await folder.OpenAsync(FolderAccess.ReadWrite, ct);
             return;

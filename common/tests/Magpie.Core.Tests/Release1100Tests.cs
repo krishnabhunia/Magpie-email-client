@@ -514,7 +514,38 @@ public class Release1100Tests
         var moved = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = T0, FromPc = "HP-OMEN", MovedTo = "secret-new-home@x.test" }, Pwd);
         Assert.Equal((true, false, T0), (AccountsCopy.Peek(stopped)!.IsNote, AccountsCopy.Peek(stopped)!.IsMoved, AccountsCopy.Peek(stopped)!.Updated));
         Assert.True(AccountsCopy.Peek(moved)!.IsMoved);
+        Assert.True(AccountsCopy.Peek(stopped)!.IsStopped);
+        Assert.False(AccountsCopy.Peek(moved)!.IsStopped);
         Assert.DoesNotContain("secret-new-home", System.Text.Encoding.UTF8.GetString(moved));
+    }
+
+    [Fact]
+    public void An_account_added_by_hand_before_the_copy_was_looked_at_takes_its_version_at_the_next_look()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Accounts[1].SignatureHtml = "<p>From PC 1</p>";
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // Added by hand right after start (MailEngine.AddAccount → AdoptWaiting: nothing seen yet).
+        pc2.S.Accounts.RemoveAll(a => a.Email == "work@x.test");
+        pc2.S.AccountsCopy.Stamps.Remove("work@x.test");
+        var typed = pc2.Add("work@x.test", password: "typed-here");
+        typed.ImapHost = "imap.typed.test";
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        pc2.S.AccountsCopy.Adopt.Add("work@x.test");
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+        Assert.Equal(DateTimeOffset.MinValue, pc2.S.AccountsCopy.Stamps["work@x.test"].Changed);
+        // Not written over the copy's version meanwhile, and not asked about as "removed".
+        Assert.DoesNotContain(AccountsCopy.Build(pc2.S, pc2.V, copy, pc2.Name, "11.0.0", T0.AddMinutes(6)).Accounts,
+            a => a.Email == "work@x.test" && a.Account.SignatureHtml != "<p>From PC 1</p>");
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(6));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        var merged = pc2.S.Accounts.Single(a => a.Email == "work@x.test");
+        Assert.Equal(("<p>From PC 1</p>", "imap.typed.test", typed.Id), (merged.SignatureHtml, merged.ImapHost, merged.Id));
+        Assert.Empty(pc2.S.AccountsCopy.Adopt);
+        Assert.Equal("typed-here", pc2.Write(copy, T0.AddMinutes(7)).Accounts.Single(a => a.Email == "work@x.test").Password);
     }
 
     [Fact]

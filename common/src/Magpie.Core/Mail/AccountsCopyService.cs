@@ -119,7 +119,6 @@ public sealed class AccountsCopyService
             if (home == null) { Fail("The home account isn't in Magpie on this PC any more. Stop the copy here, or add that account again."); return; }
             var password = _e.Vault.Get(AccountsCopy.VaultPassword);
             var newPassword = _e.Vault.Get(AccountsCopy.VaultNewPassword);
-            if (string.IsNullOrEmpty(password)) { AskForPassword("Type the sync password to keep the copy up to date."); return; }
 
             using var client = await _e.Connector.OpenImapAsync(home, ct);
             var file = await CopyMailbox.ReadAsync(client, ct);
@@ -127,6 +126,13 @@ public sealed class AccountsCopyService
             // The "stopped" note found when the copy was turned on here again is written over, never followed (exactly that
             // one: any other note is another PC's).
             if (file != null && IsNoteToOverwrite(file)) file = null;
+            // Stopped (another PC, or this one whose stop didn't finish): followed without the password, the note says so.
+            if (file != null && AccountsCopy.Peek(file) is { IsStopped: true } stoppedNote)
+            {
+                await StopHereAsync(stoppedNote.Pc, client, ct);
+                return;
+            }
+            if (string.IsNullOrEmpty(password)) { AskForPassword("Type the sync password to keep the copy up to date."); return; }
             if (file != null)
             {
                 try
@@ -150,7 +156,7 @@ public sealed class AccountsCopyService
 
             if (copy is { Stopped: true })
             {
-                await StopHereAsync(copy.FromPc);
+                await StopHereAsync(copy.FromPc, client, ct);
                 return;
             }
             // The home account was changed on another PC: follow it there (when this PC has that account).
@@ -288,13 +294,18 @@ public sealed class AccountsCopyService
         return true;
     }
 
-    private async Task StopHereAsync(string byPc)
+    private async Task StopHereAsync(string byPc, MailKit.Net.Imap.ImapClient client, CancellationToken ct)
     {
+        var mine = byPc == PcName;
+        // This PC's own stop whose clean-up didn't finish: the older copies (with the sign-ins) go now.
+        if (mine)
+            try { await CopyMailbox.KeepOnlyNewestAsync(client, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("accounts copy: clean-up after stopping: " + ex.Message); }
         await RunOnUi(() => TurnOff());
         Log.Info("accounts copy: stopped on " + byPc);
         Problem = "";
         StatusChanged?.Invoke();
-        StoppedElsewhere?.Invoke(byPc);
+        if (!mine) StoppedElsewhere?.Invoke(byPc);
     }
 
     private void TurnOff()
@@ -307,7 +318,9 @@ public sealed class AccountsCopyService
         o.UsedBy = new();
         o.Stamps = new();
         o.RemovedHere = new();
+        o.Adopt = new();
         o.OverwriteNote = null;
+        Available = Array.Empty<AccountsCopy.CopiedAccount>();
         _e.Vault.Set(AccountsCopy.VaultPassword, null);
         _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
         _e.Settings.Save(notify: false);
@@ -327,14 +340,24 @@ public sealed class AccountsCopyService
         DateTimeOffset? overwrite = null;
         if (file != null && AccountsCopy.Peek(file) is { IsNote: true } note)
         {
-            // "Moved": the copy lives in another of the accounts now; it is never written over here.
-            if (note.IsMoved)
+            AccountsCopy.Contents? opened = null;
+            try { opened = AccountsCopy.Unlock(file, password); } catch (AccountsCopy.WrongPasswordException) { }
+            if (opened == null && !note.IsStopped)
+                throw new InvalidOperationException(note.IsMoved
+                    ? $"The copy moved from {home.Email} to another of your accounts. Type the sync password your other PCs use to see where."
+                    : $"{home.Email} has a note from Magpie on another PC, locked with another password. Type that password.");
+            // "Moved": the copy lives in another account now. Written over only when the copy there was stopped or is gone
+            // (the note is left over); otherwise that account is the one to choose.
+            if (opened is { MovedTo.Length: > 0 } && AccountsCopy.Key(opened.MovedTo) != AccountsCopy.Key(home.Email))
             {
-                var where = "another of your accounts";
-                try { if (AccountsCopy.Unlock(file, password).MovedTo is { Length: > 0 } m) where = m; } catch (AccountsCopy.WrongPasswordException) { }
-                throw new InvalidOperationException($"The copy moved from {home.Email} to {where}. Choose that one as the home account to join it.");
+                var moved = AccountsCopy.Key(opened.MovedTo);
+                var target = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == moved)
+                             ?? throw new InvalidOperationException($"The copy moved from {home.Email} to {moved}. Add {moved} here, then choose it as the home account.");
+                var there = await FindAsync(target, null, ct);
+                if (there != null && AccountsCopy.Peek(there) is not { IsStopped: true })
+                    throw new InvalidOperationException($"The copy moved from {home.Email} to {moved}. Choose {moved} as the home account to join it.");
             }
-            overwrite = note.Updated;   // "stopped": starting again writes over it
+            overwrite = note.Updated;   // stopped (or a left-over pointer): starting again writes over it
         }
         else if (file != null)
         {
@@ -357,6 +380,7 @@ public sealed class AccountsCopyService
                 o.IncludeAiKeys = includeAi;
                 o.CopyUpdated = null;
                 o.OverwriteNote = overwrite;
+                Available = Array.Empty<AccountsCopy.CopiedAccount>();
                 _e.Vault.Set(AccountsCopy.VaultPassword, password);
                 _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
                 if (existing != null) AccountsCopy.Join(_e.Config, _e.Vault, existing, DateTimeOffset.Now);
@@ -409,20 +433,40 @@ public sealed class AccountsCopyService
         await _busy.WaitAsync(ct);
         try
         {
-            var old = Home;
             var to = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == AccountsCopy.Key(newHomeEmail))
                      ?? throw new ArgumentException("Choose an account that is in Magpie on this PC.");
             if (!KnowsPassword) throw new InvalidOperationException("Type the sync password first (Settings → Accounts), then try again.");
+            var old = Home;
             AccountsCopy.Contents? current = null;
-            if (old != null)
+            for (var hop = 0; old != null; hop++)
             {
-                using var client = await _e.Connector.OpenImapAsync(old, ct);
-                if (await CopyMailbox.ReadAsync(client, ct) is { } file && !IsNoteToOverwrite(file))
+                byte[]? file;
+                using (var client = await _e.Connector.OpenImapAsync(old, ct))
                 {
-                    current = OpenOrRefuse(file, "move it");
-                    if (current.Stopped || current.MovedTo.Length > 0) { Poke(); throw new InvalidOperationException(NoteText(current) + " Magpie on this PC follows that at its next check."); }
+                    file = await CopyMailbox.ReadAsync(client, ct);
+                    try { await client.DisconnectAsync(true, ct); } catch { }
                 }
-                try { await client.DisconnectAsync(true, ct); } catch { }
+                if (file != null && IsNoteToOverwrite(file)) { file = null; break; }
+                if (file == null)
+                {
+                    // Gone from the mailbox: moving now would make a copy from this PC alone (other PCs' accounts lost).
+                    if (Options.CopyUpdated != null) throw new InvalidOperationException("The copy is missing from the home mailbox. Use \"Make a new copy from this PC\" (Settings → Accounts) first, then try again.");
+                    break;
+                }
+                if (AccountsCopy.Peek(file) is { IsStopped: true } p) { Poke(); throw new InvalidOperationException(Stopped(p.Pc)); }
+                current = OpenOrRefuse(file, "move it");
+                if (current.Stopped) { Poke(); throw new InvalidOperationException(Stopped(current.FromPc)); }
+                if (current.MovedTo.Length == 0) break;
+                // Another PC moved it already: this PC follows (and moves it on from there if another account was chosen).
+                var target = AccountsCopy.Key(current.MovedTo);
+                var next = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == target)
+                           ?? throw new InvalidOperationException($"The copy moved to {target} on another PC. Add {target} here to keep in step, or stop the copy on this PC only.");
+                if (hop >= 3) throw new InvalidOperationException("The copy moved too many times in a row. Try again in a minute.");
+                await RunOnUi(() => { Options.HomeEmail = target; _e.Settings.Save(notify: false); });
+                Log.Info("accounts copy: followed the copy to " + target);
+                current = null;
+                if (target == AccountsCopy.Key(to.Email)) return;   // it is there already
+                old = next;
             }
             var password = _e.Vault.Get(AccountsCopy.VaultPassword) ?? "";
             var newPassword = _e.Vault.Get(AccountsCopy.VaultNewPassword);
@@ -437,18 +481,20 @@ public sealed class AccountsCopyService
                 await CopyMailbox.WriteAsync(client, to.Email, locked, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
             }
-            // 2. Only now the old mailbox points there. If that fails, the copy just written goes again (nothing moved).
+            // 2. Only now the old mailbox points there. If the note never got there, the copy just written goes again
+            // (nothing moved); once it is there, the move is done even if clearing the old copies failed.
             if (old != null && AccountsCopy.Key(old.Email) != AccountsCopy.Key(to.Email))
             {
+                var noteIn = false;
                 try
                 {
                     var note = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, MovedTo = AccountsCopy.Key(to.Email) };
                     var noteFile = await Task.Run(() => AccountsCopy.Lock(note, lockWith), ct);
                     using var client = await _e.Connector.OpenImapAsync(old, ct);
-                    await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct);
+                    await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct, appended: () => noteIn = true);
                     try { await client.DisconnectAsync(true, ct); } catch { }
                 }
-                catch
+                catch (Exception ex) when (!noteIn)
                 {
                     try
                     {
@@ -456,9 +502,14 @@ public sealed class AccountsCopyService
                         await CopyMailbox.DeleteAsync(undo, CancellationToken.None);
                         try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
                     }
-                    catch (Exception ex) { Log.Warn("accounts copy: couldn't take back the copy written to " + to.Email + ": " + ex.Message); }
+                    catch (Exception undoEx)
+                    {
+                        Log.Warn("accounts copy: couldn't take back the copy written to " + to.Email + ": " + undoEx.Message);
+                        throw new InvalidOperationException(Connector.Friendly(ex) + $" A spare copy may be left in {to.Email}'s mailbox (folder \"{AccountsCopy.FolderName}\"); it goes when the copy is moved there or stopped.", ex);
+                    }
                     throw;
                 }
+                catch (Exception ex) { Log.Warn($"accounts copy: moved; clearing the old copies in {old.Email} failed: {ex.Message}"); }
             }
             if (!string.IsNullOrEmpty(newPassword)) Promote(newPassword);
             await RunOnUi(() =>
@@ -487,39 +538,53 @@ public sealed class AccountsCopyService
         await _busy.WaitAsync(ct);
         try
         {
-            var home = Home;
-            if (deleteCopy && home != null)
+            var source = Home;
+            for (var hop = 0; deleteCopy && source != null; hop++)
             {
-                using var client = await _e.Connector.OpenImapAsync(home, ct);
+                using var client = await _e.Connector.OpenImapAsync(source, ct);
                 var file = await CopyMailbox.ReadAsync(client, ct);
                 if (file != null && IsNoteToOverwrite(file)) file = null;   // only the old note this PC was going to write over
-                var write = KnowsPassword;
-                if (file != null)
+                var peek = file != null ? AccountsCopy.Peek(file) : null;
+                AccountsCopy.Contents? current = null;
+                if (peek is { IsStopped: true }) { }   // stopped already (by another PC, or this one's stop didn't finish)
+                else if (file != null && !KnowsPassword)
                 {
-                    if (!KnowsPassword && AccountsCopy.Peek(file) is not { IsNote: true })
+                    if (peek is { IsMoved: true })
+                        throw new InvalidOperationException("The copy moved to another of your accounts on another PC. Type the sync password to stop it there, or stop the copy on this PC only.");
+                    if (peek is not { IsNote: true })
                     {
                         AskForPassword("Type the sync password to keep the copy up to date.");
                         throw new InvalidOperationException("Type the sync password first (Settings → Accounts), then stop the copy; until then it stays as it is.");
                     }
-                    if (KnowsPassword)
-                    {
-                        var current = OpenOrRefuse(file, "stop it");
-                        // Moved: the copy (with the sign-ins) is in another mailbox now; a note here wouldn't stop it.
-                        if (current.MovedTo.Length > 0) { Poke(); throw new InvalidOperationException(NoteText(current) + " Magpie on this PC follows it at its next check; stop it after that."); }
-                        if (current.Stopped) write = false;   // already stopped by another PC: nothing to do there
-                    }
-                    else write = false;   // a note this PC can't open (another PC's): left as it is
                 }
-                if (write)
+                else if (file != null) current = OpenOrRefuse(file, "stop it");
+                // Moved: the copy (with the sign-ins) is in another mailbox; it is stopped there.
+                if (current is { MovedTo.Length: > 0 } && !current.Stopped)
+                {
+                    var target = AccountsCopy.Key(current.MovedTo);
+                    var next = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == target)
+                               ?? throw new InvalidOperationException($"The copy moved to {target} on another PC. Add {target} here to stop it there, or stop the copy on this PC only.");
+                    if (hop >= 3) throw new InvalidOperationException("The copy moved too many times in a row. Try again in a minute.");
+                    source = next;
+                    continue;
+                }
+                if (peek is { IsStopped: true } || current is { Stopped: true })
+                {
+                    // Nothing to write; older copies a stop left behind go now.
+                    try { await CopyMailbox.KeepOnlyNewestAsync(client, ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("accounts copy: clean-up after stopping: " + ex.Message); }
+                }
+                else if (KnowsPassword)
                 {
                     var password = _e.Vault.Get(AccountsCopy.VaultPassword);
                     var lockWith = string.IsNullOrEmpty(password) ? _e.Vault.Get(AccountsCopy.VaultNewPassword)! : password;
                     var stopped = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, Stopped = true };
                     var locked = await Task.Run(() => AccountsCopy.Lock(stopped, lockWith), ct);
-                    await CopyMailbox.WriteAsync(client, home.Email, locked, ct);
+                    await CopyMailbox.WriteAsync(client, source.Email, locked, ct);
                 }
-                else if (file == null && !KnowsPassword) await CopyMailbox.DeleteAsync(client, ct);
+                else if (file == null) await CopyMailbox.DeleteAsync(client, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
+                break;
             }
             await RunOnUi(TurnOff);
         }
@@ -546,9 +611,8 @@ public sealed class AccountsCopyService
         }
     }
 
-    private static string NoteText(AccountsCopy.Contents note) =>
-        note.Stopped ? $"Magpie on {(note.FromPc.Length > 0 ? note.FromPc : "another PC")} stopped the copy."
-                     : $"The copy moved to {note.MovedTo} on {(note.FromPc.Length > 0 ? note.FromPc : "another PC")}.";
+    private static string Stopped(string byPc) =>
+        $"Magpie on {(byPc.Length > 0 ? byPc : "another PC")} stopped the copy, so there is nothing to move; this PC stops too at its next check.";
 
     /// <summary>The new-PC step (design SY1·3): after signing in to an account, is there a copy in its mailbox?
     /// Null when there is none. A "stopped" / "moved" note lists no accounts (<see cref="AccountsCopy.Peek"/>).
@@ -611,7 +675,12 @@ public sealed class AccountsCopyService
     {
         if (!Options.Enabled) return added;
         var key = AccountsCopy.Key(added.Email);
-        if (Available.FirstOrDefault(x => x.Email == key) is not { } c) return added;
+        if (Available.FirstOrDefault(x => x.Email == key) is not { } c)
+        {
+            // Not known yet (no round since start, offline, Settings open): settled at the next look at the copy.
+            if (!Options.Adopt.Contains(key)) Options.Adopt.Add(key);
+            return added;
+        }
         Available = Available.Where(x => x.Email != key).ToList();
         return AccountsCopy.MergeKeepingSignIn(_e.Config, _e.Vault, c, added);
     }

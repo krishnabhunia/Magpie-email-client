@@ -882,9 +882,9 @@ public partial class SettingsViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                // Nothing moved or was deleted: the copy is still in this mailbox. Removing the account anyway stops it here.
+                // Nothing was moved or deleted (the message says why). Removing the account anyway stops the copy here.
                 if (!Ui.Confirm("The accounts copy", Core.Mail.Connector.Friendly(ex) +
-                    $"\n\nThe copy is still in {a.Email}'s mailbox. Remove the account anyway? Magpie on this PC then stops keeping the copy; your other PCs keep using it.")) return;
+                    $"\n\nRemove {a.Email} anyway? Magpie on this PC then stops keeping the copy; nothing changes in it for your other PCs.")) return;
                 await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
             }
         }
