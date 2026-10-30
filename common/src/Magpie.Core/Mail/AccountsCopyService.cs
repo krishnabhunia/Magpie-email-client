@@ -166,15 +166,12 @@ public sealed class AccountsCopyService
             }
             else
             {
-                // No longer the newest (a take-back put the old note back but couldn't clear it, another spare, or a PC
-                // that took it for the live copy wrote on): only that one goes. A full copy left on top there isn't the
-                // live one (that is in the old home): the old note goes back on top, so that PC follows it there.
+                // No longer the newest (a take-back put the old note back but couldn't clear it, another spare, or another
+                // PC wrote there since): only that one email goes. Whatever is on top now may be in use, so it is never
+                // written over or deleted here.
                 if (await CopyMailbox.RemoveCopyAsync(client, spare.Updated, ct) > 0) Log.Info("accounts copy: spare copy removed from " + spare.At);
                 if (spare.Restore.Length > 0 && await CopyMailbox.ReadAsync(client, ct) is { } top && AccountsCopy.Peek(top) is not { IsNote: true })
-                {
-                    await CopyMailbox.WriteAsync(client, at!.Email, Convert.FromBase64String(spare.Restore), ct);
-                    Log.Info("accounts copy: the old note is back in " + spare.At);
-                }
+                    Log.Warn($"accounts copy: {spare.At} now holds a copy written after a move that didn't finish; left as it is");
             }
             try { await client.DisconnectAsync(true, ct); } catch { }
         }
