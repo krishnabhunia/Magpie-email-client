@@ -106,7 +106,7 @@ public sealed class AccountSync : IDisposable
     private static readonly string[] ExtraHeaders =
     {
         "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted", "X-Mailer", "Feedback-ID", "X-Campaign",
-        "X-CampaignID", "X-Mailgun-Tag", "X-MC-User", "X-SG-EID",
+        "X-CampaignID", "X-Mailgun-Tag", "X-MC-User", "X-SG-EID", Settings.AccountsCopy.Header,
     };
 
     public Account Account { get; private set; }
@@ -140,6 +140,12 @@ public sealed class AccountSync : IDisposable
     public event Action<ChangeSet>? Changed;
     public event Action<IEnumerable<string>>? ContactsLearned;
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>Design SY1: accounts added together take turns for their first download (4 at a time, MailEngine).</summary>
+    public SemaphoreSlim? FirstSyncGate { get; set; }
+    /// <summary>Waiting for a turn for the first download (design SY1, "Waiting").</summary>
+    public bool Waiting { get; private set; }
+    /// <summary>The first check finished (design SY1, "Ready").</summary>
+    public bool Ready => _initialDone;
 
     public AccountSync(Account account, MailStore store, Connector connector, Func<string, bool> isKnownContact, Func<string, Category?> senderOverride)
     {
@@ -214,6 +220,24 @@ public sealed class AccountSync : IDisposable
     private async Task RunAsync(CancellationToken ct)
     {
         var backoff = TimeSpan.FromSeconds(15);
+        var gate = FirstSyncGate;
+        var holding = false;
+        if (gate != null)
+        {
+            Waiting = true;
+            SetStatus(SyncState.Connecting, "Waiting for the other accounts…");
+            try { await gate.WaitAsync(ct); holding = true; }
+            catch (OperationCanceledException) { return; }
+            finally { Waiting = false; }
+        }
+        // The turn ends after the first round, whatever its outcome: one account's problem never holds up the others.
+        void EndTurn() { if (holding) { holding = false; gate!.Release(); } }
+        try { await LoopAsync(ct, backoff, EndTurn); }
+        finally { EndTurn(); }
+    }
+
+    private async Task LoopAsync(CancellationToken ct, TimeSpan backoff, Action endTurn)
+    {
         while (!ct.IsCancellationRequested)
         {
             try
@@ -231,6 +255,7 @@ public sealed class AccountSync : IDisposable
                 await SyncAllAsync(full, ct);
                 if (full) _lastFullCheck = DateTimeOffset.Now;
                 _initialDone = true;
+                endTurn();
                 backoff = TimeSpan.FromSeconds(15);
                 if (_offlineLogged) { _offlineLogged = false; Log.Info($"[{Account.Email}] back online"); }
                 var pending = _store.PendingOpCount(Account.Id);
@@ -255,6 +280,7 @@ public sealed class AccountSync : IDisposable
             {
                 Log.Warn($"[{Account.Email}] needs sign-in: {ex.Message}");
                 SetStatus(SyncState.NeedsSignIn, ex.Message);
+                endTurn();
                 try { await _wake.WaitAsync(TimeSpan.FromMinutes(30), ct); } catch (OperationCanceledException) { break; }
             }
             catch (Exception ex)
@@ -264,6 +290,7 @@ public sealed class AccountSync : IDisposable
                 if (!offline) Log.Error($"[{Account.Email}] sync failed", ex);
                 else if (!_offlineLogged) { _offlineLogged = true; Log.Info($"[{Account.Email}] offline: {Describe(ex)}"); }
                 SetStatus(offline ? SyncState.Offline : SyncState.Error, Connector.Friendly(ex));
+                endTurn();
                 try { await _wake.WaitAsync(backoff, ct); } catch (OperationCanceledException) { break; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 300));
             }
@@ -317,6 +344,7 @@ public sealed class AccountSync : IDisposable
         foreach (var f in all)
         {
             if (f.Attributes.HasFlag(FolderAttributes.NoSelect) || f.Attributes.HasFlag(FolderAttributes.NonExistent)) continue;
+            if (IsCopyFolder(f.FullName, f.DirectorySeparator)) continue;   // design SY1: the accounts copy is not mail
             var isInbox = f.FullName.Equals(inbox.FullName, StringComparison.OrdinalIgnoreCase);
             var role = RoleOf(f, isInbox);
             var local = new MailFolder
@@ -713,6 +741,9 @@ public sealed class AccountSync : IDisposable
         var rows = new List<MessageRow>();
         // Oldest first so replies can find their parents' thread keys within the same batch.
         _pendingBatchMerges.Clear();
+        // The accounts copy (design SY1) is never listed: not asked for again this session either.
+        lock (_tried)
+            foreach (var s in summaries.Where(s => s.Headers?.Contains(Settings.AccountsCopy.Header) == true)) _tried.Add((local.Id, s.UniqueId.Id));
         foreach (var s in summaries.Where(IsVisibleSummary).OrderBy(s => s.UniqueId.Id))
             rows.Add(ToRow(s, local, gmail));
         // A later row in this batch may have merged conversations that earlier rows were keyed under.
@@ -727,7 +758,18 @@ public sealed class AccountSync : IDisposable
     }
 
     internal static bool IsVisibleSummary(IMessageSummary summary) =>
-        summary.Flags is not { } flags || !flags.HasFlag(KitFlags.Deleted);
+        (summary.Flags is not { } flags || !flags.HasFlag(KitFlags.Deleted))
+        // Design SY1: the accounts copy email (Gmail also shows it in All Mail, and in Trash while it is replaced).
+        && summary.Headers?.Contains(Settings.AccountsCopy.Header) != true;
+
+    /// <summary>Design SY1: the top-level "Magpie Sync" folder that holds the accounts copy.</summary>
+    internal static bool IsCopyFolder(string fullName, char delimiter)
+    {
+        var name = fullName;
+        // "INBOX.Magpie Sync" on servers that keep every folder under INBOX.
+        if (delimiter != '\0' && name.StartsWith("INBOX" + delimiter, StringComparison.OrdinalIgnoreCase)) name = name[6..];
+        return name.Equals(Settings.AccountsCopy.FolderName, StringComparison.OrdinalIgnoreCase);
+    }
 
     private readonly HashSet<long> _deferred = new();
     private readonly Dictionary<string, string> _batchKeys = new();

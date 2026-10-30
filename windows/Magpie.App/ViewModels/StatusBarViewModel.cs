@@ -240,6 +240,10 @@ public partial class StatusBarViewModel : ObservableObject
         if (_sent is { } sent && now - sent.At < TimeSpan.FromSeconds(30))
             segs.Add(Seg("sent", $"Sent {sent.Count} at {sent.At.LocalDateTime:HH:mm} ✓", "sent"));
 
+        // Design SY1·4: accounts from the copy coming in (the adding window's count).
+        if (Views.AddingAccountsWindow.StatusText is { Length: > 0 } adding)
+            segs.Add(Seg("adding", adding, "sync"));
+
         // 4. Syncing (only if it takes a moment, so quick checks don't flicker)
         if (!allOffline)
             foreach (var a in accounts)

@@ -118,6 +118,7 @@ public partial class App : Application
             if (mailto != null) ComposeWindow.OpenMailto(mailto);
         }, _cts.Token);
 
+        AccountsCopyUi.Attach(engine, UpdateService.Current.ToString());   // design SY1
         engine.Start();
         var updates = new UpdateService();
         AppServices.Updates = updates;

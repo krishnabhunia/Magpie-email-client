@@ -450,6 +450,8 @@ public sealed class AppSettings
     public bool AutoDeleteIncludePast { get; set; } = true;
     /// <summary>Rules / filters (design B5), run top to bottom on new Inbox mail.</summary>
     public List<Mail.MailRule> Rules { get; set; } = new();
+    /// <summary>Design SY1: a locked copy of the accounts (and settings) in the home mailbox, for Magpie on other PCs.</summary>
+    public AccountsCopySettings AccountsCopy { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -468,6 +470,8 @@ public sealed class SettingsStore
     private readonly object _gate = new();
     public AppSettings Current { get; private set; } = new();
     public event Action? Changed;
+    /// <summary>Just before every write (also the quiet ones), under the save lock.</summary>
+    public event Action<AppSettings>? Saving;
 
     public SettingsStore(string path) { _path = path; }
 
@@ -536,6 +540,7 @@ public sealed class SettingsStore
         s.SyncIntervalMinutes = Math.Clamp(s.SyncIntervalMinutes, 1, 120);
         if (string.IsNullOrWhiteSpace(s.Ai.Endpoint)) (s.Ai.Endpoint, _) = AiSettings.Preset(s.Ai.Provider);
         s.Ai.NormaliseConnections();
+        (s.AccountsCopy ??= new()).Normalise();
     }
 
     /// <summary>Writes settings.json. <paramref name="notify"/> false = UI-state only (sidebar, window size): no Changed event.</summary>
@@ -545,6 +550,8 @@ public sealed class SettingsStore
         {
             if (s != null) Current = s;
             Normalise(Current);
+            // Design SY1: the accounts copy notes what changed (and when) in the same write, so the time survives a crash.
+            try { Saving?.Invoke(Current); } catch (Exception ex) { Log.Warn("settings: " + ex.Message); }
             var tmp = _path + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(Current, AppSettings.Json));
             File.Move(tmp, _path, true);

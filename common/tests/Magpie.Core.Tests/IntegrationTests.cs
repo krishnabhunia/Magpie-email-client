@@ -4,6 +4,7 @@ using MailKit.Net.Imap;
 using MailKit.Search;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 using Magpie.Core.Storage;
 using MimeKit;
 using KitFlags = MailKit.MessageFlags;
@@ -284,6 +285,224 @@ public class IntegrationTests
         e.EmptyFolder(acc.Id, FolderRole.Trash);
         await WaitUntilAsync(async () => await ServerCount("Trash") == 0, "server Trash empty");
         Assert.Equal(2, await ServerCount("INBOX"));
+    }
+
+    [Fact]
+    public async Task Accounts_copy_brings_every_account_to_a_new_PC_after_one_sign_in()
+    {
+        if (!ServersUp()) return;
+        // Design SY1: PC 1 has a home account and a work account; a new PC signs in to the home account only.
+        var homeUser = NewUser();
+        var workUser = NewUser();
+        await Append(workUser, "INBOX", Msg("boss@other.test", workUser, "Quarterly plan", "see attached"));
+        using var dir1 = new TempDir();
+        using var pc1 = NewEngine(dir1);
+        pc1.Start();
+        pc1.AddAccount(AccountFor(homeUser), "secret", null);
+        pc1.AddAccount(AccountFor(workUser), "secret", null);
+        pc1.Config.QuickReplies = new() { "Copied reply" };
+        await pc1.AccountsCopy.EnableAsync(homeUser, "sync password 2026", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        Assert.Equal(2, pc1.Config.AccountsCopy.CopyAccounts);
+
+        // The copy is one email in "Magpie Sync" that Magpie itself never lists.
+        using (var c = await Raw(homeUser))
+        {
+            var folder = await CopyMailbox.FindFolderAsync(c, CancellationToken.None);
+            Assert.NotNull(folder);
+            await folder!.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+        await WaitUntil(() => pc1.Folders(pc1.Accounts[0].Id).Any(f => f.Role == FolderRole.Inbox), "home folders listed");
+        Assert.DoesNotContain(pc1.Folders(pc1.Accounts[0].Id), f => f.Name == AccountsCopy.FolderName);
+
+        // A second write replaces the email instead of adding one.
+        pc1.Config.QuickReplies = new() { "Copied reply", "Second" };
+        pc1.Settings.Save();
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        using (var c = await Raw(homeUser))
+        {
+            var folder = (await CopyMailbox.FindFolderAsync(c, CancellationToken.None))!;
+            await folder.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+
+        // New PC: sign in to the home account → Magpie finds the copy → sync password → every account comes along.
+        using var dir2 = new TempDir();
+        using var pc2 = NewEngine(dir2);
+        pc2.Start();
+        var home2 = AccountFor(homeUser);
+        var file = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.NotNull(file);
+        Assert.Equal(2, AccountsCopy.Peek(file!)!.Accounts);
+        Assert.Throws<AccountsCopy.WrongPasswordException>(() => AccountsCopy.Unlock(file!, "wrong password!"));
+        var copy = AccountsCopy.Unlock(file!, "sync password 2026");
+        pc2.AddAccount(home2, "secret", null);
+        var added = pc2.AccountsCopy.AddFromCopy(copy, home2, "sync password 2026", new[] { workUser });
+        Assert.Equal(workUser, Assert.Single(added).Email);
+        Assert.Equal(new[] { "Copied reply", "Second" }, pc2.Config.QuickReplies);
+        var work2 = pc2.Accounts.Single(a => a.Email == workUser);
+        await WaitUntil(() => pc2.IsReady(work2.Id), "the copied work account signs in with the copied password and syncs");
+        await WaitUntil(() => Inbox(pc2).Any(t => t.Latest.Subject == "Quarterly plan"), "work mail on the new PC");
+
+        // The new PC removes the work account: PC 1 is asked, nothing is removed there by itself.
+        pc2.RemoveAccount(work2.Id);
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        var asked = new List<string>();
+        pc1.AccountsCopy.RemovedElsewhere += (a, _) => asked.Add(a.Email);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(workUser, Assert.Single(asked));
+        Assert.Contains(pc1.Accounts, a => a.Email == workUser);
+
+        // A new sync password chosen on PC 1: the copy is opened with the old one and locked with the new one.
+        pc1.AccountsCopy.ChangePassword("a brand new sync password");
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        var relocked = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.Throws<AccountsCopy.WrongPasswordException>(() => AccountsCopy.Unlock(relocked!, "sync password 2026"));
+        Assert.NotEmpty(AccountsCopy.Unlock(relocked!, "a brand new sync password").Accounts);
+        // PC 2 is asked for it once, then keeps in step again.
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.True(pc2.AccountsCopy.NeedsPassword);
+        pc2.AccountsCopy.SetPassword("a brand new sync password");
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.False(pc2.AccountsCopy.NeedsPassword);
+
+        // Stop and delete the copy on PC 1: the accounts leave the mailbox (a "stopped" note stays) and PC 2 stops too.
+        await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
+        var note = await pc2.AccountsCopy.FindAsync(home2, "secret", CancellationToken.None);
+        Assert.Equal(0, AccountsCopy.Peek(note!)!.Accounts);
+        Assert.Empty(AccountsCopy.Unlock(note!, "a brand new sync password").Accounts);
+        await pc2.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.False(pc2.Config.AccountsCopy.Enabled);
+        Assert.Contains(pc2.Accounts, a => a.Email == homeUser);   // its accounts stay
+
+        // Turned on again later on PC 1 (same mailbox, another password): the old note is written over, not followed.
+        var home1 = pc1.Accounts.Single(a => a.Email == homeUser);
+        await pc1.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.True(pc1.Config.AccountsCopy.Enabled);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        Assert.Equal(2, AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!)!.Accounts);
+
+        // A move whose write to the new home fails (its answer lost): taken back there, nothing moved.
+        var work0 = pc1.Accounts.Single(a => a.Email == workUser);
+        CopyMailbox.AnswerLostForTests = to => to == workUser ? new IOException("connection lost") : null;
+        try { await Assert.ThrowsAsync<InvalidOperationException>(() => pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None)); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.Equal(AccountsCopy.Key(homeUser), pc1.Config.AccountsCopy.HomeEmail);
+        Assert.Null(await pc1.AccountsCopy.FindAsync(work0, null, CancellationToken.None));
+        Assert.Empty(pc1.Config.AccountsCopy.Spares);
+
+        // Moving the copy to the work account: the work mailbox gets the full copy, then the old one points there. The
+        // server keeps the "moved" note but its answer is lost: Magpie looks, sees it there, and the move counts as done.
+        var lostOnce = true;
+        CopyMailbox.AnswerLostForTests = to => to == homeUser && lostOnce ? (lostOnce = false) == false ? new IOException("connection lost") : null : null;
+        try { await pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.False(lostOnce);
+        Assert.Equal(AccountsCopy.Key(workUser), pc1.Config.AccountsCopy.HomeEmail);
+        var work1 = pc1.Accounts.Single(a => a.Email == workUser);
+        Assert.Equal(2, AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Accounts.Count);
+        var pointer = AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!, "another sync password");
+        Assert.Equal((AccountsCopy.Key(workUser), 0), (pointer.MovedTo, pointer.Accounts.Count));
+        await pc1.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc1.AccountsCopy.Problem);
+        // Turning it on with the old home now is refused: the copy moved, and the pointer is never written over.
+        using var dir3 = new TempDir();
+        using var pc3 = NewEngine(dir3);
+        pc3.Start();
+        pc3.AddAccount(AccountFor(homeUser), "secret", null);
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            pc3.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None));
+        Assert.Contains(AccountsCopy.Key(workUser), refused.Message);
+        Assert.True(AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.IsMoved);
+
+        // Stop and delete after the move: the stopped note goes where the copy is now (its answer lost too: still stopped).
+        lostOnce = true;
+        CopyMailbox.AnswerLostForTests = to => to == workUser && lostOnce ? (lostOnce = false) == false ? new IOException("connection lost") : null : null;
+        try { await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.False(lostOnce);
+        Assert.False(pc1.Config.AccountsCopy.Enabled);
+        Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
+        Assert.Empty(pc1.Config.AccountsCopy.CleanUp);   // nothing left to clear
+
+        // An older copy left behind (a clean-up that didn't finish): cleared before the account is removed, the stop note stays.
+        var leftover = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddDays(-1), FromPc = "OLD-PC", Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, leftover, AccountsCopy.Peek(leftover)!));
+        var stopNote = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = pc1.AccountsCopy.PcName, Stopped = true }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, stopNote, AccountsCopy.Peek(stopNote)!));   // the stop's note came after it
+        pc1.Config.AccountsCopy.CleanUp.Add(AccountsCopy.Key(workUser));
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        using (var c = await Raw(workUser))
+        {
+            var folder = (await CopyMailbox.FindFolderAsync(c, CancellationToken.None))!;
+            await folder.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+        Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
+
+        // The old home's pointer is left over now (the copy it points to was stopped): with that account here, turning
+        // on with the old home starts a new copy over the pointer instead of refusing for good.
+        pc3.AddAccount(AccountFor(workUser), "secret", null);
+        await pc3.AccountsCopy.EnableAsync(homeUser, "another sync password", includeSettings: true, includeAi: false, autoAdd: true, CancellationToken.None);
+        await pc3.AccountsCopy.RunOnceAsync(CancellationToken.None);
+        Assert.Equal("", pc3.AccountsCopy.Problem);
+        Assert.True(pc3.Config.AccountsCopy.Enabled);
+        Assert.Equal(2, AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.Accounts);
+
+        // A spare copy a move left in a mailbox that held an old "moved" note: that note comes back in its place.
+        async Task<int> CopiesIn(string user)
+        {
+            using var c = await Raw(user);
+            var f = await CopyMailbox.FindFolderAsync(c, CancellationToken.None);
+            if (f == null) return 0;
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+        await pc1.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
+        using (var c = await Raw(workUser)) { if (await CopyMailbox.FindFolderAsync(c, CancellationToken.None) is { } f) await CopyMailbox.DeleteAsync(c, CancellationToken.None); await c.DisconnectAsync(true); }
+        var pointerNote = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddHours(-1), FromPc = "OLD-PC", MovedTo = "elsewhere@test.local" }, "another sync password");
+        var spareCopy = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = pc1.AccountsCopy.PcName, Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        using (var c = await Raw(workUser)) { await c.GetFolder(c.PersonalNamespaces[0]).CreateAsync(AccountsCopy.FolderName, true); await c.DisconnectAsync(true); }
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, pointerNote, AccountsCopy.Peek(pointerNote)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true, Restore = Convert.ToBase64String(pointerNote) });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
+        Assert.Equal(1, await CopiesIn(workUser));
+        // When the old note already came back on top, only the spare copy goes.
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, pointerNote, AccountsCopy.Peek(pointerNote)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.Equal(2, await CopiesIn(workUser));   // the two notes stay, the spare went
+        Assert.True(AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.IsMoved);
+        // Another PC wrote its own copy there since: only the spare goes; what is on top may be in use and stays.
+        var offlineCopy = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddMinutes(1), FromPc = "OFFLINE-PC", Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, spareCopy, AccountsCopy.Peek(spareCopy)!));
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, offlineCopy, AccountsCopy.Peek(offlineCopy)!));
+        pc1.Config.AccountsCopy.Spares.Add(new SpareCopy { At = AccountsCopy.Key(workUser), Old = AccountsCopy.Key(homeUser), Updated = AccountsCopy.Peek(spareCopy)!.Updated, Unused = true, Restore = Convert.ToBase64String(pointerNote) });
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        Assert.Equal("OFFLINE-PC", AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!)!.Pc);
+        Assert.Equal(3, await CopiesIn(workUser));   // the two notes and that copy; the spare went
+        Assert.Equal("", pc1.Config.AccountsCopy.TwoCopies);   // the copy is off on this PC: nothing to tell it
+
+        // A write whose round read an older copy than the one there now writes nothing (another PC wrote meanwhile).
+        using (var c = await Raw(workUser))
+        {
+            await Assert.ThrowsAsync<CopyMailbox.ChangedMeanwhileException>(() =>
+                CopyMailbox.WriteAsync(c, workUser, spareCopy, CancellationToken.None, stillSame: top => top == "1:1"));
+            await c.DisconnectAsync(true);
+        }
+        Assert.Equal(3, await CopiesIn(workUser));
     }
 
     [Fact]

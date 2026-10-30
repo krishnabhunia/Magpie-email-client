@@ -123,6 +123,10 @@ jobs:
       # Optional Authenticode signing – skipped while these secrets are empty.
       SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
       SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+      # Design SY1 / SA1: Magpie's own Google / Microsoft sign-in apps, built into the release (empty = not built in).
+      MAGPIE_GOOGLE_CLIENT_ID: ${{ secrets.MAGPIE_GOOGLE_CLIENT_ID }}
+      MAGPIE_GOOGLE_CLIENT_SECRET: ${{ secrets.MAGPIE_GOOGLE_CLIENT_SECRET }}
+      MAGPIE_MICROSOFT_CLIENT_ID: ${{ secrets.MAGPIE_MICROSOFT_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v7
 
@@ -222,6 +226,9 @@ jobs:
     runs-on: macos-latest   # Apple Silicon (arm64)
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      MAGPIE_GOOGLE_CLIENT_ID: ${{ secrets.MAGPIE_GOOGLE_CLIENT_ID }}
+      MAGPIE_GOOGLE_CLIENT_SECRET: ${{ secrets.MAGPIE_GOOGLE_CLIENT_SECRET }}
+      MAGPIE_MICROSOFT_CLIENT_ID: ${{ secrets.MAGPIE_MICROSOFT_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v7
 

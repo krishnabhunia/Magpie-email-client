@@ -38,6 +38,7 @@ e.g. `v2.0.1-…`, confuses "Latest"; the Windows updater skips releases without
 |---|---|---|
 | 1 | Settings → Branches → Add branch ruleset for `main` | Require a pull request; require status check **build** (0 approvals). Stops a red PR from being merged — and so from being released. |
 | 2 | Settings → General → Pull Requests | "Automatically delete head branches" (tidy). |
+| 3 | Settings → Secrets and variables → Actions | Design SA1 (11.0.0): `MAGPIE_GOOGLE_CLIENT_ID`, `MAGPIE_GOOGLE_CLIENT_SECRET`, `MAGPIE_MICROSOFT_CLIENT_ID` — the sign-in apps built into each release (`docs/SIGN-IN-SETUP.md`). Empty = none built in. |
 
 ## Files
 

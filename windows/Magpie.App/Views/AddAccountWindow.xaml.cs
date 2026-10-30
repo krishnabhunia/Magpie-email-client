@@ -26,6 +26,7 @@ public partial class AddAccountWindow : Window
         _vm = vm;
         DataContext = vm;
         vm.Done += () => { DialogResult = true; };
+        vm.OfferCopy = (a, password, tokens, ct) => Services.AccountsCopyUi.OfferAsync(this, a, password, tokens, ct);   // design SY1·3
         Loaded += (_, _) => { if (!vm.IsReauth) EmailBox.Focus(); else PwdBox.Focus(); };
         Closing += (_, _) => vm.CancelCommand.Execute(null);
     }

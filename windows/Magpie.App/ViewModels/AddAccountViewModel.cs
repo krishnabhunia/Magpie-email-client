@@ -15,6 +15,8 @@ public partial class AddAccountViewModel : ObservableObject
     private readonly MailEngine _e = AppServices.Engine;
     private readonly Account? _reauth;
     private CancellationTokenSource? _cts;
+    /// <summary>Cancelled only by the user (Cancel, or closing the window) — never by a time limit. A new one per try.</summary>
+    private CancellationTokenSource _userCancel = new();
     private string _lastLookup = "";
 
     public bool IsReauth => _reauth != null;
@@ -49,6 +51,17 @@ public partial class AddAccountViewModel : ObservableObject
 
     public string Password { get; set; } = "";
     public event Action? Done;
+    /// <summary>Design SY1·3: after signing in, the window looks for an accounts copy in the mailbox and, when the user
+    /// opens it, adds this account with the others (true). False = add only this account as usual.</summary>
+    public Func<Account, string?, OAuthTokens?, CancellationToken, Task<bool>>? OfferCopy { get; set; }
+
+    private async Task<bool> TryCopyAsync(Account a, string? password, OAuthTokens? tokens)
+    {
+        if (IsReauth || OfferCopy == null) return false;
+        Status = "Looking for your other accounts…";
+        // Its own time limit (in OfferAsync): a sign-in that took long must not leave the lookup without time.
+        return await OfferCopy(a, password, tokens, _userCancel.Token);
+    }
 
     public List<Choice<AccountChoice>> Choices { get; } = new()
     {
@@ -96,8 +109,9 @@ public partial class AddAccountViewModel : ObservableObject
     public bool ShowGoogle => EffectiveKind == AccountKind.Gmail && !UseAppPassword;
     public bool ShowMicrosoft => EffectiveKind == AccountKind.Microsoft;
     public bool ShowPassword => EffectiveKind == AccountKind.Imap || (EffectiveKind == AccountKind.Gmail && UseAppPassword);
-    public bool GoogleReady => !string.IsNullOrWhiteSpace(_e.Config.GoogleClientId);
-    public bool MicrosoftReady => !string.IsNullOrWhiteSpace(_e.Config.MicrosoftClientId);
+    // Design SA1: also ready with the sign-in apps built into the release.
+    public bool GoogleReady => !string.IsNullOrWhiteSpace(_e.OAuth.ConfigFor(AccountKind.Gmail)?.ClientId);
+    public bool MicrosoftReady => !string.IsNullOrWhiteSpace(_e.OAuth.ConfigFor(AccountKind.Microsoft)?.ClientId);
     public string PasswordLabel => EffectiveKind == AccountKind.Gmail ? "App password (16 letters from myaccount.google.com → Security → App passwords)" : "Password";
 
     private void Refresh()
@@ -176,7 +190,7 @@ public partial class AddAccountViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Cancel() => _cts?.Cancel();
+    private void Cancel() { _cts?.Cancel(); _userCancel.Cancel(); }
 
     /// <summary>Password / app-password accounts: test both servers, then add.</summary>
     [RelayCommand]
@@ -189,12 +203,13 @@ public partial class AddAccountViewModel : ObservableObject
         Busy = true;
         Status = "Checking the incoming and outgoing servers…";
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        _userCancel = new CancellationTokenSource();
         try
         {
             var err = await Task.Run(() => _e.Connector.TestAsync(a, Password, _cts.Token));
             if (err != null) { Error = err; ShowAdvanced = true; return; }
             if (IsReauth) _e.UpdateAccount(a, Password);
-            else _e.AddAccount(a, Password, null);
+            else if (!await TryCopyAsync(a, Password, null)) _e.AddAccount(a, Password, null);
             Done?.Invoke();
         }
         catch (OperationCanceledException) { Error = "Cancelled or timed out."; }
@@ -219,6 +234,8 @@ public partial class AddAccountViewModel : ObservableObject
         Busy = true;
         Status = "Finish signing in in your browser…";
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        _userCancel = new CancellationTokenSource();
+        Account? remembered = null;
         try
         {
             var tokens = await _e.OAuth.SignInAsync(cfg, Email.Trim(), url => Ui.OpenExternal(url), _cts.Token);
@@ -231,14 +248,25 @@ public partial class AddAccountViewModel : ObservableObject
             var a = BuildAccount(AuthMethod.OAuth2);
             Status = "Checking the mailbox…";
             _e.OAuth.Remember(a.Id, tokens);
+            remembered = a;
             var err = await Task.Run(() => _e.Connector.TestAsync(a, null, CancellationToken.None));
             if (err != null) { Error = err; return; }
             if (IsReauth) _e.UpdateAccount(a, null, tokens);
-            else _e.AddAccount(a, null, tokens);
+            else if (!await TryCopyAsync(a, null, tokens)) _e.AddAccount(a, null, tokens);
+            remembered = null;
             Done?.Invoke();
         }
         catch (OperationCanceledException) { Error = "Sign-in was cancelled or timed out."; }
         catch (Exception ex) { Error = ex is ReauthRequiredException or InvalidOperationException or TimeoutException ? ex.Message : Connector.Friendly(ex); }
-        finally { Busy = false; Status = ""; }
+        finally
+        {
+            // Not added (cancelled, the check failed, or an error): its tokens don't stay behind under an id nobody uses.
+            if (remembered != null && !IsReauth && _e.AccountById(remembered.Id) == null)
+            {
+                _e.OAuth.Forget(remembered.Id);
+                _e.Vault.RemovePrefix($"account:{remembered.Id}:");   // the saved refresh token too
+            }
+            Busy = false; Status = "";
+        }
     }
 }
