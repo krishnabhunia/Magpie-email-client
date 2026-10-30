@@ -1,30 +1,37 @@
 <UserControl x:Class="Magpie.App.Views.AiReplySettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:svc="clr-namespace:Magpie.App.Services" svc:Typography.Role="fieldLabel">
+             xmlns:svc="clr-namespace:Magpie.App.Services"
+             xmlns:vm="clr-namespace:Magpie.App.ViewModels" svc:Typography.Role="fieldLabel">
     <StackPanel>
-        <TextBlock Text="AI reply settings" Style="{StaticResource Text.Serif}" FontSize="21" svc:Typography.Role="settingsTitle" />
-        <TextBlock Text="Choose when Reply and Reply All start a draft, and how it should sound. Your normal manual reply is always available." svc:Typography.Role="helper"
+        <TextBlock Text="AI writing" Style="{StaticResource Text.Serif}" FontSize="21" svc:Typography.Role="settingsTitle" />
+        <TextBlock Text="Choose when Reply, Reply All and Forward start a draft, and how it should sound. Your normal manual writing is always available." svc:Typography.Role="helper"
                    Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,16" />
         <Border Style="{StaticResource Card}">
             <StackPanel>
                 <CheckBox Content="Enable AI features" IsChecked="{Binding AiEnabled, Mode=TwoWay}" FontWeight="SemiBold" />
                 <TextBlock Text="The existing master switch. Off stops all AI features." svc:Typography.Role="helper" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,14" />
                 <StackPanel IsEnabled="{Binding AiEnabled}">
-                    <CheckBox Content="Generate AI replies" IsChecked="{Binding ReplyDraftsEnabled, Mode=TwoWay}" FontWeight="SemiBold" />
+                    <CheckBox Content="Generate AI drafts" IsChecked="{Binding ReplyDraftsEnabled, Mode=TwoWay}" FontWeight="SemiBold" />
                     <TextBlock Text="Off until you enable it. Generated text appears as a preview; sending stays your action." svc:Typography.Role="helper"
                                Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,12" />
                     <StackPanel Margin="22,0,0,0" IsEnabled="{Binding ReplyDraftsEnabled}">
                         <CheckBox Content="When I click Reply" IsChecked="{Binding ReplyOnReply, Mode=TwoWay}" Margin="0,0,0,10" />
-                        <CheckBox Content="When I click Reply All" IsChecked="{Binding ReplyOnReplyAll, Mode=TwoWay}" />
+                        <CheckBox Content="When I click Reply All" IsChecked="{Binding ReplyOnReplyAll, Mode=TwoWay}" Margin="0,0,0,10" />
+                        <CheckBox Content="When I click Forward" IsChecked="{Binding ReplyOnForward, Mode=TwoWay}" />
+                        <TextBlock Text="Writes the note above the forwarded email. Off until you turn it on." svc:Typography.Role="helper"
+                                   Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,0" />
                     </StackPanel>
+                    <CheckBox Content="Show &quot;What the reply says&quot;" IsChecked="{Binding ReplyShowStance, Mode=TwoWay}" FontWeight="SemiBold" Margin="0,14,0,0" IsEnabled="{Binding ReplyDraftsEnabled}" />
+                    <TextBlock Text="Magpie suggests the answer (Yes, No, Yes if…, Need details, Later) from the email; you can change it before the draft is written." svc:Typography.Role="helper"
+                               Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,0" />
                 </StackPanel>
             </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}" Margin="0,14,0,0">
             <StackPanel>
-                <TextBlock Text="Reply defaults" svc:Typography.Role="settingsSection" FontWeight="SemiBold" FontSize="15" />
-                <TextBlock Text="Combine a tone and a purpose, for example Formal + Make a request. You can change them for one draft without changing these defaults." svc:Typography.Role="helper"
+                <TextBlock Text="How it sounds" svc:Typography.Role="settingsSection" FontWeight="SemiBold" FontSize="15" />
+                <TextBlock Text="Defaults for every draft. Combine a tone, a formality and a purpose, for example Polite + Formal + Make a request. You can change any of them for one draft from the AI panel." svc:Typography.Role="helper"
                            Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,14" />
                 <StackPanel IsEnabled="{Binding ReplyDraftsEnabled}">
                     <Grid>
@@ -40,6 +47,22 @@
                         <TextBlock Text="Custom purpose" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                         <TextBox svc:Typography.Role="fieldValue" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyDefaultCustomPurpose, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" />
                     </StackPanel>
+                    <TextBlock Text="Formality" Style="{StaticResource Text.Caption}" Margin="0,14,0,5" />
+                    <ItemsControl x:Name="RowAiFormality" ItemsSource="{Binding DefaultFormalityChips}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:AiChoice}">
+                                <Button Style="{StaticResource Button.AiSegment}" Content="{Binding Label}"
+                                        Command="{Binding DataContext.PickDefaultFormalityCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <DockPanel Margin="0,2,0,0">
+                        <TextBlock DockPanel.Dock="Right" Text="Like a letter" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                        <TextBlock Text="Like a chat" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" />
+                    </DockPanel>
                     <Grid Margin="0,14,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions>
                         <StackPanel><TextBlock Text="Length" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyLengthOptions}" SelectedItem="{Binding ReplyDefaultLength, Mode=TwoWay}" /></StackPanel>
@@ -52,6 +75,32 @@
                     <TextBlock Text="Additional instructions" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                     <TextBox svc:Typography.Role="fieldValue" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" MaxLength="4000" VerticalContentAlignment="Top" />
                 </StackPanel>
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+            <StackPanel>
+                <TextBlock Text="When you upgrade from 10.0.0: Formal and Informal moved out of Tone into Formality. A saved Formal became Tone Professional + Formality Formal; Informal became Friendly + Casual."
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" svc:Typography.Role="helper" />
+            </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0" x:Name="RowAiCulture">
+            <StackPanel IsEnabled="{Binding ReplyDraftsEnabled}">
+                <TextBlock Text="Culture &amp; etiquette" svc:Typography.Role="settingsSection" FontWeight="SemiBold" FontSize="15" />
+                <TextBlock Text="How greetings, names and directness are handled. Auto follows what the other person wrote." svc:Typography.Role="helper"
+                           Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,14" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel><TextBlock Text="English style" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyEnglishStyleOptions}" SelectedItem="{Binding ReplyDefaultEnglishStyle, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Text="Business etiquette" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyEtiquetteOptions}" SelectedItem="{Binding ReplyDefaultEtiquette, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="4"><TextBlock Text="Directness" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyDirectnessOptions}" SelectedItem="{Binding ReplyDefaultDirectness, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Row="2"><TextBlock Text="Greeting" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyGreetingOptions}" SelectedItem="{Binding ReplyDefaultGreeting, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Text="Form of address" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyAddressOptions}" SelectedItem="{Binding ReplyDefaultAddress, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="4"><TextBlock Text="Emoji" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyEmojiOptions}" SelectedItem="{Binding ReplyDefaultEmoji, Mode=TwoWay}" /></StackPanel>
+                </Grid>
+                <CheckBox Content="Remember my choices per contact" IsChecked="{Binding ReplyRememberPerContact, Mode=TwoWay}" FontWeight="SemiBold" Margin="0,16,0,0" />
+                <TextBlock Text="When you use a draft whose style you changed (for example Very formal + Japanese etiquette for one client), Magpie uses that style the next time you reply to that address. Kept on this PC, in your settings."
+                           svc:Typography.Role="helper" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,0" />
             </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}" Margin="0,14,0,0">

@@ -127,7 +127,7 @@ internal static partial class Program
             var regenerate = vm.GenerateReplyDraftCommand.ExecuteAsync(null);
             PumpUntil(() => regenerate.IsCompleted);
             regenerate.GetAwaiter().GetResult();
-            Assert(handler.Requests == 2 && engine.Config.Ai.ReplyDrafts.Tone == "Formal", "Per-draft tone overrides do not change saved defaults");
+            Assert(handler.Requests == 2 && engine.Config.Ai.ReplyDrafts.Tone == "Professional", "Per-draft tone overrides do not change saved defaults");
             engine.Config.Ai.Enabled = false;
             engine.Settings.Save();
             PumpUntil(() => !vm.ShowReplyAi);

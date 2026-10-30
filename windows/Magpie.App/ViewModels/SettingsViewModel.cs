@@ -390,13 +390,13 @@ public partial class SettingsViewModel : ObservableObject
         ("Signature", "Signatures", "A signature for each account, with pictures; new messages and replies", "signature sign off logo picture name footer html rich", "RowSignatures"),
         ("Quick replies", "Signatures", "Short answers you send with one click under a conversation", "quick replies canned answers thanks one click send chips", "RowQuickReplies"),
         ("Fonts & text", "Fonts", "Independent font family and size for every kind of app text", "fonts font typography family size type sender subject preview reader compose signature text", "RowTypography"),
-        ("AI reply settings", "AiReplies", "Generate drafts after Reply or Reply All; tone, purpose, length and language", "ai reply all response draft formal informal polite request order tone purpose language custom automatic", "RowAiReplySettings"),
+        ("AI writing", "AiReplies", "Drafts after Reply, Reply All or Forward; what the reply says, tone, formality, culture and etiquette", "ai writing reply all forward response draft note formal informal formality casual polite request order tone purpose language custom automatic answer yes no stance culture etiquette greeting address english british american indian japanese emoji directness remember contact", "RowAiReplySettings"),
         ("Theme", "Toolbar", "Match Windows · Light · Dark", "dark theme night light mode appearance black white colours colors windows", "RowTheme"),
     };
 
     private static readonly Dictionary<string, (string Label, string Icon)> Pages = new()
     {
-        ["Fonts"] = ("Fonts & text", "toolbar"), ["AiReplies"] = ("AI reply settings", "summarise"),
+        ["Fonts"] = ("Fonts & text", "toolbar"), ["AiReplies"] = ("AI writing", "summarise"),
         ["General"] = ("General", "general"), ["Toolbar"] = ("Appearance", "toolbar"), ["Accounts"] = ("Accounts", "accounts"), ["AI"] = ("AI features", "summarise"), ["Rules"] = ("Rules", "rules"), ["Signatures"] = ("Signatures & replies", "signature"),
         ["Notifications"] = ("Notifications", "notifications"), ["Templates"] = ("Templates", "templates"), ["Keys"] = ("Keyboard shortcuts", "keys"),
         ["Updates"] = ("Updates", "update"), ["About"] = ("About", "about"),

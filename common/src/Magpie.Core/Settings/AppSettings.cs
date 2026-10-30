@@ -8,7 +8,7 @@ public enum RemoteImages { Ask = 0, Always = 1, Never = 2 }
 
 public enum AiProviderKind { OpenAI = 0, Anthropic = 1, Ollama = 2, Custom = 3 }
 
-public enum AiFeature { Summarise, Draft, Rewrite, Replies, ReplyDraft }
+public enum AiFeature { Summarise, Draft, Rewrite, Replies, ReplyDraft, ForwardDraft }
 
 /// <summary>
 /// The unified AI toggle model: one master switch, one provider, and independent feature switches.
@@ -37,6 +37,7 @@ public sealed class AiSettings
         AiFeature.Rewrite => Rewrite,
         AiFeature.Replies => Replies,
         AiFeature.ReplyDraft => ReplyDrafts?.Enabled == true,
+        AiFeature.ForwardDraft => ReplyDrafts?.Enabled == true,
         _ => false,
     };
 
@@ -49,6 +50,7 @@ public sealed class AiSettings
             case AiFeature.Rewrite: Rewrite = on; break;
             case AiFeature.Replies: Replies = on; break;
             case AiFeature.ReplyDraft: (ReplyDrafts ??= new()).Enabled = on; break;
+            case AiFeature.ForwardDraft: (ReplyDrafts ??= new()).OnForward = on; break;
         }
     }
 

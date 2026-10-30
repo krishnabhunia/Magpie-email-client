@@ -81,6 +81,7 @@ internal static partial class Program
             Assert(http.Requests == 0, "Local workspace and cached reader made no HTTP calls");
             CheckAiReplyFlow(root, engine);
             CheckAiReplySentOnlyFallback(root, engine);
+            CheckAiWritingFlow(root, engine);
             CheckEditorPage(root);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");

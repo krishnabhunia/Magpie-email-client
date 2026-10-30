@@ -151,8 +151,8 @@ public class Release1000Tests
         Assert.Equal(AiAvailability.Ready, AiService.Availability(settings, "key", AiFeature.ReplyDraft));
         Assert.Equal(AiAvailability.FeatureOff, AiService.Availability(settings, "key", AiFeature.Draft));
         var copy = settings.Clone();
-        copy.ReplyDrafts.Tone = "Informal";
-        Assert.Equal("Formal", settings.ReplyDrafts.Tone);
+        copy.ReplyDrafts.Tone = "Friendly";
+        Assert.Equal("Professional", settings.ReplyDrafts.Tone);   // AW1 (11.0.0): Formal moved to the formality scale
         settings.SetFeature(AiFeature.ReplyDraft, false);
         Assert.False(settings.ReplyDrafts.Enabled);
     }
@@ -162,7 +162,7 @@ public class Release1000Tests
     {
         var preferences = new AiReplySettings { Tone = "nonsense", Purpose = null!, Length = "Detailed", Language = "Bengali", Context = "bad", Instructions = new string('a', 5000) };
         preferences.Normalise();
-        Assert.Equal("Formal", preferences.Tone);
+        Assert.Equal("Professional", preferences.Tone);   // AW1 (11.0.0): the default tone
         Assert.Equal("Answer the message", preferences.Purpose);
         Assert.Equal(AiReplySettings.ConversationContext, preferences.Context);
         Assert.Equal("Bengali", preferences.Language);
