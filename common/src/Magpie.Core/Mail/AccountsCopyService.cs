@@ -149,8 +149,8 @@ public sealed class AccountsCopyService
         bool? inUse = (o.Enabled && spare.At == o.HomeEmail) ? true : at == null ? null : spare.Unused ? false : old == null ? null : await PointsAtAsync(old, spare.At, ct);
         if (inUse == null)
         {
-            // Tried again later (also once the sync password is typed again) while both accounts are here.
-            if (at != null && old != null) return false;
+            // Tried again later while both accounts are here and the sync password can still be typed (the copy is on).
+            if (at != null && old != null && (KnowsPassword || o.Enabled)) return false;
             Log.Warn($"accounts copy: a spare copy may be left in {spare.At} (folder \"{AccountsCopy.FolderName}\"); Magpie can't check it any more");
             await RunOnUi(() => { o.Spares.Remove(spare); _e.Settings.Save(notify: false); });
             return false;   // unsettled: removing an account asks first
@@ -206,6 +206,19 @@ public sealed class AccountsCopyService
             return done;
         }
         finally { _busy.Release(); }
+    }
+
+    /// <summary>Takes back the copy a move just wrote to the new home (only while it is still the newest there): what was
+    /// there before comes back, or the folder goes when it held nothing.</summary>
+    private async Task TakeBackAsync(Account to, AccountsCopy.Contents built, byte[]? before)
+    {
+        using var undo = await _e.Connector.OpenImapAsync(to, CancellationToken.None);
+        if (await CopyMailbox.ReadAsync(undo, CancellationToken.None) is { } there && AccountsCopy.Peek(there)?.Updated == built.Updated)
+        {
+            if (before != null) await CopyMailbox.WriteAsync(undo, to.Email, before, CancellationToken.None);
+            else await CopyMailbox.DeleteAsync(undo, CancellationToken.None);
+        }
+        try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
     }
 
     private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account? old, bool unused) => RunOnUi(() =>
@@ -605,28 +618,28 @@ public sealed class AccountsCopyService
             var now = DateTimeOffset.Now;
             await RunOnUi(() => built = AccountsCopy.Build(_e.Config, _e.Vault, current, PcName, AppVersion, now));
             var locked = await Task.Run(() => AccountsCopy.Lock(built!, lockWith), ct);
+            // What the new home held before (an old "moved" note other PCs may still follow) comes back if the move is taken back.
+            byte[]? before = null;
+            var writing = false;
             try
             {
                 using var client = await _e.Connector.OpenImapAsync(to, ct);
+                before = await CopyMailbox.ReadAsync(client, ct);
+                writing = true;
                 await CopyMailbox.WriteAsync(client, to.Email, locked, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
             }
             catch (Exception ex)
             {
                 // It may be in the new home anyway (its answer lost, or a later step failed): taken back, since no note
-                // points there yet; if that fails too, it goes at a later check.
-                try
-                {
-                    using var undo = await _e.Connector.OpenImapAsync(to, CancellationToken.None);
-                    if (await CopyMailbox.ReadAsync(undo, CancellationToken.None) is { } there && AccountsCopy.Peek(there)?.Updated == built!.Updated)
-                        await CopyMailbox.DeleteAsync(undo, CancellationToken.None);
-                    try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
-                }
-                catch (Exception undoEx)
-                {
-                    Log.Warn("accounts copy: couldn't check the new home after a failed write: " + undoEx.Message);
-                    await NoteSpareAsync(to, built!, old, unused: true);
-                }
+                // points there yet; if that fails too, it goes at a later check. Nothing was sent before the write began.
+                if (writing)
+                    try { await TakeBackAsync(to, built!, before); }
+                    catch (Exception undoEx)
+                    {
+                        Log.Warn("accounts copy: couldn't check the new home after a failed write: " + undoEx.Message);
+                        await NoteSpareAsync(to, built!, old, unused: true);
+                    }
                 if (ex is OperationCanceledException && ct.IsCancellationRequested) throw;
                 throw new InvalidOperationException(Connector.Friendly(ex) + $" The copy couldn't be written to {to.Email}; nothing has moved.", ex);
             }
@@ -669,12 +682,7 @@ public sealed class AccountsCopyService
                     }
                     else
                     {
-                        try
-                        {
-                            using var undo = await _e.Connector.OpenImapAsync(to, CancellationToken.None);
-                            await CopyMailbox.DeleteAsync(undo, CancellationToken.None);
-                            try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
-                        }
+                        try { await TakeBackAsync(to, built!, before); }
                         catch (Exception undoEx)
                         {
                             Log.Warn("accounts copy: couldn't take back the copy written to " + to.Email + ": " + undoEx.Message);

@@ -61,9 +61,17 @@ public static class AccountsCopyUi
     private static async Task RemoveHereAsync(Account account)
     {
         var svc = AppServices.Engine.AccountsCopy;
+        var o = AppServices.Engine.Config.AccountsCopy;
+        if (o.Enabled && AccountsCopy.Key(account.Email) == o.HomeEmail)
+        {
+            // The copy lives in it: removing it is done in Settings, which asks where the copy goes.
+            Ui.Error("Removed on another PC", $"{account.Email} holds the accounts copy on this PC. To remove it here too, use Settings → Accounts → Remove: Magpie then asks where the copy goes.", ShowMain());
+            Asked.Remove(account.Email);
+            return;
+        }
         try
         {
-            if (!await svc.CleanUpNowAsync(account.Email, CancellationToken.None)
+            if (!await Task.Run(() => svc.CleanUpNowAsync(account.Email, CancellationToken.None))
                 && !Ui.Confirm("The accounts copy", $"Magpie couldn't clear copies of your accounts (locked with the sync password) that a stop or move left behind; with {account.Email} removed, they may stay in a mailbox, in the folder \"{AccountsCopy.FolderName}\" (magpie.log says which).\n\nRemove the account anyway?", ShowMain()))
             {
                 Asked.Remove(account.Email);

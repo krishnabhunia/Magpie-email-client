@@ -868,6 +868,7 @@ public partial class SettingsViewModel : ObservableObject
         if (!Ui.Confirm("Remove account", $"Remove {a.Email} from Magpie?\n\nIts mail stays on the server; Magpie deletes its local copy and saved sign-in.")) return;
         // Design SY1: the home account keeps the accounts copy; ask where it goes first.
         var copy = _e.Config.AccountsCopy;
+        var stopHere = false;
         if (copy.Enabled && Core.Settings.AccountsCopy.Key(a.Email) == copy.HomeEmail)
         {
             var next = _e.Accounts.FirstOrDefault(x => x.Id != a.Original.Id);
@@ -882,15 +883,17 @@ public partial class SettingsViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                // Nothing was moved or deleted (the message says why). Removing the account anyway stops the copy here.
+                // Nothing was moved or deleted (the message says why). Removing the account anyway stops the copy here
+                // (after the clean-up check below, while the sync password is still kept).
                 if (!Ui.Confirm("The accounts copy", Core.Mail.Connector.Friendly(ex) +
                     $"\n\nRemove {a.Email} anyway? Magpie on this PC then stops keeping the copy; nothing changes in it for your other PCs.")) return;
-                await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
+                stopHere = true;
             }
         }
         // Older copies a stop or move couldn't clear yet would stay in this mailbox for good once it is removed.
-        if (!await _e.AccountsCopy.CleanUpNowAsync(a.Email, CancellationToken.None)
+        if (!await Task.Run(() => _e.AccountsCopy.CleanUpNowAsync(a.Email, CancellationToken.None))
             && !Ui.Confirm("The accounts copy", $"Magpie couldn't clear copies of your accounts (locked with the sync password) that a stop or move left behind; with {a.Email} removed, they may stay in a mailbox, in the folder \"{Core.Settings.AccountsCopy.FolderName}\" (magpie.log says which).\n\nRemove the account anyway? You can delete that folder in the mailbox's own web page later.")) return;
+        if (stopHere) await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
         _e.RemoveAccount(a.Original.Id);
         Accounts.Remove(a);
     }
