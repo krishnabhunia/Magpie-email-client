@@ -164,6 +164,29 @@
         </Style.Triggers>
     </Style>
 
+    <!-- AW1: selectable AI chip (answers, tones) — filled indigo when its AiChoice.IsSelected -->
+    <Style x:Key="Button.AiChoice" TargetType="Button" BasedOn="{StaticResource Button.AiChip}">
+        <Setter Property="Background" Value="{DynamicResource Brush.Card.Background}" />
+        <Setter Property="Padding" Value="11,4" />
+        <Setter Property="MinHeight" Value="28" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Ai}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Ai}" />
+                <Setter Property="Foreground" Value="{DynamicResource Brush.Text.OnAccent}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- AW1: one step of the formality scale (five in a row) -->
+    <Style x:Key="Button.AiSegment" TargetType="Button" BasedOn="{StaticResource Button.AiChoice}">
+        <Setter Property="Padding" Value="4,5" />
+        <Setter Property="Margin" Value="0,0,-1,0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
     <!-- Quick reply chip (design B6): teal outline; AI chips stay indigo -->
     <Style x:Key="Button.QuickChip" TargetType="ButtonBase" BasedOn="{StaticResource Button.Base}">
         <Setter Property="Background" Value="Transparent" />

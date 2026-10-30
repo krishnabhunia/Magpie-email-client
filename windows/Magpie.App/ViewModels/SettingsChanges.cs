@@ -84,6 +84,7 @@ public partial class SettingsViewModel
         c.Ai.Rewrite = Rewrite;
         c.Ai.Replies = Replies;
         c.Ai.ReplyDrafts = AiRepliesToSave();
+        c.Ai.ReplyDrafts.ContactStyles = new();   // AW1: remembered per-contact styles are saved as they come, not by Apply
         c.Typography = TypographyToSave();
         FlushAiEditor(SelectedAiConnection);
         c.Ai.Connections = AiConnections.Select(x => x.ToConnection()).ToList();

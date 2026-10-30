@@ -312,7 +312,8 @@ public partial class ComposeViewModel : ObservableObject
         ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
         RefreshReplyAi();
         InvalidateLegacyAi();
-        ShowAiRail = ShowDraftAi || ShowRewriteAi || ShowReplyAi;
+        // AW1: the Reply / Forward draft panel sits under the editor, so it no longer needs the assistant rail.
+        ShowAiRail = ShowDraftAi || ShowRewriteAi;
         if (!ShowAiRail) AiPanelOpen = false;
         AiNeedsSetup = ShowAiRail && (ShowDraftAi ? _e.Ai.Availability(AiFeature.Draft) : _e.Ai.Availability(AiFeature.Rewrite)) == AiAvailability.NotConfigured;
         OnPropertyChanged(nameof(ProviderLabel));

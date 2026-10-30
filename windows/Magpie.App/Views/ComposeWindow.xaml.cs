@@ -139,6 +139,7 @@ public partial class ComposeWindow : Window
         _vm.GetHtml = GetHtmlAsync;
         _vm.GetNewText = GetNewTextAsync;
         _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
+        _vm.FocusAnswerBox = () => Dispatcher.BeginInvoke(new Action(ReplyAi.FocusAnswer), System.Windows.Threading.DispatcherPriority.Input);
         _vm.EditorCommand = EditorCommandAsync;
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
         _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
@@ -160,6 +161,12 @@ public partial class ComposeWindow : Window
         {
             if (e.Key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && _vm.ShowAiRail)
             { e.Handled = true; _vm.ToggleAiPanelCommand.Execute(null); }
+            else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0 && ReplyAi.HasKeyboardFocus)
+            {
+                // AW1: Ctrl+Enter in the AI draft panel rewrites the draft; it never sends the email from there.
+                e.Handled = true;
+                if (_vm.GenerateReplyDraftCommand.CanExecute(null)) _ = _vm.GenerateReplyDraftCommand.ExecuteAsync(null);
+            }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
