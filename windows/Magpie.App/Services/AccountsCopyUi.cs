@@ -38,7 +38,7 @@ public static class AccountsCopyUi
             var choice = ChoiceDialog.Ask(ShowMain(), "Removed on another PC",
                 $"{account.Email} was removed from Magpie on {by} ({removed.When.ToLocalTime():d MMM, HH:mm}). Remove it here too?",
                 "Remove it here too", "Keep it");
-            if (choice == 0) svc.AnswerRemoved(account, removeHere: true);
+            if (choice == 0) _ = RemoveHereAsync(account);
             else if (choice == 1) svc.AnswerRemoved(account, removeHere: false);
             else Asked.Remove(account.Email);
         });
@@ -55,6 +55,23 @@ public static class AccountsCopyUi
             AppServices.Tray?.ShowBalloon("Accounts from your other PCs",
                 (list.Count == 1 ? $"{list[0].Account.Email} is" : $"{list.Count} accounts are") + " waiting in Settings → Accounts.", () => ShowMain());
         });
+    }
+
+    // Copies a stop or move left in this mailbox are cleared first; when that can't be done now, ask.
+    private static async Task RemoveHereAsync(Account account)
+    {
+        var svc = AppServices.Engine.AccountsCopy;
+        try
+        {
+            if (!await svc.CleanUpNowAsync(account.Email, CancellationToken.None)
+                && !Ui.Confirm("The accounts copy", $"Magpie couldn't clear copies of your accounts (locked with the sync password) that a stop or move left behind; with {account.Email} removed, they may stay in a mailbox, in the folder \"{AccountsCopy.FolderName}\" (magpie.log says which).\n\nRemove the account anyway?", ShowMain()))
+            {
+                Asked.Remove(account.Email);
+                return;
+            }
+            svc.AnswerRemoved(account, removeHere: true);
+        }
+        catch (Exception ex) { Log.Warn("accounts copy: removing " + account.Email + ": " + ex.Message); Asked.Remove(account.Email); }
     }
 
     private static Window? ShowMain() => (Application.Current as App)?.ShowMain() ?? Application.Current.MainWindow;

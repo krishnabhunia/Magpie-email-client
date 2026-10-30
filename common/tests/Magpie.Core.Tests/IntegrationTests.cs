@@ -388,6 +388,15 @@ public class IntegrationTests
         Assert.Equal("", pc1.AccountsCopy.Problem);
         Assert.Equal(2, AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!)!.Accounts);
 
+        // A move whose write to the new home fails (its answer lost): taken back there, nothing moved.
+        var work0 = pc1.Accounts.Single(a => a.Email == workUser);
+        CopyMailbox.AnswerLostForTests = to => to == workUser ? new IOException("connection lost") : null;
+        try { await Assert.ThrowsAsync<InvalidOperationException>(() => pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None)); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.Equal(AccountsCopy.Key(homeUser), pc1.Config.AccountsCopy.HomeEmail);
+        Assert.Null(await pc1.AccountsCopy.FindAsync(work0, null, CancellationToken.None));
+        Assert.Empty(pc1.Config.AccountsCopy.Spares);
+
         // Moving the copy to the work account: the work mailbox gets the full copy, then the old one points there. The
         // server keeps the "moved" note but its answer is lost: Magpie looks, sees it there, and the move counts as done.
         var lostOnce = true;

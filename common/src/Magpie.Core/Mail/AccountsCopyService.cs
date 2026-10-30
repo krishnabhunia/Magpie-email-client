@@ -149,8 +149,11 @@ public sealed class AccountsCopyService
         bool? inUse = (o.Enabled && spare.At == o.HomeEmail) ? true : at == null ? null : spare.Unused ? false : old == null ? null : await PointsAtAsync(old, spare.At, ct);
         if (inUse == null)
         {
-            if (at != null && old != null && KnowsPassword) return false;   // tried again later
+            // Tried again later (also once the sync password is typed again) while both accounts are here.
+            if (at != null && old != null) return false;
             Log.Warn($"accounts copy: a spare copy may be left in {spare.At} (folder \"{AccountsCopy.FolderName}\"); Magpie can't check it any more");
+            await RunOnUi(() => { o.Spares.Remove(spare); _e.Settings.Save(notify: false); });
+            return false;   // unsettled: removing an account asks first
         }
         else if (inUse == false)
         {
@@ -205,9 +208,9 @@ public sealed class AccountsCopyService
         finally { _busy.Release(); }
     }
 
-    private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account old, bool unused) => RunOnUi(() =>
+    private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account? old, bool unused) => RunOnUi(() =>
     {
-        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = AccountsCopy.Key(old.Email), Unused = unused });
+        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = old != null ? AccountsCopy.Key(old.Email) : "", Unused = unused });
         _e.Settings.Save(notify: false);
     });
 
@@ -602,10 +605,30 @@ public sealed class AccountsCopyService
             var now = DateTimeOffset.Now;
             await RunOnUi(() => built = AccountsCopy.Build(_e.Config, _e.Vault, current, PcName, AppVersion, now));
             var locked = await Task.Run(() => AccountsCopy.Lock(built!, lockWith), ct);
-            using (var client = await _e.Connector.OpenImapAsync(to, ct))
+            try
             {
+                using var client = await _e.Connector.OpenImapAsync(to, ct);
                 await CopyMailbox.WriteAsync(client, to.Email, locked, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
+            }
+            catch (Exception ex)
+            {
+                // It may be in the new home anyway (its answer lost, or a later step failed): taken back, since no note
+                // points there yet; if that fails too, it goes at a later check.
+                try
+                {
+                    using var undo = await _e.Connector.OpenImapAsync(to, CancellationToken.None);
+                    if (await CopyMailbox.ReadAsync(undo, CancellationToken.None) is { } there && AccountsCopy.Peek(there)?.Updated == built!.Updated)
+                        await CopyMailbox.DeleteAsync(undo, CancellationToken.None);
+                    try { await undo.DisconnectAsync(true, CancellationToken.None); } catch { }
+                }
+                catch (Exception undoEx)
+                {
+                    Log.Warn("accounts copy: couldn't check the new home after a failed write: " + undoEx.Message);
+                    await NoteSpareAsync(to, built!, old, unused: true);
+                }
+                if (ex is OperationCanceledException && ct.IsCancellationRequested) throw;
+                throw new InvalidOperationException(Connector.Friendly(ex) + $" The copy couldn't be written to {to.Email}; nothing has moved.", ex);
             }
             // 2. Only now the old mailbox points there. If the note never got there, the copy just written goes again
             // (nothing moved); once it is there, the move is done even if clearing the old copies failed.
@@ -893,7 +916,8 @@ public sealed class AccountsCopyService
         return added;
     }
 
-    /// <summary>"Remove it here too" (true) or "Keep it" (false) after another PC removed the account.</summary>
+    /// <summary>"Remove it here too" (true) or "Keep it" (false) after another PC removed the account. Before "Remove it
+    /// here too" the caller runs <see cref="CleanUpNowAsync"/> (and asks when that can't be done).</summary>
     public void AnswerRemoved(Account account, bool removeHere)
     {
         var key = AccountsCopy.Key(account.Email);
