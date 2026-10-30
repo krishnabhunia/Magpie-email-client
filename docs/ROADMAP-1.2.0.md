@@ -56,7 +56,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 50 | Update button at the top-right of the title bar (always visible; replaces the green pill) | UB1 (HTML) | Approved 7 Oct 2026 — UB1-a · Built — not yet tried on Windows | [#59](https://github.com/krishnabhunia/Magpie-email-client/issues/59) |
 | 51 | Delete three ways: Shift+Del forever · past emails from a sender/domain keeping the last N · future auto-delete, one dialog | DX1 (HTML) | Approved 7 Oct 2026 — DX1-A + DX1-B1 · Built — not yet tried on Windows | [#60](https://github.com/krishnabhunia/Magpie-email-client/issues/60) |
 | 70 | Superhuman-inspired local productivity workspace | [Workspace design](PRODUCTIVITY-WORKSPACE.md) | Approved 8 Oct 2026 · Implemented in feature PR with automated Windows checks; device smoke test pending | [#83](https://github.com/krishnabhunia/Magpie-email-client/issues/83) |
-| 71 | Sign in once on a new PC and every account comes along, added at the same time (like Spark desktop) | SY1 (HTML, below) | Design shown 8 Oct 2026 — waiting for approval (choose A / B / C and SA1 / SA2) | [#85](https://github.com/krishnabhunia/Magpie-email-client/issues/85) |
+| 71 | Sign in once on a new PC and every account comes along, added at the same time (like Spark desktop) | SY1 (HTML, below) | Approved 30 Oct 2026 — **A** (hidden "Magpie Sync" folder in the home mailbox) + **SA1** (sign-in apps built into each release) · Windows first, Mac / Android later | [#85](https://github.com/krishnabhunia/Magpie-email-client/issues/85) |
 | 72 | Fix 7.0.0 startup crash from search button styles | Patch regression | Fixed in PR #89; full main-window construction checks pass; device verification pending | [#88](https://github.com/krishnabhunia/Magpie-email-client/issues/88) |
 | 73 | Show update button only for a newer GitHub release; label Update to vx.y.z | Requested 9 Oct 2026 | Implemented with native state and binding checks; device verification pending | [#90](https://github.com/krishnabhunia/Magpie-email-client/issues/90) |
 
@@ -307,7 +307,7 @@ y when there is a feature modification and z when there is a bug or error fix."*
   bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr
 
-## #71 SY1 — Sign in once, every account comes along (shown 8 Oct 2026, waiting for approval)
+## #71 SY1 — Sign in once, every account comes along (shown 8 Oct 2026, approved 30 Oct 2026: A + SA1)
 
 Krishna: *"Like in Spark desktop email client, when I log in with an account and parallelly all the accounts gets
 attached, can we do it for Magpie?"*
@@ -327,7 +327,7 @@ first email you sign in with. Magpie has no server of its own, so the copy has t
 | Added at once | One step adds every ticked account (one settings save); each starts its own sync, as today. **First downloads run 4 accounts at a time, Inbox first**, the rest start as one finishes, so the PC and the servers aren't swamped — mail is readable from the first ready account. Window + status bar: "Adding accounts · 9 of 16 ready"; per account ✓ Ready / Getting Inbox · n of N / Waiting / *Type password* (saved password no longer works) / *Sign in again* (Google or Microsoft refused the copied sign-in). One account's problem never stops the others. |
 | Staying in step | Added / signed in again / password changed / a setting changed → copy updated; other PCs pick it up at their next mail check. Newest change wins per account and per settings block. **Removing an account never removes it elsewhere by itself** — the other PCs ask (*Remove it here too* / *Keep it*). Removing the home account asks to move the copy or delete it. A new sync password: other PCs ask for it once. |
 
-**To approve (SY1·5).**
+**Choices (SY1·5) — approved 30 Oct 2026: A and SA1.** Krishna: *"Approved -> A"*, *"Approved -> SA1"*; Windows first, then the other platforms.
 
 | Choice | Options | Recommended |
 |---|---|---|
