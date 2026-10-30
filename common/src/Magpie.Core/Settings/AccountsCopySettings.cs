@@ -49,9 +49,9 @@ public sealed class AccountsCopySettings
     /// <summary>Mailboxes (email) where older copies still have to go after a stop or move whose clean-up didn't finish:
     /// only the newest email there stays. Kept also when the copy is off; tried at every check until done.</summary>
     public List<string> CleanUp { get; set; } = new();
-    /// <summary>Mailboxes holding a spare copy left by a move that was taken back (email → that copy's time): it goes
-    /// when it is still the newest there.</summary>
-    public Dictionary<string, DateTimeOffset> SpareAt { get; set; } = new();
+    /// <summary>Spare copies a move that didn't finish may have left in the new home: one goes only when it is still the
+    /// newest there and the old home is seen to hold no "moved" note pointing at it (no PC uses it).</summary>
+    public List<SpareCopy> Spares { get; set; } = new();
     /// <summary>The time of the "stopped" note this PC wrote (its own stop, also when it didn't finish).</summary>
     public DateTimeOffset? MyStopNote { get; set; }
 
@@ -67,7 +67,8 @@ public sealed class AccountsCopySettings
         FormerIds = (FormerIds ?? new()).Where(kv => !string.IsNullOrEmpty(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
             .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().ToLowerInvariant());
         CleanUp = (CleanUp ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
-        SpareAt = Lower(SpareAt);
+        Spares = (Spares ?? new()).Where(x => x != null && !string.IsNullOrWhiteSpace(x.At)).ToList();
+        foreach (var x in Spares) { x.At = x.At.Trim().ToLowerInvariant(); x.Old = (x.Old ?? "").Trim().ToLowerInvariant(); }
         Adopt = (Adopt ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;
@@ -79,6 +80,16 @@ public sealed class AccountsCopySettings
         foreach (var (k, v) in d ?? new()) if (!string.IsNullOrWhiteSpace(k) && v != null) r[k.Trim().ToLowerInvariant()] = v;
         return r;
     }
+}
+
+public sealed class SpareCopy
+{
+    /// <summary>The mailbox holding the spare copy.</summary>
+    public string At { get; set; } = "";
+    /// <summary>That copy's time (as written in it).</summary>
+    public DateTimeOffset Updated { get; set; }
+    /// <summary>The old home, which may hold a "moved" note pointing at <see cref="At"/>.</summary>
+    public string Old { get; set; } = "";
 }
 
 public sealed class CopyStamp

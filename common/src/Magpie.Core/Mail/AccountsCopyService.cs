@@ -88,12 +88,13 @@ public sealed class AccountsCopyService
         try { await Task.Delay(TimeSpan.FromSeconds(30), ct); } catch (OperationCanceledException) { return; }
         while (!ct.IsCancellationRequested)
         {
-            try { await CleanUpAsync(ct); }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-            catch (Exception ex) { Log.Warn("accounts copy: clean-up: " + AccountSync.Describe(ex)); }
             try { await RunOnceAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex) { Fail(Connector.Friendly(ex)); Log.Warn("accounts copy: " + AccountSync.Describe(ex)); }
+            // After the round (which may follow a "moved" note first).
+            try { await CleanUpAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) { Log.Warn("accounts copy: clean-up: " + AccountSync.Describe(ex)); }
             try
             {
                 await _wake.WaitAsync(TimeSpan.FromMinutes(Math.Max(1, _e.Config.SyncIntervalMinutes)), ct);
@@ -104,43 +105,87 @@ public sealed class AccountsCopyService
     }
 
     /// <summary>Clean-ups a stop or move left undone (also while the copy is off): older copies in a mailbox, or a spare
-    /// copy a taken-back move left. An entry goes once done, or when its account isn't in Magpie here any more.</summary>
+    /// copy a move that didn't finish left. Each is tried on its own (one failing never holds up the others) and goes
+    /// once done. A mailbox whose account isn't in Magpie here any more can't be reached: its entry goes.</summary>
     private async Task CleanUpAsync(CancellationToken ct)
     {
         var o = Options;
-        if (o.CleanUp.Count == 0 && o.SpareAt.Count == 0) return;
+        if (o.CleanUp.Count == 0 && o.Spares.Count == 0) return;
         await _busy.WaitAsync(ct);
         try
         {
             foreach (var email in o.CleanUp.ToList())
-            {
-                if (_e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == email) is { } acc)
-                {
-                    using var client = await _e.Connector.OpenImapAsync(acc, ct);
-                    await CopyMailbox.KeepOnlyNewestAsync(client, ct);
-                    try { await client.DisconnectAsync(true, ct); } catch { }
-                    Log.Info("accounts copy: older copies cleared in " + email);
-                }
-                await RunOnUi(() => { o.CleanUp.Remove(email); _e.Settings.Save(notify: false); });
-            }
-            foreach (var (email, when) in o.SpareAt.ToList())
-            {
-                // Only while it is still that spare copy: if the copy lives there now, it stays.
-                if (!(o.Enabled && email == o.HomeEmail) && _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == email) is { } acc)
-                {
-                    using var client = await _e.Connector.OpenImapAsync(acc, ct);
-                    if (await CopyMailbox.ReadAsync(client, ct) is { } file && AccountsCopy.Peek(file)?.Updated == when)
-                    {
-                        await CopyMailbox.DeleteAsync(client, ct);
-                        Log.Info("accounts copy: spare copy removed from " + email);
-                    }
-                    try { await client.DisconnectAsync(true, ct); } catch { }
-                }
-                await RunOnUi(() => { o.SpareAt.Remove(email); _e.Settings.Save(notify: false); });
-            }
+                try { await CleanOneAsync(email, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn($"accounts copy: clean-up in {email} (tried again later): {ex.Message}"); }
+            foreach (var spare in o.Spares.ToList())
+                try { await RemoveSpareAsync(spare, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn($"accounts copy: spare copy in {spare.At} (tried again later): {ex.Message}"); }
         }
         finally { _busy.Release(); }
     }
+
+    private async Task CleanOneAsync(string email, CancellationToken ct)
+    {
+        if (_e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == email) is { } acc)
+        {
+            using var client = await _e.Connector.OpenImapAsync(acc, ct);
+            await CopyMailbox.KeepOnlyNewestAsync(client, ct);
+            try { await client.DisconnectAsync(true, ct); } catch { }
+            Log.Info("accounts copy: older copies cleared in " + email);
+        }
+        else Log.Warn($"accounts copy: older copies may be left in {email} (folder \"{AccountsCopy.FolderName}\"); that account isn't in Magpie any more");
+        await RunOnUi(() => { Options.CleanUp.Remove(email); _e.Settings.Save(notify: false); });
+    }
+
+    /// <summary>A spare goes only when nothing can be using it: it is still the newest email in its mailbox, that mailbox
+    /// isn't the home, and the old home is read and holds no "moved" note pointing at it. Anything unsure keeps it.</summary>
+    private async Task RemoveSpareAsync(SpareCopy spare, CancellationToken ct)
+    {
+        var o = Options;
+        var at = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == spare.At);
+        var old = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == spare.Old);
+        var keep = (o.Enabled && spare.At == o.HomeEmail) || at == null || old == null;
+        if (!keep)
+        {
+            using (var check = await _e.Connector.OpenImapAsync(old!, ct))
+            {
+                var newest = await CopyMailbox.ReadAsync(check, ct);
+                try { await check.DisconnectAsync(true, ct); } catch { }
+                // A "moved" note there may point at the spare (its contents need the password; any moved note counts).
+                keep = newest == null || AccountsCopy.Peek(newest) is { IsNote: true, IsStopped: false };
+            }
+            if (!keep)
+            {
+                using var client = await _e.Connector.OpenImapAsync(at!, ct);
+                if (await CopyMailbox.ReadAsync(client, ct) is { } file && AccountsCopy.Peek(file)?.Updated == spare.Updated)
+                {
+                    await CopyMailbox.DeleteAsync(client, ct);
+                    Log.Info("accounts copy: spare copy removed from " + spare.At);
+                }
+                try { await client.DisconnectAsync(true, ct); } catch { }
+            }
+        }
+        if (keep) Log.Info($"accounts copy: the copy in {spare.At} may be in use; it stays");
+        await RunOnUi(() => { o.Spares.Remove(spare); _e.Settings.Save(notify: false); });
+    }
+
+    /// <summary>Before an account is removed: clears the older copies still waiting in its mailbox (a stop or move whose
+    /// clean-up didn't finish). False when that fails now (they would stay there for good).</summary>
+    public async Task<bool> CleanUpNowAsync(string email, CancellationToken ct)
+    {
+        var key = AccountsCopy.Key(email);
+        if (!Options.CleanUp.Contains(key)) return true;
+        await _busy.WaitAsync(ct);
+        try { await CleanOneAsync(key, ct); return true; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("accounts copy: clean-up in " + key + ": " + ex.Message); return false; }
+        finally { _busy.Release(); }
+    }
+
+    private Task NoteSpareAsync(Account at, AccountsCopy.Contents copy, Account old) => RunOnUi(() =>
+    {
+        Options.Spares.Add(new SpareCopy { At = AccountsCopy.Key(at.Email), Updated = copy.Updated, Old = AccountsCopy.Key(old.Email) });
+        _e.Settings.Save(notify: false);
+    });
 
     /// <summary>A clean-up that didn't finish now is tried again at every check (<see cref="CleanUpAsync"/>).</summary>
     private Task CleanUpLaterAsync(string email) => RunOnUi(() =>
@@ -549,6 +594,7 @@ public sealed class AccountsCopyService
                     var noteFile = await Task.Run(() => AccountsCopy.Lock(note, lockWith), ct);
                     using var client = await _e.Connector.OpenImapAsync(old, ct);
                     await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct, appended: () => noteIn = true);
+                    await CopyMailbox.KeepOnlyNewestAsync(client, ct);   // also leftovers of earlier rounds (it may be removed next)
                     try { await client.DisconnectAsync(true, ct); } catch { }
                 }
                 catch (Exception ex) when (!noteIn)
@@ -559,15 +605,19 @@ public sealed class AccountsCopyService
                     {
                         using var check = await _e.Connector.OpenImapAsync(old, CancellationToken.None);
                         arrived = await CopyMailbox.ReadAsync(check, CancellationToken.None) is { } newest && AccountsCopy.Peek(newest) is { IsMoved: true } p && p.Updated == note.Updated;
+                        // Moved after all: the older copies there go now (that mailbox may be removed from Magpie next).
+                        if (arrived == true)
+                            try { await CopyMailbox.KeepOnlyNewestAsync(check, CancellationToken.None); }
+                            catch (Exception cleanEx) { Log.Warn("accounts copy: moved; clearing the old copies failed: " + cleanEx.Message); await CleanUpLaterAsync(old.Email); }
                         try { await check.DisconnectAsync(true, CancellationToken.None); } catch { }
                     }
                     catch (Exception checkEx) { Log.Warn("accounts copy: couldn't check the old mailbox: " + checkEx.Message); }
-                    if (arrived == true) await CleanUpLaterAsync(old.Email);   // moved; the old copies there go at a later check
-                    else if (arrived == null)
+                    if (arrived == null)
                     {
-                        // Can't tell: both copies stay (nothing is deleted on a guess); the spare one goes later if it is.
-                        await RunOnUi(() => { Options.SpareAt[AccountsCopy.Key(to.Email)] = built!.Updated; _e.Settings.Save(notify: false); });
-                        throw new InvalidOperationException(Connector.Friendly(ex) + $" Magpie couldn't check {old.Email} afterwards, so the copy stays there; the spare one written to {to.Email} goes at a later check.", ex);
+                        // Can't tell: both copies stay (nothing is deleted on a guess). The one written to the new home goes
+                        // later only once the old home is seen not to point at it.
+                        await NoteSpareAsync(to, built!, old);
+                        throw new InvalidOperationException(Connector.Friendly(ex) + $" Magpie couldn't check {old.Email} afterwards, so the copy stays there; the one just written to {to.Email} goes at a later check if nothing uses it (keep {old.Email} in Magpie until then).", ex);
                     }
                     else
                     {
@@ -580,8 +630,8 @@ public sealed class AccountsCopyService
                         catch (Exception undoEx)
                         {
                             Log.Warn("accounts copy: couldn't take back the copy written to " + to.Email + ": " + undoEx.Message);
-                            await RunOnUi(() => { Options.SpareAt[AccountsCopy.Key(to.Email)] = built!.Updated; _e.Settings.Save(notify: false); });
-                            throw new InvalidOperationException(Connector.Friendly(ex) + $" A spare copy is left in {to.Email}'s mailbox for now; Magpie removes it at a later check.", ex);
+                            await NoteSpareAsync(to, built!, old);
+                            throw new InvalidOperationException(Connector.Friendly(ex) + $" A spare copy is left in {to.Email}'s mailbox for now; Magpie removes it at a later check (keep {old.Email} in Magpie until then).", ex);
                         }
                         throw;
                     }
@@ -661,14 +711,21 @@ public sealed class AccountsCopyService
                     var lockWith = string.IsNullOrEmpty(password) ? _e.Vault.Get(AccountsCopy.VaultNewPassword)! : password;
                     var stopped = new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = PcName, AppVersion = AppVersion, Stopped = true };
                     var locked = await Task.Run(() => AccountsCopy.Lock(stopped, lockWith), ct);
+                    // The clean-up is noted first: if the note's answer is lost, the older copies still go later (harmless
+                    // if the note never got there: the newest email always stays).
                     await RunOnUi(() => { Options.MyStopNote = stopped.Updated; _e.Settings.Save(notify: false); });
+                    await CleanUpLaterAsync(source.Email);
                     // Once the note is in, the stop is done; clearing the older copies is tried again later if it fails now.
                     var noteIn = false;
-                    try { await CopyMailbox.WriteAsync(client, source.Email, locked, ct, appended: () => noteIn = true); }
+                    try
+                    {
+                        await CopyMailbox.WriteAsync(client, source.Email, locked, ct, appended: () => noteIn = true);
+                        await CopyMailbox.KeepOnlyNewestAsync(client, ct);   // also leftovers of earlier rounds
+                        await RunOnUi(() => { Options.CleanUp.Remove(AccountsCopy.Key(source.Email)); _e.Settings.Save(notify: false); });
+                    }
                     catch (Exception ex) when (noteIn && ex is not OperationCanceledException)
                     {
-                        Log.Warn("accounts copy: stopped; clearing the older copies failed: " + ex.Message);
-                        await CleanUpLaterAsync(source.Email);
+                        Log.Warn("accounts copy: stopped; clearing the older copies failed (tried again later): " + ex.Message);
                     }
                 }
                 else if (file == null) await CopyMailbox.DeleteAsync(client, ct);

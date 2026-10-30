@@ -110,9 +110,10 @@ public static class CopyMailbox
                 if (fresh.Count > 0) keep = fresh;
             }
             var old = before.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
-            var written = summary.Updated;
+            // Dates in emails have whole seconds and PCs' clocks differ a little: a margin, so one written about now stays.
+            var cut = summary.Updated.AddSeconds(-5);
             await RemoveAsync(client, folder, before,
-                keep != null ? (id, date) => !keep.Contains(id) && (old.Contains(id) || date < written) : (id, _) => old.Contains(id), ct);
+                keep != null ? (id, date) => !keep.Contains(id) && (old.Contains(id) || date < cut) : (id, _) => old.Contains(id), ct);
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
@@ -155,8 +156,8 @@ public static class CopyMailbox
             var newest = copies[^1];
             var older = copies.Take(copies.Count - 1).ToList();
             if (older.Count == 0 && !client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) return;
-            var olderIds = older.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
-            await RemoveAsync(client, folder, older, (id, date) => id != newest.GmailId && (olderIds.Contains(id) || date < newest.Date), ct);
+            // Every other copy goes (also leftovers dated ahead by a fast clock); one in the label right now stays.
+            await RemoveAsync(client, folder, older, (id, _) => id != newest.GmailId, ct);
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }

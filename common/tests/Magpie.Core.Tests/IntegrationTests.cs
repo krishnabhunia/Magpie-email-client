@@ -410,6 +410,23 @@ public class IntegrationTests
         // Stop and delete after the move: the stopped note goes where the copy is now.
         await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
         Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
+        Assert.Empty(pc1.Config.AccountsCopy.CleanUp);   // nothing left to clear
+
+        // An older copy left behind (a clean-up that didn't finish): cleared before the account is removed, the stop note stays.
+        var leftover = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now.AddDays(-1), FromPc = "OLD-PC", Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, leftover, AccountsCopy.Peek(leftover)!));
+        var stopNote = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = pc1.AccountsCopy.PcName, Stopped = true }, "another sync password");
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, stopNote, AccountsCopy.Peek(stopNote)!));   // the stop's note came after it
+        pc1.Config.AccountsCopy.CleanUp.Add(AccountsCopy.Key(workUser));
+        Assert.True(await pc1.AccountsCopy.CleanUpNowAsync(workUser, CancellationToken.None));
+        using (var c = await Raw(workUser))
+        {
+            var folder = (await CopyMailbox.FindFolderAsync(c, CancellationToken.None))!;
+            await folder.OpenAsync(FolderAccess.ReadOnly);
+            Assert.Equal(1, folder.Count);
+            await c.DisconnectAsync(true);
+        }
+        Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
 
         // The old home's pointer is left over now (the copy it points to was stopped): with that account here, turning
         // on with the old home starts a new copy over the pointer instead of refusing for good.

@@ -888,6 +888,9 @@ public partial class SettingsViewModel : ObservableObject
                 await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
             }
         }
+        // Older copies a stop or move couldn't clear yet would stay in this mailbox for good once it is removed.
+        if (!await _e.AccountsCopy.CleanUpNowAsync(a.Email, CancellationToken.None)
+            && !Ui.Confirm("The accounts copy", $"Older copies of your accounts (locked with the sync password) are still in {a.Email}'s mailbox, in the folder \"{Core.Settings.AccountsCopy.FolderName}\": Magpie couldn't remove them now.\n\nRemove the account anyway? You can delete that folder in the mailbox's own web page later.")) return;
         _e.RemoveAccount(a.Original.Id);
         Accounts.Remove(a);
     }
