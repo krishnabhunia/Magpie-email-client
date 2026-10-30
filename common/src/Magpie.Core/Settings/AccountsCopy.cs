@@ -181,6 +181,9 @@ public static class AccountsCopy
     {
         var ai = new SharedAi { Settings = s.Ai.Clone() };
         ai.Settings.Consents = new();   // consent is asked again on each PC
+        // What each PC learns by itself in the background (the provider's model list, refused settings, the notice it
+        // dismissed) isn't part of it: those change daily and would make an old key win.
+        foreach (var conn in ai.Settings.Connections) { conn.Models = new(); conn.ModelsCheckedAt = null; conn.Unsupported = new(); conn.DismissedNewModel = ""; }
         foreach (var c in ai.Settings.Connections)
             if (vault.Get(SecretVault.AiKeyFor(c.Id)) is { Length: > 0 } key) ai.Keys[c.Id] = key;
         ai.Hash = StampFree(ai, c => { c.Hash = ""; c.Changed = default; });
@@ -397,8 +400,14 @@ public static class AccountsCopy
         if (plan.AiNewer && copy.Ai is { } ca)
         {
             var consents = s.Ai.Consents;
+            var learned = s.Ai.Connections.ToDictionary(x => x.Id);
             s.Ai = Copy(ca.Settings);
             s.Ai.Consents = consents ?? new();
+            // Keep what this PC learned by itself about a connection it already had.
+            foreach (var conn in s.Ai.Connections)
+                if (learned.TryGetValue(conn.Id, out var old))
+                    (conn.Models, conn.ModelsCheckedAt, conn.Unsupported, conn.DismissedNewModel) = (old.Models, old.ModelsCheckedAt, old.Unsupported, old.DismissedNewModel);
+            s.Ai.NormaliseConnections();
             foreach (var (id, key) in ca.Keys) vault.Set(SecretVault.AiKeyFor(id), key);
             o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Local = AiOf(s, vault).Hash, Changed = ca.Changed };
         }
