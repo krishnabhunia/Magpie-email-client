@@ -133,7 +133,7 @@ public partial class MainWindow : Window
     private void OnNavEnter(object sender, MouseEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: NavItem item } el) return;
-        if (!_vm.HoverCardsOn) return;
+        if (!_vm.HoverCardsOn || item.IsFold) return;
         _hoverTarget = el;
         _hoverTimer ??= new System.Windows.Threading.DispatcherTimer();
         _hoverTimer.Stop();
@@ -410,6 +410,41 @@ public partial class MainWindow : Window
         menu.PlacementTarget = anchor;
         menu.Placement = PlacementMode.Bottom;
         menu.IsOpen = true;
+    }
+
+    /// <summary>Design LB1: right-click an account or its Labels / Folders group.</summary>
+    private void OnAccountMenuOpened(object sender, RoutedEventArgs e)
+    {
+        var menu = (ContextMenu)sender;
+        menu.Items.Clear();
+        if (menu.PlacementTarget is not FrameworkElement { DataContext: AccountNode node }) { menu.IsOpen = false; return; }
+        if (!AddLabelItems(menu, node)) menu.IsOpen = false;
+    }
+
+    private bool AddLabelItems(ContextMenu menu, AccountNode node)
+    {
+        if (!node.Folders.Any(f => f.Kind == NavKind.LabelGroup) && !node.OnlyUnreadLabels) return false;
+        var word = node.Account.Kind == Core.Models.AccountKind.Gmail ? "labels" : "folders";
+        menu.Items.Add(Item("Open all " + word, () => _vm.SetAllLabels(node, true)));
+        menu.Items.Add(Item("Close all " + word, () => _vm.SetAllLabels(node, false)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item($"Only show {word} with unread mail", () => _vm.ToggleOnlyUnreadLabels(node), isChecked: node.OnlyUnreadLabels));
+        return true;
+    }
+
+    /// <summary>Design LB1: right-click a label (Always show) or the group (as on the account).</summary>
+    private void OnFolderMenuOpened(object sender, RoutedEventArgs e)
+    {
+        var menu = (ContextMenu)sender;
+        menu.Items.Clear();
+        if (menu.PlacementTarget is not FrameworkElement { DataContext: NavItem item }) { menu.IsOpen = false; return; }
+        var node = _vm.AccountNodes.FirstOrDefault(n => n.Account.Id == item.AccountId);
+        if (node == null) { menu.IsOpen = false; return; }
+        if (item.Kind == NavKind.LabelGroup) { if (!AddLabelItems(menu, node)) menu.IsOpen = false; return; }
+        if (!item.IsLabel) { menu.IsOpen = false; return; }
+        var always = Item("Always show", () => _vm.ToggleAlwaysShow(item), isChecked: item.AlwaysShow);
+        always.ToolTip = "Never moves into More labels, even when it has no unread mail for a while";
+        menu.Items.Add(always);
     }
 
     private static MenuItem Item(string header, Action onClick, string? gesture = null, bool isChecked = false, bool enabled = true)

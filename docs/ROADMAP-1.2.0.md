@@ -65,6 +65,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 80 | Individual font family and text-size settings for all Magpie-owned Windows text roles <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-typography --> | [FR1-r1 / screen 01](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#103](https://github.com/krishnabhunia/Magpie-email-client/issues/103) |
 | 81 | Generate an AI draft after clicking Reply or Reply All <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-reply-click --> | [FR1-r1 / screen 03](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#104](https://github.com/krishnabhunia/Magpie-email-client/issues/104) |
 | 82 | AI reply switches and customisable tone, purpose and writing defaults <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-reply-preferences --> | [FR1-r1 / screen 02](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#105](https://github.com/krishnabhunia/Magpie-email-client/issues/105) |
+| 83 | Gmail labels fold in the sidebar (nested labels under their parent; one Labels group) | [LB1](designs/LB1-gmail-labels.html) · [screens](https://claude.ai/artifact/EuyJW9nfY534gTUYpijG48) | Approved 30 Oct 2026 — **C** with the right-click menu · Built (10.1.0, Windows) — not yet tried on Windows; Mac / Android later | [#110](https://github.com/krishnabhunia/Magpie-email-client/issues/110) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -312,3 +313,34 @@ y when there is a feature modification and z when there is a bug or error fix."*
   negative margins so the row doesn't grow); the full date is a tooltip (`ThreadItem.DateTip`). Replaces RB1's floating
   bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr
+
+## #83 LB1 — Gmail labels that fold (shown 30 Oct 2026, approved 30 Oct 2026: C with right-click)
+
+Krishna: *"Approved -> C with Right Click"*. Doubts settled by the design as shown: a closed parent shows its labels' unread total; the group starts open.
+
+Krishna: *"The labels in the Gmail are not collapsible in Magpie view."*
+
+Screens: https://claude.ai/artifact/EuyJW9nfY534gTUYpijG48 (also `docs/designs/LB1-gmail-labels.html`).
+
+**Likely cause (not verified on Krishna's mailbox).** A label made inside another ("Clients/Acme") can come with a parent
+Gmail lists as a container only (`\Noselect`). `AccountSync.SyncFolderListAsync` skips `\Noselect` folders, so
+`FolderTree.Order` finds no parent: the labels show flat at the top level, named by their last part, with no chevron.
+
+| Option | What | Kind |
+|---|---|---|
+| **A** | Container parents come back as grey rows (no mail of their own, click = open/close); nested labels fold under them; a closed parent shows its labels' unread total | Fixed → z |
+| **B** (recommended) | A + one **Labels** group under Gmail's own folders ("Folders" for other accounts), folded in one click, open/closed remembered per account, closed it shows "13 · 28 unread" | Changed → y |
+| **C** | B + labels with no unread mail not opened for 30 days drop into a **More labels** row (right-click → Always show) | Changed → y |
+
+All options: right-click the account or the group → Open all labels / Close all labels / Only show labels with unread
+mail (per account); the "[Gmail]" container stays hidden (its folders stay on top); icon rail unchanged.
+
+**Doubts.** (1) Cause read from the code, not from his sidebar; a screenshot would confirm. (2) A closed parent shows its
+labels' unread total. Keep that? (3) B/C: group open or closed for newly added accounts?
+
+**Build notes (after approval).** Core: keep `\Noselect` folders as `MailFolder` rows with a `Container` flag (never
+synced, selected or counted on their own; schema: a column, or kept in memory from LIST); `FolderTree.Order` unchanged
+apart from treating them as parents; Windows: `NavItem.IsContainer`, the group row in the account's folder list
+(`AccountNode.LabelsOpen` in `SidebarState`), the context-menu items with Magpie's menu templates. Tests in the
+release's `Release<ver>Tests.cs`.
+
