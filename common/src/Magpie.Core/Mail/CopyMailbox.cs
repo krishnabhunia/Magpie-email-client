@@ -97,6 +97,7 @@ public static class CopyMailbox
         {
             var before = await CopiesAsync(client, folder, ct);
             await folder.AppendAsync(new AppendRequest(BuildMessage(address, file, summary), KitFlags.Seen), ct);
+            if (AnswerLostForTests?.Invoke(address) is { } lost) throw lost;   // tests: the server kept it, its answer was lost
             appended?.Invoke();
             var gmail = client.Capabilities.HasFlag(ImapCapabilities.GMailExt1);
             if (before.Count == 0 && !gmail) return;
@@ -118,6 +119,9 @@ public static class CopyMailbox
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
+    /// <summary>Tests only: an error to throw right after an append to this address, as if its answer was lost.</summary>
+    internal static Func<string, Exception?>? AnswerLostForTests;
+
     /// <summary>The newest copy's file. Null only when the mailbox has no "Magpie Sync" folder or no copy in it; a read
     /// that fails throws (it never counts as "no copy", which would write a copy from this PC alone).</summary>
     public static async Task<byte[]?> ReadAsync(ImapClient client, CancellationToken ct)
@@ -128,23 +132,28 @@ public static class CopyMailbox
         try
         {
             foreach (var copy in (await CopiesAsync(client, folder, ct)).AsEnumerable().Reverse())
-            {
-                // Never downloaded when too big: it isn't Magpie's (and could fill the memory).
-                if (copy.Size > MaxEmailBytes) { Log.Warn($"accounts copy: skipped an email of {copy.Size / 1024 / 1024} MB in the copy folder"); continue; }
-                var msg = await folder.GetMessageAsync(copy.Uid, ct);
-                if (msg.Attachments.OfType<MimePart>().FirstOrDefault(p => p.FileName == AccountsCopy.FileName) is not { Content: { } content }) continue;
-                using var ms = new MemoryStream();
-                await content.DecodeToAsync(ms, ct);
-                return ms.ToArray();
-            }
+                if (await FileOfAsync(folder, copy, ct) is { } file) return file;
             return null;
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }
 
-    /// <summary>Only the newest copy email stays (a "stopped" note just written): every older copy goes, also on Gmail
-    /// from Trash / All Mail. For a stop whose clean-up didn't finish the first time.</summary>
-    public static async Task KeepOnlyNewestAsync(ImapClient client, CancellationToken ct)
+    private static async Task<byte[]?> FileOfAsync(IMailFolder folder, CopyEmail copy, CancellationToken ct)
+    {
+        // Never downloaded when too big: it isn't Magpie's (and could fill the memory).
+        if (copy.Size > MaxEmailBytes) { Log.Warn($"accounts copy: skipped an email of {copy.Size / 1024 / 1024} MB in the copy folder"); return null; }
+        var msg = await folder.GetMessageAsync(copy.Uid, ct);
+        if (msg.Attachments.OfType<MimePart>().FirstOrDefault(p => p.FileName == AccountsCopy.FileName) is not { Content: { } content }) return null;
+        using var ms = new MemoryStream();
+        await content.DecodeToAsync(ms, ct);
+        return ms.ToArray();
+    }
+
+    /// <summary>Only the newest copy email stays: every older copy goes, also on Gmail from Trash / All Mail. For a stop
+    /// or move whose clean-up didn't finish the first time. When the newest is a "stopped" / "moved" note
+    /// (<paramref name="newestIsNote"/>; null = look), every other copy goes; when it is a live copy, only the older ones
+    /// (another PC may be writing one right now).</summary>
+    public static async Task KeepOnlyNewestAsync(ImapClient client, CancellationToken ct, bool? newestIsNote = null)
     {
         var folder = await FindFolderAsync(client, ct);
         if (folder == null) return;
@@ -156,8 +165,13 @@ public static class CopyMailbox
             var newest = copies[^1];
             var older = copies.Take(copies.Count - 1).ToList();
             if (older.Count == 0 && !client.Capabilities.HasFlag(ImapCapabilities.GMailExt1)) return;
-            // Every other copy goes (also leftovers dated ahead by a fast clock); one in the label right now stays.
-            await RemoveAsync(client, folder, older, (id, _) => id != newest.GmailId, ct);
+            newestIsNote ??= await FileOfAsync(folder, newest, ct) is { } file && AccountsCopy.Peek(file) is { IsNote: true };
+            var olderIds = older.Where(c => c.GmailId != null).Select(c => c.GmailId!.Value).ToHashSet();
+            var cut = newest.Date?.AddSeconds(-5);
+            // After a note every other copy goes (also leftovers dated ahead by a fast clock); one in the label right now stays.
+            await RemoveAsync(client, folder, older, newestIsNote == true
+                ? (id, _) => id != newest.GmailId
+                : (id, date) => id != newest.GmailId && (olderIds.Contains(id) || date < cut), ct);
         }
         finally { try { await folder.CloseAsync(false, ct); } catch { } }
     }

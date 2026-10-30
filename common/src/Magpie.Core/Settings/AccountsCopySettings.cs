@@ -90,6 +90,8 @@ public sealed class SpareCopy
     public DateTimeOffset Updated { get; set; }
     /// <summary>The old home, which may hold a "moved" note pointing at <see cref="At"/>.</summary>
     public string Old { get; set; } = "";
+    /// <summary>Known to be unused (the "moved" note never got to the old home): it goes on its time alone.</summary>
+    public bool Unused { get; set; }
 }
 
 public sealed class CopyStamp

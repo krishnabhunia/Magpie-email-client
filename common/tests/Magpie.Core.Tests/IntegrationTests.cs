@@ -388,8 +388,13 @@ public class IntegrationTests
         Assert.Equal("", pc1.AccountsCopy.Problem);
         Assert.Equal(2, AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!)!.Accounts);
 
-        // Moving the copy to the work account: the work mailbox gets the full copy, then the old one points there.
-        await pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None);
+        // Moving the copy to the work account: the work mailbox gets the full copy, then the old one points there. The
+        // server keeps the "moved" note but its answer is lost: Magpie looks, sees it there, and the move counts as done.
+        var lostOnce = true;
+        CopyMailbox.AnswerLostForTests = to => to == homeUser && lostOnce ? (lostOnce = false) == false ? new IOException("connection lost") : null : null;
+        try { await pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.False(lostOnce);
         Assert.Equal(AccountsCopy.Key(workUser), pc1.Config.AccountsCopy.HomeEmail);
         var work1 = pc1.Accounts.Single(a => a.Email == workUser);
         Assert.Equal(2, AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Accounts.Count);
@@ -407,8 +412,13 @@ public class IntegrationTests
         Assert.Contains(AccountsCopy.Key(workUser), refused.Message);
         Assert.True(AccountsCopy.Peek((await pc3.AccountsCopy.FindAsync(pc3.Accounts[0], null, CancellationToken.None))!)!.IsMoved);
 
-        // Stop and delete after the move: the stopped note goes where the copy is now.
-        await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
+        // Stop and delete after the move: the stopped note goes where the copy is now (its answer lost too: still stopped).
+        lostOnce = true;
+        CopyMailbox.AnswerLostForTests = to => to == workUser && lostOnce ? (lostOnce = false) == false ? new IOException("connection lost") : null : null;
+        try { await pc1.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None); }
+        finally { CopyMailbox.AnswerLostForTests = null; }
+        Assert.False(lostOnce);
+        Assert.False(pc1.Config.AccountsCopy.Enabled);
         Assert.True(AccountsCopy.Unlock((await pc1.AccountsCopy.FindAsync(work1, null, CancellationToken.None))!, "another sync password").Stopped);
         Assert.Empty(pc1.Config.AccountsCopy.CleanUp);   // nothing left to clear
 
