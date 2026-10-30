@@ -549,6 +549,30 @@ public class Release1100Tests
     }
 
     [Fact]
+    public void A_removal_on_another_PC_after_an_account_was_added_here_by_hand_is_still_asked_about()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // PC 2 adds work@ by hand at T+5 (before it looked at the copy); PC 1 removes work@ later, at T+10.
+        pc2.S.Accounts.RemoveAll(a => a.Email == "work@x.test");
+        pc2.S.AccountsCopy.Stamps.Remove("work@x.test");
+        pc2.Add("work@x.test");
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        pc2.S.AccountsCopy.Adopt.Add("work@x.test");
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(10));
+        copy = pc1.Write(copy, T0.AddMinutes(10));
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(11));
+        Assert.Equal("work@x.test", Assert.Single(plan.RemovedElsewhere).Account.Email);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        // Its time here is when it was added, so the newer removal stays in the copy until PC 2 answers.
+        Assert.Equal(T0.AddMinutes(5), pc2.S.AccountsCopy.Stamps["work@x.test"].Changed);
+        Assert.True(pc2.Write(copy, T0.AddMinutes(12)).Removed.ContainsKey("work@x.test"));
+    }
+
+    [Fact]
     public void The_copy_folder_and_email_stay_out_of_the_mail_lists()
     {
         Assert.True(AccountSync.IsCopyFolder("Magpie Sync", '/'));

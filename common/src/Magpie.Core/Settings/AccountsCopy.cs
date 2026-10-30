@@ -419,7 +419,8 @@ public static class AccountsCopy
                 else plan.Add.Add(c);
             }
             foreach (var (key, a) in local)
-                if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key) && !o.Adopt.Contains(key))
+                if (copy.Removed.TryGetValue(key, out var r) && r.When > o.Stamps[key].Changed && !o.RemovedHere.ContainsKey(key)
+                    && !(o.Adopt.Contains(key) && r.When <= (SignedIn(o, key) ?? DateTimeOffset.MinValue)))   // added here by hand after that removal
                     plan.RemovedElsewhere.Add((a, r));
             if (shareSettings && copy.Settings is { } cs)
                 plan.SettingsNewer = !o.Stamps.TryGetValue(SettingsStamp, out var ss) || (cs.Changed > ss.Changed && cs.Hash != ss.Hash);
@@ -459,7 +460,9 @@ public static class AccountsCopy
             foreach (var key in o.Adopt.ToList())
             {
                 o.Adopt.Remove(key);
-                if (o.Stamps.TryGetValue(key, out var st) && st.Changed == DateTimeOffset.MinValue) st.Changed = DateTimeOffset.Now;
+                // Changed when it was added here (MailEngine.AddAccount notes that as its sign-in), so a removal made on
+                // another PC after that still wins and is asked about.
+                if (o.Stamps.TryGetValue(key, out var st) && st.Changed == DateTimeOffset.MinValue) st.Changed = SignedIn(o, key) ?? DateTimeOffset.Now;
             }
             if (plan.SettingsNewer && copy.Settings is { } cs)
             {

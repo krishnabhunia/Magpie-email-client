@@ -46,6 +46,14 @@ public sealed class AccountsCopySettings
     /// <summary>Accounts added by hand while the copy is on, before this PC saw whether the copy has them: at the next
     /// round they take the copy's version (another PC's signature, name…) and keep the sign-in made here.</summary>
     public List<string> Adopt { get; set; } = new();
+    /// <summary>Mailboxes (email) where older copies still have to go after a stop or move whose clean-up didn't finish:
+    /// only the newest email there stays. Kept also when the copy is off; tried at every check until done.</summary>
+    public List<string> CleanUp { get; set; } = new();
+    /// <summary>Mailboxes holding a spare copy left by a move that was taken back (email → that copy's time): it goes
+    /// when it is still the newest there.</summary>
+    public Dictionary<string, DateTimeOffset> SpareAt { get; set; } = new();
+    /// <summary>The time of the "stopped" note this PC wrote (its own stop, also when it didn't finish).</summary>
+    public DateTimeOffset? MyStopNote { get; set; }
 
     public void Normalise()
     {
@@ -58,6 +66,8 @@ public sealed class AccountsCopySettings
         SignedIn = Lower(SignedIn);
         FormerIds = (FormerIds ?? new()).Where(kv => !string.IsNullOrEmpty(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
             .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().ToLowerInvariant());
+        CleanUp = (CleanUp ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
+        SpareAt = Lower(SpareAt);
         Adopt = (Adopt ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         NotHere = (NotHere ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim().ToLowerInvariant()).Distinct().ToList();
         if (Enabled && HomeEmail.Length == 0) Enabled = false;
