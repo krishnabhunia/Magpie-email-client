@@ -333,6 +333,10 @@
                                         <StackPanel>
                                             <ToggleButton Style="{StaticResource Toggle.Account}" IsChecked="{Binding IsExpanded, Mode=TwoWay}" ToolTip="{Binding Tip}"
                                                           AutomationProperties.Name="{Binding Email}">
+                                                <ToggleButton.ContextMenu>
+                                                    <!-- Design LB1: Open all labels / Close all labels / Only show labels with unread mail -->
+                                                    <ContextMenu Opened="OnAccountMenuOpened" />
+                                                </ToggleButton.ContextMenu>
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto" />
@@ -352,9 +356,26 @@
                                             <ItemsControl ItemsSource="{Binding Folders}" Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate DataType="{x:Type vm:NavItem}">
-                                                        <RadioButton Style="{StaticResource Button.Folder}" IsChecked="{Binding IsSelected, Mode=OneWay}" MinHeight="30" MouseEnter="OnNavEnter" MouseLeave="OnNavLeave"
-                                                                     Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}"
+                                                        <RadioButton IsChecked="{Binding IsSelected, Mode=OneWay}" MinHeight="30" MouseEnter="OnNavEnter" MouseLeave="OnNavLeave"
                                                                      Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
+                                                            <RadioButton.Style>
+                                                                <Style TargetType="RadioButton" BasedOn="{StaticResource Button.Folder}">
+                                                                    <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+                                                                    <Style.Triggers>
+                                                                        <!-- Design LB1: the group, containers and More labels only fold; the narrow icon rail leaves them out. -->
+                                                                        <MultiDataTrigger>
+                                                                            <MultiDataTrigger.Conditions>
+                                                                                <Condition Binding="{Binding IsFold}" Value="True" />
+                                                                                <Condition Binding="{Binding DataContext.SidebarRail, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                                                                            </MultiDataTrigger.Conditions>
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </MultiDataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </RadioButton.Style>
+                                                            <RadioButton.ContextMenu>
+                                                                <ContextMenu Opened="OnFolderMenuOpened" />
+                                                            </RadioButton.ContextMenu>
                                                             <Grid>
                                                                 <Grid.Style>
                                                                     <Style TargetType="Grid">
@@ -383,7 +404,24 @@
                                                                         <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"  ty:Typography.Role="folderCount" />
                                                                     </Border>
                                                                 </Grid>
-                                                                <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Style="{StaticResource WideOnly.Text}"  ty:Typography.Role="folder" />
+                                                                <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ty:Typography.Role="folder">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource WideOnly.Text}">
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding Kind}" Value="LabelGroup">
+                                                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding Kind}" Value="LabelContainer">
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding Kind}" Value="MoreLabels">
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
                                                                 <TextBlock Grid.Column="3" FontSize="11.5" VerticalAlignment="Center" Style="{StaticResource WideOnly.Text}" ty:Typography.Role="folderCount">
                                                                     <Run Text="{Binding CountMain, Mode=OneWay}" Foreground="{Binding CountBrush}" FontWeight="{Binding CountBold, Converter={StaticResource BoldIfTrue}}" /><Run Text="{Binding CountRest, Mode=OneWay}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                                                 </TextBlock>

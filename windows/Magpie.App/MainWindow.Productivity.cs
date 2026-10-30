@@ -35,7 +35,7 @@ public partial class MainWindow
         void Add(string title, string detail, string key, string aliases, Action run, Func<bool>? available = null, string reason = "")
             => commands.Add(new WorkspaceCommand(title, detail, key, aliases, run, available, reason));
 
-        foreach (var nav in _vm.Smart.Concat(_vm.AccountNodes.SelectMany(n => n.Folders)).Concat(_vm.TagItems))
+        foreach (var nav in _vm.Smart.Concat(_vm.AccountNodes.SelectMany(n => n.Folders)).Concat(_vm.TagItems).Where(n => !n.IsFold))
         {
             var item = nav;
             var detail = item.SavedView is { } saved

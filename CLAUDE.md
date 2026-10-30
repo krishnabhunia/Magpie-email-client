@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **10.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **10.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -80,6 +80,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Signature editor (B6) | `Views/SignatureEditorWindow.xaml(.cs)` (own window, normal WebView2), `Services/SignatureEditorPage.cs`, `Core/Mail/GmailSignature.cs` (Gmail API sendAs) |
 | Downloads (DS1) | `Account.SyncDays` (0 = everything) / `DownloadAttachments`; `AccountSync.PrefetchWindowAsync` + `SaveTextOnlyAsync`; `MimeText.PendingAttachments` / `ResolveIndex` |
 | Local productivity (Q70) | `docs/PRODUCTIVITY-WORKSPACE.md`; `MailStore.Productivity.cs` (saved views, reminder transitions), `CommandPaletteWindow.cs`, `InboxViewDialog.cs`, MainWindow/MainViewModel productivity partials; schema v11 with independent table-presence check |
+| Gmail labels fold (LB1 C, 10.1.0) | `common/src/Magpie.Core/Mail/LabelLayout.cs` (`Layout` → `SidebarRow`s: containers for parents Gmail lists as `\Noselect`, the Labels / Folders group `GroupKey`, More labels `MoreKey` after `QuietDays` = 30 without unread or opening, `Under`, `FullName`); `SidebarState.LabelsClosed` / `OnlyUnreadLabels` / `AlwaysShowLabels` / `LabelOpened`; `MainViewModel.BuildNav` (rows → `NavItem`, `NavKind.LabelContainer` / `LabelGroup` / `MoreLabels`, `IsFold`, `IsLabel`), `ApplyFoldCounts`, `SetAllLabels`, `ToggleOnlyUnreadLabels`, `ToggleAlwaysShow`; `MainWindow.OnAccountMenuOpened` / `OnFolderMenuOpened` |
 | Main window | `windows/Magpie.App/MainWindow.xaml(.cs)`, `ViewModels/MainViewModel.cs` (nav, list, counts, toasts, sidebar, hover card, row actions, bulk bar), `ViewModels/ThreadViewModel.cs` (reader) |
 | Settings UI | `windows/Magpie.App/Views/SettingsWindow.xaml(.cs)`, `ViewModels/SettingsViewModel.cs` (incl. search index `Index[]`, About Me) |
 | Compose | `windows/Magpie.App/Views/ComposeWindow.xaml(.cs)`, `ViewModels/ComposeViewModel.cs`, `common/src/Magpie.Core/Mail/Composer.cs` |

@@ -65,7 +65,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 80 | Individual font family and text-size settings for all Magpie-owned Windows text roles <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-typography --> | [FR1-r1 / screen 01](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#103](https://github.com/krishnabhunia/Magpie-email-client/issues/103) |
 | 81 | Generate an AI draft after clicking Reply or Reply All <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-reply-click --> | [FR1-r1 / screen 03](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#104](https://github.com/krishnabhunia/Magpie-email-client/issues/104) |
 | 82 | AI reply switches and customisable tone, purpose and writing defaults <!-- ghpr-request: magpie-fonts-ai-replies-20261024-01a16e5a-reply-preferences --> | [FR1-r1 / screen 02](designs/FR1-r1-fonts-ai-replies.html) | Implementation authorized 24 Oct 2026 — built in [PR #109](https://github.com/krishnabhunia/Magpie-email-client/pull/109) (10.0.0); review and current-head CI tracked in that PR | [#105](https://github.com/krishnabhunia/Magpie-email-client/issues/105) |
-| 83 | Gmail labels fold in the sidebar (nested labels under their parent; one Labels group) | [LB1](designs/LB1-gmail-labels.html) · [screens](https://claude.ai/artifact/EuyJW9nfY534gTUYpijG48) | Design shown 30 Oct 2026 — waiting for approval (choose A / B / C) | [#110](https://github.com/krishnabhunia/Magpie-email-client/issues/110) |
+| 83 | Gmail labels fold in the sidebar (nested labels under their parent; one Labels group) | [LB1](designs/LB1-gmail-labels.html) · [screens](https://claude.ai/artifact/EuyJW9nfY534gTUYpijG48) | Approved 30 Oct 2026 — **C** with the right-click menu · Built (10.1.0, Windows) — not yet tried on Windows; Mac / Android later | [#110](https://github.com/krishnabhunia/Magpie-email-client/issues/110) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -314,7 +314,9 @@ y when there is a feature modification and z when there is a bug or error fix."*
   bar. Designs shown: RB4 (icons take the date's place on the top line), RB5 (centred bar, text fades), RB6 (a column
   kept free, 2 × 2), RB7 (icon + word in place of the preview): https://claude.ai/artifact/AYSaARGCjHk7ihh5Uao2kr
 
-## #83 LB1 — Gmail labels that fold (shown 30 Oct 2026, waiting for approval)
+## #83 LB1 — Gmail labels that fold (shown 30 Oct 2026, approved 30 Oct 2026: C with right-click)
+
+Krishna: *"Approved -> C with Right Click"*. Doubts settled by the design as shown: a closed parent shows its labels' unread total; the group starts open.
 
 Krishna: *"The labels in the Gmail are not collapsible in Magpie view."*
 

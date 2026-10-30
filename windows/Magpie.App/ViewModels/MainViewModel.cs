@@ -10,7 +10,9 @@ using Magpie.Core.Storage;
 
 namespace Magpie.App.ViewModels;
 
-public enum NavKind { Inbox, Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, Role, Folder, Tag, Important, Other, SavedView, RemindersDue }
+public enum NavKind { Inbox, Pinned, Snoozed, SetAside, DeletingSoon, FollowUp, Scheduled, Role, Folder, Tag, Important, Other, SavedView, RemindersDue,
+    /// <summary>Design LB1: a parent label with no mail of its own, the Labels / Folders group, and More labels — they only open and close.</summary>
+    LabelContainer, LabelGroup, MoreLabels }
 
 public partial class NavItem : ObservableObject
 {
@@ -29,6 +31,12 @@ public partial class NavItem : ObservableObject
     public string Path { get; init; } = "";
     public string ParentPath { get; init; } = "";
     public bool HasChildren { get; set; }
+    /// <summary>Design LB1: a row that only opens and closes (no list of its own, no hover card).</summary>
+    public bool IsFold => Kind is NavKind.LabelContainer or NavKind.LabelGroup or NavKind.MoreLabels;
+    /// <summary>Design LB1 C: right-click → Always show (never moves into More labels).</summary>
+    [ObservableProperty] private bool _alwaysShow;
+    /// <summary>Design LB1: inside the account's Labels / Folders group (right-click offers Always show).</summary>
+    public bool IsLabel { get; init; }
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BadgeText), nameof(HasBadge))] private int _count;
     [ObservableProperty] private bool _isSelected;
@@ -55,7 +63,7 @@ public partial class NavItem : ObservableObject
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isVisible = true;
 
-    public string Key => $"{Kind}|{Role}|{FolderId}|{AccountId}|{TagName}";
+    public string Key => IsFold ? $"{Kind}|{AccountId}|{Path}" : $"{Kind}|{Role}|{FolderId}|{AccountId}|{TagName}";
 }
 
 public partial class AccountNode : ObservableObject
@@ -66,6 +74,8 @@ public partial class AccountNode : ObservableObject
     [ObservableProperty] private bool _hasProblem;
     [ObservableProperty] private bool _needsSignIn;
     [ObservableProperty] private bool _isExpanded;
+    /// <summary>Design LB1: right-click → Only show labels with unread mail.</summary>
+    [ObservableProperty] private bool _onlyUnreadLabels;
     /// <summary>Unread conversations across this account's receiving folders (design C2).</summary>
     [ObservableProperty] private string _unreadText = "";
     public string Email => Account.Email;
@@ -539,34 +549,62 @@ public partial class MainViewModel : ObservableObject
         var openAccounts = sbs.OpenAccounts.ToHashSet();
         var openFolders = sbs.OpenFolders.ToHashSet();
         var folders = _e.Folders();
+        var newLabels = false;
         foreach (var a in _e.Accounts)
         {
             var node = new AccountNode { Account = a, IsExpanded = openAccounts.Contains(a.Id) };
-            foreach (var (f, depth, parent) in FolderTree.Order(folders.Where(f => f.AccountId == a.Id)))
+            var gmail = a.Kind == AccountKind.Gmail;
+            var mine = folders.Where(f => f.AccountId == a.Id).ToList();
+            // Design LB1 C: labels never seen before count as opened now, so they stay out of More labels for 30 days.
+            var now = DateTimeOffset.Now;
+            foreach (var f in mine) newLabels |= sbs.LabelOpened.TryAdd(a.Id + "|" + f.Path, now);
+            node.OnlyUnreadLabels = sbs.OnlyUnreadLabels.Contains(a.Id);
+            var layout = LabelLayout.Layout(mine, gmail, new LabelLayoutState
             {
+                Unread = mine.ToDictionary(f => f.Path, f => _lastUnread.TryGetValue(f.Id, out var u) ? u : 0, StringComparer.Ordinal),
+                Opened = mine.ToDictionary(f => f.Path, f => sbs.LabelOpened[a.Id + "|" + f.Path], StringComparer.Ordinal),
+                AlwaysShow = sbs.AlwaysShowLabels.Where(k => k.StartsWith(a.Id + "|", StringComparison.Ordinal)).Select(k => k[(a.Id.Length + 1)..]).ToHashSet(StringComparer.Ordinal),
+                OnlyUnread = node.OnlyUnreadLabels,
+                Now = now,
+            });
+            var inGroup = LabelLayout.Under(layout, LabelLayout.GroupKey).Select(r => r.Path).ToHashSet(StringComparer.Ordinal);
+            foreach (var row in layout)
+            {
+                var f = row.Folder;
+                var kind = row.Kind switch
+                {
+                    SidebarRowKind.Group => NavKind.LabelGroup,
+                    SidebarRowKind.More => NavKind.MoreLabels,
+                    SidebarRowKind.Container => NavKind.LabelContainer,
+                    _ => NavKind.Folder,
+                };
                 var item = new NavItem
                 {
-                    Kind = NavKind.Folder, FolderId = f.Id, AccountId = a.Id, Label = f.Name, Role = f.Role,
-                    Path = f.Path, ParentPath = parent, IconKey = Icons.ForRole(f.Role),
-                    Glyph = f.Role switch
+                    Kind = kind, FolderId = f?.Id ?? 0, AccountId = a.Id, Label = row.Label, Role = f?.Role ?? FolderRole.Other,
+                    Path = row.Path, ParentPath = row.ParentPath,
+                    IconKey = row.Kind switch { SidebarRowKind.Group => gmail ? "tag" : "folder", SidebarRowKind.More => "more", _ => Icons.ForRole(f?.Role ?? FolderRole.Other) },
+                    Glyph = f?.Role switch
                     {
-                        FolderRole.Inbox => "", FolderRole.Sent => "", FolderRole.Drafts => "", FolderRole.Trash => "",
-                        FolderRole.Junk => "", FolderRole.Archive => "", FolderRole.All => "", FolderRole.Flagged => "",
-                        _ => "",
+                        FolderRole.Inbox => "", FolderRole.Sent => "", FolderRole.Drafts => "", FolderRole.Trash => "",
+                        FolderRole.Junk => "", FolderRole.Archive => "", FolderRole.All => "", FolderRole.Flagged => "",
+                        _ => "",
                     },
-                    Depth = Math.Min(depth, 5),
+                    Depth = Math.Min(row.Depth, 5),
+                    HasChildren = row.HasChildren,
+                    AlwaysShow = f != null && sbs.AlwaysShowLabels.Contains(a.Id + "|" + f.Path),
+                    IsLabel = kind == NavKind.Folder && inGroup.Contains(row.Path),
                 };
-                item.IsExpanded = openFolders.Contains(a.Id + "|" + f.Path);
+                // The group starts open; More labels, containers and parent folders start closed.
+                item.IsExpanded = kind == NavKind.LabelGroup ? !sbs.LabelsClosed.Contains(a.Id) : openFolders.Contains(a.Id + "|" + row.Path);
                 node.Folders.Add(item);
             }
-            var parents = node.Folders.Select(i => i.ParentPath).Where(p => p.Length > 0).ToHashSet();
-            foreach (var i in node.Folders) i.HasChildren = parents.Contains(i.Path);
             ApplyFolderVisibility(node);
             if (_e.StatusOf(a.Id) is { } st) ApplyStatus(node, st);
             node.PropertyChanged += OnAccountNodeChanged;
             AccountNodes.Add(node);
         }
 
+        if (newLabels) SaveSidebar();
         TagItems.Clear();
         TagChip.Colors = _e.Config.Tags.GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Color, StringComparer.OrdinalIgnoreCase);
         foreach (var t in _e.Config.Tags)
@@ -624,6 +662,11 @@ public partial class MainViewModel : ObservableObject
         Selected = null;
         ClearSelection();
         if (newValue?.Kind is NavKind.Folder or NavKind.Role) _e.Prioritise(FolderIdsFor(newValue));
+        if (newValue is { Kind: NavKind.Folder, AccountId: { } acct })
+        {
+            _e.Config.Sidebar.LabelOpened[acct + "|" + newValue.Path] = DateTimeOffset.Now;   // design LB1 C: opened labels stay out of More
+            SaveSidebar();
+        }
         ReloadList();
     }
 
@@ -631,6 +674,14 @@ public partial class MainViewModel : ObservableObject
     private void Navigate(NavItem? item)
     {
         if (item == null) return;
+        if (item.IsFold)
+        {
+            ToggleFolder(item);
+            // The click ticked the row's radio button; it never becomes the current view, so untick it again.
+            item.IsSelected = true;
+            item.IsSelected = false;
+            return;
+        }
         IsCalendarView = false;
         IsContactsView = false;
         if (item == Current) { ReloadList(); return; }
@@ -906,19 +957,26 @@ public partial class MainViewModel : ObservableObject
                 }
             }
         }
+        _lastUnread = snap.ByFolder.ToDictionary(kv => kv.Key, kv => kv.Value.Unread);
+        var relayout = false;
         foreach (var node in AccountNodes)
         {
             var unreadInAccount = 0;
             foreach (var f in node.Folders)
             {
+                if (f.IsFold) continue;
                 var (u, t) = snap.ByFolder.TryGetValue(f.FolderId, out var c) ? c : (0, 0);
+                // Design LB1 C: a label in More labels that gets unread mail comes back to its place.
+                if (u > 0 && f.ParentPath == LabelLayout.MoreKey) relayout = true;
                 var kind = FolderCounts.KindOf(f.Role);
                 f.SetCounts(u, t, kind, mode);
                 if (kind == CountKind.UnreadAndTotal && f.Role is not (FolderRole.Junk or FolderRole.All or FolderRole.Important or FolderRole.Archive))
                     unreadInAccount += u;
             }
             node.UnreadText = mode != CountsMode.Off && unreadInAccount > 0 ? FolderCounts.Format(unreadInAccount) : "";
+            ApplyFoldCounts(node, mode);
         }
+        if (relayout) Ui.Post(BuildNav);
         foreach (var tag in TagItems)
         {
             var (u, t) = tag.TagName != null && snap.Tags.TryGetValue(tag.TagName, out var c) ? c : (0, 0);
@@ -977,6 +1035,64 @@ public partial class MainViewModel : ObservableObject
         SaveSidebar();
     }
 
+    /// <summary>Unread conversations per folder at the last count (design LB1 C: More labels holds only labels without unread mail).</summary>
+    private Dictionary<long, int> _lastUnread = new();
+
+    /// <summary>The rows a group, container or More row holds (in the list's order: parents come before their children).</summary>
+    private static List<NavItem> RowsUnder(AccountNode node, NavItem fold)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal) { fold.Path };
+        var list = new List<NavItem>();
+        foreach (var f in node.Folders)
+            if (keys.Contains(f.ParentPath)) { keys.Add(f.Path); list.Add(f); }
+        return list;
+    }
+
+    /// <summary>Design LB1: a closed parent shows its labels' unread total; the group adds how many labels; More labels counts them.</summary>
+    private static void ApplyFoldCounts(AccountNode node, CountsMode mode)
+    {
+        foreach (var fold in node.Folders.Where(f => f.IsFold))
+        {
+            var labels = RowsUnder(node, fold).Where(f => !f.IsFold).ToList();
+            if (fold.Kind == NavKind.MoreLabels) { fold.SetCounts(0, labels.Count, CountKind.CountOnly, mode); continue; }
+            var unread = labels.Sum(f => FolderCounts.KindOf(f.Role) == CountKind.UnreadAndTotal ? f.Count : 0);
+            fold.SetCounts(unread, unread, CountKind.UnreadAndTotal, mode == CountsMode.Off ? mode : CountsMode.UnreadOnly);
+            if (fold.Kind == NavKind.LabelGroup && mode != CountsMode.Off)
+                fold.CountRest = (unread > 0 ? " · " : "") + labels.Count;
+        }
+    }
+
+    /// <summary>Right-click (design LB1): Open all labels / Close all labels.</summary>
+    public void SetAllLabels(AccountNode node, bool open)
+    {
+        var group = node.Folders.FirstOrDefault(f => f.Kind == NavKind.LabelGroup);
+        if (group == null) return;
+        if (open) { node.IsExpanded = true; group.IsExpanded = true; }
+        foreach (var f in RowsUnder(node, group).Where(f => f.HasChildren && f.Kind != NavKind.MoreLabels)) f.IsExpanded = open;
+        ApplyFolderVisibility(node);
+        SaveSidebar();
+    }
+
+    /// <summary>Right-click (design LB1): Only show labels with unread mail, per account.</summary>
+    public void ToggleOnlyUnreadLabels(AccountNode node)
+    {
+        var list = _e.Config.Sidebar.OnlyUnreadLabels;
+        if (!list.Remove(node.Account.Id)) list.Add(node.Account.Id);
+        SaveSidebar();
+        BuildNav();
+    }
+
+    /// <summary>Right-click a label (design LB1 C): Always show keeps it out of More labels.</summary>
+    public void ToggleAlwaysShow(NavItem label)
+    {
+        if (label.AccountId == null || !label.IsLabel) return;
+        var key = label.AccountId + "|" + label.Path;
+        var list = _e.Config.Sidebar.AlwaysShowLabels;
+        if (!list.Remove(key)) list.Add(key);
+        SaveSidebar();
+        BuildNav();
+    }
+
     /// <summary>A folder shows only when every ancestor is open.</summary>
     private static void ApplyFolderVisibility(AccountNode node)
     {
@@ -1009,7 +1125,11 @@ public partial class MainViewModel : ObservableObject
         sb.OpenAccounts = sb.OpenAccounts.Where(id => !known.Contains(id))
             .Concat(AccountNodes.Where(n => n.IsExpanded).Select(n => n.Account.Id)).Distinct().ToList();
         sb.OpenFolders = sb.OpenFolders.Where(k => !known.Contains(k.Split('|')[0]))
-            .Concat(AccountNodes.SelectMany(n => n.Folders).Where(f => f.HasChildren && f.IsExpanded).Select(f => f.AccountId + "|" + f.Path))
+            .Concat(AccountNodes.SelectMany(n => n.Folders).Where(f => f.HasChildren && f.IsExpanded && f.Kind != NavKind.LabelGroup).Select(f => f.AccountId + "|" + f.Path))
+            .Distinct().ToList();
+        // Design LB1: the Labels group starts open, so the closed ones are remembered.
+        sb.LabelsClosed = sb.LabelsClosed.Where(id => !known.Contains(id))
+            .Concat(AccountNodes.Where(n => n.Folders.Any(f => f.Kind == NavKind.LabelGroup && !f.IsExpanded)).Select(n => n.Account.Id))
             .Distinct().ToList();
         _saveSidebar.Run(() =>
         {
