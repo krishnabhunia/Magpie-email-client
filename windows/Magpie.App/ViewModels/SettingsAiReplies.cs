@@ -91,7 +91,8 @@ public partial class SettingsViewModel
         Formality = ReplyDefaultFormality, EnglishStyle = ReplyDefaultEnglishStyle, Etiquette = ReplyDefaultEtiquette,
         Directness = ReplyDefaultDirectness, Greeting = ReplyDefaultGreeting, Address = ReplyDefaultAddress, Emoji = ReplyDefaultEmoji,
         // Remembered per-contact styles are written by the composer as they come; Apply keeps whatever is stored now.
-        ContactStyles = (_e.Config.Ai.ReplyDrafts?.ContactStyles ?? new()).ToDictionary(p => p.Key, p => p.Value.Clone(), StringComparer.OrdinalIgnoreCase),
+        // Turning the switch off forgets every remembered style.
+        ContactStyles = !ReplyRememberPerContact ? new() : (_e.Config.Ai.ReplyDrafts?.ContactStyles ?? new()).ToDictionary(p => p.Key, p => p.Value.Clone(), StringComparer.OrdinalIgnoreCase),
     };
 
     private bool ValidateAiReplySettings()

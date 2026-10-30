@@ -29,3 +29,17 @@ A saved Tone of Formal becomes Professional + Formality Formal; Informal becomes
 - Real provider output with the header lines (Claude / OpenAI / Ollama). If a model ignores the header, the whole answer is used as the draft and the answer box stays as it was.
 - The panel's look at 125–200 % DPI, keyboard order and screen readers; a small compose window (the panel scrolls, max 380 px, and collapses to one line).
 - The Mac app: it shares the Core changes (prompt, settings, migration) but has no AI draft panel yet.
+
+## Review fixes (before Ready for Review)
+
+| SrNo. | Rule |
+|---|---|
+| 1 | Magpie's suggestion only fills "What the reply says" if the box is still empty when the draft finishes; what you type while it streams is kept. |
+| 2 | A suggestion is labelled "Magpie's suggestion" and is sent to the model as an unconfirmed suggestion, never as your decision, until you pick a chip or edit it. When the email, account or AI settings change, an unconfirmed suggestion is cleared. |
+| 3 | Forwarded file names are sent as untrusted data (`attachment_names_json`), like the email itself. |
+| 4 | Forward notes are always written with a bare greeting; the name is filled in locally from the current To field (first name, or name + ji), so changing the recipient changes the greeting. Titles (Dr, Mr, Shri…) are skipped. |
+| 5 | The header lines never show while streaming, even half-written. |
+| 6 | "Remember per contact" stores the style the inserted version was written in (replies only); turning the switch off and applying forgets every stored style. |
+| 7 | Rewrite works while a draft is still writing (the new request replaces it); ‹ › are disabled while writing; the change count only clears when a draft built from those changes arrives. |
+
+Known gap: if Settings is already open while you click "Save these choices as my defaults" in a compose window, a later Apply in that Settings window writes back the defaults it loaded.

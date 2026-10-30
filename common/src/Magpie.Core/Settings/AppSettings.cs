@@ -37,7 +37,7 @@ public sealed class AiSettings
         AiFeature.Rewrite => Rewrite,
         AiFeature.Replies => Replies,
         AiFeature.ReplyDraft => ReplyDrafts?.Enabled == true,
-        AiFeature.ForwardDraft => ReplyDrafts?.Enabled == true,
+        AiFeature.ForwardDraft => ReplyDrafts?.Enabled == true && ReplyDrafts.OnForward,
         _ => false,
     };
 

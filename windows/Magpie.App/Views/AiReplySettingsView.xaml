@@ -99,7 +99,7 @@
                     <StackPanel Grid.Row="2" Grid.Column="4"><TextBlock Text="Emoji" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" /><ComboBox svc:Typography.Role="fieldValue" ItemsSource="{Binding ReplyEmojiOptions}" SelectedItem="{Binding ReplyDefaultEmoji, Mode=TwoWay}" /></StackPanel>
                 </Grid>
                 <CheckBox Content="Remember my choices per contact" IsChecked="{Binding ReplyRememberPerContact, Mode=TwoWay}" FontWeight="SemiBold" Margin="0,16,0,0" />
-                <TextBlock Text="When you use a draft whose style you changed (for example Very formal + Japanese etiquette for one client), Magpie uses that style the next time you reply to that address. Kept on this PC, in your settings."
+                <TextBlock Text="When you use a draft whose style you changed (for example Very formal + Japanese etiquette for one client), Magpie uses that style the next time you reply to that address. Kept on this PC, in your settings; turning this off and applying forgets them all."
                            svc:Typography.Role="helper" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="22,4,0,0" />
             </StackPanel>
         </Border>

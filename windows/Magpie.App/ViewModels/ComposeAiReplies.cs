@@ -49,7 +49,7 @@ public partial class ComposeViewModel
     private int _versionIndex = -1;
     public const int MaxVersions = 5;
 
-    private sealed record DraftVersion(string Body, string Summary, bool NeedsRecipientGreeting);
+    private sealed record DraftVersion(string Body, string Summary, bool NeedsRecipientGreeting, AiStyle Style);
 
     /// <summary>The view excludes the protected signature and original quotation from this text.</summary>
     public Func<Task<string>>? GetNewText { get; set; }
@@ -89,7 +89,7 @@ public partial class ComposeViewModel
     [ObservableProperty] private string _replyStance = "";
     [ObservableProperty] private string _replyAnswer = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasAskLine))] private string _replyAskLine = "";
-    [ObservableProperty] private bool _answerIsSuggestion;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AnswerNote))] private bool _answerIsSuggestion;
     [ObservableProperty] private string _replyFormality = "Formal";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(LanguageNote))] private string _replyLength = "Balanced";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(LanguageNote))] private string _replyLanguage = "Match original";
@@ -115,7 +115,8 @@ public partial class ComposeViewModel
     public bool ShowPurpose => IsReply;
     public string PanelTitle => IsForward ? "AI note · review before use" : "AI draft · review before use";
     public string AnswerTitle => IsForward ? "Why you're forwarding" : "What the reply says";
-    public string AnswerNote => IsForward ? "Pick one or describe it" : "Magpie's suggestion · change it freely";
+    public string AnswerNote => IsForward ? "Pick one or describe it"
+        : AnswerIsSuggestion ? "Magpie's suggestion · not your answer until you pick or edit it" : "Your answer · the draft follows it";
     public string AnswerHint => IsForward
         ? "Type it as plainly as you like; Magpie turns it into the note. Ctrl+Enter rewrites."
         : "Pick an answer or type your own, e.g. change \"Yes, I will do it\" to \"No, I will not do it\". Ctrl+Enter rewrites.";
@@ -124,8 +125,17 @@ public partial class ComposeViewModel
     public string CultureSummary => $"{ReplyEnglishStyle} · {(ReplyEtiquette == "Neutral" ? "neutral etiquette" : ReplyEtiquette + " etiquette")} · {ReplyDirectness.ToLowerInvariant()}";
     public bool HasVersions => _versions.Count > 1;
     public string LanguageNote => ReplyLanguage is "Match original" or "English" ? "" : $"The draft is written in {ReplyLanguage}.";
-    public string RecipientNote => !IsForward ? "" : AiService.FirstName(To) is { Length: > 0 } n
-        ? $"Greeting uses {n}." : "No recipient yet · the greeting is \"Hi,\" and gets the name when you add one.";
+    public string RecipientNote => !IsForward ? "" : GreetingName() is { Length: > 0 } n
+        ? $"Greeting uses {n}." : string.IsNullOrWhiteSpace(To) ? "No recipient yet · the greeting is \"Hi,\" and gets the name when you add one."
+        : "The greeting has no name for this form of address — add it yourself if you like.";
+
+    /// <summary>The name put after a Forward note's bare greeting: first name (or name + ji); other forms of address need a title Magpie can't know.</summary>
+    private string GreetingName()
+    {
+        var first = AiService.FirstName(To);
+        if (first.Length == 0) return "";
+        return ReplyAddress switch { "Auto" or "First name" => first, "Name + ji" => first + " ji", _ => "" };
+    }
 
     public bool CanUseReplyDraft => !_closed && !_queued && !Sending && !ReplyDraftBusy
         && !string.IsNullOrWhiteSpace(ReplyDraftPreview) && ReplyGateOpen()
@@ -301,9 +311,13 @@ public partial class ComposeViewModel
     partial void OnReplyAnswerChanged(string value)
     {
         if (_suppressChoiceTracking || !_constructed) return;
-        // Typed words decide the answer: a chip can't contradict them ("Yes" selected, "No, I can't" typed).
+        // Typed words decide the answer: a chip can't contradict them ("Yes" selected, "No, I can't" typed). Two exceptions: words
+        // that still start with the chip's own text ("Yes, if I get the invoices") keep it, and a Forward reason stays as picked.
+        var chip = AnswerChoices.FirstOrDefault(c => c.Key == ReplyStance);
         _suppressChoiceTracking = true;
-        ReplyStance = string.IsNullOrWhiteSpace(value) ? (IsForward ? "fyi" : "") : "other";
+        if (IsForward) { if (ReplyStance.Length == 0) ReplyStance = "fyi"; }
+        else if (string.IsNullOrWhiteSpace(value)) ReplyStance = "";
+        else if (!(chip is { Template.Length: > 0 } && value.TrimStart().StartsWith(chip.Template.Trim(), StringComparison.OrdinalIgnoreCase))) ReplyStance = "other";
         _suppressChoiceTracking = false;
         AnswerIsSuggestion = false;
         foreach (var c in AnswerChoices) c.IsSelected = c.Key == ReplyStance;
@@ -317,7 +331,7 @@ public partial class ComposeViewModel
         PendingChanges = _versions.Count > 0 || ReplyDraftBusy ? _changedChoices.Count : 0;
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task PickAnswer(AiChoice? choice)
     {
         if (choice == null) return;
@@ -338,21 +352,21 @@ public partial class ComposeViewModel
     [RelayCommand] private void ToggleReplyPanel() => ReplyPanelExpanded = !ReplyPanelExpanded;
 
     [RelayCommand]
-    private void PreviousVersion() { if (_versionIndex > 0) ShowVersion(_versionIndex - 1); }
+    private void PreviousVersion() { if (!ReplyDraftBusy && _versionIndex > 0) ShowVersion(_versionIndex - 1); }
 
     [RelayCommand]
-    private void NextVersion() { if (_versionIndex < _versions.Count - 1) ShowVersion(_versionIndex + 1); }
+    private void NextVersion() { if (!ReplyDraftBusy && _versionIndex < _versions.Count - 1) ShowVersion(_versionIndex + 1); }
 
     private void ShowVersion(int index)
     {
         if (index < 0 || index >= _versions.Count) return;
         _versionIndex = index;
         var v = _versions[index];
-        ReplyDraftPreview = v.NeedsRecipientGreeting ? AiService.WithRecipientGreeting(v.Body, AiService.FirstName(To)) : v.Body;
+        ReplyDraftPreview = v.NeedsRecipientGreeting ? AiService.WithRecipientGreeting(v.Body, GreetingName()) : v.Body;
         UsedSummary = v.Summary;
         VersionLabel = $"Draft {index + 1} of {_versions.Count}";
-        CanPrevVersion = index > 0;
-        CanNextVersion = index < _versions.Count - 1;
+        CanPrevVersion = !ReplyDraftBusy && index > 0;
+        CanNextVersion = !ReplyDraftBusy && index < _versions.Count - 1;
         OnPropertyChanged(nameof(HasVersions));
     }
 
@@ -428,8 +442,8 @@ public partial class ComposeViewModel
         ReplyDraftStatus = "The conversation changed. Generate again to include the latest messages.";
     }
 
-    /// <summary>Rewrite (and the first automatic draft): one request with every choice collected so far.</summary>
-    [RelayCommand]
+    /// <summary>Rewrite (and the first automatic draft): one request with every choice collected so far. A new request cancels the one running.</summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task GenerateReplyDraft()
     {
         if (!ReplyGateOpen())
@@ -490,16 +504,19 @@ public partial class ComposeViewModel
         // An empty box lets Magpie suggest the answer (first draft); anything in it — typed, picked or Magpie's own
         // suggestion kept as it is — is the answer every rewrite follows.
         var userChoseAnswer = answer.Length > 0;
+        var suggestionOnly = userChoseAnswer && AnswerIsSuggestion && !IsForward;
         var choices = new AiDraftChoices
         {
             WantAnswerLine = !IsForward && ShowAnswerSection,
-            Stance = userChoseAnswer || IsForward ? stance : "",
+            Stance = userChoseAnswer && !suggestionOnly || IsForward ? stance : "",
             Answer = userChoseAnswer ? answer : "",
+            AnswerIsSuggestion = suggestionOnly,
             ForwardReason = IsForward ? (stance.Length > 0 ? stance : "fyi") : "fyi",
             Summary = ForwardSummary,
             MentionAttachments = ForwardMentionFiles,
             AttachmentNames = Attachments.Where(a => a.Carried).Select(a => a.Path).ToList(),
-            RecipientName = IsForward ? AiService.FirstName(To) : "",
+            // Forward: the model always writes a bare "Hi,"; the name is filled in here and follows later changes to To.
+            RecipientName = "",
         };
         var request = ++_replyDraftRequest;
         var fingerprint = _replyContextFingerprint = ReplyFingerprint();
@@ -511,9 +528,10 @@ public partial class ComposeViewModel
         var buffer = new StringBuilder();
         var acceptingTokens = true;
         var summary = Summarise(style, choices.Stance.Length > 0 ? choices.Stance : stance);
-        _changedChoices.Clear();
-        PendingChanges = 0;
+        var appliedChoices = new HashSet<string>(_changedChoices);
+        var answerAtStart = ReplyAnswer;
         ReplyDraftBusy = true;
+        CanPrevVersion = CanNextVersion = false;
         ReplyDraftNeedsSetup = false;
         ReplyDraftError = "";
         ReplyPanelExpanded = true;
@@ -531,7 +549,7 @@ public partial class ComposeViewModel
                     if (!acceptingTokens || !Current()) return;
                     buffer.Append(text);
                     var body = AiService.ParseDraft(buffer.ToString(), complete: false).Body;
-                    ReplyDraftPreview = IsForward && choices.RecipientName.Length == 0 ? AiService.WithRecipientGreeting(body, AiService.FirstName(To)) : body;
+                    ReplyDraftPreview = IsForward ? AiService.WithRecipientGreeting(body, GreetingName()) : body;
                 }), token, mode, choices);
             acceptingTokens = false;
             if (Current())
@@ -547,7 +565,8 @@ public partial class ComposeViewModel
                 if (!IsForward && ShowAnswerSection)
                 {
                     ReplyAskLine = parsed.Ask.Length > 0 ? "They ask: " + parsed.Ask : "";
-                    if (!userChoseAnswer && parsed.Gist.Length > 0)
+                    if (!userChoseAnswer && parsed.Gist.Length > 0 && ReplyAnswer == answerAtStart && string.IsNullOrWhiteSpace(ReplyAnswer)
+                        && !_changedChoices.Contains("answer"))
                     {
                         // Magpie's suggestion fills the box; the user can change it and Rewrite.
                         _suppressChoiceTracking = true;
@@ -559,8 +578,11 @@ public partial class ComposeViewModel
                         summary = Summarise(style, ReplyStance);
                     }
                 }
-                _versions.Add(new DraftVersion(parsed.Body, summary, IsForward && choices.RecipientName.Length == 0));
+                _versions.Add(new DraftVersion(parsed.Body, summary, IsForward, style));
                 if (_versions.Count > MaxVersions) _versions.RemoveAt(0);
+                _changedChoices.ExceptWith(appliedChoices);
+                PendingChanges = _changedChoices.Count;
+                ReplyDraftBusy = false;
                 ShowVersion(_versions.Count - 1);
             }
         }
@@ -581,6 +603,7 @@ public partial class ComposeViewModel
             {
                 ReplyDraftBusy = false;
                 if (!Current()) { ReplyDraftPreview = ""; _replyContextFingerprint = ""; ClearVersions(); }
+                else if (_versionIndex >= 0) { CanPrevVersion = _versionIndex > 0; CanNextVersion = _versionIndex < _versions.Count - 1; }
             }
             if (ReferenceEquals(_replyDraftCts, cts)) _replyDraftCts = null;
             cts.Dispose();
@@ -601,7 +624,20 @@ public partial class ComposeViewModel
             _replyContextFingerprint = "";
             _replyThreadDigest = "";
             ClearVersions();
+            _changedChoices.Clear();
+            PendingChanges = 0;
+            if (AnswerIsSuggestion)
+            {
+                // A suggestion read from the old context must never be sent as an answer for the new one.
+                _suppressChoiceTracking = true;
+                ReplyAnswer = "";
+                ReplyStance = IsForward ? "fyi" : "";
+                _suppressChoiceTracking = false;
+                AnswerIsSuggestion = false;
+                foreach (var c in AnswerChoices) c.IsSelected = c.Key == ReplyStance;
+            }
         }
+        else if (_versionIndex >= 0) { CanPrevVersion = _versionIndex > 0; CanNextVersion = _versionIndex < _versions.Count - 1; }
     }
 
     [RelayCommand]
@@ -641,12 +677,11 @@ public partial class ComposeViewModel
         catch (Exception ex) { ReplyDraftError = "Couldn't save your defaults: " + ex.Message; }
     }
 
-    private void RememberStyleForRecipient()
+    private void RememberStyleForRecipient(AiStyle? style)
     {
         var settings = _e.Config.Ai.ReplyDrafts;
-        if (!settings.RememberPerContact) return;
+        if (!settings.RememberPerContact || !IsReply || style == null) return;
         var address = Composer.ParseAddresses(To).Mailboxes.FirstOrDefault()?.Address;
-        var style = CurrentStyle();
         // Only a style that differs from the defaults is worth remembering (or one that updates a remembered style).
         if (style.SameAs(settings.Style()) && settings.StyleFor(address) == null) return;
         try
@@ -662,6 +697,7 @@ public partial class ComposeViewModel
         if (!CanUseReplyDraft || EditorCommand == null || GetNewText == null) return;
         var text = ReplyDraftPreview;
         var fingerprint = _replyContextFingerprint;
+        var usedStyle = _versionIndex >= 0 && _versionIndex < _versions.Count ? _versions[_versionIndex].Style : null;
         string mode;
         try
         {
@@ -676,7 +712,7 @@ public partial class ComposeViewModel
             text = ReplyDraftPreview;
             await EditorCommand("replyDraft", JsonSerializer.Serialize(new { text, expectedNewText = typed, mode }));
             MarkEdited();
-            RememberStyleForRecipient();
+            RememberStyleForRecipient(usedStyle);
             StopReplyDraft(clear: true);
             ReplyDraftStatus = "AI draft inserted. Review and edit it before sending.";
         }
