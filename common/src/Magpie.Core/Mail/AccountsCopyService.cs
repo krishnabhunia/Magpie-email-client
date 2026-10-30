@@ -121,6 +121,16 @@ public sealed class AccountsCopyService
                 }
             }
             NeedsPassword = false;
+            // The home account was changed on another PC: follow it there (when this PC has that account).
+            if (copy is { MovedTo.Length: > 0 } && AccountsCopy.Key(copy.MovedTo) != Options.HomeEmail)
+            {
+                var to = AccountsCopy.Key(copy.MovedTo);
+                if (_e.Accounts.All(a => AccountsCopy.Key(a.Email) != to)) { Fail($"The copy moved to {to}. Add that account here to keep in step."); return; }
+                await RunOnUi(() => { Options.HomeEmail = to; _e.Settings.Save(notify: false); });
+                Log.Info("accounts copy: followed the copy to " + to);
+                Poke();
+                return;
+            }
             if (copy != null) await TakeAsync(copy);
 
             var now = DateTimeOffset.Now;
@@ -214,6 +224,28 @@ public sealed class AccountsCopyService
     {
         _e.Vault.Set(AccountsCopy.VaultPassword, password);
         NeedsPassword = false;
+        Poke();
+    }
+
+    /// <summary>The home account is being removed (or changed): the copy moves to another account. The old mailbox keeps a
+    /// last note "moved to …", so the other PCs follow; the new home gets the full copy at the next round.</summary>
+    public async Task MoveHomeAsync(string newHomeEmail, CancellationToken ct)
+    {
+        var old = Home;
+        var password = _e.Vault.Get(AccountsCopy.VaultPassword);
+        if (old != null && !string.IsNullOrEmpty(password))
+        {
+            AccountsCopy.Contents? note = null;
+            var now = DateTimeOffset.Now;
+            await RunOnUi(() => note = AccountsCopy.Build(_e.Config, _e.Vault, null, PcName, AppVersion, now));
+            note!.MovedTo = AccountsCopy.Key(newHomeEmail);
+            note.Accounts.Clear();   // only the note: the accounts go into the new home's copy
+            var locked = await Task.Run(() => AccountsCopy.Lock(note, password), ct);
+            using var client = await _e.Connector.OpenImapAsync(old, ct);
+            await CopyMailbox.WriteAsync(client, old.Email, locked, ct);
+            try { await client.DisconnectAsync(true, ct); } catch { }
+        }
+        await RunOnUi(() => { Options.HomeEmail = AccountsCopy.Key(newHomeEmail); _e.Settings.Save(notify: false); });
         Poke();
     }
 

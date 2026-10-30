@@ -43,6 +43,8 @@ public static class AccountsCopy
         public SignInApps Apps { get; set; } = new();
         /// <summary>PCs that used the copy (name → last time).</summary>
         public Dictionary<string, DateTimeOffset> UsedBy { get; set; } = new();
+        /// <summary>The home account was changed on some PC: the copy now lives in this mailbox (a last note left in the old one).</summary>
+        public string MovedTo { get; set; } = "";
     }
 
     public sealed class CopiedAccount
@@ -385,6 +387,7 @@ public static class AccountsCopy
         c.Removed = (c.Removed ?? new()).ToDictionary(kv => Key(kv.Key), kv => kv.Value);
         c.UsedBy ??= new();
         c.Apps ??= new();
+        c.MovedTo ??= "";
         return c;
     }
 

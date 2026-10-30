@@ -49,6 +49,16 @@ public partial class AddAccountViewModel : ObservableObject
 
     public string Password { get; set; } = "";
     public event Action? Done;
+    /// <summary>Design SY1·3: after signing in, the window looks for an accounts copy in the mailbox and, when the user
+    /// opens it, adds this account with the others (true). False = add only this account as usual.</summary>
+    public Func<Account, string?, OAuthTokens?, Task<bool>>? OfferCopy { get; set; }
+
+    private async Task<bool> TryCopyAsync(Account a, string? password, OAuthTokens? tokens)
+    {
+        if (IsReauth || OfferCopy == null) return false;
+        Status = "Looking for your other accounts…";
+        return await OfferCopy(a, password, tokens);
+    }
 
     public List<Choice<AccountChoice>> Choices { get; } = new()
     {
@@ -195,7 +205,7 @@ public partial class AddAccountViewModel : ObservableObject
             var err = await Task.Run(() => _e.Connector.TestAsync(a, Password, _cts.Token));
             if (err != null) { Error = err; ShowAdvanced = true; return; }
             if (IsReauth) _e.UpdateAccount(a, Password);
-            else _e.AddAccount(a, Password, null);
+            else if (!await TryCopyAsync(a, Password, null)) _e.AddAccount(a, Password, null);
             Done?.Invoke();
         }
         catch (OperationCanceledException) { Error = "Cancelled or timed out."; }
@@ -235,7 +245,7 @@ public partial class AddAccountViewModel : ObservableObject
             var err = await Task.Run(() => _e.Connector.TestAsync(a, null, CancellationToken.None));
             if (err != null) { Error = err; return; }
             if (IsReauth) _e.UpdateAccount(a, null, tokens);
-            else _e.AddAccount(a, null, tokens);
+            else if (!await TryCopyAsync(a, null, tokens)) _e.AddAccount(a, null, tokens);
             Done?.Invoke();
         }
         catch (OperationCanceledException) { Error = "Sign-in was cancelled or timed out."; }
