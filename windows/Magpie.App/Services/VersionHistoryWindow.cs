@@ -58,6 +58,31 @@ public sealed class VersionHistoryWindow : Window
             Margin = new Thickness(0, 5, 0, 12),
             TextWrapping = TextWrapping.Wrap
         });
+        if (UpdateService.PinnedVersion is { Length: > 0 } pinned)
+        {
+            var pinLabel = new TextBlock
+            {
+                Text = $"Pinned to v{pinned}. Automatic checks cannot replace your chosen version.",
+                Margin = new Thickness(0, 0, 0, 5), TextWrapping = TextWrapping.Wrap
+            };
+            var clearPin = new Button
+            {
+                Content = "Clear version pin", HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 9), Padding = new Thickness(8, 4, 8, 4)
+            };
+            clearPin.Click += (_, _) =>
+            {
+                try
+                {
+                    UpdateService.ClearVersionPin();
+                    pinLabel.Text = "Version pin cleared.";
+                    clearPin.IsEnabled = false;
+                }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, "Could not clear version pin"); }
+            };
+            header.Children.Add(pinLabel);
+            header.Children.Add(clearPin);
+        }
         _direction.Items.Add("Update (newer)");
         _direction.Items.Add("Roll back (older)");
         _direction.SelectedIndex = 0;
