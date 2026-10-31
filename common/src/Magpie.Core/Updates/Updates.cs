@@ -176,6 +176,40 @@ public sealed class UpdateClient
         return best != null && best.Version.CompareTo(current) > 0 ? best : null;
     }
 
+    /// <summary>Loads all GitHub release pages for the active platform; selecting a version never installs it.</summary>
+    public async Task<IReadOnlyList<(ReleaseInfo Info, bool Prerelease)>> ListVersionsAsync(AppVersion current, CancellationToken ct)
+    {
+        var results = new List<(ReleaseInfo Info, bool Prerelease)>();
+        for (var page = 1; page <= 20; page++)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.github.com/repos/{Repo}/releases?per_page=100&page={page}");
+            req.Headers.UserAgent.Add(new ProductInfoHeaderValue("Magpie", current.ToString()));
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            using var response = await _http.SendAsync(req, ct);
+            if ((int)response.StatusCode is 403 or 429)
+                throw new InvalidOperationException("GitHub is limiting requests right now. Please try again later.");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("GitHub returned an invalid releases list.");
+            results.AddRange(ParseReleases(json, _asset));
+            if (document.RootElement.GetArrayLength() < 100) return results;
+        }
+        throw new InvalidDataException("GitHub release history is incomplete. Please try again later.");
+    }
+
+    /// <summary>Stable/beta releases above or below the running version, ordered by exact SemVer precedence.</summary>
+    public static IReadOnlyList<(ReleaseInfo Info, bool Prerelease)> SelectVersions(
+        IEnumerable<(ReleaseInfo Info, bool Prerelease)> releases, AppVersion current, bool older, bool includePrerelease)
+        => releases.Where(r => (includePrerelease || !r.Prerelease)
+                    && (older ? r.Info.Version.CompareTo(current) < 0 : r.Info.Version.CompareTo(current) > 0))
+            .OrderByDescending(r => r.Info.Version)
+            .GroupBy(r => r.Info.Version.ToString())
+            .Select(g => g.First())
+            .ToList();
+
     /// <summary>Releases (not drafts) that have both Magpie.exe and Magpie.exe.sha256 attached.</summary>
     public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json) => ParseReleases(json, UpdateAsset.WindowsExe);
 

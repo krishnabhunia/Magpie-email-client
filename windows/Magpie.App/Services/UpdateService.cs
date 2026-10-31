@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Magpie.Core;
 using Magpie.Core.Updates;
+using Microsoft.Data.Sqlite;
 
 namespace Magpie.App.Services;
 
@@ -35,6 +36,20 @@ public sealed partial class UpdateService : ObservableObject
     public static AppVersion Current { get; } = ReadCurrent();
     /// <summary>%LOCALAPPDATA%\Magpie\updates — not the roaming profile (the EXE is ~80 MB); next to the EXE when portable.</summary>
     public static string DownloadFolder => AppPaths.Default().Updates;
+    public static string VersionPinPath => Path.Combine(AppPaths.Default().Root, "version-pin.txt");
+    public static string? PinnedVersion
+    {
+        get
+        {
+            try { return File.Exists(VersionPinPath) ? File.ReadAllText(VersionPinPath).Trim() : null; }
+            catch { return null; }
+        }
+    }
+    public static void ClearVersionPin()
+    {
+        if (File.Exists(VersionPinPath)) File.Delete(VersionPinPath);
+    }
+
     /// <summary>Auto update (design A1) put the new EXE in place already; it runs from the next start.</summary>
     private bool _installed;
 
@@ -95,9 +110,9 @@ public sealed partial class UpdateService : ObservableObject
     public string PrimaryText => State switch
     {
         UpdateState.Checking => "Checking…",
-        UpdateState.Available => "Download and install",
+        UpdateState.Available => "Download this version",
         UpdateState.Downloading => "Downloading…",
-        UpdateState.Ready => "Restart now",
+        UpdateState.Ready => "Restart to install",
         UpdateState.UpToDate => "Check again",
         UpdateState.Error => "Try again",
         _ => "Check for updates",
@@ -113,7 +128,8 @@ public sealed partial class UpdateService : ObservableObject
             var c = AppServices.Engine.Config;
             if ((c.Updates.AutoUpdate ?? true) == value) return;
             c.Updates.AutoUpdate = value;
-            c.Updates.AutoCheck = c.Updates.AutoDownload = value;
+            c.Updates.AutoCheck = value;
+            c.Updates.AutoDownload = false;
             AppServices.Engine.Settings.Save(notify: false);
             OnPropertyChanged();
         }
@@ -167,7 +183,7 @@ public sealed partial class UpdateService : ObservableObject
     {
         switch (State)
         {
-            case UpdateState.Available: await DownloadAsync(); break;
+            case UpdateState.Available: await OpenVersionHistory(); break;
             case UpdateState.Ready: await RestartAsync(); break;
             case UpdateState.Checking or UpdateState.Downloading: break;
             default: await CheckAsync(automatic: false); break;
@@ -187,7 +203,8 @@ public sealed partial class UpdateService : ObservableObject
         {
             case UpdateState.Checking: return;
             case UpdateState.Ready: await RestartAsync(); return;
-            case UpdateState.Available or UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
+            case UpdateState.Available: await OpenVersionHistory(); return;
+            case UpdateState.Downloading or UpdateState.Error: OpenFlyout(); return;   // Error: the flyout has Try again
             default:
                 await CheckNowAsync();
                 OpenFlyout();
@@ -242,6 +259,72 @@ public sealed partial class UpdateService : ObservableObject
         Idle("Magpie " + Current, $"Skipped {NewVersion}. You'll be told about the next version.");
     }
 
+    [RelayCommand]
+    private async Task OpenVersionHistory()
+    {
+        if (IsBusy) return;
+        var picker = new VersionHistoryWindow(_client, Current) { Owner = Application.Current.MainWindow };
+        if (picker.ShowDialog() != true || picker.Selection is not { } chosen) return;
+        var rollback = picker.IsRollback;
+        var action = rollback ? "roll back" : "update";
+        var warning = rollback
+            ? "An older version may not understand the current mail database. Magpie will create a separate settings, sign-in and SQLite database backup before changing the executable."
+            : "You have chosen a specific release. Magpie will verify its SHA-256 before changing the executable.";
+        var confirmation = MessageBox.Show(
+            $"Do you want to {action} Magpie {Current} to {chosen.Version}{(picker.IsBeta ? " (BETA)" : "")}?\\n\\n{warning}\\n\\nContinue?",
+            "Confirm selected version", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.Yes) return;
+
+        if (rollback)
+        {
+            try
+            {
+                Title = "Backing up Magpie data before rollback…";
+                Detail = "Creating a consistent SQLite database copy and preserving your settings.";
+                var backup = await Task.Run(BackupRollbackProfile);
+                Log.Info("Rollback profile backup created at " + backup);
+            }
+            catch (Exception ex)
+            {
+                Ui.Error("Rollback stopped", "Magpie could not back up your local data. No downgrade has started.\\n\\n" + ex.Message);
+                return;
+            }
+        }
+
+        _release = chosen;
+        _downloaded = null;
+        _installed = false;
+        OnPropertyChanged(nameof(NewVersion));
+        OnPropertyChanged(nameof(IsUpdateVisible));
+        OnPropertyChanged(nameof(ButtonText));
+        Notes = TrimNotes(chosen.Notes);
+        Title = $"Magpie {chosen.Version} selected";
+        Detail = rollback ? "Rolling back to the selected verified release." : "Updating to the selected verified release.";
+        State = UpdateState.Available;
+        await DownloadAsync();
+        if (State == UpdateState.Ready) await RestartAsync();
+    }
+
+    private static string BackupRollbackProfile()
+    {
+        var paths = AppPaths.Default();
+        var folder = Path.Combine(paths.Root, "backups", "rollback-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff"));
+        Directory.CreateDirectory(folder);
+        foreach (var input in new[] { paths.Settings, paths.Secrets, Path.Combine(paths.Root, AppPaths.MailFolderFile) })
+            if (File.Exists(input)) File.Copy(input, Path.Combine(folder, Path.GetFileName(input)), overwrite: false);
+
+        // SQLite online backup remains consistent while Magpie's mail database is in use.
+        if (File.Exists(paths.Database))
+        {
+            using var source = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = paths.Database, Mode = SqliteOpenMode.ReadOnly }.ToString());
+            using var destination = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(folder, "mail.db"), Mode = SqliteOpenMode.ReadWriteCreate }.ToString());
+            source.Open();
+            destination.Open();
+            source.BackupDatabase(destination);
+        }
+        return folder;
+    }
+
     [RelayCommand] private void OpenReleasePage() => Ui.OpenExternal(PageUrl);
 
     public async Task CheckAsync(bool automatic)
@@ -264,6 +347,11 @@ public sealed partial class UpdateService : ObservableObject
             cfg.LastCheck = DateTimeOffset.Now;
             engine.Settings.Save(notify: false);
             LastChecked = "Last checked " + DateTime.Now.ToString("d MMM, HH:mm");
+            if (automatic && PinnedVersion is { Length: > 0 } pinned)
+            {
+                Idle("Magpie version pinned", $"Pinned to v{pinned}. Open Settings → Updates to change it.");
+                return;
+            }
             if (rel == null)
             {
                 Title = $"Magpie {Current} is up to date";
@@ -280,7 +368,7 @@ public sealed partial class UpdateService : ObservableObject
             State = UpdateState.Available;
             Log.Info($"update available: {rel.Version}");
             // Not awaited: the download runs on while the caller (the title-bar button, Settings) shows "available" at once.
-            if (cfg.AutoUpdate == true) _ = DownloadAsync();
+            // Never download/install the latest version without a user-selected action.
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -315,7 +403,7 @@ public sealed partial class UpdateService : ObservableObject
             Title = $"Magpie {_release.Version} is ready";
             Detail = "Download checked (SHA-256 matches). Restarting takes a few seconds.";
             State = UpdateState.Ready;
-            if (AppServices.Engine.Config.Updates.AutoUpdate == true) InstallInBackground();
+            // The verified file remains staged until the user explicitly requests installation.
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -417,6 +505,11 @@ public sealed partial class UpdateService : ObservableObject
             Detail = "Magpie went back to " + Current + ". Details are in the log.";
             State = UpdateState.Error;
             return;
+        }
+        if (_release is { } selected)
+        {
+            try { File.WriteAllText(VersionPinPath, selected.Version.ToString()); }
+            catch (Exception ex) { Log.Warn("Could not persist selected version pin: " + ex.Message); }
         }
         Log.Info($"updating {Current} → {NewVersion}: handing over to the new EXE");
         AppServices.Current.ExitForUpdate();

@@ -1470,6 +1470,7 @@
                                 </Border>
                                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                     <Button Style="{StaticResource Button.Primary}" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvBool}}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Choose version / Roll back" Command="{Binding OpenVersionHistoryCommand}" Margin="0,0,8,0" />
                                     <Button Style="{StaticResource Button.Secondary}" Content="Later" FontWeight="Normal" Command="{Binding LaterCommand}" Margin="0,0,8,0"
                                             Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
                                     <Button Style="{StaticResource Button.Secondary}" Content="Skip this version" FontWeight="Normal" Command="{Binding SkipCommand}"
@@ -1483,8 +1484,8 @@
                             <StackPanel>
                                 <CheckBox IsChecked="{Binding AutoUpdate, Mode=TwoWay}" Margin="0,3">
                                     <StackPanel>
-                                        <TextBlock Text="Auto update" FontWeight="SemiBold" />
-                                        <TextBlock Text="Checks at start and then once a day. A new version is downloaded, checked and installed in the background, and runs the next time you open Magpie." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        <TextBlock Text="Check automatically" FontWeight="SemiBold" />
+                                        <TextBlock Text="Checks at start and periodically. You choose which stable or beta version to install; no version is downloaded or installed automatically." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </CheckBox>
                                 <CheckBox Content="Include test versions (pre-releases)" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" Margin="0,3" />

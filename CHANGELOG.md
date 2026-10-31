@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 11.0.0 (30 Oct 2026)
+### New
+- **Choose exact stable or beta versions.** A version-history window filters newer and older verified releases, requiring explicit confirmation.
+- **Protected downgrade.** Magpie snapshots settings, sign-ins and SQLite mail database before rolling back.
+<!-- closes: #117 -->
+
 ## 10.0.0 (24 Oct 2026)
 ### New
 - **Fonts & text on Windows.** Choose a font and size independently for 53 types of text across navigation, the inbox, reading, writing, AI, Settings and the calendar. Search the roles, preview a change, reset one role or a whole area, then Apply. New writing and signatures start in Arial 18 px (13.5 pt), normal weight. Existing formatted drafts keep their appearance. Reading-font overrides are optional and leave the original email intact.
