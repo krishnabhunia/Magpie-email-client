@@ -36,6 +36,20 @@ public sealed partial class UpdateService : ObservableObject
     public static AppVersion Current { get; } = ReadCurrent();
     /// <summary>%LOCALAPPDATA%\Magpie\updates — not the roaming profile (the EXE is ~80 MB); next to the EXE when portable.</summary>
     public static string DownloadFolder => AppPaths.Default().Updates;
+    public static string VersionPinPath => Path.Combine(AppPaths.Default().Root, "version-pin.txt");
+    public static string? PinnedVersion
+    {
+        get
+        {
+            try { return File.Exists(VersionPinPath) ? File.ReadAllText(VersionPinPath).Trim() : null; }
+            catch { return null; }
+        }
+    }
+    public static void ClearVersionPin()
+    {
+        if (File.Exists(VersionPinPath)) File.Delete(VersionPinPath);
+    }
+
     /// <summary>Auto update (design A1) put the new EXE in place already; it runs from the next start.</summary>
     private bool _installed;
 
@@ -169,7 +183,7 @@ public sealed partial class UpdateService : ObservableObject
     {
         switch (State)
         {
-            case UpdateState.Available: await DownloadAsync(); break;
+            case UpdateState.Available: await OpenVersionHistory(); break;
             case UpdateState.Ready: await RestartAsync(); break;
             case UpdateState.Checking or UpdateState.Downloading: break;
             default: await CheckAsync(automatic: false); break;
@@ -333,6 +347,11 @@ public sealed partial class UpdateService : ObservableObject
             cfg.LastCheck = DateTimeOffset.Now;
             engine.Settings.Save(notify: false);
             LastChecked = "Last checked " + DateTime.Now.ToString("d MMM, HH:mm");
+            if (automatic && PinnedVersion is { Length: > 0 } pinned)
+            {
+                Idle("Magpie version pinned", $"Pinned to v{pinned}. Open Settings → Updates to change it.");
+                return;
+            }
             if (rel == null)
             {
                 Title = $"Magpie {Current} is up to date";
@@ -486,6 +505,11 @@ public sealed partial class UpdateService : ObservableObject
             Detail = "Magpie went back to " + Current + ". Details are in the log.";
             State = UpdateState.Error;
             return;
+        }
+        if (_release is { } selected)
+        {
+            try { File.WriteAllText(VersionPinPath, selected.Version.ToString()); }
+            catch (Exception ex) { Log.Warn("Could not persist selected version pin: " + ex.Message); }
         }
         Log.Info($"updating {Current} → {NewVersion}: handing over to the new EXE");
         AppServices.Current.ExitForUpdate();
