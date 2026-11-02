@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 12.0.0 (2 Nov 2026)
 ### New
 - **Sign in once on a new PC and every account comes along.** Settings → Accounts → **Bring my accounts to other PCs** keeps a locked copy of your accounts in one mailbox you choose (the home account), in a hidden "Magpie Sync" folder. On another PC, add that account as usual: Magpie finds the copy, asks for the sync password, and adds every account you tick in one step. Their first downloads take turns, 4 at a time, Inbox first, and you can read mail from the first one that's ready.
 - **What comes along:** every account with its sign-in, and (if you choose) your rules, signatures, quick replies, templates, tags, Gatekeeper lists, look, and AI connections. Emails never go into the copy. The copy is locked with a sync password of at least 10 characters that only you know; Magpie can't recover it.

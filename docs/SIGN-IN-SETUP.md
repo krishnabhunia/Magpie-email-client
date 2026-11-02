@@ -4,7 +4,7 @@ Magpie signs in to Gmail and Outlook with **your own** free app registration, so
 mail tokens. You do this once; it takes about 5 minutes per provider. Then paste the IDs into
 **Settings → Accounts → Sign-in apps** (or use *Import Google client JSON…*).
 
-> **Since 11.0.0 (design SY1 / SA1)** the release has Magpie's own Google and Microsoft sign-in apps built in, so
+> **Since 12.0.0 (design SY1 / SA1)** the release has Magpie's own Google and Microsoft sign-in apps built in, so
 > signing in works without this page. Do it only to use your **own** registration; what you set in Settings wins.
 > The built-in apps come from three repository secrets (GitHub → Settings → Secrets and variables → Actions):
 > `MAGPIE_GOOGLE_CLIENT_ID`, `MAGPIE_GOOGLE_CLIENT_SECRET` (the Desktop app client from step 5 below) and

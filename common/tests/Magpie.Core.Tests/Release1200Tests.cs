@@ -9,7 +9,7 @@ using Xunit;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>SY1 (queue #71, approved A + SA1): sign in once on a new PC and every account comes along.</summary>
+/// <summary>SY1 (queue #71, approved A + SA1; 12.0.0): sign in once on a new PC and every account comes along.</summary>
 public class Release1200Tests
 {
     private const string Pwd = "correct horse battery";
