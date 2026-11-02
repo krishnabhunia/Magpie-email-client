@@ -110,21 +110,37 @@ internal static partial class Program
     {
         Exception? failure = null;
         MainWindow? window = null;
-        try { window = new MainWindow(); }
-        catch (Exception ex) { failure = ex; }
-        if (expectStartupFailure)
+        try
         {
-            Assert(failure is System.Windows.Markup.XamlParseException
-                && failure.GetBaseException().Message.Contains("ToggleButton", StringComparison.Ordinal),
-                "The old style fails when the real main window is constructed");
-            return;
+            try { window = new MainWindow(); }
+            catch (Exception ex) { failure = ex; }
+            if (expectStartupFailure)
+            {
+                Assert(failure is System.Windows.Markup.XamlParseException
+                    && failure.GetBaseException().Message.Contains("ToggleButton", StringComparison.Ordinal),
+                    "The old style fails when the real main window is constructed");
+                return;
+            }
+            if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
+            Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
+            Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
+            CheckUpdateButton(window!);
         }
-        if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
-        Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
-        Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
-        CheckUpdateButton(window!);
-        // Do not show or close this unstarted window: Loaded starts WebView2 and Closing exits the real App.
-        // Construction detects startup XAML/Style failures without touching user data.
+        finally
+        {
+            if (window != null)
+            {
+                // This fixture tests the real constructor/XAML without showing the window (Loaded starts WebView2).
+                // Its Closing callback exits the production App, which this isolated Application does not run.
+                // Detach only that callback and close the fixture before normal WPF application shutdown.
+                var exitHandler = typeof(MainWindow).GetMethod("OnClosing", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                    ?? throw new InvalidOperationException("The main-window fixture's application-exit handler was not found.");
+                window.Closing -= exitHandler.CreateDelegate<System.ComponentModel.CancelEventHandler>(window);
+                window.Close();
+                Assert(!Application.Current.Windows.Cast<Window>().Contains(window),
+                    "Construction-only main window is closed before application shutdown");
+            }
+        }
     }
 
 

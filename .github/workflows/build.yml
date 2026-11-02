@@ -158,6 +158,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "XAML check failed" }
 
       - name: Every referenced assembly is in the build (blocking)
+        id: assembly_refs
         shell: pwsh
         run: |
           dotnet run --project windows/build/DpDump -c Release -- --check-refs windows/Magpie.App/bin/Release/net8.0-windows10.0.19041.0/win-x64
@@ -184,6 +185,7 @@ jobs:
 
       # Different executable payloads exercise the production Windows handoff and recovery paths in temp profiles.
       - name: Windows version lifecycle smoke (native processes)
+        if: ${{ !cancelled() && steps.assembly_refs.outcome == 'success' }}
         timeout-minutes: 10
         shell: pwsh
         run: |
