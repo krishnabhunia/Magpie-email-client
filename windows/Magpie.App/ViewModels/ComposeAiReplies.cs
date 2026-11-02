@@ -125,7 +125,10 @@ public partial class ComposeViewModel
     public string CultureSummary => $"{ReplyEnglishStyle} · {(ReplyEtiquette == "Neutral" ? "neutral etiquette" : ReplyEtiquette + " etiquette")} · {ReplyDirectness.ToLowerInvariant()}";
     public bool HasVersions => _versions.Count > 1;
     public string LanguageNote => ReplyLanguage is "Match original" or "English" ? "" : $"The draft is written in {ReplyLanguage}.";
-    public string RecipientNote => !IsForward ? "" : GreetingName() is { Length: > 0 } n
+    public string RecipientNote => !IsForward ? ""
+        : _versionIndex >= 0 && _versionIndex < _versions.Count && !AiService.CanTakeRecipientName(_versions[_versionIndex].Body)
+        ? "This greeting stays as written — add the name yourself if you like."
+        : GreetingName() is { Length: > 0 } n
         ? $"Greeting uses {n}." : string.IsNullOrWhiteSpace(To) ? "No recipient yet · the greeting is \"Hi,\" and gets the name when you add one."
         : "The greeting has no name for this form of address — add it yourself if you like.";
 
@@ -370,6 +373,7 @@ public partial class ComposeViewModel
         CanPrevVersion = !ReplyDraftBusy && index > 0;
         CanNextVersion = !ReplyDraftBusy && index < _versions.Count - 1;
         OnPropertyChanged(nameof(HasVersions));
+        OnPropertyChanged(nameof(RecipientNote));
     }
 
     private void RefreshForwardGreeting()
@@ -386,6 +390,7 @@ public partial class ComposeViewModel
         UsedSummary = "";
         CanPrevVersion = CanNextVersion = false;
         OnPropertyChanged(nameof(HasVersions));
+        OnPropertyChanged(nameof(RecipientNote));
     }
 
     private string Summarise(AiStyle style, string stance)
@@ -500,7 +505,9 @@ public partial class ComposeViewModel
             ReplyDraftError = "The conversation changed while you chose. Generate the reply again.";
             return;
         }
-        StopReplyDraft(clear: false);
+        // Versions written before the conversation changed (a new email arrived) never come back: not through ‹ ›, and not
+        // when this rewrite fails or is stopped. A suggested answer read from the old conversation goes with them.
+        StopReplyDraft(clear: _replyThreadDigest.Length > 0 && _replyThreadDigest != context.Digest);
         var answer = ShowAnswerSection ? ReplyAnswer.Trim() : "";
         var stance = ShowAnswerSection ? ReplyStance : "";
         // An empty box lets Magpie suggest the answer (first draft); anything in it — typed, picked or Magpie's own

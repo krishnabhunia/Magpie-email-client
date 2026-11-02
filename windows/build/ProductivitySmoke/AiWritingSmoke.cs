@@ -78,6 +78,17 @@ internal static partial class Program
                 Assert(engine.Config.Ai.ReplyDrafts.Formality == "Very formal" && engine.Config.Ai.ReplyDrafts.Etiquette == "Japanese",
                     "Save these choices as my defaults stores them");
                 Assert(vm.CanUseReplyDraft, "Saving defaults doesn't invalidate the shown draft");
+
+                // A new email in the conversation: the rewrite starts a fresh set; older versions never come back.
+                Assert(vm.HasVersions, "Several versions before the new email");
+                var newer = engine.Store.InsertMessages(new[] { new MessageRow { AccountId = account.Id, FolderId = folder, Uid = 2,
+                    MessageId = "writing-smoke-2@example.test", ThreadKey = "writing-smoke", FromAddress = "maya@example.test", FromName = "Maya",
+                    To = "me@example.test", Subject = "Re: Q3 vendor report", Date = DateTimeOffset.Now.AddMinutes(1), SortDate = DateTimeOffset.Now.AddMinutes(1) } }).Single();
+                engine.Store.SaveBody(newer.Id, new MessageBody { Text = "Actually, Monday is fine too.", Html = "<p>Actually, Monday is fine too.</p>", ImagesComplete = true });
+                http.Content = "ASK: Can you finish it by Monday?\nANSWER: no\nGIST: No.\nDRAFT:\nHi Maya,\n\nI can't take it on, even by Monday.";
+                Run(vm.GenerateReplyDraftCommand.ExecuteAsync(null));
+                Assert(vm.ReplyDraftPreview.Contains("even by Monday") && vm.VersionLabel == "Draft 1 of 1" && !vm.HasVersions && vm.CanUseReplyDraft,
+                    "A rewrite after a new email drops the versions written before it");
             }
             finally { vm.Detach(); }
 

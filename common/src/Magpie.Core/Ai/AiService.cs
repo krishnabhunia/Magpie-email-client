@@ -497,7 +497,14 @@ public sealed class AiService
         "" => "", _ => "other",
     };
 
-    private static readonly Regex BareGreeting = new(@"^(\s*)(Hi|Hello|Hey|Dear|Respected|Good morning|Good afternoon|Good evening|Namaste)\s*,[ \t]*(\r?\n|$)", RegexOptions.IgnoreCase);
+    // The plain greetings of the writing languages Magpie offers, where "<greeting> <name>," reads naturally. Gendered forms
+    // (Estimado/a, Lieber/Liebe, Cher/Chère) and Japanese, where the name goes elsewhere, are left as written.
+    private static readonly Regex BareGreeting = new(@"^(\s*)(Hi|Hello|Hey|Dear|Respected|Good morning|Good afternoon|Good evening"
+        + @"|Namaste|Namaskar|Namaskaram|Nomoshkar|Vanakkam|Hola|Buenos días|Buenas tardes|Bonjour|Bonsoir|Hallo|Guten Tag"
+        + @"|नमस्ते|नमस्कार|নমস্কার|வணக்கம்|నమస్కారం|નમસ્તે|નમસ્કાર)\s*,[ \t]*(\r?\n|$)", RegexOptions.IgnoreCase);
+
+    /// <summary>True when a forward note starts with a bare greeting that <see cref="WithRecipientGreeting"/> can put a name after.</summary>
+    public static bool CanTakeRecipientName(string? body) => !string.IsNullOrEmpty(body) && BareGreeting.IsMatch(body);
 
     /// <summary>AW1 (Q85): a forward note written before a recipient was chosen starts "Hi,". Once one is added only that line changes.</summary>
     public static string WithRecipientGreeting(string body, string? name)

@@ -315,9 +315,18 @@ public class Release1300Tests
     [InlineData("Hi Bob,\n\nx", "Alex", "Hi Bob,\n\nx")]          // already has a name: left alone
     [InlineData("Hi,\n\nx", "", "Hi,\n\nx")]
     [InlineData("Thanks, see below", "Alex", "Thanks, see below")]
+    [InlineData("Hola,\n\nTe reenvío esto.", "Alex", "Hola Alex,\n\nTe reenvío esto.")]
+    [InlineData("Bonjour,\n\nVoici le message.", "Alex", "Bonjour Alex,\n\nVoici le message.")]
+    [InlineData("Guten Tag,\n\nanbei die E-Mail.", "Alex", "Guten Tag Alex,\n\nanbei die E-Mail.")]
+    [InlineData("नमस्ते,\n\nयह ईमेल देखें।", "Alex ji", "नमस्ते Alex ji,\n\nयह ईमेल देखें।")]
+    [InlineData("নমস্কার,\n\nমেলটি দেখুন।", "Alex", "নমস্কার Alex,\n\nমেলটি দেখুন।")]
+    [InlineData("こんにちは、\n\n転送します。", "Alex", "こんにちは、\n\n転送します。")]   // Japanese: the name doesn't go after it
+    [InlineData("Estimada,\n\nx", "Alex", "Estimada,\n\nx")]                            // gendered: left as written
     public void Recipient_greeting_changes_only_the_bare_greeting_line(string body, string name, string expected)
     {
         Assert.Equal(expected, AiService.WithRecipientGreeting(body, name));
+        // The panel says "Greeting uses …" only when the name really goes in.
+        Assert.Equal(expected != body || name.Length == 0 && AiService.CanTakeRecipientName(body), AiService.CanTakeRecipientName(body));
     }
 
     [Theory]
