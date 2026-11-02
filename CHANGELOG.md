@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 13.0.0 (3 Nov 2026)
 ### New
 - **AI note when you click Forward.** Turn on Settings → AI writing → **When I click Forward** and Magpie writes the note above the forwarded email. Pick why you're forwarding (FYI only, Please handle, Please review, Introduce, Escalate or Custom) or type it in a few words. It can add a 2-line summary and mention the attachment by name; attachment contents are never sent. The note starts "Hi," and gets the name as soon as you add a recipient, without writing it again. Forward asks for its own permission once per cloud AI connection.
 - **"What the reply says".** Under the editor, Magpie shows what the email asks ("They ask: can you finish the report by Friday?") and the answer it suggests. Change it with one click (Yes, I'll do it · No, I can't · Yes, if… · Need details · Later) or type your own, for example change "Yes, I will do it" to "No, I will not do it", then **Rewrite** (Ctrl+Enter in the panel). The last 5 versions of each draft stay available with ‹ ›.
@@ -15,6 +15,7 @@
 ### Changed
 - **The AI draft panel moved under the editor** for Reply, Reply All and Forward, and "AI reply settings" is now **Settings → AI writing**. Changing a choice no longer throws the draft away: changes are counted on the Rewrite button and sent together in one request.
 - **Formal and Informal moved from Tone to Formality.** A saved Formal tone becomes Professional + Formal, and Informal becomes Friendly + Casual. More draft languages: Marathi, Tamil, Telugu, Gujarati, Spanish, French, German and Japanese.
+- With **Bring my accounts to other PCs** sharing AI settings, the new AI writing choices come along to your other PCs; the choices remembered per contact stay on the PC where you made them.
 <!-- closes: #113 #114 #115 -->
 
 ## 12.0.0 (2 Nov 2026)

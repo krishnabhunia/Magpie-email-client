@@ -2,6 +2,7 @@ using System.Text.Json;
 using Magpie.Core.Ai;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Security;
 using Magpie.Core.Settings;
 
 namespace Magpie.Core.Tests;
@@ -362,5 +363,44 @@ public class Release1300Tests
         Assert.StartsWith("Respected Madam,", respected);
         Assert.Contains("Please do let me know", respected);
         Assert.DoesNotContain("Maya", AiWritingExample.Build(new AiReplySettings { Greeting = "No greeting" }));
+    }
+
+    [Fact]
+    public void Choices_remembered_per_contact_stay_on_each_PC_when_the_accounts_copy_shares_AI_settings()
+    {
+        var t0 = new DateTimeOffset(2026, 11, 3, 10, 0, 0, TimeSpan.Zero);
+        using var dir1 = new TempDir();
+        using var dir2 = new TempDir();
+        var s1 = new AppSettings();
+        SettingsStore.Normalise(s1);
+        var v1 = new SecretVault(dir1.File("secrets.json"), new FakeProtector());
+        s1.AccountsCopy.Enabled = true;
+        s1.AccountsCopy.IncludeAiKeys = true;
+        s1.Ai.ReplyDrafts.RememberPerContact = true;
+        s1.Ai.ReplyDrafts.Formality = "Very formal";
+        Assert.True(s1.Ai.ReplyDrafts.Remember("maya@x.test", new AiStyle { Tone = "Warm", Formality = "Casual" }, t0));
+        AccountsCopy.StartHere(s1, v1, t0);
+
+        // The shared AI block carries the switches and defaults, not the per-contact list; using a draft changes nothing to send.
+        var shared = AccountsCopy.AiOf(s1, v1);
+        Assert.Empty(shared.Settings.ReplyDrafts.ContactStyles);
+        Assert.True(shared.Settings.ReplyDrafts.RememberPerContact);
+        Assert.True(s1.Ai.ReplyDrafts.Remember("raj@x.test", new AiStyle { Tone = "Direct" }, t0.AddMinutes(5)));
+        Assert.Equal(shared.Hash, AccountsCopy.AiOf(s1, v1).Hash);
+
+        // The other PC takes the newer AI settings and keeps the people it remembered itself.
+        var copy = AccountsCopy.Unlock(AccountsCopy.Lock(AccountsCopy.Build(s1, v1, null, "PC-1", "13.0.0", t0), "correct horse battery"), "correct horse battery");
+        var s2 = new AppSettings();
+        SettingsStore.Normalise(s2);
+        var v2 = new SecretVault(dir2.File("secrets.json"), new FakeProtector());
+        s2.AccountsCopy.Enabled = true;
+        s2.Ai.ReplyDrafts.RememberPerContact = true;
+        Assert.True(s2.Ai.ReplyDrafts.Remember("li@x.test", new AiStyle { Tone = "Friendly" }, t0));
+        var plan = AccountsCopy.Compare(s2, v2, copy, t0.AddMinutes(1));
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(s2, v2, copy, plan);
+        Assert.Equal("Very formal", s2.Ai.ReplyDrafts.Formality);
+        Assert.Equal("Friendly", s2.Ai.ReplyDrafts.StyleFor("li@x.test")!.Tone);
+        Assert.Null(s2.Ai.ReplyDrafts.StyleFor("maya@x.test"));
     }
 }

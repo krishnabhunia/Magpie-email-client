@@ -200,6 +200,9 @@ public static class AccountsCopy
         // What each PC learns by itself in the background (the provider's model list, refused settings, the notice it
         // dismissed) isn't part of it: those change daily and would make an old key win.
         foreach (var conn in ai.Settings.Connections) { conn.Models = new(); conn.ModelsCheckedAt = null; conn.Unsupported = new(); conn.DismissedNewModel = ""; }
+        // The same for the choices remembered per contact (AW1): they change with every AI draft, so each PC keeps its own
+        // (the switch itself comes along).
+        if (ai.Settings.ReplyDrafts != null) ai.Settings.ReplyDrafts.ContactStyles = new();
         foreach (var c in ai.Settings.Connections)
             if (vault.Get(SecretVault.AiKeyFor(c.Id)) is { Length: > 0 } key) ai.Keys[c.Id] = key;
         ai.Hash = StampFree(ai, c => { c.Hash = ""; c.Changed = default; });
@@ -477,8 +480,10 @@ public static class AccountsCopy
             {
                 var consents = s.Ai.Consents;
                 var learned = s.Ai.Connections.ToDictionary(x => x.Id);
+                var contactStyles = s.Ai.ReplyDrafts?.ContactStyles;
                 s.Ai = Copy(ca.Settings);
                 s.Ai.Consents = consents ?? new();
+                (s.Ai.ReplyDrafts ??= new()).ContactStyles = contactStyles ?? new();   // this PC's own (see AiOf)
                 // Keep what this PC learned by itself about a connection it already had.
                 foreach (var conn in s.Ai.Connections)
                     if (learned.TryGetValue(conn.Id, out var old) && old.Provider == conn.Provider && old.Endpoint == conn.Endpoint)
