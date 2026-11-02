@@ -560,23 +560,15 @@ public partial class MainViewModel : ObservableObject
             var now = DateTimeOffset.Now;
             foreach (var f in mine) newLabels |= sbs.LabelOpened.TryAdd(a.Id + "|" + f.Path, now);
             node.OnlyUnreadLabels = sbs.OnlyUnreadLabels.Contains(a.Id);
-            var byPathOnce = mine.GroupBy(f => f.Path, StringComparer.Ordinal).Select(g => g.First()).ToList();
-            var layout = LabelLayout.Layout(mine, gmail, new LabelLayoutState
-            {
-                // Before the first count (at start) the folder's stored unread number stands in, so the first layout already
-                // matches the next one; ApplyCounts lays out again only if a hidden label turns out to have unread mail.
-                Unread = byPathOnce.ToDictionary(f => f.Path, f => _lastCounts.Count == 0 ? f.Unread : _lastCounts.TryGetValue(f.Id, out var c) ? c.Unread : 0, StringComparer.Ordinal),
-                Opened = byPathOnce.ToDictionary(f => f.Path, f => sbs.LabelOpened.TryGetValue(a.Id + "|" + f.Path, out var at) ? at : now, StringComparer.Ordinal),
-                AlwaysShow = sbs.AlwaysShowLabels.Where(k => k.StartsWith(a.Id + "|", StringComparison.Ordinal)).Select(k => k[(a.Id.Length + 1)..]).ToHashSet(StringComparer.Ordinal),
-                Keep = keepFolder is { } open && open.AccountId == a.Id ? new HashSet<string>(StringComparer.Ordinal) { open.Path } : new HashSet<string>(),
-                OnlyUnread = node.OnlyUnreadLabels,
-                Now = now,
-            });
+            // Before the first count (at start) the folder's stored unread number stands in, so the first layout already
+            // matches the next one; ApplyCounts lays out again whenever the counts change which labels are shown.
+            var layout = LayoutLabels(a, mine, f => _lastCounts.Count == 0 ? f.Unread : _lastCounts.TryGetValue(f.Id, out var c) ? c.Unread : 0, keepFolder, now);
+            _labelFolders[a.Id] = mine;
             var inGroup = LabelLayout.Under(layout, LabelLayout.GroupKey).Select(r => r.Path).ToHashSet(StringComparer.Ordinal);
             // Every label (shown or not) and the ones shown in their place, so ApplyCounts knows when to lay out again.
             var ownIds = layout.Where(r => r.Folder != null && !inGroup.Contains(r.Path)).Select(r => r.Folder!.Id).ToHashSet();
             _labelIds[a.Id] = mine.Where(f => !ownIds.Contains(f.Id)).Select(f => f.Id).ToHashSet();
-            _shownLabelIds[a.Id] = layout.Where(r => r.Folder != null && r.ParentPath != LabelLayout.MoreKey).Select(r => r.Folder!.Id).ToHashSet();
+            _shownLabelIds[a.Id] = ShownIds(layout);
             foreach (var row in layout)
             {
                 var f = row.Folder;
@@ -976,11 +968,13 @@ public partial class MainViewModel : ObservableObject
         }
         _lastCounts = snap.ByFolder;
         _lastSubtree = snap.Subtree;
-        // Lay out again when a label that isn't shown in its place (filtered out, or in More labels) has unread mail.
+        // Lay out again when the new counts change which labels are shown in their place, either way: a hidden label got unread
+        // mail, or (only labels with unread mail / More labels) a shown one has none left. The open label always stays.
         var relayout = false;
-        foreach (var (acct, ids) in _labelIds)
-            if (_shownLabelIds.TryGetValue(acct, out var shown) && ids.Any(id => !shown.Contains(id) && snap.ByFolder.TryGetValue(id, out var c) && c.Unread > 0))
-                relayout = true;
+        var keepFolder = Current?.Kind == NavKind.Folder ? Current : null;
+        foreach (var a in _e.Accounts)
+            if (!relayout && _labelFolders.TryGetValue(a.Id, out var mine) && _shownLabelIds.TryGetValue(a.Id, out var shown))
+                relayout = !ShownIds(LayoutLabels(a, mine, f => snap.ByFolder.TryGetValue(f.Id, out var c) ? c.Unread : 0, keepFolder, DateTimeOffset.Now)).SetEquals(shown);
         foreach (var node in AccountNodes)
         {
             var unreadInAccount = 0;
@@ -1062,6 +1056,26 @@ public partial class MainViewModel : ObservableObject
     private Dictionary<string, (int Unread, int Total)> _lastSubtree = new();
     /// <summary>Per account: every label folder, and the ones shown in their place at the last layout.</summary>
     private readonly Dictionary<string, HashSet<long>> _labelIds = new(), _shownLabelIds = new();
+    private readonly Dictionary<string, List<MailFolder>> _labelFolders = new();
+
+    /// <summary>Design LB1 C: one account's sidebar rows for these unread numbers (the open label always stays).</summary>
+    private List<SidebarRow> LayoutLabels(Account a, List<MailFolder> mine, Func<MailFolder, int> unread, NavItem? keepFolder, DateTimeOffset now)
+    {
+        var sbs = _e.Config.Sidebar;
+        var byPathOnce = mine.GroupBy(f => f.Path, StringComparer.Ordinal).Select(g => g.First()).ToList();
+        return LabelLayout.Layout(mine, a.Kind == AccountKind.Gmail, new LabelLayoutState
+        {
+            Unread = byPathOnce.ToDictionary(f => f.Path, unread, StringComparer.Ordinal),
+            Opened = byPathOnce.ToDictionary(f => f.Path, f => sbs.LabelOpened.TryGetValue(a.Id + "|" + f.Path, out var at) ? at : now, StringComparer.Ordinal),
+            AlwaysShow = sbs.AlwaysShowLabels.Where(k => k.StartsWith(a.Id + "|", StringComparison.Ordinal)).Select(k => k[(a.Id.Length + 1)..]).ToHashSet(StringComparer.Ordinal),
+            Keep = keepFolder is { } open && open.AccountId == a.Id ? new HashSet<string>(StringComparer.Ordinal) { open.Path } : new HashSet<string>(),
+            OnlyUnread = sbs.OnlyUnreadLabels.Contains(a.Id),
+            Now = now,
+        });
+    }
+
+    private static HashSet<long> ShownIds(List<SidebarRow> layout) =>
+        layout.Where(r => r.Folder != null && r.ParentPath != LabelLayout.MoreKey).Select(r => r.Folder!.Id).ToHashSet();
 
     /// <summary>"Clients" and "Clients/Acme" for "Clients/Acme/2026" (every parent path of a folder).</summary>
     private static IEnumerable<string> ParentPaths(MailFolder f)

@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## Next version (not released yet)
+## 11.1.0 (2 Nov 2026)
 ### Changed
 - **Gmail labels fold in the sidebar on Windows.** A label made inside another one ("Clients/Acme") now sits under its parent with an arrow to open or close it, also when Gmail keeps the parent only as a name with no mail of its own. A closed parent shows how many unread emails its labels hold.
 - **All your labels in one group.** Gmail's own folders (Inbox, Sent, Drafts, All Mail, Spam, Trash) stay on top; your labels are in one **Labels** group (**Folders** for other accounts) that opens or closes with one click and stays as you left it.

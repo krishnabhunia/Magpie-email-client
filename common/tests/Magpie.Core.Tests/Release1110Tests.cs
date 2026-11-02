@@ -6,7 +6,7 @@ using Xunit;
 namespace Magpie.Core.Tests;
 
 /// <summary>LB1 C (queue #83): Gmail labels that fold — containers, the Labels group, More labels.</summary>
-public class Release1010Tests
+public class Release1110Tests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
 
