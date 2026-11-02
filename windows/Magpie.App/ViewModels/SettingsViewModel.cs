@@ -212,6 +212,10 @@ public partial class SettingsViewModel : ObservableObject
     // Accounts
     public ObservableCollection<EditableAccount> Accounts { get; } = new();
     [ObservableProperty] private string _googleClientId = "";
+    /// <summary>Design SA1: the release brings its own sign-in apps; these fields are only for using your own.</summary>
+    public string SignInAppsNote => !string.IsNullOrEmpty(Core.Auth.BuiltInSignIn.GoogleClientId) || !string.IsNullOrEmpty(Core.Auth.BuiltInSignIn.MicrosoftClientId)
+        ? "Magpie comes with its own Google and Microsoft sign-in apps, so signing in works straight away. Fill these in only to use your own app registration instead (SIGN-IN-SETUP.md next to Magpie.exe)."
+        : "Signing in with Google or Microsoft needs your own free app registration (5 minutes, once). The steps are in SIGN-IN-SETUP.md next to Magpie.exe. Without it you can still add Gmail with an app password, and any IMAP account with its password.";
     [ObservableProperty] private string _googleClientSecret = "";
     [ObservableProperty] private string _microsoftClientId = "";
 
@@ -369,6 +373,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
         ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
+        ("Bring my accounts to other PCs", "Accounts", "Sign in once on another PC and every account comes along", "sync other pcs computer new pc spark copy sign in once home account sync password", "RowAccountsCopy"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
         ("Enable AI features", "AI", "The master switch: nothing is sent to a model while it is off", "ai enable master switch privacy", "RowAiMaster"),
         ("AI connections", "AI", "Several providers or models (OpenAI · Anthropic · Ollama · other); pick the one in use, test, delete", "ai provider connection key openai anthropic ollama endpoint api test delete add several", "RowAiProvider"),
@@ -857,10 +862,38 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand] private void RemoveTemplate(EditableTemplate? t) { if (t != null) Templates.Remove(t); }
 
     [RelayCommand]
-    private void RemoveAccount(EditableAccount? a)
+    private async Task RemoveAccount(EditableAccount? a)
     {
         if (a == null) return;
         if (!Ui.Confirm("Remove account", $"Remove {a.Email} from Magpie?\n\nIts mail stays on the server; Magpie deletes its local copy and saved sign-in.")) return;
+        // Design SY1: the home account keeps the accounts copy; ask where it goes first.
+        var copy = _e.Config.AccountsCopy;
+        var stopHere = false;
+        if (copy.Enabled && Core.Settings.AccountsCopy.Key(a.Email) == copy.HomeEmail)
+        {
+            var next = _e.Accounts.FirstOrDefault(x => x.Id != a.Original.Id);
+            var choices = next != null ? new[] { $"Move the copy to {next.Email}", "Delete the copy" } : new[] { "Delete the copy" };
+            var pick = Views.ChoiceDialog.Ask(Ui.ActiveWindow, "The accounts copy is in this mailbox",
+                $"{a.Email} holds the copy that brings your accounts to your other PCs.", choices);
+            if (pick < 0) return;
+            try
+            {
+                if (next != null && pick == 0) await _e.AccountsCopy.MoveHomeAsync(next.Email, CancellationToken.None);
+                else await _e.AccountsCopy.DisableAsync(deleteCopy: true, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                // Nothing was moved or deleted (the message says why). Removing the account anyway stops the copy here
+                // (after the clean-up check below, while the sync password is still kept).
+                if (!Ui.Confirm("The accounts copy", Core.Mail.Connector.Friendly(ex) +
+                    $"\n\nRemove {a.Email} anyway? Magpie on this PC then stops keeping the copy; nothing changes in it for your other PCs.")) return;
+                stopHere = true;
+            }
+        }
+        // Older copies a stop or move couldn't clear yet would stay in this mailbox for good once it is removed.
+        if (!await Task.Run(() => _e.AccountsCopy.CleanUpNowAsync(a.Email, CancellationToken.None))
+            && !Ui.Confirm("The accounts copy", $"Magpie couldn't clear copies of your accounts (locked with the sync password) that a stop or move left behind; with {a.Email} removed, they may stay in a mailbox, in the folder \"{Core.Settings.AccountsCopy.FolderName}\" (magpie.log says which).\n\nRemove the account anyway? You can delete that folder in the mailbox's own web page later.")) return;
+        if (stopHere) await _e.AccountsCopy.DisableAsync(deleteCopy: false, CancellationToken.None);
         _e.RemoveAccount(a.Original.Id);
         Accounts.Remove(a);
     }

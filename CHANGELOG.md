@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 12.0.0 (3 Nov 2026)
+## Next version (not released yet)
 ### New
 - **AI note when you click Forward.** Turn on Settings → AI writing → **When I click Forward** and Magpie writes the note above the forwarded email. Pick why you're forwarding (FYI only, Please handle, Please review, Introduce, Escalate or Custom) or type it in a few words. It can add a 2-line summary and mention the attachment by name; attachment contents are never sent. The note starts "Hi," and gets the name as soon as you add a recipient, without writing it again. Forward asks for its own permission once per cloud AI connection.
 - **"What the reply says".** Under the editor, Magpie shows what the email asks ("They ask: can you finish the report by Friday?") and the answer it suggests. Change it with one click (Yes, I'll do it · No, I can't · Yes, if… · Need details · Later) or type your own, for example change "Yes, I will do it" to "No, I will not do it", then **Rewrite** (Ctrl+Enter in the panel). The last 5 versions of each draft stay available with ‹ ›.
@@ -16,6 +16,15 @@
 - **The AI draft panel moved under the editor** for Reply, Reply All and Forward, and "AI reply settings" is now **Settings → AI writing**. Changing a choice no longer throws the draft away: changes are counted on the Rewrite button and sent together in one request.
 - **Formal and Informal moved from Tone to Formality.** A saved Formal tone becomes Professional + Formal, and Informal becomes Friendly + Casual. More draft languages: Marathi, Tamil, Telugu, Gujarati, Spanish, French, German and Japanese.
 <!-- closes: #113 #114 #115 -->
+
+## 12.0.0 (2 Nov 2026)
+### New
+- **Sign in once on a new PC and every account comes along.** Settings → Accounts → **Bring my accounts to other PCs** keeps a locked copy of your accounts in one mailbox you choose (the home account), in a hidden "Magpie Sync" folder. On another PC, add that account as usual: Magpie finds the copy, asks for the sync password, and adds every account you tick in one step. Their first downloads take turns, 4 at a time, Inbox first, and you can read mail from the first one that's ready.
+- **What comes along:** every account with its sign-in, and (if you choose) your rules, signatures, quick replies, templates, tags, Gatekeeper lists, look, and AI connections. Emails never go into the copy. The copy is locked with a sync password of at least 10 characters that only you know; Magpie can't recover it.
+- **Stays in step:** an account added, signed in again or changed, or a setting changed, reaches your other PCs at their next mail check; the newest change wins. Removing an account never removes it elsewhere by itself: the other PCs ask **Remove it here too** or **Keep it**. A new sync password is asked once on the other PCs.
+- **Google and Microsoft sign-in work straight away:** Magpie now comes with its own sign-in apps, so a new PC needs nothing typed before the first sign-in. Your own sign-in apps in Settings still win.
+- Windows only for now; the Mac signs in with the built-in apps too but has no accounts copy yet.
+<!-- closes: #85 -->
 
 ## 11.1.0 (2 Nov 2026)
 ### Changed
@@ -27,7 +36,6 @@
 <!-- closes: #110 -->
 
 ## 11.0.0 (30 Oct 2026)
-
 ### New
 
 The version-manager changes in this release are for Windows. Krishna deferred the macOS feature on

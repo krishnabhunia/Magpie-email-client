@@ -1,366 +1,660 @@
-using System.Text.Json;
-using Magpie.Core.Ai;
+using Magpie.Core.Auth;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Security;
 using Magpie.Core.Settings;
+using MailKit;
+using MimeKit;
+using Xunit;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>AW1 (12.0.0): AI drafts on Forward (Q85), "What the reply says" (Q86), formality and culture &amp; etiquette (Q87).</summary>
+/// <summary>SY1 (queue #71, approved A + SA1; 12.0.0): sign in once on a new PC and every account comes along.</summary>
 public class Release1200Tests
 {
-    private static AiSettings Settings(string endpoint = "https://provider.example/v1") => new()
+    private const string Pwd = "correct horse battery";
+    private static readonly DateTimeOffset T0 = new(2026, 10, 30, 10, 0, 0, TimeSpan.Zero);
+
+    /// <summary>One PC: its settings and its vault.</summary>
+    private sealed class Pc : IDisposable
     {
-        Enabled = true, Endpoint = endpoint, Model = "example-model", ActiveId = "connection-a",
-        ReplyDrafts = new AiReplySettings { Enabled = true, OnForward = true },
-    };
-
-    private static ThreadForAi Context(string text = "Could you finish the Q3 vendor report by Friday?") => new() { Text = text, Included = 1, Total = 1 };
-
-    private static FakeHttp Http(string content = "Hi Maya,\\n\\nThank you.") => new()
-    {
-        Respond = (_, _) => FakeHttp.Sse("{\"choices\":[{\"delta\":{\"content\":\"" + content + "\"}}]}", "[DONE]"),
-    };
-
-    private static (string system, string prompt) Sent(FakeHttp http)
-    {
-        using var request = JsonDocument.Parse(http.Requests.Single().body);
-        var messages = request.RootElement.GetProperty("messages");
-        return (messages[0].GetProperty("content").GetString()!, messages[1].GetProperty("content").GetString()!);
-    }
-
-    // ───────────── settings, migration ─────────────
-
-    [Theory]
-    [InlineData("Formal", "Professional", "Formal")]
-    [InlineData("informal", "Friendly", "Casual")]
-    [InlineData("Polite", "Polite", "Formal")]
-    public void Formal_and_informal_move_from_tone_to_formality(string oldTone, string tone, string formality)
-    {
-        var settings = JsonSerializer.Deserialize<AppSettings>("{\"Ai\":{\"ReplyDrafts\":{\"Enabled\":true,\"Tone\":\"" + oldTone + "\"}}}", AppSettings.Json)!;
-        SettingsStore.Normalise(settings);
-        Assert.Equal(tone, settings.Ai.ReplyDrafts.Tone);
-        Assert.Equal(formality, settings.Ai.ReplyDrafts.Formality);
-        Assert.True(settings.Ai.ReplyDrafts.Enabled);
-    }
-
-    [Fact]
-    public void Tone_list_no_longer_mixes_formality_and_new_defaults_are_safe()
-    {
-        Assert.DoesNotContain("Formal", AiReplySettings.Tones);
-        Assert.DoesNotContain("Informal", AiReplySettings.Tones);
-        Assert.Contains("Apologetic", AiReplySettings.Tones);
-        Assert.Equal(new[] { "Very casual", "Casual", "Neutral", "Formal", "Very formal" }, AiReplySettings.Formalities);
-        var d = new AiReplySettings();
-        Assert.False(d.OnForward);
-        Assert.True(d.ShowStance);
-        Assert.False(d.RememberPerContact);
-        Assert.Equal(("Professional", "Formal", "Indian English", "Neutral", "Balanced", "Auto", "Auto", "Never"),
-            (d.Tone, d.Formality, d.EnglishStyle, d.Etiquette, d.Directness, d.Greeting, d.Address, d.Emoji));
-    }
-
-    [Fact]
-    public void Unknown_culture_values_fall_back_and_bad_contact_entries_are_dropped()
-    {
-        var p = new AiReplySettings
+        public TempDir Dir { get; } = new();
+        public AppSettings S { get; } = new();
+        public SecretVault V { get; }
+        public string Name { get; }
+        public Pc(string name) { Name = name; V = new SecretVault(Dir.File("secrets.json"), new FakeProtector()); SettingsStore.Normalise(S); }
+        public Account Add(string email, string? password = "pw-x", string? refresh = null)
         {
-            Formality = "loud", EnglishStyle = "klingon", Etiquette = null!, Directness = "x", Greeting = "Yo", Address = "?", Emoji = "lots",
-            ContactStyles = new() { ["not-an-address"] = new AiStyle(), ["MAYA@Example.com"] = new AiStyle { Tone = "Informal" }, ["x@y.z"] = null! },
-        };
-        p.Normalise();
-        Assert.Equal(("Formal", "Indian English", "Neutral", "Balanced", "Auto", "Auto", "Never"),
-            (p.Formality, p.EnglishStyle, p.Etiquette, p.Directness, p.Greeting, p.Address, p.Emoji));
-        Assert.Single(p.ContactStyles);
-        Assert.True(p.ContactStyles.ContainsKey("maya@example.com"));
-        Assert.Equal("Friendly", p.ContactStyles["maya@example.com"].Tone);
-        Assert.Equal("Casual", p.ContactStyles["maya@example.com"].Formality);
+            var a = new Account { Email = email, DisplayName = email.Split('@')[0], Kind = AccountKind.Imap, ImapHost = "imap.x.test" };
+            S.Accounts.Add(a);
+            if (password != null) V.Set(SecretVault.PasswordKey(a.Id), password);
+            if (refresh != null) V.Set(SecretVault.RefreshKey(a.Id), refresh);
+            return a;
+        }
+        public AccountsCopy.Contents Write(AccountsCopy.Contents? previous, DateTimeOffset now) =>
+            AccountsCopy.Unlock(AccountsCopy.Lock(AccountsCopy.Build(S, V, previous, Name, "11.0.0", now), Pwd), Pwd);
+        public void Dispose() => Dir.Dispose();
+    }
+
+    private static Pc FirstPc()
+    {
+        var pc = new Pc("HP-OMEN");
+        pc.S.AccountsCopy.Enabled = true;
+        pc.S.AccountsCopy.HomeEmail = "home@x.test";
+        pc.Add("home@x.test");
+        pc.Add("work@x.test", password: null, refresh: "refresh-work");
+        pc.S.QuickReplies = new() { "On it." };
+        AccountsCopy.StartHere(pc.S, pc.V, T0);
+        return pc;
     }
 
     [Fact]
-    public void Forward_only_drafts_when_its_own_switch_is_on()
+    public void The_copy_is_locked_with_the_sync_password_and_says_what_it_is_without_it()
     {
-        var p = new AiReplySettings { Enabled = true };
-        Assert.True(p.ShouldGenerate(ComposeMode.Reply));
-        Assert.False(p.ShouldGenerate(ComposeMode.Forward));
-        p.OnForward = true;
-        Assert.True(p.ShouldGenerate(ComposeMode.Forward));
-        Assert.False(p.ShouldGenerate(ComposeMode.New));
-        Assert.False(p.ShouldGenerate(ComposeMode.EditDraft));
-        p.Enabled = false;
-        Assert.False(p.ShouldGenerate(ComposeMode.Forward));
-        var ai = new AiSettings();
-        ai.SetFeature(AiFeature.ForwardDraft, true);
-        Assert.True(ai.ReplyDrafts.OnForward);
-        Assert.Equal(5, (int)AiFeature.ForwardDraft);
-    }
-
-    // ───────────── per-contact style (Q87) ─────────────
-
-    [Fact]
-    public void Styles_are_remembered_per_contact_only_when_switched_on_and_clones_are_independent()
-    {
-        var p = new AiReplySettings();
-        var style = new AiStyle { Tone = "Polite", Formality = "Very formal", Etiquette = "Japanese" };
-        var now = DateTimeOffset.UtcNow;
-        Assert.False(p.Remember("client@example.jp", style, now));
-        Assert.Null(p.StyleFor("client@example.jp"));
-        p.RememberPerContact = true;
-        Assert.True(p.Remember("Client@Example.jp", style, now));
-        Assert.False(p.Remember("client@example.jp", style, now.AddMinutes(1)));   // same style, nothing to save
-        Assert.Equal("Japanese", p.StyleFor("CLIENT@example.jp")!.Etiquette);
-        Assert.False(p.Remember("no-at-sign", style, now));
-        var copy = p.Clone();
-        copy.ContactStyles["client@example.jp"].Tone = "Firm";
-        Assert.Equal("Polite", p.StyleFor("client@example.jp")!.Tone);
-        for (var i = 0; i < AiReplySettings.MaxContactStyles + 5; i++) p.Remember($"p{i}@example.com", style, now.AddSeconds(i + 10));
-        Assert.Equal(AiReplySettings.MaxContactStyles, p.ContactStyles.Count);
-        Assert.Null(p.StyleFor("client@example.jp"));   // the oldest goes first
+        using var pc = FirstPc();
+        var c = AccountsCopy.Build(pc.S, pc.V, null, pc.Name, "11.0.0", T0);
+        var file = AccountsCopy.Lock(c, Pwd);
+        Assert.DoesNotContain("refresh-work", System.Text.Encoding.UTF8.GetString(file));
+        Assert.DoesNotContain("work@x.test", System.Text.Encoding.UTF8.GetString(file));
+        var peek = AccountsCopy.Peek(file)!;
+        Assert.Equal(("HP-OMEN", 2), (peek.Pc, peek.Accounts));
+        Assert.Throws<AccountsCopy.WrongPasswordException>(() => AccountsCopy.Unlock(file, "not the password"));
+        Assert.Throws<InvalidDataException>(() => AccountsCopy.Unlock(SettingsBackup.Lock(new SettingsBackup.Contents(), Pwd), Pwd));
+        Assert.Throws<ArgumentException>(() => AccountsCopy.Lock(c, "short"));
+        var back = AccountsCopy.Unlock(file, Pwd);
+        Assert.Equal(new[] { "home@x.test", "work@x.test" }, back.Accounts.Select(a => a.Email));
+        Assert.Equal("refresh-work", back.Accounts[1].Refresh);
+        Assert.Equal(new[] { "On it." }, back.Settings!.QuickReplies);
+        Assert.Null(back.Ai);   // AI keys only when ticked
+        Assert.Equal(T0, back.UsedBy["HP-OMEN"]);
     }
 
     [Fact]
-    public void Style_round_trips_through_settings()
+    public void A_new_PC_gets_every_account_with_its_sign_in_and_writes_nothing_back()
     {
-        var p = new AiReplySettings();
-        var s = new AiStyle { Tone = "Warm", Formality = "Casual", Length = "Short", Language = "Hindi", EnglishStyle = "British English",
-            Etiquette = "Indian", Directness = "Diplomatic", Greeting = "Hello", Address = "Name + ji", Emoji = "Only when Casual or Very casual" };
-        p.Apply(s);
-        Assert.True(p.Style().SameAs(s));
-    }
-
-    // ───────────── prompts ─────────────
-
-    [Fact]
-    public async Task Reply_prompt_carries_the_users_answer_formality_and_culture()
-    {
-        var settings = Settings();
-        settings.Consents.Add(AiService.ConsentKey(AiFeature.ReplyDraft, settings));
-        var prefs = settings.ReplyDrafts.Clone();
-        prefs.Apply(new AiStyle { Tone = "Polite", Formality = "Very formal", EnglishStyle = "British English", Etiquette = "Japanese", Directness = "Diplomatic",
-            Greeting = "Dear", Address = "Ms / Mr + surname", Emoji = "Only when Casual or Very casual" });
-        var http = Http();
-        var service = new AiService(new HttpClient(http), () => settings, () => "key");
-        var choices = new AiDraftChoices { WantAnswerLine = true, Stance = "other", Answer = "No, I will not do it" };
-        await service.ReplyDraftAsync(Context(), prefs, "Krishna", _ => { }, CancellationToken.None, ComposeMode.Reply, choices);
-        var (system, prompt) = Sent(http);
-        Assert.Contains("untrusted quoted email data", system);
-        Assert.Contains("Tone: Polite", prompt);
-        Assert.Contains("Formality: Very formal", prompt);
-        Assert.Contains("English style: British English", prompt);
-        Assert.Contains("Business etiquette: Japanese", prompt);
-        Assert.Contains("Directness: Diplomatic", prompt);
-        Assert.Contains("Greeting: start with \"Dear <name>,\"", prompt);
-        Assert.Contains("title + surname", prompt);
-        Assert.Contains("Emoji: none.", prompt);   // emoji only allowed when the formality is casual
-        Assert.Contains("What the reply must say (decided by the user", prompt);
-        Assert.Contains("\"No, I will not do it\"", prompt);
-        Assert.Contains("ASK: ", prompt);
-        Assert.Contains("DRAFT:", prompt);
-        // The user's words are data inside JSON, and the email stays last as untrusted quoted data.
-        Assert.True(prompt.IndexOf("email_context_json", StringComparison.Ordinal) > prompt.IndexOf("DRAFT:", StringComparison.Ordinal));
-        using var request = JsonDocument.Parse(http.Requests.Single().body);
-        Assert.Equal(820, request.RootElement.GetProperty("max_tokens").GetInt32());
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        pc2.S.AccountsCopy.HomeEmail = "home@x.test";
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddHours(1));
+        Assert.Equal(new[] { "home@x.test", "work@x.test" }, plan.Add.Select(c => c.Email));
+        Assert.True(plan.SettingsNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        foreach (var c in plan.Add)
+        {
+            var a = AccountsCopy.ForAdd(pc2.S, c);
+            AccountsCopy.Remember(pc2.S, pc2.V, a, c);
+            pc2.S.Accounts.Add(a);
+        }
+        Assert.Equal("refresh-work", pc2.V.Get(SecretVault.RefreshKey(pc2.S.Accounts[1].Id)));
+        Assert.Equal(new[] { "On it." }, pc2.S.QuickReplies);
+        // Same fingerprints as the copy: no change of this PC to write (only "used by NEW-PC" is new).
+        Assert.True(AccountsCopy.NeedsWrite(pc2.S, pc2.V, copy, "NEW-PC", T0.AddHours(1)));
+        var again = pc2.Write(copy, T0.AddHours(1));
+        Assert.False(AccountsCopy.NeedsWrite(pc2.S, pc2.V, again, "NEW-PC", T0.AddHours(2)));
+        Assert.All(again.Accounts, a => Assert.Equal(T0, a.Changed));
+        // A Microsoft-style new refresh token every hour is not a change.
+        pc2.V.Set(SecretVault.RefreshKey(pc2.S.Accounts[1].Id), "refresh-rotated");
+        Assert.False(AccountsCopy.Track(pc2.S, pc2.V, T0.AddHours(3)));
     }
 
     [Fact]
-    public void Without_an_answer_Magpie_is_asked_to_suggest_one_and_the_answer_is_bounded()
+    public void The_newer_change_wins_per_account_and_settings_block()
     {
-        var prompt = AiService.BuildReplyPrompt(Context(), new AiReplySettings(), "Krishna", new AiDraftChoices { WantAnswerLine = true });
-        Assert.Contains("has not chosen the answer yet", prompt);
-        Assert.DoesNotContain("What the reply must say", prompt);
-        var longAnswer = new string('n', 900);
-        var bounded = AiService.BuildReplyPrompt(Context(), new AiReplySettings(), "Krishna", new AiDraftChoices { Answer = longAnswer, Stance = "no" });
-        Assert.Contains(new string('n', 500) + "\"", bounded);
-        Assert.DoesNotContain(new string('n', 501), bounded);
-        Assert.Contains("Answer type: No", bounded);
-        Assert.DoesNotContain("ASK:", bounded);   // the header is only asked for when "What the reply says" is shown
-        var old = AiService.BuildReplyPrompt(Context(), new AiReplySettings(), "Krishna");
-        Assert.DoesNotContain("ASK:", old);
+        using var pc1 = FirstPc();
+        using var pc2 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(1));   // pc2 has the same accounts from before
+        // PC 1 changes the work signature later; PC 2 changes the quick replies even later.
+        pc1.S.Accounts[1].SignatureHtml = "<p>New signature</p>";
+        copy = pc1.Write(copy, T0.AddMinutes(10));
+        pc2.S.QuickReplies = new() { "Later reply" };
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(20));
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(21));
+        Assert.Equal("work@x.test", Assert.Single(plan.Update).Email);
+        Assert.False(plan.SettingsNewer);   // PC 2's own change is newer
+        var changed = AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("<p>New signature</p>", Assert.Single(changed).SignatureHtml);
+        Assert.Equal(pc2.S.Accounts[1].Id, changed[0].Id);   // keeps this PC's id
+        var merged = pc2.Write(copy, T0.AddMinutes(22));
+        Assert.Equal(new[] { "Later reply" }, merged.Settings!.QuickReplies);
+        Assert.Equal("<p>New signature</p>", merged.Accounts.Single(a => a.Email == "work@x.test").Account.SignatureHtml);
     }
 
     [Fact]
-    public void Magpies_own_suggestion_is_never_sent_as_the_users_decision()
+    public void Removing_an_account_never_removes_it_elsewhere_by_itself()
     {
-        var prompt = AiService.BuildReplyPrompt(Context(), new AiReplySettings(), "Krishna",
-            new AiDraftChoices { WantAnswerLine = true, Answer = "Yes, I'll transfer the payment today", AnswerIsSuggestion = true });
-        Assert.Contains("NOT confirmed by the user", prompt);
-        Assert.DoesNotContain("decided by the user", prompt);
-        Assert.DoesNotContain("Answer type:", prompt);
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = FirstPc();
+        AccountsCopy.Track(pc2.S, pc2.V, T0);
+        // PC 1 removes work@ (MailEngine.RemoveAccount notes it like this).
+        pc1.S.Accounts.RemoveAll(a => a.Email == "work@x.test");
+        pc1.S.AccountsCopy.RemovedHere["work@x.test"] = T0.AddMinutes(5);
+        pc1.S.AccountsCopy.NotHere.Add("work@x.test");
+        copy = pc1.Write(copy, T0.AddMinutes(5));
+        Assert.DoesNotContain(copy.Accounts, a => a.Email == "work@x.test");
+        Assert.Equal("HP-OMEN", copy.Removed["work@x.test"].ByPc);
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(6));
+        Assert.Equal("work@x.test", Assert.Single(plan.RemovedElsewhere).Account.Email);
+        Assert.Contains(pc2.S.Accounts, a => a.Email == "work@x.test");   // still here: PC 2 asks
+        // "Keep it" on PC 2: it counts as changed there now, so the copy gets it back and the removal note goes.
+        pc2.S.AccountsCopy.Stamps["work@x.test"].Changed = T0.AddMinutes(7);
+        var kept = AccountsCopy.Build(pc2.S, pc2.V, copy, "NEW-PC", "11.0.0", T0.AddMinutes(7));
+        Assert.Contains(kept.Accounts, a => a.Email == "work@x.test");
+        Assert.False(kept.Removed.ContainsKey("work@x.test"));
+        // Right after removing it, PC 1 doesn't offer it back; once the copy knows of the removal (the service then
+        // forgets RemovedHere), PC 1 lists it as waiting instead of adding it back by itself.
+        Assert.Empty(AccountsCopy.Compare(pc1.S, pc1.V, kept, T0.AddMinutes(8)).Available);
+        pc1.S.AccountsCopy.RemovedHere.Clear();
+        var back = AccountsCopy.Compare(pc1.S, pc1.V, kept, T0.AddMinutes(8));
+        Assert.Empty(back.Add);
+        Assert.Equal("work@x.test", Assert.Single(back.Available).Email);
     }
 
     [Fact]
-    public void Forward_feature_switch_reads_its_own_switch()
+    public void A_new_sign_in_travels_and_accounts_only_elsewhere_stay_in_the_copy()
     {
-        var ai = Settings();
-        ai.ReplyDrafts.OnForward = false;
-        Assert.Equal(AiAvailability.FeatureOff, AiService.Availability(ai, "key", AiFeature.ForwardDraft));
-        ai.ReplyDrafts.OnForward = true;
-        Assert.Equal(AiAvailability.Ready, AiService.Availability(ai, "key", AiFeature.ForwardDraft));
-    }
-
-    [Theory]
-    [InlineData("Casual", "Only when Casual or Very casual", "Emoji: at most one")]
-    [InlineData("Casual", "Never", "Emoji: none.")]
-    [InlineData("Formal", "Only when Casual or Very casual", "Emoji: none.")]
-    public void Emoji_follow_formality(string formality, string emoji, string expected)
-    {
-        var p = new AiReplySettings { Formality = formality, Emoji = emoji };
-        Assert.Contains(expected, AiService.BuildReplyPrompt(Context(), p, "Krishna"));
-    }
-
-    [Fact]
-    public async Task Forward_note_needs_its_own_switch_and_consent_before_any_request()
-    {
-        var settings = Settings();
-        settings.ReplyDrafts.OnForward = false;
-        settings.Consents.Add(AiService.ConsentKey(AiFeature.ForwardDraft, settings));
-        var http = Http();
-        var service = new AiService(new HttpClient(http), () => settings, () => "key");
-        await Assert.ThrowsAsync<AiException>(() => service.ReplyDraftAsync(Context(), settings.ReplyDrafts, "Krishna", _ => { }, CancellationToken.None, ComposeMode.Forward, new AiDraftChoices()));
-        settings.ReplyDrafts.OnForward = true;
-        settings.Consents.Clear();
-        settings.Consents.Add(AiService.ConsentKey(AiFeature.ReplyDraft, settings));   // reply consent doesn't cover Forward
-        await Assert.ThrowsAsync<AiException>(() => service.ReplyDraftAsync(Context(), settings.ReplyDrafts, "Krishna", _ => { }, CancellationToken.None, ComposeMode.Forward, new AiDraftChoices()));
-        Assert.Empty(http.Requests);
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        pc2.S.AccountsCopy.HomeEmail = "home@x.test";
+        pc2.S.AccountsCopy.NotHere.Add("work@x.test");   // "Not now" on the new PC
+        var home = AccountsCopy.ForAdd(pc2.S, copy.Accounts[0]);
+        AccountsCopy.Remember(pc2.S, pc2.V, home, copy.Accounts[0]);
+        pc2.S.Accounts.Add(home);
+        var written = pc2.Write(copy, T0.AddMinutes(1));
+        Assert.Contains(written.Accounts, a => a.Email == "work@x.test");   // not on PC 2, still in the copy
+        // PC 1 signs in to work@ again (MailEngine.UpdateAccount notes the time): PC 2 isn't asked, but a third PC updates.
+        pc1.V.Set(SecretVault.RefreshKey(pc1.S.Accounts[1].Id), "refresh-new");
+        pc1.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(9);
+        var newer = pc1.Write(written, T0.AddMinutes(10));
+        using var pc3 = FirstPc();
+        AccountsCopy.Track(pc3.S, pc3.V, T0);
+        var plan = AccountsCopy.Compare(pc3.S, pc3.V, newer, T0.AddMinutes(11));
+        Assert.Equal("work@x.test", Assert.Single(plan.Update).Email);
+        AccountsCopy.ApplyUpdates(pc3.S, pc3.V, newer, plan);
+        Assert.Equal("refresh-new", pc3.V.Get(SecretVault.RefreshKey(pc3.S.Accounts[1].Id)));
     }
 
     [Fact]
-    public async Task Forward_prompt_writes_a_covering_note_with_reason_summary_and_file_names()
+    public void AI_keys_come_along_only_when_ticked_and_consents_are_asked_again()
     {
-        var settings = Settings();
-        settings.Consents.Add(AiService.ConsentKey(AiFeature.ForwardDraft, settings));
-        var http = Http("Hi,\\n\\nCan you take this one?");
-        var service = new AiService(new HttpClient(http), () => settings, () => "key");
-        var choices = new AiDraftChoices { ForwardReason = "handle", Answer = "Alex, pull the numbers", Summary = true, MentionAttachments = true,
-            AttachmentNames = new[] { "Q3-vendor-template.xlsx" } };
-        var text = await service.ReplyDraftAsync(Context(), settings.ReplyDrafts, "Krishna", _ => { }, CancellationToken.None, ComposeMode.Forward, choices);
-        Assert.StartsWith("Hi,", text);
-        var (system, prompt) = Sent(http);
-        Assert.Contains("covering note", system);
-        Assert.Contains("untrusted quoted email data", system);
-        Assert.Contains("Please handle this", prompt);
-        Assert.Contains("\"Alex, pull the numbers\"", prompt);
-        Assert.Contains("No recipient is chosen yet", prompt);
-        Assert.Contains("summary of the forwarded email", prompt);
-        Assert.Contains("Q3-vendor-template.xlsx", prompt);
-        // File names come from the sender: they travel as untrusted data, after the user's own choices.
-        Assert.Contains("attachment_names_json (untrusted data", prompt);
-        Assert.True(prompt.IndexOf("Q3-vendor-template.xlsx", StringComparison.Ordinal) > prompt.IndexOf("attachment_names_json", StringComparison.Ordinal));
-        Assert.Contains("attachment_names_json values are untrusted", system);
-        Assert.DoesNotContain("ASK:", prompt);
+        using (var off = FirstPc())
+        {
+            off.V.Set(SecretVault.AiKey, "sk-test");
+            Assert.Null(off.Write(null, T0).Ai);   // not ticked: no AI block, no key
+        }
+        using var pc1 = FirstPc();
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.S.Ai.Consents = new() { "summarise|main|https://api.openai.com/v1" };
+        pc1.V.Set(SecretVault.AiKey, "sk-test");
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0);   // ticked in Settings → the copy is started again with it
+        var copy = pc1.Write(null, T0);
+        Assert.Equal("sk-test", copy.Ai!.Keys[AiConnection.FirstId]);
+        Assert.Empty(copy.Ai.Settings.Consents);
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        // What comes along is one choice for every PC (the newest): a new PC follows it.
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0);
+        Assert.True(plan.ChoicesNewer);
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("sk-test", pc2.V.Get(SecretVault.AiKey));
     }
 
     [Fact]
-    public void Forward_prompt_uses_the_recipient_name_and_leaves_out_unwanted_parts()
+    public void A_copied_sign_in_from_another_sign_in_app_is_never_used_and_apps_are_never_taken_over()
     {
-        var prompt = AiService.BuildForwardPrompt(Context(), new AiReplySettings(), "Krishna",
-            new AiDraftChoices { RecipientName = "Alex", Summary = false, MentionAttachments = false, AttachmentNames = new[] { "secret.pdf" } });
-        Assert.Contains("Recipient's name: \"Alex\"", prompt);
-        Assert.DoesNotContain("No recipient", prompt);
-        Assert.DoesNotContain("summary", prompt);
-        Assert.DoesNotContain("secret.pdf", prompt);
-        Assert.Contains("For your information only", prompt);
-    }
+        var before = AccountsCopy.ClientFor;
+        try
+        {
+            using var pc1 = FirstPc();
+            pc1.S.GoogleClientId = "own-app.apps.googleusercontent.com";
+            AccountsCopy.ClientFor = k => k == AccountKind.Gmail ? "own-app.apps.googleusercontent.com" : "";
+            var gmail = new Account { Email = "g@x.test", Kind = AccountKind.Gmail, Auth = AuthMethod.OAuth2 };
+            pc1.S.Accounts.Add(gmail);
+            pc1.V.Set(SecretVault.RefreshKey(gmail.Id), "refresh-from-own-app");
+            var copy = pc1.Write(null, T0);
+            Assert.Equal("own-app.apps.googleusercontent.com", copy.Accounts.Single(a => a.Email == "g@x.test").Client);
 
-    // ───────────── parsing the answer line (Q86) ─────────────
-
-    [Fact]
-    public void Draft_header_is_split_from_the_body()
-    {
-        var r = AiService.ParseDraft("ASK: Can you finish the Q3 report by Friday?\nANSWER: yes\nGIST: Yes, I'll finish it by Friday.\nDRAFT:\nDear Maya,\n\nI confirm.");
-        Assert.Equal("Can you finish the Q3 report by Friday?", r.Ask);
-        Assert.Equal("yes", r.Answer);
-        Assert.Equal("Yes, I'll finish it by Friday.", r.Gist);
-        Assert.Equal("Dear Maya,\n\nI confirm.", r.Body);
-    }
-
-    [Theory]
-    [InlineData("Hi Maya,\n\nThanks.", "Hi Maya,\n\nThanks.")]                                  // no header (10.0.0 style)
-    [InlineData("ASK: none\nANSWER: maybe\nGIST: <x>\nHi Maya,", "Hi Maya,")]                   // DRAFT: line skipped
-    [InlineData("ASK: a\nANSWER: no\nGIST: b\nDRAFT: Hi Maya, no.", "Hi Maya, no.")]             // body on the DRAFT line
-    [InlineData("\r\nASK: a\r\nANSWER: later\r\nGIST: b\r\nDRAFT:\r\nHello,\r\nLater.", "Hello,\nLater.")]
-    public void Draft_parser_tolerates_model_variations(string raw, string body)
-    {
-        Assert.Equal(body, AiService.ParseDraft(raw).Body);
-    }
-
-    [Fact]
-    public void Answers_are_normalised_and_none_means_empty()
-    {
-        var r = AiService.ParseDraft("ASK: none\nANSWER: Maybe.\nGIST: \"Let me check\"\nDRAFT:\nHi");
-        Assert.Equal("", r.Ask);
-        Assert.Equal("other", r.Answer);
-        Assert.Equal("Let me check", r.Gist);
-        Assert.Equal("conditional", AiService.ParseDraft("ANSWER: Conditional\nDRAFT:\nx").Answer);
-    }
-
-    [Theory]
-    [InlineData("AS")]
-    [InlineData("ASK: what")]
-    [InlineData("ASK: what\nANSWER: yes\nGIST: ok")]
-    [InlineData("ASK: x\nANS")]
-    [InlineData("ASK: x\nANSWER")]
-    [InlineData("ASK: x\nANSWER: yes\nGI")]
-    [InlineData("ASK: x\nANSWER: yes\nGIST: y\nDRAF")]
-    public void While_streaming_header_lines_never_show_as_draft_text(string partial)
-    {
-        Assert.Equal("", AiService.ParseDraft(partial, complete: false).Body);
-    }
-
-    // ───────────── forward greeting (Q85) ─────────────
-
-    [Theory]
-    [InlineData("Hi,\n\nCan you take this?", "Alex", "Hi Alex,\n\nCan you take this?")]
-    [InlineData("Dear,\r\nPlease see below.", "Alex", "Dear Alex,\r\nPlease see below.")]
-    [InlineData("Hi Bob,\n\nx", "Alex", "Hi Bob,\n\nx")]          // already has a name: left alone
-    [InlineData("Hi,\n\nx", "", "Hi,\n\nx")]
-    [InlineData("Thanks, see below", "Alex", "Thanks, see below")]
-    public void Recipient_greeting_changes_only_the_bare_greeting_line(string body, string name, string expected)
-    {
-        Assert.Equal(expected, AiService.WithRecipientGreeting(body, name));
-    }
-
-    [Theory]
-    [InlineData("Alex Rivera <alex@example.com>", "Alex")]
-    [InlineData("\"Rivera, Alex\" <alex@example.com>", "Alex")]
-    [InlineData("alex.rivera@example.com", "Alex")]
-    [InlineData("ops-team42@example.com", "")]
-    [InlineData("support@example.com", "")]
-    [InlineData("ALEX@example.com", "Alex")]
-    [InlineData("", "")]
-    [InlineData("not an address", "")]
-    [InlineData("Dr. Priya Sharma <p@example.com>", "Priya")]
-    [InlineData("\"Mr\" <m@example.com>", "")]
-    [InlineData("Shri Ramesh Kumar <r@example.com>", "Ramesh")]
-    public void First_name_comes_from_the_first_recipient(string to, string expected)
-    {
-        Assert.Equal(expected, AiService.FirstName(to));
+            // The new PC signs in with the release's built-in app: the copied token can't work there and isn't stored,
+            // and its own app setting stays as it is (its fresh home sign-in belongs to the built-in app).
+            using var pc2 = new Pc("NEW-PC");
+            pc2.S.AccountsCopy.Enabled = true;
+            AccountsCopy.ClientFor = _ => "built-in.apps.googleusercontent.com";
+            var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0);
+            AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+            Assert.Equal("", pc2.S.GoogleClientId);
+            var c = plan.Add.Single(x => x.Email == "g@x.test");
+            Assert.True(AccountsCopy.OtherApp(c));
+            var a = AccountsCopy.ForAdd(pc2.S, c);
+            AccountsCopy.Remember(pc2.S, pc2.V, a, c);
+            Assert.Null(pc2.V.Get(SecretVault.RefreshKey(a.Id)));   // it asks to sign in again instead
+        }
+        finally { AccountsCopy.ClientFor = before; }
+        // Settings win; empty settings fall back to the release's built-in apps (empty in a local build).
+        Assert.Equal(("mine", "s"), BuiltInSignIn.Google(" mine ", "s"));
+        Assert.Equal((BuiltInSignIn.GoogleClientId, BuiltInSignIn.GoogleClientSecret), BuiltInSignIn.Google("", ""));
+        Assert.Equal(BuiltInSignIn.MicrosoftClientId, BuiltInSignIn.Microsoft(""));
     }
 
     [Fact]
-    public void Forwarded_draft_remembers_which_email_it_forwards()
+    public void No_password_is_in_the_fingerprints_kept_in_settings()
     {
-        var account = new Account { Id = "a1", Email = "me@example.com" };
-        var row = new MessageRow { Id = 42, AccountId = "a1", ThreadKey = "t1", Subject = "Q3", FromAddress = "maya@example.com", FromName = "Maya", Date = DateTimeOffset.Now };
-        var d = Composer.Prepare(ComposeMode.Forward, account, row, null, new[] { "me@example.com" }, null);
-        Assert.Equal(42, d.ForwardOfRow);
-        Assert.Null(Composer.Prepare(ComposeMode.Reply, account, row, null, new[] { "me@example.com" }, null).ForwardOfRow);
+        using var pc = FirstPc();
+        var json = System.Text.Json.JsonSerializer.Serialize(pc.S, AppSettings.Json);
+        var a = pc.S.Accounts[0];
+        // The fingerprint is the account without its password: the same with any password.
+        Assert.Equal(AccountsCopy.AccountHash(a, null), pc.S.AccountsCopy.Stamps["home@x.test"].Hash);
+        Assert.DoesNotContain("pw-x", json);
+        // A new password counts as a change through its sign-in time (MailEngine.UpdateAccount notes it).
+        pc.S.AccountsCopy.SignedIn["home@x.test"] = T0.AddDays(1);
+        Assert.True(AccountsCopy.Track(pc.S, pc.V, T0.AddDays(1)));
     }
 
-    // ───────────── settings example ─────────────
+    [Fact]
+    public void Another_Magpie_version_writing_an_account_differently_does_not_make_two_PCs_overwrite_each_other()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        // A newer Magpie wrote the work account with a fingerprint this version can't reproduce.
+        var work = copy.Accounts.Single(a => a.Email == "work@x.test");
+        work.Hash = "NEWER-VERSION-HASH";
+        work.Changed = T0.AddMinutes(5);
+        using var pc2 = FirstPc();
+        AccountsCopy.Track(pc2.S, pc2.V, T0);
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(6));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        // Taken once; afterwards this PC has nothing newer to write for it (no back-and-forth).
+        Assert.False(AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(7)));
+        var written = AccountsCopy.Build(pc2.S, pc2.V, copy, "NEW-PC", "11.0.0", T0.AddMinutes(7));
+        Assert.Equal("NEWER-VERSION-HASH", written.Accounts.Single(a => a.Email == "work@x.test").Hash);
+        Assert.Empty(AccountsCopy.Compare(pc2.S, pc2.V, written, T0.AddMinutes(8)).Update);
+    }
 
     [Fact]
-    public void Settings_example_reflects_formality_culture_and_english_style()
+    public void Rules_for_one_account_follow_it_by_email_and_unticking_AI_takes_the_keys_out()
     {
-        var formal = AiWritingExample.Build(new AiReplySettings { Formality = "Formal" });
-        Assert.StartsWith("Dear Maya,", formal);
-        Assert.Contains("(31 Oct)", formal);
-        var casual = AiWritingExample.Build(new AiReplySettings { Formality = "Casual", Tone = "Friendly", EnglishStyle = "American English", Emoji = "Only when Casual or Very casual" });
-        Assert.StartsWith("Hi Maya,", casual);
-        Assert.Contains("(Oct 31)", casual);
-        Assert.Contains("👍", casual);
-        var respected = AiWritingExample.Build(new AiReplySettings { Formality = "Very formal", Etiquette = "Indian", Address = "Sir / Madam" });
-        Assert.StartsWith("Respected Madam,", respected);
-        Assert.Contains("Please do let me know", respected);
-        Assert.DoesNotContain("Maya", AiWritingExample.Build(new AiReplySettings { Greeting = "No greeting" }));
+        using var pc1 = FirstPc();
+        var work = pc1.S.Accounts[1];
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.V.Set(SecretVault.AiKey, "sk-test");
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0.AddSeconds(10));   // AI ticked on PC 1 after PC 2's choice
+        pc1.S.Rules = new() { new Mail.MailRule { Name = "Work only", AccountId = work.Id } };
+        using var pc2 = FirstPc();
+        AccountsCopy.Track(pc2.S, pc2.V, T0);
+        var copy = pc1.Write(null, T0.AddSeconds(30));   // the rule is PC 1's newer change
+        Assert.Equal("@work@x.test", copy.Settings!.Rules.Single().AccountId);
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(1));
+        Assert.True(plan.SettingsNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal(pc2.S.Accounts[1].Id, pc2.S.Rules.Single().AccountId);
+        Assert.True(pc2.S.AccountsCopy.IncludeAiKeys);   // the newest choice of any PC
+        // Unticked on PC 1 later: the keys leave the copy, and PC 2 follows the choice.
+        pc1.S.AccountsCopy.IncludeAiKeys = false;
+        pc1.S.AccountsCopy.ChoicesChanged = T0.AddMinutes(2);
+        var after = pc1.Write(copy, T0.AddMinutes(2));
+        Assert.Null(after.Ai);
+        var plan2 = AccountsCopy.Compare(pc2.S, pc2.V, after, T0.AddMinutes(3));
+        Assert.True(plan2.ChoicesNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, after, plan2);
+        Assert.False(pc2.S.AccountsCopy.IncludeAiKeys);
+    }
+
+    [Fact]
+    public void Joining_an_existing_copy_keeps_its_settings_and_a_stale_sign_in_never_replaces_a_fresh_one()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        // PC 2 had the same accounts and its own quick replies before it turned the copy on.
+        using var pc2 = FirstPc();
+        pc2.S.QuickReplies = new() { "PC 2's own" };
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddDays(2);   // signed in again here, after PC 1's copy
+        pc2.V.Set(SecretVault.RefreshKey(pc2.S.Accounts[1].Id), "fresh-here");
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0.AddDays(3));
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddDays(3));
+        Assert.True(plan.SettingsNewer);   // the copy's settings win
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal(new[] { "On it." }, pc2.S.QuickReplies);
+        // An older copied sign-in is never put over the newer one here.
+        AccountsCopy.Remember(pc2.S, pc2.V, pc2.S.Accounts[1], copy.Accounts.Single(a => a.Email == "work@x.test"));
+        Assert.Equal("fresh-here", pc2.V.Get(SecretVault.RefreshKey(pc2.S.Accounts[1].Id)));
+    }
+
+    /// <summary>What MailEngine.RemoveAccount notes for the copy.</summary>
+    private static void RemoveHere(Pc pc, string email, DateTimeOffset when)
+    {
+        var a = pc.S.Accounts.Single(x => x.Email == email);
+        pc.S.Accounts.Remove(a);
+        var o = pc.S.AccountsCopy;
+        o.RemovedHere[email] = when;
+        o.NotHere.Add(email);
+        o.Stamps.Remove(email);
+        o.SignedIn.Remove(email);
+        foreach (var r in pc.S.Rules.Where(r => r.AccountId == a.Id)) r.AccountId = "@" + email;
+    }
+
+    [Fact]
+    public void An_account_added_again_after_its_removal_was_written_comes_back_everywhere()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(5));
+        copy = pc1.Write(copy, T0.AddMinutes(5));
+        AccountsCopy.Settle(pc1.S, copy);
+        Assert.Empty(pc1.S.AccountsCopy.RemovedHere);
+        // Added again by hand (MailEngine.AddAccount forgets the removal and the old fingerprint).
+        pc1.S.AccountsCopy.NotHere.Remove("work@x.test");
+        pc1.Add("work@x.test", password: null, refresh: "refresh-work");
+        Assert.True(AccountsCopy.NeedsWrite(pc1.S, pc1.V, copy, pc1.Name, T0.AddMinutes(10)));
+        var back = pc1.Write(copy, T0.AddMinutes(10));
+        Assert.Contains(back.Accounts, a => a.Email == "work@x.test");
+        Assert.False(back.Removed.ContainsKey("work@x.test"));
+        Assert.Empty(AccountsCopy.Compare(pc1.S, pc1.V, back, T0.AddMinutes(11)).RemovedElsewhere);   // never asks about itself
+    }
+
+    [Fact]
+    public void A_removal_another_PC_overrode_is_not_written_again_and_waits_here()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // PC 1 removes work@ while offline; PC 2 changes it later and writes first.
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(5));
+        pc2.S.Accounts[1].SignatureHtml = "<p>Kept</p>";
+        copy = pc2.Write(copy, T0.AddMinutes(7));
+        Assert.False(AccountsCopy.NeedsWrite(pc1.S, pc1.V, copy, pc1.Name, T0.AddMinutes(8)));
+        AccountsCopy.Settle(pc1.S, copy);
+        Assert.Empty(pc1.S.AccountsCopy.RemovedHere);
+        Assert.Equal("work@x.test", Assert.Single(AccountsCopy.Compare(pc1.S, pc1.V, copy, T0.AddMinutes(8)).Available).Email);
+    }
+
+    [Fact]
+    public void Rules_for_accounts_added_in_the_same_step_or_removed_on_one_PC_keep_working()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Rules = new() { new Mail.MailRule { Name = "Work only", AccountId = pc1.S.Accounts[1].Id } };
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        // A new PC takes the settings before the accounts are added (AddFromCopy, TakeAsync).
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("@work@x.test", pc2.S.Rules.Single().AccountId);
+        foreach (var c in plan.Add) { var a = AccountsCopy.ForAdd(pc2.S, c); AccountsCopy.Remember(pc2.S, pc2.V, a, c); pc2.S.Accounts.Add(a); }
+        AccountsCopy.ResolveRules(pc2.S);   // MailEngine.AddAccounts does this
+        Assert.Equal(pc2.S.Accounts.Single(a => a.Email == "work@x.test").Id, pc2.S.Rules.Single().AccountId);
+        // Removing work@ on PC 1 doesn't change the shared settings: PC 2's rule keeps pointing at its work@.
+        var before = AccountsCopy.SharedOf(pc1.S).Hash;
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(3));
+        Assert.Equal(before, AccountsCopy.SharedOf(pc1.S).Hash);
+        // Added back on PC 1: the rule is its own again.
+        pc1.Add("work@x.test");
+        AccountsCopy.ResolveRules(pc1.S);
+        Assert.Equal(pc1.S.Accounts[1].Id, pc1.S.Rules.Single().AccountId);
+    }
+
+    [Fact]
+    public void Sign_ins_a_new_account_needs_come_along_and_a_newer_one_here_goes_back_into_the_copy()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        // An old sign-in time left on PC 2 from long ago never keeps the copy's password from a new account.
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        pc2.S.AccountsCopy.SignedIn["home@x.test"] = T0.AddDays(-30);
+        var c = copy.Accounts.Single(x => x.Email == "home@x.test");
+        var added = AccountsCopy.ForAdd(pc2.S, c);
+        AccountsCopy.Remember(pc2.S, pc2.V, added, c);
+        Assert.Equal("pw-x", pc2.V.Get(SecretVault.PasswordKey(added.Id)));
+
+        // PC 3 types a new password for work@ (T+2); PC 1 changes work@'s signature later (T+3) and writes first.
+        using var pc3 = FirstPc();
+        AccountsCopy.Join(pc3.S, pc3.V, copy, T0);
+        var work3 = pc3.S.Accounts[1];
+        pc3.V.Set(SecretVault.PasswordKey(work3.Id), "new-password");
+        pc3.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(2);
+        AccountsCopy.Track(pc3.S, pc3.V, T0.AddMinutes(2));
+        pc1.S.Accounts[1].SignatureHtml = "<p>From PC 1</p>";
+        copy = pc1.Write(copy, T0.AddMinutes(3));
+        var plan = AccountsCopy.Compare(pc3.S, pc3.V, copy, T0.AddMinutes(4));
+        AccountsCopy.ApplyUpdates(pc3.S, pc3.V, copy, plan);
+        Assert.Equal("new-password", pc3.V.Get(SecretVault.PasswordKey(work3.Id)));   // kept: newer here
+        Assert.True(AccountsCopy.NeedsWrite(pc3.S, pc3.V, copy, pc3.Name, T0.AddMinutes(4)));
+        var merged = pc3.Write(copy, T0.AddMinutes(4)).Accounts.Single(x => x.Email == "work@x.test");
+        Assert.Equal(("<p>From PC 1</p>", "new-password"), (merged.Account.SignatureHtml, merged.Password));
+        Assert.Equal(T0.AddMinutes(2), merged.SignedIn);
+    }
+
+    [Fact]
+    public void A_sign_in_that_stopped_working_here_never_replaces_the_copys_token()
+    {
+        var before = AccountsCopy.SignInBroken;
+        try
+        {
+            using var pc1 = FirstPc();
+            var copy = pc1.Write(null, T0);
+            using var pc2 = FirstPc();
+            AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+            pc2.V.Set(SecretVault.RefreshKey(pc2.S.Accounts[1].Id), "dead-token");
+            AccountsCopy.SignInBroken = id => id == pc2.S.Accounts[1].Id;
+            var written = pc2.Write(copy, T0.AddDays(2));
+            Assert.Equal("refresh-work", written.Accounts.Single(x => x.Email == "work@x.test").Refresh);
+        }
+        finally { AccountsCopy.SignInBroken = before; }
+    }
+
+    [Fact]
+    public void What_a_PC_learned_about_its_AI_connection_stays_only_when_it_is_the_same_provider()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.S.Ai.Connections[0].Provider = AiProviderKind.OpenAI;
+        pc1.S.Ai.Connections[0].Endpoint = "https://api.openai.com/v1";
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        var mine = pc2.S.Ai.Connections[0];
+        (mine.Provider, mine.Endpoint) = (AiProviderKind.Anthropic, "https://api.anthropic.com/v1");
+        mine.Unsupported = new() { "claude-x:temperature" };
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal(AiProviderKind.OpenAI, pc2.S.Ai.Connections[0].Provider);
+        Assert.Empty(pc2.S.Ai.Connections[0].Unsupported);
+    }
+
+    [Fact]
+    public void A_rule_written_back_with_a_removed_accounts_id_names_it_by_email_again()
+    {
+        using var pc = FirstPc();
+        var work = pc.S.Accounts[1];
+        pc.S.Rules = new() { new Mail.MailRule { Name = "Work only", AccountId = work.Id } };
+        pc.S.AccountsCopy.FormerIds[work.Id] = "work@x.test";   // MailEngine.RemoveAccount notes it
+        pc.S.Accounts.Remove(work);
+        // An open Settings window saves the rules it loaded earlier (the old id): every save puts it right.
+        AccountsCopy.ResolveRules(pc.S);
+        Assert.Equal("@work@x.test", pc.S.Rules.Single().AccountId);
+        pc.Add("work@x.test");
+        AccountsCopy.ResolveRules(pc.S);
+        Assert.Equal(pc.S.Accounts[1].Id, pc.S.Rules.Single().AccountId);
+    }
+
+    [Fact]
+    public void An_account_added_by_hand_while_it_waits_in_the_copy_takes_the_copys_version_and_keeps_its_new_sign_in()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Accounts[1].SignatureHtml = "<p>Kept on PC 1</p>";
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = new Pc("NEW-PC");
+        pc2.S.AccountsCopy.Enabled = true;
+        // Added by hand with a password typed just now (MailEngine.AddAccount notes the sign-in time).
+        var typed = pc2.Add("work@x.test", password: "typed-here");
+        typed.ImapHost = "imap.typed.test";
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        var merged = AccountsCopy.MergeKeepingSignIn(pc2.S, pc2.V, copy.Accounts.Single(a => a.Email == "work@x.test"), typed);
+        Assert.Equal(("<p>Kept on PC 1</p>", "imap.typed.test", typed.Id), (merged.SignatureHtml, merged.ImapHost, merged.Id));
+        Assert.Same(merged, pc2.S.Accounts.Single());
+        Assert.Equal("typed-here", pc2.V.Get(SecretVault.PasswordKey(typed.Id)));
+        // Its newer sign-in goes into the copy; the copy's signature stays.
+        var written = pc2.Write(copy, T0.AddMinutes(6)).Accounts.Single(a => a.Email == "work@x.test");
+        Assert.Equal(("<p>Kept on PC 1</p>", "typed-here"), (written.Account.SignatureHtml, written.Password));
+    }
+
+    [Fact]
+    public void A_note_says_what_it_is_without_the_password_and_never_where_it_moved()
+    {
+        var stopped = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = T0, FromPc = "HP-OMEN", Stopped = true }, Pwd);
+        var moved = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = T0, FromPc = "HP-OMEN", MovedTo = "secret-new-home@x.test" }, Pwd);
+        Assert.Equal((true, false, T0), (AccountsCopy.Peek(stopped)!.IsNote, AccountsCopy.Peek(stopped)!.IsMoved, AccountsCopy.Peek(stopped)!.Updated));
+        Assert.True(AccountsCopy.Peek(moved)!.IsMoved);
+        Assert.True(AccountsCopy.Peek(stopped)!.IsStopped);
+        Assert.False(AccountsCopy.Peek(moved)!.IsStopped);
+        Assert.DoesNotContain("secret-new-home", System.Text.Encoding.UTF8.GetString(moved));
+    }
+
+    [Fact]
+    public void An_account_added_by_hand_before_the_copy_was_looked_at_takes_its_version_at_the_next_look()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.Accounts[1].SignatureHtml = "<p>From PC 1</p>";
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // Added by hand right after start (MailEngine.AddAccount → AdoptWaiting: nothing seen yet).
+        pc2.S.Accounts.RemoveAll(a => a.Email == "work@x.test");
+        pc2.S.AccountsCopy.Stamps.Remove("work@x.test");
+        var typed = pc2.Add("work@x.test", password: "typed-here");
+        typed.ImapHost = "imap.typed.test";
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        pc2.S.AccountsCopy.Adopt.Add("work@x.test");
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+        Assert.Equal(DateTimeOffset.MinValue, pc2.S.AccountsCopy.Stamps["work@x.test"].Changed);
+        // Not written over the copy's version meanwhile, and not asked about as "removed".
+        Assert.DoesNotContain(AccountsCopy.Build(pc2.S, pc2.V, copy, pc2.Name, "11.0.0", T0.AddMinutes(6)).Accounts,
+            a => a.Email == "work@x.test" && a.Account.SignatureHtml != "<p>From PC 1</p>");
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(6));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        var merged = pc2.S.Accounts.Single(a => a.Email == "work@x.test");
+        Assert.Equal(("<p>From PC 1</p>", "imap.typed.test", typed.Id), (merged.SignatureHtml, merged.ImapHost, merged.Id));
+        Assert.Empty(pc2.S.AccountsCopy.Adopt);
+        Assert.Equal("typed-here", pc2.Write(copy, T0.AddMinutes(7)).Accounts.Single(a => a.Email == "work@x.test").Password);
+    }
+
+    [Fact]
+    public void A_removal_on_another_PC_after_an_account_was_added_here_by_hand_is_still_asked_about()
+    {
+        using var pc1 = FirstPc();
+        var copy = pc1.Write(null, T0);
+        using var pc2 = FirstPc();
+        AccountsCopy.Join(pc2.S, pc2.V, copy, T0);
+        // PC 2 adds work@ by hand at T+5 (before it looked at the copy); PC 1 removes work@ later, at T+10.
+        pc2.S.Accounts.RemoveAll(a => a.Email == "work@x.test");
+        pc2.S.AccountsCopy.Stamps.Remove("work@x.test");
+        pc2.Add("work@x.test");
+        pc2.S.AccountsCopy.SignedIn["work@x.test"] = T0.AddMinutes(5);
+        pc2.S.AccountsCopy.Adopt.Add("work@x.test");
+        AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+        RemoveHere(pc1, "work@x.test", T0.AddMinutes(10));
+        copy = pc1.Write(copy, T0.AddMinutes(10));
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(11));
+        Assert.Equal("work@x.test", Assert.Single(plan.RemovedElsewhere).Account.Email);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        // Its time here is when it was added, so the newer removal stays in the copy until PC 2 answers.
+        Assert.Equal(T0.AddMinutes(5), pc2.S.AccountsCopy.Stamps["work@x.test"].Changed);
+        Assert.True(pc2.Write(copy, T0.AddMinutes(12)).Removed.ContainsKey("work@x.test"));
+    }
+
+    [Fact]
+    public void A_cleared_AI_key_is_cleared_on_the_other_PCs_too()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.V.Set(SecretVault.AiKeyFor(AiConnection.FirstId), "sk-old");
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("sk-old", pc2.V.Get(SecretVault.AiKeyFor(AiConnection.FirstId)));
+        pc1.V.Set(SecretVault.AiKeyFor(AiConnection.FirstId), null);   // cleared on PC 1
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(3));
+        copy = pc1.Write(copy, T0.AddMinutes(3));
+        plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(4));
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Null(pc2.V.Get(SecretVault.AiKeyFor(AiConnection.FirstId)));
+    }
+
+    [Fact]
+    public void A_PC_without_a_usable_sign_in_never_takes_the_working_one_out_of_the_copy()
+    {
+        var before = AccountsCopy.ClientFor;
+        try
+        {
+            AccountsCopy.ClientFor = _ => "app-a";
+            using var pc1 = FirstPc();
+            var g = new Account { Email = "g@x.test", Kind = AccountKind.Gmail, Auth = AuthMethod.OAuth2 };
+            pc1.S.Accounts.Add(g);
+            pc1.V.Set(SecretVault.RefreshKey(g.Id), "refresh-from-app-a");
+            var copy = pc1.Write(null, T0);
+            // PC 2 uses another sign-in app: the token isn't taken there; then its user changes the signature.
+            AccountsCopy.ClientFor = _ => "app-b";
+            using var pc2 = FirstPc();
+            var c = copy.Accounts.Single(x => x.Email == "g@x.test");
+            var a = AccountsCopy.ForAdd(pc2.S, c);
+            AccountsCopy.Remember(pc2.S, pc2.V, a, c);
+            pc2.S.Accounts.Add(a);
+            a.SignatureHtml = "<p>Changed on PC 2</p>";
+            AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+            var written = pc2.Write(copy, T0.AddMinutes(5)).Accounts.Single(x => x.Email == "g@x.test");
+            Assert.Equal(("<p>Changed on PC 2</p>", "refresh-from-app-a", "app-a"), (written.Account.SignatureHtml, written.Refresh, written.Client));
+        }
+        finally { AccountsCopy.ClientFor = before; }
+    }
+
+    [Fact]
+    public void The_copy_folder_and_email_stay_out_of_the_mail_lists()
+    {
+        Assert.True(AccountSync.IsCopyFolder("Magpie Sync", '/'));
+        Assert.True(AccountSync.IsCopyFolder("INBOX.Magpie Sync", '.'));
+        Assert.True(AccountSync.IsCopyFolder("magpie sync", '/'));
+        Assert.False(AccountSync.IsCopyFolder("Work/Magpie Sync", '/'));
+        var copyMail = new MessageSummary(0) { UniqueId = new UniqueId(1, 5), Headers = new HeaderList { { AccountsCopy.Header, "1" } } };
+        var mail = new MessageSummary(1) { UniqueId = new UniqueId(1, 6), Headers = new HeaderList { { "Subject", "Hi" } } };
+        Assert.False(AccountSync.IsVisibleSummary(copyMail));
+        Assert.True(AccountSync.IsVisibleSummary(mail));
+        var msg = CopyMailbox.BuildMessage("home@x.test", new byte[] { 1, 2, 3 }, new AccountsCopy.Summary("HP-OMEN", 2, T0));
+        Assert.Equal("1", msg.Headers[AccountsCopy.Header]);
+        Assert.Equal(AccountsCopy.FileName, Assert.Single(msg.Attachments).ContentDisposition?.FileName);
+        Assert.Equal(AccountsCopy.Subject, msg.Subject);
+    }
+
+    [Fact]
+    public void The_sync_password_is_long_and_its_strength_is_said_plainly()
+    {
+        Assert.Equal(0, AccountsCopy.Strength("short").Score);
+        Assert.Equal(1, AccountsCopy.Strength("aaaaaaaaaaaa").Score);
+        Assert.True(AccountsCopy.Strength("Tr0ub4dor & horse staple").Score >= 3);
+        Assert.Equal(10, AccountsCopy.MinPasswordLength);
+    }
+
+    [Fact]
+    public void Old_settings_load_with_the_copy_off()
+    {
+        var s = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"AccountsCopy\":null}", AppSettings.Json)!;
+        SettingsStore.Normalise(s);
+        Assert.False(s.AccountsCopy.Enabled);
+        Assert.True(s.AccountsCopy.AutoAdd);
+        var on = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"AccountsCopy\":{\"Enabled\":true,\"HomeEmail\":\"\"}}", AppSettings.Json)!;
+        SettingsStore.Normalise(on);
+        Assert.False(on.AccountsCopy.Enabled);   // no home account: off
     }
 }

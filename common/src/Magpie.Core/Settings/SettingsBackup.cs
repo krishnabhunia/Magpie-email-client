@@ -74,37 +74,52 @@ public static class SettingsBackup
     public static byte[] Lock(Contents c, string password)
     {
         if (password.Length < MinPasswordLength) throw new ArgumentException($"Use at least {MinPasswordLength} characters.");
-        var plain = JsonSerializer.SerializeToUtf8Bytes(c);
+        return LockBytes(JsonSerializer.SerializeToUtf8Bytes(c), password, Format, c.AppVersion, c.Created);
+    }
+
+    public static Contents Unlock(byte[] file, string password) =>
+        JsonSerializer.Deserialize<Contents>(UnlockBytes(file, password, Format, "This isn't a Magpie settings backup.",
+            "This backup was made by a newer Magpie. Update Magpie, then restore it.", () => new WrongPasswordException()))
+        ?? throw new InvalidDataException("The backup is empty.");
+
+    /// <summary>The EX1 lock (PBKDF2-SHA256 600 000 rounds → AES-256-GCM, the format name as associated data);
+    /// also used by the accounts copy (design SY1). <paramref name="extra"/> goes into the file unlocked.</summary>
+    internal static byte[] LockBytes(byte[] plain, string password, string format, string appVersion, DateTimeOffset created, JsonObject? extra = null)
+    {
         var salt = RandomNumberGenerator.GetBytes(16);
         var nonce = RandomNumberGenerator.GetBytes(12);
         var key = Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, 32);
         var cipher = new byte[plain.Length];
         var tag = new byte[16];
-        using (var aes = new AesGcm(key, 16)) aes.Encrypt(nonce, plain, cipher, tag, Encoding.ASCII.GetBytes(Format));
+        using (var aes = new AesGcm(key, 16)) aes.Encrypt(nonce, plain, cipher, tag, Encoding.ASCII.GetBytes(format));
         CryptographicOperations.ZeroMemory(key);
         var file = new JsonObject
         {
-            ["format"] = Format,
+            ["format"] = format,
             ["version"] = 1,
-            ["app"] = c.AppVersion,
-            ["created"] = c.Created.ToString("o"),
-            ["kdf"] = new JsonObject { ["name"] = "pbkdf2-sha256", ["iterations"] = Iterations, ["salt"] = Convert.ToBase64String(salt) },
-            ["nonce"] = Convert.ToBase64String(nonce),
-            ["tag"] = Convert.ToBase64String(tag),
-            ["data"] = Convert.ToBase64String(cipher),
+            ["app"] = appVersion,
+            ["created"] = created.ToString("o"),
         };
+        if (extra != null) foreach (var (k, v) in extra.ToList()) { extra.Remove(k); file[k] = v; }
+        file["kdf"] = new JsonObject { ["name"] = "pbkdf2-sha256", ["iterations"] = Iterations, ["salt"] = Convert.ToBase64String(salt) };
+        file["nonce"] = Convert.ToBase64String(nonce);
+        file["tag"] = Convert.ToBase64String(tag);
+        file["data"] = Convert.ToBase64String(cipher);
         return Encoding.UTF8.GetBytes(file.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    public static Contents Unlock(byte[] file, string password)
+    /// <summary>The unlocked bytes of a file made by <see cref="LockBytes"/>, or the given exceptions.</summary>
+    internal static byte[] UnlockBytes(byte[] file, string password, string format, string notThisFormat, string newer, Func<Exception> wrongPassword)
     {
         JsonNode? n;
         try { n = JsonNode.Parse(file); } catch { n = null; }
-        if (n?["format"]?.GetValue<string>() != Format) throw new InvalidDataException("This isn't a Magpie settings backup.");
-        if ((n["version"]?.GetValue<int>() ?? 0) != 1) throw new InvalidDataException("This backup was made by a newer Magpie. Update Magpie, then restore it.");
+        if (n is not JsonObject || n["format"]?.GetValue<string>() != format) throw new InvalidDataException(notThisFormat);
+        if ((n["version"]?.GetValue<int>() ?? 0) != 1) throw new InvalidDataException(newer);
         var kdf = n["kdf"]!;
         var salt = Convert.FromBase64String(kdf["salt"]!.GetValue<string>());
         var iterations = kdf["iterations"]!.GetValue<int>();
+        // A file from somewhere else (the accounts copy lives in a mailbox) mustn't hang Magpie for hours or skip the work.
+        if (iterations < 100_000 || iterations > 5_000_000) throw new InvalidDataException(notThisFormat);
         var nonce = Convert.FromBase64String(n["nonce"]!.GetValue<string>());
         var tag = Convert.FromBase64String(n["tag"]!.GetValue<string>());
         var cipher = Convert.FromBase64String(n["data"]!.GetValue<string>());
@@ -113,11 +128,11 @@ public static class SettingsBackup
         try
         {
             using var aes = new AesGcm(key, 16);
-            aes.Decrypt(nonce, cipher, tag, plain, Encoding.ASCII.GetBytes(Format));
+            aes.Decrypt(nonce, cipher, tag, plain, Encoding.ASCII.GetBytes(format));
         }
-        catch (AuthenticationTagMismatchException) { throw new WrongPasswordException(); }
+        catch (AuthenticationTagMismatchException) { throw wrongPassword(); }
         finally { CryptographicOperations.ZeroMemory(key); }
-        return JsonSerializer.Deserialize<Contents>(plain) ?? throw new InvalidDataException("The backup is empty.");
+        return plain;
     }
 
     /// <summary>Keeps an unlocked backup for the next start, protected for this Windows user.</summary>

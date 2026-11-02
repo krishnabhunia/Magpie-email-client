@@ -13,4 +13,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Magpie.Core.Tests" />
   </ItemGroup>
+  <!-- Design SY1 / SA1: the sign-in apps built into each release, from the CI secrets of the same names (empty in a
+       local build, then Settings -> Accounts -> Sign-in apps is needed as before). See Auth/BuiltInSignIn.cs. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="MagpieGoogleClientId" Value="$(MAGPIE_GOOGLE_CLIENT_ID)" />
+    <AssemblyMetadata Include="MagpieGoogleClientSecret" Value="$(MAGPIE_GOOGLE_CLIENT_SECRET)" />
+    <AssemblyMetadata Include="MagpieMicrosoftClientId" Value="$(MAGPIE_MICROSOFT_CLIENT_ID)" />
+  </ItemGroup>
 </Project>

@@ -43,6 +43,7 @@ is enabled only after checking the version's application file, SHA-256 and compa
 |---|---|---|
 | 1 | Settings → Branches → Add branch ruleset for `main` | Require a pull request, the release **version** check, and applicable platform checks (**Windows Build / windows**, **macOS Build / macos**, **Android Build / android**). Account for path-filtered checks in rulesets: a skipped entire workflow does not report a status. Also require **Build Magpie / package** only where it runs. |
 | 2 | Settings → General → Pull Requests | "Automatically delete head branches" (tidy). |
+| 3 | Settings → Secrets and variables → Actions | Design SA1 (12.0.0): `MAGPIE_GOOGLE_CLIENT_ID`, `MAGPIE_GOOGLE_CLIENT_SECRET`, `MAGPIE_MICROSOFT_CLIENT_ID` — the sign-in apps built into each release by `build-windows.yml` and `build-macos.yml` (`docs/SIGN-IN-SETUP.md`). Empty = none built in. |
 
 ## Files
 
