@@ -24,11 +24,17 @@ internal static partial class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        // WebView2's COM callbacks need the real WPF message loop while the smoke awaits initialization/scripts.
+        app.Startup += async (_, _) => app.Shutdown(await RunSmokeAsync(app, args));
+        return app.Run();
+    }
+
+    private static async Task<int> RunSmokeAsync(Application app, string[] args)
+    {
         var root = Path.Combine(Path.GetTempPath(), "magpie-productivity-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
             var http = new RejectHttp();
             using var engine = new MailEngine(new AppPaths(root), new TestProtector(), http);
             engine.Config.MarkReadOnOpen = false;
@@ -59,12 +65,12 @@ internal static partial class Program
                 CheckFeatureSettings(owner, engine, output, theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
+                CheckVersionManager(owner, output, theme);
             }
             if (expectStartupFailure)
             {
                 owner.Close();
                 Console.WriteLine("STARTUP_STYLE_REGRESSION_REPRODUCED assertions=" + _assertions);
-                app.Shutdown();
                 return 0;
             }
             var vm = new MainViewModel();
@@ -81,12 +87,11 @@ internal static partial class Program
             Assert(http.Requests == 0, "Local workspace and cached reader made no HTTP calls");
             CheckAiReplyFlow(root, engine);
             CheckAiReplySentOnlyFallback(root, engine);
-            CheckEditorPage(root);
+            await CheckEditorPageAsync(root);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();
             Console.WriteLine("PRODUCTIVITY_SMOKE_PASSED assertions=" + _assertions);
-            app.Shutdown();
             return 0;
         }
         catch (Exception ex)
@@ -105,21 +110,37 @@ internal static partial class Program
     {
         Exception? failure = null;
         MainWindow? window = null;
-        try { window = new MainWindow(); }
-        catch (Exception ex) { failure = ex; }
-        if (expectStartupFailure)
+        try
         {
-            Assert(failure is System.Windows.Markup.XamlParseException
-                && failure.GetBaseException().Message.Contains("ToggleButton", StringComparison.Ordinal),
-                "The old style fails when the real main window is constructed");
-            return;
+            try { window = new MainWindow(); }
+            catch (Exception ex) { failure = ex; }
+            if (expectStartupFailure)
+            {
+                Assert(failure is System.Windows.Markup.XamlParseException
+                    && failure.GetBaseException().Message.Contains("ToggleButton", StringComparison.Ordinal),
+                    "The old style fails when the real main window is constructed");
+                return;
+            }
+            if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
+            Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
+            Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
+            CheckUpdateButton(window!);
         }
-        if (failure != null) throw new InvalidOperationException("MainWindow failed before it could open", failure);
-        Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
-        Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
-        CheckUpdateButton(window!);
-        // Do not show or close this unstarted window: Loaded starts WebView2 and Closing exits the real App.
-        // Construction detects startup XAML/Style failures without touching user data.
+        finally
+        {
+            if (window != null)
+            {
+                // This fixture tests the real constructor/XAML without showing the window (Loaded starts WebView2).
+                // Its Closing callback exits the production App, which this isolated Application does not run.
+                // Detach only that callback and close the fixture before normal WPF application shutdown.
+                var exitHandler = typeof(MainWindow).GetMethod("OnClosing", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                    ?? throw new InvalidOperationException("The main-window fixture's application-exit handler was not found.");
+                window.Closing -= exitHandler.CreateDelegate<System.ComponentModel.CancelEventHandler>(window);
+                window.Close();
+                Assert(!Application.Current.Windows.Cast<Window>().Contains(window),
+                    "Construction-only main window is closed before application shutdown");
+            }
+        }
     }
 
 

@@ -8,6 +8,7 @@ using Magpie.Core;
 using Magpie.Core.Models;
 using Magpie.Core.Security;
 using Magpie.Core.Settings;
+using Magpie.Core.Updates;
 
 namespace Magpie.App;
 
@@ -15,6 +16,7 @@ public partial class App : Application
 {
     private readonly CancellationTokenSource _cts = new();
     private bool _exiting;
+    public bool IsExiting => _exiting;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -28,6 +30,8 @@ public partial class App : Application
         {
             var paths = AppPaths.Default();
             var protector = new DpapiProtector();
+            // A paired recovery must finish before any settings, vault or database is opened.
+            var versionRestored = VersionBackup.ApplyPending(paths, UpdateService.Current);
             // Before anything is loaded: a settings backup waiting to be restored (design EX1), then the mail folder
             // (design DL1: a move asked for, or a chosen folder whose drive is locked or unplugged).
             if (SettingsBackup.ApplyPending(paths, protector)) Log.Info("started with restored settings");
@@ -35,6 +39,11 @@ public partial class App : Application
                 throw new IOException("The previous settings could not be recovered. The backup and recovery files have been kept in " + paths.Root + ".");
             if (!MailFolderStartup.Prepare(paths)) { Shutdown(0); return; }
             engine = new MailEngine(paths, protector);
+            if (versionRestored)
+            {
+                using var protection = VersionPin.Prepare(engine.Settings, UpdateService.VersionPinPath, UpdateService.Current);
+                protection.Commit();
+            }
         }
         catch (Exception ex)
         {
@@ -113,6 +122,7 @@ public partial class App : Application
 
         Program.StartActivationServer(args =>
         {
+            if (AppServices.Updates?.IsProfileFrozen == true) return;
             var m = ShowMain();
             var mailto = args.FirstOrDefault(a => a.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
             if (mailto != null) ComposeWindow.OpenMailto(mailto);
@@ -131,6 +141,8 @@ public partial class App : Application
             main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
                 DispatcherPriority.ApplicationIdle);
         Program.StartupComplete = true;
+        try { UpdateHistory.CompleteStartup(AppPaths.Default(), UpdateService.Current); }
+        catch (Exception ex) { Log.Error("could not record version startup completion", ex); }
         if (Program.AfterUpdate) Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
         if (engine.Accounts.Count == 0)
             main.Dispatcher.BeginInvoke(() => AddAccountWindow.ShowWelcome(main), DispatcherPriority.ApplicationIdle);
@@ -177,6 +189,7 @@ public partial class App : Application
 
     public async void ExitApp()
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         if (_exiting || _exitPending) return;
         _exitPending = true;
         try
@@ -190,6 +203,7 @@ public partial class App : Application
     /// <summary>Closes Magpie (asking about open compose windows first) and starts it again, e.g. after a restore.</summary>
     public async void RestartApp()
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         if (_exiting || _exitPending) return;
         _exitPending = true;
         try

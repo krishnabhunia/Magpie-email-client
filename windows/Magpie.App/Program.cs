@@ -10,7 +10,7 @@ namespace Magpie.App;
 public static class Program
 {
     private const string PipeName = "Magpie.Mail.Activate.v1";
-    private static Mutex? _mutex;
+    private static Services.WindowsStartup? _startup;
     public static string[] StartupArgs { get; private set; } = Array.Empty<string>();
     /// <summary>Started by the updater (design U1): the previous version is still closing.</summary>
     public static bool AfterUpdate { get; private set; }
@@ -27,23 +27,15 @@ public static class Program
         var i = Array.IndexOf(args, "--after-update");
         AfterUpdate = i >= 0;
         AfterRestart = Array.IndexOf(args, "--restart") >= 0;
-        if (AfterUpdate)
+        if (AfterUpdate) UpdatedFrom = i + 1 < args.Length ? args[i + 1] : "";
+        try { _startup = Services.WindowsStartup.Acquire(AfterUpdate, AfterRestart); }
+        catch (Exception ex)
         {
-            UpdatedFrom = i + 1 < args.Length ? args[i + 1] : "";
-            // Tell the old copy we are running, so it can quit and hand over the single-instance lock.
-            try { if (EventWaitHandle.TryOpenExisting(Services.UpdateService.StartedEvent, out var started)) using (started) started.Set(); }
-            catch { }
+            MessageBox.Show("Magpie could not acquire exclusive access to its data folder:\n\n" + ex.Message,
+                "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
+            return 1;
         }
-        bool createdNew;
-        try { _mutex = new Mutex(true, @"Local\Magpie.Mail.SingleInstance", out createdNew); }
-        catch { createdNew = true; }
-
-        if (!createdNew && (AfterUpdate || AfterRestart))
-        {
-            try { createdNew = _mutex!.WaitOne(TimeSpan.FromSeconds(60)); }
-            catch (AbandonedMutexException) { createdNew = true; }   // the old copy exited without releasing it: ours now
-            catch { createdNew = false; }
-        }
+        var createdNew = _startup.OwnsInstance;
 
         if (createdNew && !AfterUpdate)
         {
@@ -51,6 +43,30 @@ public static class Program
             var note = Magpie.Core.Updates.InstalledUpdate.Read(AppPaths.Default().Updates);
             if (note != null && note.To == Services.UpdateService.Current.ToString()) { AfterUpdate = true; UpdatedFrom = note.From; }
             else if (note != null) Magpie.Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
+            // The durable transition record also covers an interruption between the EXE swap and process launch.
+            try
+            {
+                var paths = AppPaths.Default();
+                Magpie.Core.Updates.VersionBackup.RecoverInterruptedRestore(paths);
+                var pending = Magpie.Core.Updates.UpdateHistory.List(paths).FirstOrDefault(e =>
+                    e.Status is Magpie.Core.Updates.UpdateHistory.Preparing or Magpie.Core.Updates.UpdateHistory.Downloading
+                        or Magpie.Core.Updates.UpdateHistory.Installing);
+                if (pending is { Status: Magpie.Core.Updates.UpdateHistory.Installing }
+                    && pending.To == Services.UpdateService.Current.ToString())
+                {
+                    AfterUpdate = true;
+                    UpdatedFrom = pending.From;
+                }
+                else if (pending != null && pending.From == Services.UpdateService.Current.ToString()
+                         && pending.To != Services.UpdateService.Current.ToString())
+                {
+                    // The old EXE is still in place. Cancel a staged data restore that never reached its target app.
+                    Magpie.Core.Updates.VersionBackup.CancelPendingForVersion(paths, pending.To);
+                    Magpie.Core.Updates.UpdateHistory.SetStatus(paths, pending.Id, Magpie.Core.Updates.UpdateHistory.Failed,
+                        "The transition was interrupted before the selected application started. The current application was kept.");
+                }
+            }
+            catch (Exception ex) { Log.Error("version transition recovery needs attention", ex); }
         }
 
         if (!createdNew)
@@ -85,9 +101,8 @@ public static class Program
     /// <summary>Lets another copy start now (used before relaunching the previous version after a failed update).</summary>
     public static void ReleaseSingleInstance()
     {
-        try { _mutex?.ReleaseMutex(); } catch { }
-        try { _mutex?.Dispose(); } catch { }
-        _mutex = null;
+        try { _startup?.Dispose(); } catch { }
+        _startup = null;
     }
 
     /// <summary>Listens for second launches; <paramref name="onArgs"/> runs on the UI thread.</summary>

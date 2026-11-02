@@ -1848,6 +1848,7 @@ public partial class MainViewModel : ObservableObject
 
     private PendingBulk? _pendingBulk;
     private System.Windows.Threading.DispatcherTimer? _bulkTimer;
+    private Task _bulkWork = Task.CompletedTask;
     [ObservableProperty] private string _bulkPendingText = "";
     public bool BulkPending => _pendingBulk != null;
 
@@ -1908,12 +1909,14 @@ public partial class MainViewModel : ObservableObject
     public Task CommitPendingBulk()
     {
         var pb = _pendingBulk;
-        if (pb == null) return Task.CompletedTask;
+        if (pb == null) return _bulkWork;
         _pendingBulk = null;
         _bulkTimer?.Stop();
         RefreshBulkText();
-        return Task.Run(async () =>
+        var previous = _bulkWork;
+        return _bulkWork = Task.Run(async () =>
         {
+            await previous;
             foreach (var t in pb.Items)
             {
                 try

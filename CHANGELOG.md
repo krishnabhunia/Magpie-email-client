@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 10.1.0 (30 Oct 2026)
+## Next version (not released yet)
 ### Changed
 - **Gmail labels fold in the sidebar on Windows.** A label made inside another one ("Clients/Acme") now sits under its parent with an arrow to open or close it, also when Gmail keeps the parent only as a name with no mail of its own. A closed parent shows how many unread emails its labels hold.
 - **All your labels in one group.** Gmail's own folders (Inbox, Sent, Drafts, All Mail, Spam, Trash) stay on top; your labels are in one **Labels** group (**Folders** for other accounts) that opens or closes with one click and stays as you left it.
@@ -15,6 +15,23 @@
 - **Right-click an account or its Labels group** to **Open all labels**, **Close all labels** or **Only show labels with unread mail**.
 - Windows only for now; the Mac sidebar is unchanged.
 <!-- closes: #110 -->
+
+## 11.0.0 (30 Oct 2026)
+
+### New
+
+The version-manager changes in this release are for Windows. Krishna deferred the macOS feature on
+1 Nov 2026 (IST); the existing Mac updater and build pipeline remain in place.
+
+- **Choose exact stable or beta versions on Windows.** Browse newer or older releases, filter by channel, read the release notes and check availability before choosing a version. Nothing is preselected or installed by an automatic check.
+- **Compatibility before changing versions.** Magpie checks whether the selected version supports the current mail database, settings and Windows portable or per-user installation. Missing compatibility information or unsafe downgrades are blocked before any files are replaced.
+- **Protected version changes.** Keep a recovery copy of the application and local data, view the transition history and restore a checked backup. A selected version stays pinned, including when an older application would otherwise update itself automatically.
+- **Earlier beta versions stay available.** New builds retain stable and beta release files on GitHub so later updates do not erase the version you may want to return to.
+
+### Fixed
+
+- **Windows can finish restarting after replacing its application file.** Required application components stay available while a version change or recovery starts the selected copy.
+<!-- closes: #117 -->
 
 ## 10.0.0 (24 Oct 2026)
 ### New

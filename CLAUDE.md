@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **10.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **11.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -21,10 +21,12 @@ Current release: **10.1.0** (see CHANGELOG.md). Next: whatever is queued — the
 | Rule | Meaning |
 |---|---|
 | Repo layout (GitHub Skills/github.md, 10 Oct 2026) | Top folders `docs/`, `windows/`, `macOS/`, `android/` (must exist) and `common/` (shared code: `common/src`, `common/tests`, `common/scripts`). |
-| One workflow (workflows.md) | `.github/workflows/build.yml` builds Windows, macOS and Android (a platform with no code yet is skipped). |
+| Separate platform workflows (Krishna, 2 Nov 2026) | `.github/workflows/build-windows.yml`, `build-macos.yml` and `build-android.yml` are independent, with their own path filters, build jobs and artifacts. A platform workflow never runs another platform. Shared/version changes may trigger multiple independent workflows. `.github/workflows/build.yml` only validates and assembles matching artifacts into releases. |
+| Every change through a PR (Krishna, 2 Nov 2026) | Work on a feature branch and open a PR for every change, however small. Never commit, push or merge directly into `main`. |
 | Release zip / CI download (workflows.md) | One artifact `Magpie_<version>` → `Magpie_<version>.zip` holding `portable/Magpie_<v>.exe`, `windows-x64/Magpie_<v>.exe` (installer), `macOS/Magpie_<v>.dmg`, `Android/Magpie_<v>.apk` — one file per folder, nothing else (`release_prep.py check-folders`). |
 | CI/CD | Krishna only reviews, approves and merges PRs on GitHub. Everything after that runs by itself: all tests and checks, the version bump, the release. |
-| Updates (versions_management.md, software app.md) | Every start checks GitHub (even with Auto update off); **Auto update** also downloads and installs in the background and checks once a day; Settings → Updates installs on demand; test versions optional. The title-bar button shows only when GitHub has a newer version: "Update to vx.y.z". |
+| Windows updates (approved exact-version manager, #117) | Automatic checks can be paused. Checks never select, download or install a release. Settings → Updates and the title-bar button open the stable/beta chooser; the user selects and confirms an exact compatible version. A manual choice/pin overrides legacy automatic installation. The title-bar button shows only when GitHub has a newer version: "Update to vx.y.z". |
+| Mac updates (feature deferred by Krishna, 1 Nov 2026 IST) | Keep the existing updater and build pipeline: every start checks GitHub; Auto update also checks daily, downloads and installs on quit. The Mac exact-version manager and its native readiness work are deferred. Packaged DMGs do not imply support in the new compatibility manifest. |
 | Installer | If the previous version is running, the installer updates it in the background (closes it cleanly, installs, starts it again). |
 | Version | Every program shows its version number in its main (home) window. |
 | Version numbers (30 Sep 2026, design VB1) | x.y.z — **x** when a feature is added or the UI/UX changes in a big way, **y** when a feature is changed, **z** for a bug or error fix. The number changes with every update: each PR that changes the program sets a new version (so each merge is a release). |
@@ -50,10 +52,10 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 
 1. Every PR that changes the program (`common/src/`, `windows/Magpie.App/`, `windows/installer/`, `macOS/Magpie.Mac/`, `android/app/`, `Directory.Build.props`, `global.json`, `Magpie.sln`) is a release (design VB1). Write the user-facing lines at the top of `CHANGELOG.md` under `## Next version (not released yet)`, each under `### New` (feature added / big UI-UX change → x), `### Changed` (feature changed → y) or `### Fixed` (bug or error fix → z), and put "Closes #n" in the PR body for the `[Q..]` issues it finishes. Never type the number.
 2. In the same PR run `python common/scripts/release_prep.py apply --date YYYY-MM-DD` (today, India time): it works the number out (last release + the biggest kind) and sets `Directory.Build.props` (version, release date), `windows/installer/Magpie.iss`, the CHANGELOG heading and CLAUDE.md. CI fails a PR that changes the program without a new version (`needs-version`), and `check` fails if anything is missing or the number breaks the rule.
-3. That PR's CI publishes a test version `x.y.z-beta.N` (pre-release). Krishna tries it, then merges. A PR with no new version (docs, CI) still gets one, named after the released version (`8.1.0-beta.N`): download it from the release page; the updater ranks it below 8.1.0 and never offers it. Main removes a version's test builds on every push.
-4. On merge `build.yml` publishes `vx.y.z` (EXE, installer, zip, checksums, notes), removes its test versions and closes the issues listed in the section's `<!-- closes: #n … -->` (GitHub's "Closes #n" in the PR body doesn't close them here — always fill that comment). Tags are created by CI — never push tags.
-5. Installed copies update themselves (Auto update; Settings → Updates / the title-bar Update button; SHA-256 checked, rollback on failure).
-6. PRs that only touch docs, CI, tests or build scripts need no version and release nothing.
+3. The platform workflows each produce their own temporary artifact. For PRs needing a Windows build, the release assembly workflow publishes a test version `x.y.z-beta.<commit-time>.g<sha8>` from the matching successful platform runs; all platforms resolve the same version for that commit. A Mac-only or Android-only PR keeps its own build artifact and has no Windows or combined release run. The updater ranks betas below their stable version. Stable and beta release assets are retained; Actions artifacts expire.
+4. On merge `build.yml` waits for matching successful independent platform builds and publishes `vx.y.z` (EXE, installer, zip, checksums, notes, checked compatibility manifest) when a new version is ready, then closes the issues listed in the section's `<!-- closes: #n … -->` (GitHub's "Closes #n" in the PR body doesn't close them here — always fill that comment). Tags are created by CI — never push tags.
+5. Installed Windows copies show compatible choices (Settings → Updates / the title-bar Update button), download only the confirmed version, verify SHA-256 and preserve a recovery snapshot. Missing compatibility information blocks a transition; a backup alone does not prove downgrade safety. The manifest supports only Windows portable and per-user transitions; the existing Mac updater is unchanged.
+6. PRs that only touch docs, CI, tests or build scripts need no stable version bump. Their changed paths determine which independent CI jobs run; a Windows CI run can still produce a temporary beta test release.
 
 ## Where things are
 
@@ -107,4 +109,4 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 - Google Calendar API + People API must be enabled in his Google Cloud project (the one used for Gmail sign-in) before the 1.2.0 calendar/contacts items; re-sign-in needed for the new scopes.
 - `magpie.log` review (queue #5) — the 29 Sep – 10 Oct log is fixed in 8.1.1 (offline noise, certificate soft-fail, queued changes found by Message-ID in `pending_ops.message_id`, `FetchTolerantAsync` for Gmail's FETCH NO, `AccountSync.Describe` in log lines); ask him for the next `%APPDATA%\Magpie\magpie.log` after real use.
 - Code signing: parked (unsigned by choice).
-- CI/CD (E1) needs no setup. Branch protection on `main` (require the **build** check) is recommended so a red PR can't be merged and released (`docs/CI-CD.md`).
+- CI/CD (E1) needs no setup. Branch protection on `main` should require the relevant **version**, **Windows Build / windows**, **macOS Build / macos** and **Build Magpie / package** checks rather than relying on the former combined workflow (`docs/CI-CD.md`).

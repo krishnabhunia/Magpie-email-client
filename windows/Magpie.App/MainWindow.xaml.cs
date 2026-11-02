@@ -828,6 +828,7 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        if (AppServices.Current.IsExiting || AppServices.Engine.IsStoppedForVersionChange) return;
         SavePlacement();
         // A bulk action still waiting for its Undo goes ahead — and finishes before the engine is disposed.
         try { _vm.CommitPendingBulk().GetAwaiter().GetResult(); } catch (Exception ex) { Log.Warn("bulk on close: " + ex.Message); }
@@ -862,6 +863,7 @@ public partial class MainWindow : Window
 
     public void SavePlacement()
     {
+        if (AppServices.Engine.IsStoppedForVersionChange) return;
         try
         {
             var p = AppServices.Engine.Config.Window;
