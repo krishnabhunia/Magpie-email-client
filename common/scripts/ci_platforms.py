@@ -27,7 +27,6 @@ def affected(paths: set[str], *, android_exists: bool) -> dict[str, bool]:
     shared = any(path.startswith(SHARED) for path in paths)
     windows = global_change or shared or any(path.startswith("windows/") for path in paths)
     macos = global_change or shared or any(path.startswith("macOS/") for path in paths)
-    macos |= "windows/Magpie.App/Assets/app-256.png" in paths
     android = global_change or shared or any(path.startswith("android/") for path in paths)
     return {
         "windows": windows or WORKFLOWS["windows"] in paths,

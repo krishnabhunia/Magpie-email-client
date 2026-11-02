@@ -11,11 +11,9 @@ on:
       - 'CHANGELOG.md'
       - 'Magpie.sln'
       - 'global.json'
-      - 'windows/Magpie.App/Assets/app-256.png'
       - '.github/workflows/build-macos.yml'
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
     paths:
       - 'macOS/**'
       - 'common/**'
@@ -23,7 +21,6 @@ on:
       - 'CHANGELOG.md'
       - 'Magpie.sln'
       - 'global.json'
-      - 'windows/Magpie.App/Assets/app-256.png'
       - '.github/workflows/build-macos.yml'
   workflow_dispatch:
 

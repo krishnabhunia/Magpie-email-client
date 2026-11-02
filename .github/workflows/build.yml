@@ -6,7 +6,6 @@ name: Build Magpie
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -17,9 +16,9 @@ permissions:
   issues: write         # close the [Q..] issues a release ships
   actions: read         # read successful platform artifacts from independent workflow runs
 
-# One release job at a time, so a push to main and a tag push can't race to create the same release.
+# One release job at a time for pushes to main.
 concurrency:
-  group: magpie-build-${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'release' || github.ref }}
+  group: magpie-build-${{ github.ref == 'refs/heads/main' && 'release' || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -41,6 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Select independent platform runs
+        id: platforms
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python common/scripts/ci_platforms.py
+
       # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While any PR from this
       # repository is open, its CI publishes a test version <version>-beta.<commit-time>.g<sha> (pre-release; tried through
       # Settings → Updates → "Include test versions" when the version is new, or downloaded from the release page
@@ -59,10 +64,13 @@ jobs:
           $assets = gh release view "v$v" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>$null
           # Every file the release step uploads must be there, so a release whose upload stopped half-way is finished
           # by the next run instead of being taken as complete.
-          $expected = @('Magpie.exe', "Magpie-Setup-$v.exe", "Magpie_$v.zip", 'Magpie.update.json')
-          if ((Test-Path macOS/build/build.sh) -and (Get-ChildItem macOS/Magpie.Mac/*.csproj -ErrorAction SilentlyContinue)) { $expected += "Magpie_$v.dmg" }
-          if (Test-Path android/build.sh) { $expected += "Magpie_$v.apk" }
-          $expected += $expected | ForEach-Object { "$_.sha256" }
+          $expected = @()
+          if ("${{ steps.platforms.outputs.windows }}" -eq "true") {
+            $expected += @('Magpie.exe', "Magpie-Setup-$v.exe", "Magpie_$v.zip", 'Magpie.update.json')
+          }
+          if ("${{ steps.platforms.outputs.macos }}" -eq "true") { $expected += "Magpie_$v.dmg" }
+          if ("${{ steps.platforms.outputs.android }}" -eq "true") { $expected += "Magpie_$v.apk" }
+          $expected += @($expected | ForEach-Object { "$_.sha256" })
           $missing = @($expected | Where-Object { $assets -notcontains $_ })
           $released = ($LASTEXITCODE -eq 0) -and ($missing.Count -eq 0)
           if (($LASTEXITCODE -eq 0) -and $missing.Count -gt 0) { Write-Host "Release v$v is missing: $($missing -join ', ')" }
@@ -80,12 +88,6 @@ jobs:
           "released=$($released.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           Write-Host "Version $full · released: $released · test version: $beta"
-
-      - name: Select independent platform runs
-        id: platforms
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python common/scripts/ci_platforms.py
 
       - name: Release script tests
         run: |
@@ -116,7 +118,7 @@ jobs:
     needs: version
     # A Mac-only or Android-only change gets its standalone artifact, without a Windows build.
     # No new combined release is needed for a change that did not build Windows.
-    if: needs.version.result == 'success' && needs.version.outputs.windows == 'true'
+    if: needs.version.result == 'success' && (needs.version.outputs.windows == 'true' || needs.version.outputs.macos == 'true' || needs.version.outputs.android == 'true')
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
@@ -136,6 +138,7 @@ jobs:
         run: python common/scripts/ci_wait_artifacts.py
 
       - name: Download the Windows build
+        if: needs.version.outputs.windows == 'true'
         uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
@@ -164,6 +167,7 @@ jobs:
       # Magpie_<v>.zip: portable/Magpie_<v>.exe, windows-x64/Magpie_<v>.exe (installer), macOS/Magpie_<v>.dmg,
       # Android/Magpie_<v>.apk — one file per folder (Krishna's workflow rule). The script refuses anything else.
       - name: Release zip
+        if: needs.version.outputs.windows == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -184,6 +188,7 @@ jobs:
 
       # The single file in the run's Artifacts box: Magpie_<v> (GitHub hands it out as Magpie_<v>.zip).
       - name: Upload Magpie_${{ needs.version.outputs.version }}
+        if: needs.version.outputs.windows == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ needs.version.outputs.artifact }}
@@ -196,19 +201,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p files
-          cp "$EXE_DIR/Magpie.exe" "$EXE_DIR/Magpie.exe.sha256" files/
-          cp "$SETUP_DIR"/Magpie-Setup-*.exe "$SETUP_DIR"/Magpie-Setup-*.exe.sha256 files/
-          cp "release/$ARTIFACT.zip" "release/$ARTIFACT.zip.sha256" files/
+          if [ "${{ needs.version.outputs.windows }}" = "true" ]; then
+            cp "$EXE_DIR/Magpie.exe" "$EXE_DIR/Magpie.exe.sha256" files/
+            cp "$SETUP_DIR"/Magpie-Setup-*.exe "$SETUP_DIR"/Magpie-Setup-*.exe.sha256 files/
+            cp "release/$ARTIFACT.zip" "release/$ARTIFACT.zip.sha256" files/
+          fi
           while IFS= read -r f; do
             cp "$f" files/
             sha256sum "$f" | cut -d' ' -f1 | tr a-f A-F > "files/$(basename "$f").sha256"
           done < <(find dl -type f \( -name '*.dmg' -o -name '*.apk' \))
+          test -n "$(find files -type f -print -quit)" || { echo "::error::No platform files to release"; exit 1; }
           ls -la files
 
       # The manifest binds this exact release to its database/settings schemas and checked app files.
       # Only Windows portable/per-user transitions are supported; a packaged DMG does not imply Mac support.
       # Old releases without it remain visible but are not declared compatible merely because they have a checksum.
       - name: Publish checked version compatibility
+        if: needs.version.outputs.windows == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -217,11 +226,11 @@ jobs:
           python common/scripts/update_manifest.py check "${args[@]}"
 
       # Automatic releases: a push to main whose version (Directory.Build.props) has no release yet publishes one —
-      # tag v<version>, EXE, installer, the zip, the Mac disk image and checksums, notes from CHANGELOG.md.
+      # tag v<version>, only affected-platform assets, checksums, and notes from CHANGELOG.md.
       # The Windows version chooser reads retained releases; publishing never selects a version for that user.
       - name: Is this version released yet?
         id: rel
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           if ("${{ needs.version.outputs.released }}" -eq "true") {

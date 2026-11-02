@@ -13,11 +13,11 @@ readiness claim.
 | # | Step | Who / what |
 |---|---|---|
 | 1 | Every PR that changes the program writes its lines under `## Next version (not released yet)` in `CHANGELOG.md` — each under `### New`, `### Changed` or `### Fixed` (see *Version rule*) — then runs `python common/scripts/release_prep.py apply --date YYYY-MM-DD`: works the number out, sets it in `Directory.Build.props` (+ release date) and `windows/installer/Magpie.iss`, dates the CHANGELOG heading, updates CLAUDE.md. PRs that only touch docs, CI, tests or build scripts need no stable version bump. | Claude |
-| 2 | Independent path-filtered workflows run only their platform: **Windows Build** (unit tests, XAML/ref/UI checks, EXE, installer), **macOS Build** (headless tests, signed app, DMG), **Android Build** (`android/build.sh` only if Android code exists). The **Build Magpie** release workflow validates version rules and waits for successful platform artifacts from the same revision before packaging the combined ZIP. | `build-windows.yml`, `build-macos.yml`, `build-android.yml`, `build.yml` |
-| 3 | Each platform run uses the same reproducible version for a PR commit, `x.y.z-beta.<commit-time>.g<sha8>` (pre-release). A PR with a Windows build also receives a combined test release; Mac-only and Android-only PRs keep standalone Actions artifacts. A beta built on an already released number sorts below that stable number. Stable and beta releases retain their files. | `ci_version.py`, `build.yml` |
+| 2 | Independent path-filtered workflows run only their platform: **Windows Build** (unit tests, XAML/ref/UI checks, EXE, installer), **macOS Build** (headless tests, signed app, DMG), **Android Build** (`android/build.sh` only if Android code exists). The **Build Magpie** release workflow validates version rules and waits for successful platform artifacts from the same revision before packaging Windows ZIPs or standalone macOS/Android releases. | `build-windows.yml`, `build-macos.yml`, `build-android.yml`, `build.yml` |
+| 3 | Each platform run uses the same reproducible version for a PR commit, `x.y.z-beta.<commit-time>.g<sha8>` (pre-release). A PR publishes a beta release containing only affected platform assets: a Windows change includes the Windows EXE, installer and ZIP; Mac-only or Android-only changes include their DMG or APK respectively. A beta built on an already released number sorts below that stable number. Stable and beta releases retain their files. | `ci_version.py`, `build.yml` |
 | 4 | Smoke-test it: Magpie → Settings → Updates → *Include test versions* → Check now (or download it from the release page) | **Krishna** |
 | 5 | Merge the PR — this is the deploy | **Krishna** |
-| 6 | Release `vx.y.z` is published (`Magpie.exe`, installer, `Magpie_x.y.z.zip`, the Mac `Magpie_x.y.z.dmg`, checksums, compatibility manifest, notes from CHANGELOG), marked Latest; the issues in its CHANGELOG section's `<!-- closes: #n … -->` are closed with a link to the release | `build.yml` |
+| 6 | Release `vx.y.z` is published for the changed platforms only (Windows EXE, installer, ZIP and compatibility manifest; Mac DMG; Android APK; with checksums and CHANGELOG notes), marked Latest; the issues in its CHANGELOG section's `<!-- closes: #n … -->` are closed with a link to the release | `build.yml` |
 | 7 | Windows copies check when automatic checks are enabled. Settings → Updates / the title-bar "Update to vx.y.z" button opens exact-version selection. Only the version explicitly selected and confirmed can be downloaded and installed. The existing Mac updater retains its previous behavior. | Magpie |
 
 ## Version rule (design VB1, Krishna 30 Sep 2026)
@@ -33,7 +33,7 @@ The biggest kind in the section wins (New + Fixed → x). The count starts from 
 (`common/src/`, `windows/Magpie.App/`, `windows/installer/`, `macOS/Magpie.Mac/`, `android/app/`), `Directory.Build.props`, `global.json` or `Magpie.sln` while its version is already released. Releases
 before 30 Sep 2026 keep their numbers. The version shows in the main window's title bar (design V1).
 
-Tags are created by CI — never create releases or tags by hand. The Windows version manager shows missing files or
+Tags are created by CI — tag pushes do not trigger extra platform builds. Never create releases or tags by hand. The Windows version manager shows missing files or
 compatibility information as unavailable; it never treats a missing asset as a safe update. Installation
 is enabled only after checking the version's application file, SHA-256 and compatibility manifest.
 
@@ -49,9 +49,9 @@ is enabled only after checking the version's application file, SHA-256 and compa
 | File | Job |
 |---|---|
 | `.github/workflows/build-windows.yml` | Windows-only builds, native checks and a versioned Windows artifact; triggered by Windows, shared and global changes |
-| `.github/workflows/build-macos.yml` | Mac-only tests, app bundle, DMG and a versioned Mac artifact; triggered by Mac, shared and global changes or the shared app icon |
+| `.github/workflows/build-macos.yml` | Mac-only tests, app bundle, DMG and a versioned Mac artifact; triggered by Mac, shared and global changes (never a Windows-only change) |
 | `.github/workflows/build-android.yml` | Android-only APK when an Android app exists; Android, shared and global changes never run other platforms in this workflow |
-| `.github/workflows/build.yml` | Release metadata checks on every PR/push, waits for matching successful platform runs, combines compatible artifacts and publishes on a new version |
+| `.github/workflows/build.yml` | Release metadata checks on every PR/push to main, waits for matching successful platform runs and publishes platform-scoped beta/stable assets |
 | `common/scripts/ci_version.py`, `ci_platforms.py`, `ci_wait_artifacts.py` | Deterministic cross-workflow versions, changed-file routing and exact-revision artifact collection; unit tested in the release job |
 | `common/scripts/release_prep.py` | `apply` (work the version out and set it everywhere), `pending`, `needs-version`, `check`, `notes`, `zip` / `check-folders` / `artifact-name` (zip rule), `numeric`, `closes` |
 | `common/scripts/test_release_prep.py` | Its tests (run in CI) |
@@ -79,7 +79,7 @@ update from `Magpie.exe`. An all-users install is not eligible for the applicati
 its existing installer remains available on the release page.
 
 How a platform plugs in: the independent **macOS Build** workflow installs .NET 8 and 10 (`macOS/global.json` picks SDK 10), runs `dotnet test macOS/Magpie.Mac.Tests` (headless; existing `continue-on-error` remains) and `macOS/build/build.sh <version>`, which writes `macOS/out/Magpie_<version>.dmg` (also on a combined release with its `.sha256` when macOS was built);
-the independent **Android Build** workflow calls `android/build.sh <version>` when it exists and expects `android/out/Magpie_<version>.apk`. Platform artifacts expire after seven days. Packaging does not run a platform itself or mix different commit revisions. A platform-specific PR need not run the other platforms; a global version change triggers each supported platform in separate runs so a stable release contains its corresponding downloads.
+the independent **Android Build** workflow calls `android/build.sh <version>` when it exists and expects `android/out/Magpie_<version>.apk`. Platform artifacts expire after seven days. Packaging does not run a platform itself or mix different commit revisions. A platform-specific PR runs only its platform beta build; merging it to `main` runs only the matching stable build. PRs that touch several platforms run each affected platform independently; shared and global changes run every supported dependent platform. The assembler publishes exactly the artifacts built for that change and never starts a platform job.
 
 ## Release compatibility and retention
 
