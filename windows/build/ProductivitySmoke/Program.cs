@@ -24,11 +24,17 @@ internal static partial class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        // WebView2's COM callbacks need the real WPF message loop while the smoke awaits initialization/scripts.
+        app.Startup += async (_, _) => app.Shutdown(await RunSmokeAsync(app, args));
+        return app.Run();
+    }
+
+    private static async Task<int> RunSmokeAsync(Application app, string[] args)
+    {
         var root = Path.Combine(Path.GetTempPath(), "magpie-productivity-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
             var http = new RejectHttp();
             using var engine = new MailEngine(new AppPaths(root), new TestProtector(), http);
             engine.Config.MarkReadOnOpen = false;
@@ -65,7 +71,6 @@ internal static partial class Program
             {
                 owner.Close();
                 Console.WriteLine("STARTUP_STYLE_REGRESSION_REPRODUCED assertions=" + _assertions);
-                app.Shutdown();
                 return 0;
             }
             var vm = new MainViewModel();
@@ -82,12 +87,11 @@ internal static partial class Program
             Assert(http.Requests == 0, "Local workspace and cached reader made no HTTP calls");
             CheckAiReplyFlow(root, engine);
             CheckAiReplySentOnlyFallback(root, engine);
-            CheckEditorPage(root);
+            await CheckEditorPageAsync(root);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();
             Console.WriteLine("PRODUCTIVITY_SMOKE_PASSED assertions=" + _assertions);
-            app.Shutdown();
             return 0;
         }
         catch (Exception ex)

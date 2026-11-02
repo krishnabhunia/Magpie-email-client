@@ -21,7 +21,7 @@ public enum UpdateState { Idle, Checking, UpToDate, Available, Preparing, Downlo
 /// </summary>
 public sealed partial class UpdateService : ObservableObject
 {
-    public const string StartedEvent = @"Local\Magpie.Mail.UpdateStarted";
+    public const string StartedEvent = WindowsStartup.StartedEvent;
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly UpdateClient _client = new(Http);
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromHours(1) };
@@ -628,7 +628,7 @@ public sealed partial class UpdateService : ObservableObject
             InstalledUpdate.Write(DownloadFolder, Current.ToString(), selected.Version.ToString());
             SelfUpdate.Swap(exe, downloaded);
             swapped = true;
-            using var started = new EventWaitHandle(false, EventResetMode.ManualReset, StartedEvent);
+            using var started = WindowsStartup.CreateAcknowledgement();
             child = Process.Start(new ProcessStartInfo(exe, "--after-update " + Current) { UseShellExecute = false });
             if (child == null || !await Task.Run(() => started.WaitOne(TimeSpan.FromSeconds(25))))
                 throw new TimeoutException("The selected application did not reach its startup handoff.");
@@ -652,7 +652,7 @@ public sealed partial class UpdateService : ObservableObject
                 try
                 {
                     restored = VersionBackup.MatchesApplication(_snapshot, exe);
-                    if (!restored) restored = RestoreApplicationSnapshot(exe, _snapshot);
+                    if (!restored) restored = WindowsVersionRecovery.RestoreApplicationSnapshot(exe, _snapshot);
                 }
                 catch (Exception ex) { Log.Error("could not put back the current application", ex); }
             }
@@ -673,33 +673,6 @@ public sealed partial class UpdateService : ObservableObject
             throw;
         }
         finally { child?.Dispose(); }
-    }
-
-    private static bool RestoreApplicationSnapshot(string exe, VersionSnapshot snapshot)
-    {
-        VersionBackup.Validate(snapshot);
-        var staged = exe + ".recover-" + Guid.NewGuid().ToString("N");
-        var failed = exe + ".failed-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            File.Copy(snapshot.ApplicationPath, staged, false);
-            if (!VersionBackup.MatchesApplication(snapshot, staged))
-                throw new InvalidDataException("The recovery application did not match its saved checksum.");
-            // Windows permits renaming a loaded EXE but does not permit overwriting it in place.
-            if (File.Exists(exe)) File.Move(exe, failed);
-            try { File.Move(staged, exe); }
-            catch
-            {
-                if (!File.Exists(exe) && File.Exists(failed)) File.Move(failed, exe);
-                throw;
-            }
-            return VersionBackup.MatchesApplication(snapshot, exe);
-        }
-        finally
-        {
-            try { if (File.Exists(staged)) File.Delete(staged); } catch { }
-            try { if (File.Exists(failed)) File.Delete(failed); } catch { }
-        }
     }
 
     private void RestartCurrentAfterAbort()
@@ -732,23 +705,7 @@ public sealed partial class UpdateService : ObservableObject
                 "Restore the last working version", MessageBoxButton.YesNo, MessageBoxImage.Error, MessageBoxResult.Yes);
             if (answer != MessageBoxResult.Yes) return false;
             var exe = Environment.ProcessPath ?? throw new InvalidOperationException("The application path is unavailable.");
-            // A failed restore may leave a pending marker; an unrecovered journal deliberately blocks this cancellation.
-            if (VersionBackup.PendingVersion(paths) is { } pendingVersion)
-                VersionBackup.CancelPendingForVersion(paths, pendingVersion);
-            VersionBackup.StageRestore(paths, snapshot.Id, InstallKind);
-            // Rename the currently loaded failed EXE, then restore a verified copy. Keep the pending-data marker
-            // on a replacement failure so no older app can silently open newer data.
-            try { SelfUpdate.Swap(exe, snapshot.ApplicationPath); }
-            catch
-            {
-                if (!RestoreApplicationSnapshot(exe, snapshot)) throw;
-            }
-            if (!VersionBackup.MatchesApplication(snapshot, exe))
-                throw new InvalidDataException("The restored application could not be verified.");
-            UpdateHistory.SetStatus(paths, transition.Id, UpdateHistory.Failed, "Startup failed; recovering the previous application and paired local data.");
-            UpdateHistory.Record(paths, Current.ToString(), snapshot.Version, "Restore", UpdateHistory.Installing,
-                "Restoring the last working application and its saved local data.");
-            InstalledUpdate.Clear(DownloadFolder);
+            WindowsVersionRecovery.StageFailedStartup(paths, Current, exe, InstallKind, transition, snapshot);
             try { AppServices.Engine?.Dispose(); } catch { }
             // --restart waits for this process to exit, keeping all old writers away from the data restore.
             if (Process.Start(new ProcessStartInfo(exe, "--restart") { UseShellExecute = false }) == null)

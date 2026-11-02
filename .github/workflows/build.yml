@@ -182,6 +182,19 @@ jobs:
       - name: Publish single-file EXE
         run: dotnet publish windows/Magpie.App/Magpie.App.csproj -c Release -o publish -p:Version=${{ env.VERSION }}
 
+      # Different executable payloads exercise the production Windows handoff and recovery paths in temp profiles.
+      - name: Windows version lifecycle smoke (native processes)
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          foreach ($fixture in @('original', 'selected')) {
+            dotnet publish windows/build/VersionLifecycleSmoke/VersionLifecycleSmoke.csproj -c Release -o "version-lifecycle-smoke/$fixture" -p:Version=${{ env.VERSION }} "-p:LifecycleFixture=$fixture"
+            if ($LASTEXITCODE -ne 0) { throw "Version lifecycle fixture '$fixture' failed to publish" }
+          }
+          $selected = (Resolve-Path 'version-lifecycle-smoke/selected/VersionLifecycleSmoke.exe').Path
+          & .\version-lifecycle-smoke\original\VersionLifecycleSmoke.exe --selected-exe $selected
+          if ($LASTEXITCODE -ne 0) { throw "Windows version lifecycle smoke failed" }
+
       - name: Sign Magpie.exe (optional)
         if: env.SIGN_PFX_BASE64 != ''
         shell: pwsh
