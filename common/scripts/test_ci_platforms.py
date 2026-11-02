@@ -23,8 +23,13 @@ class PlatformRoutingTests(unittest.TestCase):
         self.assertEqual(affected({"common/src/Magpie.Core/Updates/Updates.cs"}, android_exists=False), flags)
         self.assertEqual(affected({"Directory.Build.props"}, android_exists=False), flags)
 
-    def test_mac_icon_is_an_explicit_cross_platform_dependency(self):
+    def test_windows_icon_does_not_build_mac(self):
         self.assertEqual(affected({"windows/Magpie.App/Assets/app-256.png"}, android_exists=False),
+                         {"windows": True, "macos": False, "android": False})
+
+    def test_multiple_changed_platforms_trigger_only_their_builds(self):
+        self.assertEqual(affected({"windows/Magpie.App/Program.cs", "macOS/Magpie.Mac/App.axaml.cs"},
+                                  android_exists=True),
                          {"windows": True, "macos": True, "android": False})
 
     def test_docs_only_does_not_build_any_platform(self):
