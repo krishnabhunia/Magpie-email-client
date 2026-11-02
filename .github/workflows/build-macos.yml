@@ -34,6 +34,11 @@ concurrency:
 jobs:
   macos:
     runs-on: macos-latest   # Apple Silicon (arm64)
+    env:
+      # Design SY1 / SA1: Magpie's own Google / Microsoft sign-in apps, built into the release (empty = not built in).
+      MAGPIE_GOOGLE_CLIENT_ID: ${{ secrets.MAGPIE_GOOGLE_CLIENT_ID }}
+      MAGPIE_GOOGLE_CLIENT_SECRET: ${{ secrets.MAGPIE_GOOGLE_CLIENT_SECRET }}
+      MAGPIE_MICROSOFT_CLIENT_ID: ${{ secrets.MAGPIE_MICROSOFT_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v7
 

@@ -459,6 +459,10 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
+                        <!-- Design SY1: bring my accounts to other PCs (built in AccountsCopyCard.cs) -->
+                        <TextBlock Text="OTHER PCS" Style="{StaticResource Text.SectionCaps}" Margin="0,22,0,10" />
+                        <views:AccountsCopyCard x:Name="RowAccountsCopy" />
+
                         <!-- Design CL1: closed by default; it is set up once -->
                         <Expander x:Name="RowSignIn" Style="{StaticResource Expander.Group}" IsExpanded="False" Margin="0,18,0,0">
                             <Expander.Header>
@@ -466,8 +470,7 @@
                             </Expander.Header>
                         <Border Style="{StaticResource Card}" Margin="0,6,0,0">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,12"
-                                           Text="Signing in with Google or Microsoft needs your own free app registration (5 minutes, once). The steps are in SIGN-IN-SETUP.md next to Magpie.exe. Without it you can still add Gmail with an app password, and any IMAP account with its password." />
+                                <TextBlock Style="{StaticResource Text.Caption}" Margin="0,0,0,12" TextWrapping="Wrap" Text="{Binding SignInAppsNote}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="170" />
