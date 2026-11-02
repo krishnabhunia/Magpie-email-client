@@ -13,6 +13,16 @@ $selected = (Resolve-Path version-lifecycle-smoke/selected/VersionLifecycleSmoke
 The workflow runs these commands as a blocking Windows check. A successful run prints
 `VERSION_LIFECYCLE_SMOKE_PASSED`; any assertion or child-process timeout returns a nonzero exit code.
 
+Production and fixture projects use `IncludeAllContentForSelfExtract=true` with the current .NET 8 SDK. This
+extracts managed dependencies before startup, keeping late assembly loads independent of the executable path
+that the updater replaces. The original native run failed when the copied parent first loaded
+`System.Diagnostics.Process` after swapping its own bundle. Keep that first use after the swap: preloading it
+would hide the regression. Both builds still distribute one executable, but extraction uses more temporary
+cache space and first-start disk work. Microsoft documents this as a .NET Core 3.1 compatibility mode that may
+be removed in a future runtime; recheck it when upgrading .NET and retain this native gate. See the
+[official single-file deployment documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview#native-libraries).
+Application/profile paths continue to use `Environment.ProcessPath`, not the extracted assemblies' location.
+
 The cases exercise the production `WindowsStartup`, `WindowsVersionRecovery`, `SelfUpdate`, `VersionBackup`,
 `VersionPin` and history APIs:
 

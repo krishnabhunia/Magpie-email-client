@@ -18,6 +18,10 @@ The version-manager changes in this release are for Windows. Krishna deferred th
 - **Compatibility before changing versions.** Magpie checks whether the selected version supports the current mail database, settings and Windows portable or per-user installation. Missing compatibility information or unsafe downgrades are blocked before any files are replaced.
 - **Protected version changes.** Keep a recovery copy of the application and local data, view the transition history and restore a checked backup. A selected version stays pinned, including when an older application would otherwise update itself automatically.
 - **Earlier beta versions stay available.** New builds retain stable and beta release files on GitHub so later updates do not erase the version you may want to return to.
+
+### Fixed
+
+- **Windows can finish restarting after replacing its application file.** Required application components stay available while a version change or recovery starts the selected copy.
 <!-- closes: #117 -->
 
 ## 10.0.0 (24 Oct 2026)
