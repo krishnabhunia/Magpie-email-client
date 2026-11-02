@@ -462,6 +462,7 @@ public sealed class AccountsCopyService
             if (Paused()) { paused = true; return; }
             plan = AccountsCopy.Compare(_e.Config, _e.Vault, copy, DateTimeOffset.Now);
             if (!plan.Changes) return;
+            var gateWasOn = _e.Config.Gatekeeper.Enabled;
             changed = AccountsCopy.ApplyUpdates(_e.Config, _e.Vault, copy, plan);
             var toAdd = new List<Account>();
             foreach (var c in plan.Add)
@@ -471,6 +472,8 @@ public sealed class AccountsCopyService
                 toAdd.Add(a);
             }
             _e.Settings.Save();
+            // Gatekeeper switched off on another PC: the mail it held here comes in (as when switched off in Settings).
+            if (gateWasOn && !_e.Config.Gatekeeper.Enabled) _e.OpenGate();
             foreach (var a in changed) _e.RestartAccount(a);
             added = _e.AddAccounts(toAdd, fromCopy: true);
             if (changed.Count > 0 || plan.SettingsNewer) Log.Info($"accounts copy: took {changed.Count} account change(s){(plan.SettingsNewer ? " and settings" : "")} from {copy.FromPc}");
@@ -640,12 +643,13 @@ public sealed class AccountsCopyService
             if (!KnowsPassword) throw new InvalidOperationException("Type the sync password first (Settings → Accounts), then try again.");
             var old = Home;
             AccountsCopy.Contents? current = null;
+            string? oldTop = null;   // the old home's newest email as read: the "moved" note goes in only if it is still that one
             for (var hop = 0; old != null; hop++)
             {
                 byte[]? file;
                 using (var client = await _e.Connector.OpenImapAsync(old, ct))
                 {
-                    file = await CopyMailbox.ReadAsync(client, ct);
+                    (file, oldTop) = await CopyMailbox.ReadNewestAsync(client, ct);
                     try { await client.DisconnectAsync(true, ct); } catch { }
                 }
                 if (file != null && IsNoteToOverwrite(file)) { file = null; break; }
@@ -690,6 +694,11 @@ public sealed class AccountsCopyService
             {
                 using var client = await _e.Connector.OpenImapAsync(to, ct);
                 before = await CopyMailbox.ReadAsync(client, ct);
+                // A copy in use there (another group of PCs, maybe another password) is never written over: only a note, or
+                // a spare this PC left there.
+                var b = before != null ? AccountsCopy.Peek(before) : null;
+                if (before != null && b is not { IsNote: true } && !Options.Spares.Any(x => x.At == AccountsCopy.Key(to.Email) && x.Updated == b?.Updated))
+                    throw new InvalidOperationException($"{to.Email} already holds an accounts copy (made by Magpie on another PC). Choose another account, or stop that copy first (Settings → Accounts on a PC that uses it).");
                 writing = true;
                 await CopyMailbox.WriteAsync(client, to.Email, locked, ct);
                 try { await client.DisconnectAsync(true, ct); } catch { }
@@ -718,7 +727,8 @@ public sealed class AccountsCopyService
                 {
                     var noteFile = await Task.Run(() => AccountsCopy.Lock(note, lockWith), ct);
                     using var client = await _e.Connector.OpenImapAsync(old, ct);
-                    await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct, appended: () => noteIn = true);
+                    // Only if nobody wrote to the old home since it was read: else its newer copy would be lost (taken back below).
+                    await CopyMailbox.WriteAsync(client, old.Email, noteFile, ct, appended: () => noteIn = true, stillSame: top => top == oldTop);
                     await CopyMailbox.KeepOnlyNewestAsync(client, ct, note: note.Updated);   // also leftovers of earlier rounds (it may be removed next)
                     try { await client.DisconnectAsync(true, ct); } catch { }
                 }
@@ -944,7 +954,9 @@ public sealed class AccountsCopyService
             _e.RestartAccount(AccountsCopy.MergeKeepingSignIn(_e.Config, _e.Vault, homeCopy, local));
         var plan = AccountsCopy.Compare(_e.Config, _e.Vault, copy, DateTimeOffset.Now);
         plan.Update.Clear();
+        var gateWasOn = _e.Config.Gatekeeper.Enabled;
         AccountsCopy.ApplyUpdates(_e.Config, _e.Vault, copy, plan);
+        if (gateWasOn && !_e.Config.Gatekeeper.Enabled) _e.OpenGate();
         var toAdd = new List<Account>();
         foreach (var c in copy.Accounts.Where(c => wanted.Contains(c.Email) && c.Email != homeKey))
         {

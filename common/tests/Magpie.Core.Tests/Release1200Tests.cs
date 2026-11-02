@@ -573,6 +573,54 @@ public class Release1200Tests
     }
 
     [Fact]
+    public void A_cleared_AI_key_is_cleared_on_the_other_PCs_too()
+    {
+        using var pc1 = FirstPc();
+        pc1.S.AccountsCopy.IncludeAiKeys = true;
+        pc1.V.Set(SecretVault.AiKeyFor(AiConnection.FirstId), "sk-old");
+        AccountsCopy.StartHere(pc1.S, pc1.V, T0.AddMinutes(1));
+        var copy = pc1.Write(null, T0.AddMinutes(1));
+        using var pc2 = FirstPc();
+        var plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(2));
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Equal("sk-old", pc2.V.Get(SecretVault.AiKeyFor(AiConnection.FirstId)));
+        pc1.V.Set(SecretVault.AiKeyFor(AiConnection.FirstId), null);   // cleared on PC 1
+        AccountsCopy.Track(pc1.S, pc1.V, T0.AddMinutes(3));
+        copy = pc1.Write(copy, T0.AddMinutes(3));
+        plan = AccountsCopy.Compare(pc2.S, pc2.V, copy, T0.AddMinutes(4));
+        Assert.True(plan.AiNewer);
+        AccountsCopy.ApplyUpdates(pc2.S, pc2.V, copy, plan);
+        Assert.Null(pc2.V.Get(SecretVault.AiKeyFor(AiConnection.FirstId)));
+    }
+
+    [Fact]
+    public void A_PC_without_a_usable_sign_in_never_takes_the_working_one_out_of_the_copy()
+    {
+        var before = AccountsCopy.ClientFor;
+        try
+        {
+            AccountsCopy.ClientFor = _ => "app-a";
+            using var pc1 = FirstPc();
+            var g = new Account { Email = "g@x.test", Kind = AccountKind.Gmail, Auth = AuthMethod.OAuth2 };
+            pc1.S.Accounts.Add(g);
+            pc1.V.Set(SecretVault.RefreshKey(g.Id), "refresh-from-app-a");
+            var copy = pc1.Write(null, T0);
+            // PC 2 uses another sign-in app: the token isn't taken there; then its user changes the signature.
+            AccountsCopy.ClientFor = _ => "app-b";
+            using var pc2 = FirstPc();
+            var c = copy.Accounts.Single(x => x.Email == "g@x.test");
+            var a = AccountsCopy.ForAdd(pc2.S, c);
+            AccountsCopy.Remember(pc2.S, pc2.V, a, c);
+            pc2.S.Accounts.Add(a);
+            a.SignatureHtml = "<p>Changed on PC 2</p>";
+            AccountsCopy.Track(pc2.S, pc2.V, T0.AddMinutes(5));
+            var written = pc2.Write(copy, T0.AddMinutes(5)).Accounts.Single(x => x.Email == "g@x.test");
+            Assert.Equal(("<p>Changed on PC 2</p>", "refresh-from-app-a", "app-a"), (written.Account.SignatureHtml, written.Refresh, written.Client));
+        }
+        finally { AccountsCopy.ClientFor = before; }
+    }
+
+    [Fact]
     public void The_copy_folder_and_email_stay_out_of_the_mail_lists()
     {
         Assert.True(AccountSync.IsCopyFolder("Magpie Sync", '/'));

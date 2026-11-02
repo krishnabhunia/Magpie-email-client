@@ -310,10 +310,14 @@ public static class AccountsCopy
                     if (refresh.Length > 0 && old.Client == client && (old.SignedIn ?? default) <= (SignedIn(o, key) ?? default)) old.Refresh = refresh;
                     continue;
                 }
+                // No usable sign-in here (a token from another sign-in app was never taken, or it stopped working): the copy's
+                // working one stays, with the app it belongs to.
+                var password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "";
+                var keepOld = refresh.Length == 0 && old is { Refresh.Length: > 0 };
                 accounts[key] = new CopiedAccount
                 {
-                    Account = Copy(a), Password = vault.Get(SecretVault.PasswordKey(a.Id)) ?? "",
-                    Refresh = refresh.Length == 0 && old != null && old.Client == client ? old.Refresh : refresh, Client = client,
+                    Account = Copy(a), Password = password.Length == 0 && old != null ? old.Password : password,
+                    Refresh = keepOld ? old!.Refresh : refresh, Client = keepOld ? old!.Client : client,
                     SignedIn = SignedIn(o, key), Hash = stamp.Hash, Changed = stamp.Changed,
                 };
             }
@@ -480,7 +484,8 @@ public static class AccountsCopy
                     if (learned.TryGetValue(conn.Id, out var old) && old.Provider == conn.Provider && old.Endpoint == conn.Endpoint)
                         (conn.Models, conn.ModelsCheckedAt, conn.Unsupported, conn.DismissedNewModel) = (old.Models, old.ModelsCheckedAt, old.Unsupported, old.DismissedNewModel);
                 s.Ai.NormaliseConnections();
-                foreach (var (id, key) in ca.Keys) vault.Set(SecretVault.AiKeyFor(id), key);
+                // A key cleared on that PC is cleared here too (the AI block, with its keys, is the newer one).
+                foreach (var conn in s.Ai.Connections) vault.Set(SecretVault.AiKeyFor(conn.Id), ca.Keys.TryGetValue(conn.Id, out var key) ? key : null);
                 o.Stamps[AiStamp] = new CopyStamp { Hash = ca.Hash, Local = AiOf(s, vault).Hash, Changed = ca.Changed };
             }
             return changed;

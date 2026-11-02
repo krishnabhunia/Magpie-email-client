@@ -388,6 +388,15 @@ public class IntegrationTests
         Assert.Equal("", pc1.AccountsCopy.Problem);
         Assert.Equal(2, AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(home1, null, CancellationToken.None))!)!.Accounts);
 
+        // A move to a mailbox that already holds another group's copy is refused (it would be written over).
+        var foreign = AccountsCopy.Lock(new AccountsCopy.Contents { Updated = DateTimeOffset.Now, FromPc = "OTHER-GROUP", Accounts = { new AccountsCopy.CopiedAccount { Account = AccountFor(workUser) } } }, "a password of theirs");
+        using (var c = await Raw(workUser)) { await c.GetFolder(c.PersonalNamespaces[0]).CreateAsync(AccountsCopy.FolderName, true); await c.DisconnectAsync(true); }
+        await Append(workUser, AccountsCopy.FolderName, CopyMailbox.BuildMessage(workUser, foreign, AccountsCopy.Peek(foreign)!));
+        var refusedMove = await Assert.ThrowsAsync<InvalidOperationException>(() => pc1.AccountsCopy.MoveHomeAsync(workUser, CancellationToken.None));
+        Assert.Contains("already holds", refusedMove.Message);
+        Assert.Equal("OTHER-GROUP", AccountsCopy.Peek((await pc1.AccountsCopy.FindAsync(pc1.Accounts.Single(a => a.Email == workUser), null, CancellationToken.None))!)!.Pc);
+        using (var c = await Raw(workUser)) { await CopyMailbox.DeleteAsync(c, CancellationToken.None); await c.DisconnectAsync(true); }
+
         // A move whose write to the new home fails (its answer lost): taken back there, nothing moved.
         var work0 = pc1.Accounts.Single(a => a.Email == workUser);
         CopyMailbox.AnswerLostForTests = to => to == workUser ? new IOException("connection lost") : null;
