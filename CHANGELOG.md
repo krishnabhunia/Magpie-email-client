@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 12.0.0 (2 Nov 2026)
+## Next version (not released yet)
 ### New
 - **Sign in once on a new PC and every account comes along.** Settings → Accounts → **Bring my accounts to other PCs** keeps a locked copy of your accounts in one mailbox you choose (the home account), in a hidden "Magpie Sync" folder. On another PC, add that account as usual: Magpie finds the copy, asks for the sync password, and adds every account you tick in one step. Their first downloads take turns, 4 at a time, Inbox first, and you can read mail from the first one that's ready.
 - **What comes along:** every account with its sign-in, and (if you choose) your rules, signatures, quick replies, templates, tags, Gatekeeper lists, look, and AI connections. Emails never go into the copy. The copy is locked with a sync password of at least 10 characters that only you know; Magpie can't recover it.
@@ -15,6 +15,15 @@
 - **Google and Microsoft sign-in work straight away:** Magpie now comes with its own sign-in apps, so a new PC needs nothing typed before the first sign-in. Your own sign-in apps in Settings still win.
 - Windows only for now; the Mac signs in with the built-in apps too but has no accounts copy yet.
 <!-- closes: #85 -->
+
+## 11.1.0 (2 Nov 2026)
+### Changed
+- **Gmail labels fold in the sidebar on Windows.** A label made inside another one ("Clients/Acme") now sits under its parent with an arrow to open or close it, also when Gmail keeps the parent only as a name with no mail of its own. A closed parent shows how many unread emails its labels hold.
+- **All your labels in one group.** Gmail's own folders (Inbox, Sent, Drafts, All Mail, Spam, Trash) stay on top; your labels are in one **Labels** group (**Folders** for other accounts) that opens or closes with one click and stays as you left it.
+- **More labels.** Labels with no unread mail that you haven't opened for 30 days move into **More labels** at the end of the group, shown with their full name. They come back by themselves when new mail arrives; right-click a label → **Always show** keeps it out of More labels.
+- **Right-click an account or its Labels group** to **Open all labels**, **Close all labels** or **Only show labels with unread mail**.
+- Windows only for now; the Mac sidebar is unchanged.
+<!-- closes: #110 -->
 
 ## 11.0.0 (30 Oct 2026)
 ### New
