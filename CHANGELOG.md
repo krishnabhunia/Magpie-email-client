@@ -7,6 +7,23 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 11.0.0 (30 Oct 2026)
+
+### New
+
+The version-manager changes in this release are for Windows. Krishna deferred the macOS feature on
+1 Nov 2026 (IST); the existing Mac updater and build pipeline remain in place.
+
+- **Choose exact stable or beta versions on Windows.** Browse newer or older releases, filter by channel, read the release notes and check availability before choosing a version. Nothing is preselected or installed by an automatic check.
+- **Compatibility before changing versions.** Magpie checks whether the selected version supports the current mail database, settings and Windows portable or per-user installation. Missing compatibility information or unsafe downgrades are blocked before any files are replaced.
+- **Protected version changes.** Keep a recovery copy of the application and local data, view the transition history and restore a checked backup. A selected version stays pinned, including when an older application would otherwise update itself automatically.
+- **Earlier beta versions stay available.** New builds retain stable and beta release files on GitHub so later updates do not erase the version you may want to return to.
+
+### Fixed
+
+- **Windows can finish restarting after replacing its application file.** Required application components stay available while a version change or recovery starts the selected copy.
+<!-- closes: #117 -->
+
 ## 10.0.0 (24 Oct 2026)
 ### New
 - **Fonts & text on Windows.** Choose a font and size independently for 53 types of text across navigation, the inbox, reading, writing, AI, Settings and the calendar. Search the roles, preview a change, reset one role or a whole area, then Apply. New writing and signatures start in Arial 18 px (13.5 pt), normal weight. Existing formatted drafts keep their appearance. Reading-font overrides are optional and leave the original email intact.

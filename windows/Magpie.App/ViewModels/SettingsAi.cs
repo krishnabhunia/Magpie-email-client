@@ -321,6 +321,7 @@ public partial class SettingsViewModel
     /// is shown only when the user asked, or when the key was refused.</summary>
     private async Task RefreshModelsAsync(AiConnectionItem c, bool silent)
     {
+        if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return;
         if (!AiService.EndpointAllowed(Endpoint.Trim()))   // the key goes nowhere but an https server, or a server on this PC
         {
             if (!silent) { ModelsOk = false; ModelsStatus = ModelCatalog.NeedsHttps; }
@@ -343,7 +344,7 @@ public partial class SettingsViewModel
         try
         {
             var fetched = await Task.Run(() => ModelCatalog.ListAsync(_e.Http, provider, endpoint, key, cts.Token), cts.Token);
-            if (cts.IsCancellationRequested) return;
+            if (cts.IsCancellationRequested || _e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return;
             var now = DateTimeOffset.UtcNow;
             c.Models = ModelCatalog.Merge(c.Models, fetched, now, checkedBefore: c.ModelsCheckedAt != null);
             c.ModelsCheckedAt = now;
@@ -362,7 +363,7 @@ public partial class SettingsViewModel
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            if (cts.IsCancellationRequested) return;
+            if (cts.IsCancellationRequested || _e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return;
             var message = ex is AiException ? ex.Message : "Couldn't get the list: " + ex.Message;
             Log.Warn("AI model list: " + message);
             if (!silent || ex is AiException { Auth: true })

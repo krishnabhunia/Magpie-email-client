@@ -153,7 +153,7 @@
                                     </WrapPanel>
                                     <DockPanel Margin="0,12,0,0" LastChildFill="False">
                                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Release notes" FontSize="12" Padding="0" MinHeight="20" Command="{Binding OpenReleasePageCommand}" />
-                                        <CheckBox Content="Auto update" IsChecked="{Binding AutoUpdate, Mode=TwoWay}" VerticalAlignment="Center" ToolTip="Checks at start and then once a day; downloads and installs in the background" />
+                                        <CheckBox Content="Check automatically" IsChecked="{Binding AutoUpdate, Mode=TwoWay}" VerticalAlignment="Center" ToolTip="Checks at start and once a day when enabled. You choose and confirm every installation." />
                                         <CheckBox Content="Include test versions" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" VerticalAlignment="Center" Margin="14,0,0,0" ToolTip="Pre-releases made for a pull request" />
                                     </DockPanel>
                                 </StackPanel>

@@ -22,6 +22,9 @@ public sealed class ContactsService
     private readonly ConcurrentDictionary<string, ContactsProblem> _problems = new();
     private readonly ConcurrentDictionary<string, byte> _removed = new();
     private readonly object _accountGate = new();
+    private readonly CancellationTokenSource _lifetime = new();
+    private Task? _loop;
+    private bool _stopped;
 
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromMinutes(30);
 
@@ -45,7 +48,27 @@ public sealed class ContactsService
     /// <summary>Why an account's contacts can't be shown or updated right now (account id → problem).</summary>
     public IReadOnlyDictionary<string, ContactsProblem> Problems => _problems;
 
-    public void Start(CancellationToken ct) => _ = Task.Run(() => LoopAsync(ct));
+    public void Start(CancellationToken ct)
+    {
+        if (_stopped) throw new InvalidOperationException("Restart Magpie before starting sync again.");
+        if (_loop != null) return;
+        _loop = Task.Run(async () =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+            await LoopAsync(linked.Token);
+        });
+    }
+
+    public async Task StopForVersionChangeAsync(CancellationToken ct = default)
+    {
+        lock (_accountGate) _stopped = true;
+        _lifetime.Cancel();
+        if (_loop != null)
+            try { await _loop.WaitAsync(ct); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        await _syncGate.WaitAsync(ct);
+        _syncGate.Release();
+    }
 
     public void Poke() => _wake.Release();
 
@@ -53,6 +76,7 @@ public sealed class ContactsService
     {
         lock (_accountGate)
         {
+            if (_stopped) throw new OperationCanceledException("Magpie is stopping for a version change.");
             _removed[accountId] = 0;
             _store.DeleteSavedContactsForAccount(accountId);
             _problems.TryRemove(accountId, out _);
@@ -64,7 +88,7 @@ public sealed class ContactsService
     {
         lock (_accountGate)
         {
-            if (_removed.ContainsKey(accountId)) return false;
+            if (_stopped || _removed.ContainsKey(accountId)) return false;
             work();
             return true;
         }
@@ -88,6 +112,9 @@ public sealed class ContactsService
 
     public async Task SyncNowAsync(CancellationToken ct)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         await _syncGate.WaitAsync(ct);
         try
         {

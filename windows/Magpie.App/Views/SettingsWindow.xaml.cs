@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
 
     public static void Open(string? page)
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         if (_open != null)
         {
             if (page != null) _open._vm.GoTo(page);
