@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magpie LB1 Gmail Labels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#F7F5F0; --panel:#FFFFFF; --side:#EDEBE5; --line:#DCD8CF; --fg:#1F2328; --muted:#5E6670; --faint:#8A9097;
+  --accent:#14606E; --accent-soft:#D7E7E9; --sel:#DCE6E6; --warn:#B45309; --bad:#B3261E; --good:#1B6B2E;
+  --chip:#E4E1D9; --shadow:0 1px 2px rgba(20,30,40,.06),0 6px 18px rgba(20,30,40,.06);
+  --c-red:#B3261E; --c-blue:#2F5BEA; --c-green:#1B6B2E; --c-amber:#B45309; --c-violet:#4B3F86; --c-teal:#14606E;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F1215; --panel:#171B1F; --side:#15191D; --line:#2A3036; --fg:#E6E8EA; --muted:#A3AAB2; --faint:#78808A;
+  --accent:#5FB3C0; --accent-soft:#1D3337; --sel:#20343A; --warn:#E3A35A; --bad:#F08A80; --good:#7CC58C; --chip:#22282E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
+  --c-red:#F08A80; --c-blue:#8FA9FF; --c-green:#7CC58C; --c-amber:#E3A35A; --c-violet:#B3A8F0; --c-teal:#5FB3C0;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F1215; --panel:#171B1F; --side:#15191D; --line:#2A3036; --fg:#E6E8EA; --muted:#A3AAB2; --faint:#78808A;
+  --accent:#5FB3C0; --accent-soft:#1D3337; --sel:#20343A; --warn:#E3A35A; --bad:#F08A80; --good:#7CC58C; --chip:#22282E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
+  --c-red:#F08A80; --c-blue:#8FA9FF; --c-green:#7CC58C; --c-amber:#E3A35A; --c-violet:#B3A8F0; --c-teal:#5FB3C0;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 "IBM Plex Sans","Segoe UI",system-ui,sans-serif;padding:0 16px 48px}
+.wrap{max-width:1180px;margin:0 auto}
+header{padding-block:28px 8px}
+.kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:30px;margin:6px 0 8px;text-wrap:balance}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:21px;margin:36px 0 6px;text-wrap:balance}
+p{max-width:68ch;margin:6px 0}
+.lede{color:var(--muted);font-size:16px}
+code{font-family:"Cascadia Mono",Consolas,monospace;font-size:13px;background:var(--chip);padding:1px 5px;border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto;margin:10px 0 4px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td.n{width:56px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rec{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle}
+
+/* comparison grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:14px}
+.opt{min-width:0}
+.opt h3{font-size:15px;margin:0 0 2px;font-weight:600}
+.opt .sub{font-size:13px;color:var(--muted);margin:0 0 10px;min-height:40px}
+.side{background:var(--side);border:1px solid var(--line);border-radius:10px;padding:10px 6px 12px;box-shadow:var(--shadow);font-size:13.5px;user-select:none}
+.acct{display:flex;align-items:center;gap:8px;padding:4px 8px 6px;font-weight:600;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--c-teal);flex:none}
+.row{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;cursor:default;white-space:nowrap}
+.row:hover{background:color-mix(in srgb,var(--fg) 6%,transparent)}
+.row.sel{background:var(--sel)}
+.chev{width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--muted);border-radius:4px;cursor:pointer;font-size:10px;transition:transform .15s}
+.chev.closed{transform:rotate(-90deg)}
+.chev.none{visibility:hidden}
+.ico{width:16px;flex:none;text-align:center;color:var(--muted);font-size:13px}
+.lbl{width:10px;height:10px;border-radius:3px;flex:none;margin:0 3px}
+.name{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.cnt{font-size:12px;color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+.cnt.dim{color:var(--faint);font-weight:400}
+.group{display:flex;align-items:center;gap:6px;height:26px;padding:0 8px;margin-top:6px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;cursor:pointer;border-radius:6px}
+.group:hover{background:color-mix(in srgb,var(--fg) 6%,transparent)}
+.group .pill{margin-left:auto;font-size:11px;letter-spacing:0;text-transform:none;font-weight:600;background:var(--chip);color:var(--muted);padding:0 7px;border-radius:99px}
+.container .name{color:var(--muted)}
+.ghost{font-style:italic}
+.flat .name{color:var(--fg)}
+.bad{color:var(--bad)}
+.note{font-size:12.5px;color:var(--muted);margin-top:8px}
+.note b{color:var(--fg);font-weight:600}
+.hide{display:none!important}
+.more{color:var(--muted)}
+.menu{margin:10px 6px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:4px;font-size:13px}
+.menu div{padding:5px 10px;border-radius:5px}
+.menu div:hover{background:var(--accent-soft)}
+.menu .sep{height:1px;background:var(--line);padding:0;margin:4px 6px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted);margin-top:8px}
+.hint{font-size:13px;color:var(--muted);margin-top:4px}
+.why{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:12px}
+@media (max-width:760px){.why{grid-template-columns:1fr}}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.box h4{margin:0 0 6px;font-size:14px}
+pre{margin:0;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:var(--fg)}
+.k{color:var(--muted)}
+footer{margin-top:40px;color:var(--faint);font-size:12.5px}
+</style></head><body>
+
+<div class="wrap">
+<header>
+  <div class="kicker">Magpie for Windows · design LB1 · queue #83</div>
+  <h1>Gmail labels that fold</h1>
+  <p class="lede">Krishna, 30 Oct 2026: <i>"The labels in the Gmail are not collapsible in Magpie view."</i> Pick one option (A, B or C). Nothing gets built until you approve. Click the ▾ arrows and the group headings in the mock-ups below; they open and close.</p>
+</header>
+
+<h2>Why the labels don't fold today</h2>
+<p>Magpie can already fold a folder's subfolders. A parent gets an arrow only when it is a real folder. When a Gmail label is made inside another one (for example "Clients/Acme"), Gmail may report the parent "Clients" as a <b>container only</b> (no mail of its own; IMAP <code>\Noselect</code>). Magpie skips those containers, so "Acme" loses its parent. It then shows at the top level as a plain row, with no arrow.</p>
+<div class="why">
+  <div class="box">
+    <h4>What Gmail sends (IMAP LIST)</h4>
+<pre><span class="k">(\HasNoChildren)</span>            "INBOX"
+<span class="k">(\Noselect \HasChildren)</span>    "[Gmail]"
+<span class="k">(\HasNoChildren \Sent)</span>      "[Gmail]/Sent Mail"
+<span class="k">(\Noselect \HasChildren)</span>    "Clients"        <span class="bad">← skipped</span>
+<span class="k">(\HasNoChildren)</span>            "Clients/Acme"
+<span class="k">(\HasNoChildren)</span>            "Clients/Globex"
+<span class="k">(\HasChildren)</span>              "Travel"
+<span class="k">(\HasNoChildren)</span>            "Travel/2026"</pre>
+  </div>
+  <div class="box">
+    <h4>What Magpie shows now</h4>
+    <p class="note" style="margin-top:0">"Travel" folds because it is a real label. "Acme" and "Globex" lose their parent and sit in the top list as single words: you can't tell they belong together, and nothing folds them away. With 30–60 labels the account's list gets very long.</p>
+    <p class="note"><b>Not verified:</b> I can't see your mailbox. If your labels look different from this, a screenshot of the sidebar would confirm the cause.</p>
+  </div>
+</div>
+
+<h2>The options</h2>
+<p class="hint">Each mock-up is one Gmail account in the sidebar, with 3 nested label groups and 7 plain labels. The arrows and group headings work. Light or dark follows your system.</p>
+
+<div class="grid" id="grid">
+
+  <!-- BEFORE -->
+  <div class="opt">
+    <h3>Today (for comparison)</h3>
+    <p class="sub">Container parents are dropped. Their labels sit flat in the list, and only real parent labels fold.</p>
+    <div class="side flat">
+      <div class="acct"><span class="dot"></span>krishna@gmail.com</div>
+      <div class="row sel"><span class="chev none">▾</span><span class="ico">⌂</span><span class="name">Inbox</span><span class="cnt">12</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">★</span><span class="name">Starred</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">➤</span><span class="name">Sent Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">✎</span><span class="name">Drafts</span><span class="cnt dim">2</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">▤</span><span class="name">All Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">⚠</span><span class="name">Spam</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">🗑</span><span class="name">Trash</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Acme</span><span class="cnt">3</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Globex</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Initech</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Bills</span><span class="cnt">1</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Tax 2026</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-green)"></span><span class="name">Newsletters</span><span class="cnt">24</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Receipts</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-violet)"></span><span class="name">Kids school</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Notes</span></div>
+      <div class="row"><span class="chev" data-t="b-travel">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Travel</span></div>
+      <div class="row" data-p="b-travel" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">2026</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Work</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Visa</span></div>
+    </div>
+  </div>
+
+  <!-- A -->
+  <div class="opt">
+    <h3>A · Fix the tree</h3>
+    <p class="sub">Container parents come back as rows (grey, no mail of their own). Every nested label folds under its parent, like in Gmail on the web.</p>
+    <div class="side">
+      <div class="acct"><span class="dot"></span>krishna@gmail.com</div>
+      <div class="row sel"><span class="chev none">▾</span><span class="ico">⌂</span><span class="name">Inbox</span><span class="cnt">12</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">★</span><span class="name">Starred</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">➤</span><span class="name">Sent Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">✎</span><span class="name">Drafts</span><span class="cnt dim">2</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">▤</span><span class="name">All Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">⚠</span><span class="name">Spam</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">🗑</span><span class="name">Trash</span></div>
+      <div class="row container"><span class="chev" data-t="a-cl">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Clients</span><span class="cnt">3</span></div>
+      <div class="row" data-p="a-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Acme</span><span class="cnt">3</span></div>
+      <div class="row" data-p="a-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Globex</span></div>
+      <div class="row" data-p="a-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Initech</span></div>
+      <div class="row container"><span class="chev closed" data-t="a-fin">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Finance</span><span class="cnt">1</span></div>
+      <div class="row hide" data-p="a-fin" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Bills</span><span class="cnt">1</span></div>
+      <div class="row hide" data-p="a-fin" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Tax 2026</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-green)"></span><span class="name">Newsletters</span><span class="cnt">24</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Receipts</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-violet)"></span><span class="name">Kids school</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Notes</span></div>
+      <div class="row"><span class="chev closed" data-t="a-tr">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Travel</span></div>
+      <div class="row hide" data-p="a-tr" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">2026</span></div>
+      <div class="row container"><span class="chev closed" data-t="a-wk">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Work</span></div>
+      <div class="row hide" data-p="a-wk" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Visa</span></div>
+    </div>
+    <p class="note">A closed parent shows the unread count of its labels (Finance <b>1</b>). Clicking a grey container row opens or closes it instead of showing an empty list.</p>
+  </div>
+
+  <!-- B -->
+  <div class="opt">
+    <h3>B · A + a "Labels" group <span class="rec">Recommended</span></h3>
+    <p class="sub">Gmail's own folders stay on top. All your labels sit in one <b>Labels</b> group that folds in one click, and nested labels fold inside it as in A.</p>
+    <div class="side">
+      <div class="acct"><span class="dot"></span>krishna@gmail.com</div>
+      <div class="row sel"><span class="chev none">▾</span><span class="ico">⌂</span><span class="name">Inbox</span><span class="cnt">12</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">★</span><span class="name">Starred</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">➤</span><span class="name">Sent Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">✎</span><span class="name">Drafts</span><span class="cnt dim">2</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">▤</span><span class="name">All Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">⚠</span><span class="name">Spam</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">🗑</span><span class="name">Trash</span></div>
+      <div class="group" data-t="b-lab"><span class="chev">▾</span>Labels<span class="pill">13 · 28 unread</span></div>
+      <div data-p="b-lab">
+        <div class="row container"><span class="chev" data-t="b-cl">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Clients</span><span class="cnt">3</span></div>
+        <div class="row" data-p="b-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Acme</span><span class="cnt">3</span></div>
+        <div class="row" data-p="b-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Globex</span></div>
+        <div class="row" data-p="b-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Initech</span></div>
+        <div class="row container"><span class="chev closed" data-t="b-fin">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Finance</span><span class="cnt">1</span></div>
+        <div class="row hide" data-p="b-fin" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Bills</span><span class="cnt">1</span></div>
+        <div class="row hide" data-p="b-fin" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Tax 2026</span></div>
+        <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-green)"></span><span class="name">Newsletters</span><span class="cnt">24</span></div>
+        <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Receipts</span></div>
+        <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-violet)"></span><span class="name">Kids school</span></div>
+        <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Notes</span></div>
+        <div class="row"><span class="chev closed" data-t="b-tr">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Travel</span></div>
+        <div class="row hide" data-p="b-tr" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">2026</span></div>
+        <div class="row container"><span class="chev closed" data-t="b-wk">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Work</span></div>
+        <div class="row hide" data-p="b-wk" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Visa</span></div>
+      </div>
+    </div>
+    <p class="note">Closed, the group shows how many labels it holds and their unread total. Each account remembers whether its group is open. Non-Gmail accounts get the same group, named <b>Folders</b>, for their own folders.</p>
+  </div>
+
+  <!-- C -->
+  <div class="opt">
+    <h3>C · B + "More labels"</h3>
+    <p class="sub">As B, plus labels with no unread mail that you haven't opened for 30 days drop into a <b>More</b> row at the end, like Gmail's "More".</p>
+    <div class="side">
+      <div class="acct"><span class="dot"></span>krishna@gmail.com</div>
+      <div class="row sel"><span class="chev none">▾</span><span class="ico">⌂</span><span class="name">Inbox</span><span class="cnt">12</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">★</span><span class="name">Starred</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">➤</span><span class="name">Sent Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">✎</span><span class="name">Drafts</span><span class="cnt dim">2</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">▤</span><span class="name">All Mail</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">⚠</span><span class="name">Spam</span></div>
+      <div class="row"><span class="chev none">▾</span><span class="ico">🗑</span><span class="name">Trash</span></div>
+      <div class="group" data-t="c-lab"><span class="chev">▾</span>Labels<span class="pill">13 · 28 unread</span></div>
+      <div data-p="c-lab">
+        <div class="row container"><span class="chev" data-t="c-cl">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Clients</span><span class="cnt">3</span></div>
+        <div class="row" data-p="c-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Acme</span><span class="cnt">3</span></div>
+        <div class="row" data-p="c-cl" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Globex</span></div>
+        <div class="row container"><span class="chev closed" data-t="c-fin">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Finance</span><span class="cnt">1</span></div>
+        <div class="row hide" data-p="c-fin" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Bills</span><span class="cnt">1</span></div>
+        <div class="row"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-green)"></span><span class="name">Newsletters</span><span class="cnt">24</span></div>
+        <div class="row more"><span class="chev closed" data-t="c-more">▾</span><span class="ico">⋯</span><span class="name">More labels</span><span class="cnt dim">6</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-red)"></span><span class="name">Clients / Initech</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-blue)"></span><span class="name">Finance / Tax 2026</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Receipts</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-violet)"></span><span class="name">Kids school</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-amber)"></span><span class="name">Travel / 2026</span></div>
+        <div class="row hide" data-p="c-more" style="padding-left:22px"><span class="chev none">▾</span><span class="lbl" style="background:var(--c-teal)"></span><span class="name">Work / Visa</span></div>
+      </div>
+    </div>
+    <p class="note">The shortest list, but a label can move between the two places by itself, which may be surprising. Right-click a label → <b>Always show</b> keeps it out of More.</p>
+  </div>
+</div>
+
+<h2>Right-click on the account or the Labels group (A, B and C)</h2>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(250px,320px))">
+  <div class="opt">
+    <div class="side" style="padding-bottom:6px">
+      <div class="acct"><span class="dot"></span>krishna@gmail.com</div>
+      <div class="group"><span class="chev">▾</span>Labels<span class="pill">13 · 28 unread</span></div>
+      <div class="menu">
+        <div>Open all labels</div>
+        <div>Close all labels</div>
+        <div class="sep"></div>
+        <div>Only show labels with unread mail</div>
+      </div>
+    </div>
+    <p class="note">"Close all labels" folds every parent in one go. "Only show labels with unread mail" is a filter you switch on and off; it is remembered per account.</p>
+  </div>
+</div>
+
+<h2>Choose</h2>
+<div class="tw"><table>
+  <thead><tr><th>SrNo.</th><th>Option</th><th>What you get</th><th>Version</th></tr></thead>
+  <tbody>
+    <tr><td class="n">1</td><td><b>A</b> Fix the tree</td><td>Nested labels fold under their parent (container parents come back as grey rows). The smallest change.</td><td>z (fix)</td></tr>
+    <tr><td class="n">2</td><td><b>B</b> A + Labels group <span class="rec">Recommended</span></td><td>A, plus every label in one group you fold in one click, under Gmail's own folders. Folders group for other accounts.</td><td>y (feature changed)</td></tr>
+    <tr><td class="n">3</td><td><b>C</b> B + More labels</td><td>B, plus quiet labels drop into "More" by themselves.</td><td>y (feature changed)</td></tr>
+  </tbody>
+</table></div>
+<p class="hint">With any option: the right-click menu above, open/closed state kept between runs (as it is for folders today), and the icon rail (narrow sidebar) unchanged. Mac and Android follow later.</p>
+
+<h2>Doubts to settle</h2>
+<div class="tw"><table>
+  <thead><tr><th>SrNo.</th><th>Point</th></tr></thead>
+  <tbody>
+    <tr><td class="n">1</td><td>The cause is my reading of the code and of how Gmail lists labels; I haven't seen your sidebar. A screenshot would confirm it.</td></tr>
+    <tr><td class="n">2</td><td>Gmail's own "[Gmail]" container (Sent Mail, All Mail, Spam…) stays hidden: those folders stay at the top as now.</td></tr>
+    <tr><td class="n">3</td><td>Should a closed parent show its labels' unread total (shown here), or nothing?</td></tr>
+    <tr><td class="n">4</td><td>B and C: should the Labels group start open (shown) or closed for accounts added from now on?</td></tr>
+  </tbody>
+</table></div>
+
+<footer>Magpie Mail · LB1 · 30 Oct 2026 · for approval. Nothing is built yet.</footer>
+</div>
+
+<script>
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('[data-t]');
+  if (!t) return;
+  var key = t.getAttribute('data-t');
+  var chev = t.classList.contains('chev') ? t : t.querySelector('.chev');
+  var open = chev ? chev.classList.contains('closed') : true;
+  if (chev) chev.classList.toggle('closed', !open);
+  document.querySelectorAll('[data-p="' + key + '"]').forEach(function (el) { el.classList.toggle('hide', !open); });
+});
+</script>
+
+</body></html>

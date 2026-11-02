@@ -178,6 +178,25 @@ public sealed class SidebarState
     public List<string> OpenAccounts { get; set; } = new();
     /// <summary>"accountId|folderPath" of folders whose subfolders are shown (folders start closed).</summary>
     public List<string> OpenFolders { get; set; } = new();
+    /// <summary>Design LB1: account ids whose Labels / Folders group is closed (the group starts open).</summary>
+    public List<string> LabelsClosed { get; set; } = new();
+    /// <summary>Design LB1: account ids that only show labels with unread mail (right-click menu).</summary>
+    public List<string> OnlyUnreadLabels { get; set; } = new();
+    /// <summary>Design LB1 C: "accountId|folderPath" of labels that never move into More labels ("Always show").</summary>
+    public List<string> AlwaysShowLabels { get; set; } = new();
+    /// <summary>Design LB1 C: "accountId|folderPath" → when the label was last opened (or first seen); 30 days without
+    /// opening and no unread mail puts it in More labels.</summary>
+    public Dictionary<string, DateTimeOffset> LabelOpened { get; set; } = new();
+
+    public void Normalise()
+    {
+        OpenAccounts ??= new();
+        OpenFolders ??= new();
+        LabelsClosed ??= new();
+        OnlyUnreadLabels ??= new();
+        AlwaysShowLabels ??= new();
+        LabelOpened ??= new();
+    }
 }
 
 public enum ButtonStyle { IconAndName = 0, IconOnly = 1, NameOnly = 2 }
@@ -520,8 +539,7 @@ public sealed class SettingsStore
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         s.Sidebar ??= new();
-        s.Sidebar.OpenAccounts ??= new();
-        s.Sidebar.OpenFolders ??= new();
+        s.Sidebar.Normalise();
         s.Appearance ??= new();
         s.Appearance.Normalise();
         (s.Typography ??= new()).Normalise();
