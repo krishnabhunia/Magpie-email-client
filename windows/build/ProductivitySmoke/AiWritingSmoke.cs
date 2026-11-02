@@ -94,7 +94,14 @@ internal static partial class Program
             engine.Config.Ai.ReplyDrafts.OnForward = true;
             engine.Settings.Save(notify: false);
             http.Content = "Hi,\n\nFYI, Maya needs the Q3 vendor report by Friday.";
-            forward = new ComposeViewModel(Composer.Prepare(ComposeMode.Forward, account, original, body, engine.MyAddresses, null), null);
+            var withFile = Composer.Prepare(ComposeMode.Forward, account, original, body, engine.MyAddresses, null);
+            withFile.CarriedParts.Add(new MimeKit.MimePart("application", "pdf")
+            {
+                FileName = "q3-vendor-report.pdf",
+                Content = new MimeKit.MimeContent(new MemoryStream(new byte[] { 1, 2, 3 })),
+                ContentDisposition = new MimeKit.ContentDisposition(MimeKit.ContentDisposition.Attachment),
+            });
+            forward = new ComposeViewModel(withFile, null);
             try
             {
                 var before = http.Bodies.Count;
@@ -105,6 +112,10 @@ internal static partial class Program
                 forward.To = "Alex Rivera <alex@example.test>";
                 Assert(forward.ReplyDraftPreview.StartsWith("Hi Alex,\n") && http.Bodies.Count == before + 1 && forward.CanUseReplyDraft,
                     "Adding a recipient updates only the greeting, without a new request");
+                // The note may name the forwarded files: removing one makes the note and its versions out of date.
+                forward.RemoveAttachmentCommand.Execute(forward.Attachments.Single(a => a.Carried));
+                Assert(!forward.CanUseReplyDraft && forward.ReplyDraftPreview.Length == 0 && !forward.HasVersions
+                    && http.Bodies.Count == before + 1, "Removing a forwarded file clears the note without a new request");
             }
             finally { forward.Detach(); }
         }

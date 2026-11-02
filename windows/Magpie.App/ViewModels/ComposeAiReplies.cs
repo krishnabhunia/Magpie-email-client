@@ -234,7 +234,8 @@ public partial class ComposeViewModel
 
     // This remains in memory. It is never logged or sent to a model. Per-draft choices (answer, tone, culture…) are not part
     // of it: a shown version keeps the choices it was written with. A forward note doesn't depend on the recipients (only its
-    // greeting does, and that is filled in locally), so To / Cc / Bcc only count for replies.
+    // greeting does, and that is filled in locally), so To / Cc / Bcc only count for replies. The forwarded email's files do
+    // count for a forward: a note may name them, so removing one makes the note (and its versions) out of date.
     private string ReplyFingerprint(bool includeConsent = true)
     {
         var p = _e.Config.Ai.ReplyDrafts;
@@ -242,6 +243,7 @@ public partial class ComposeViewModel
         {
             Account = From?.Id, _draft.ThreadKey, _draft.Mode, _draft.ForwardOfRow, Subject,
             To = IsForward ? "" : To, Cc = IsForward ? "" : Cc, Bcc = IsForward ? "" : Bcc,
+            Carried = IsForward ? Attachments.Where(a => a.Carried).Select(a => a.Path).ToList() : null,
             _e.Config.Ai.Enabled, _e.Config.Ai.ActiveId, _e.Config.Ai.Provider, _e.Config.Ai.Endpoint, _e.Config.Ai.Model,
             Gate = p.ShouldGenerate(_draft.Mode), p.Context, p.Instructions, p.ShowStance,
             Consent = includeConsent && _e.Ai.NeedsConsent(DraftFeature),

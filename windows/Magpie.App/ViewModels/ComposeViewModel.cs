@@ -342,6 +342,7 @@ public partial class ComposeViewModel : ObservableObject
         Attachments.Remove(a);
         if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
         MarkEdited();
+        if (a.Carried) InvalidateReplyContext();   // a forward note may name this file
     }
 
     private async Task<Draft?> BuildDraftAsync(bool validate = true)
