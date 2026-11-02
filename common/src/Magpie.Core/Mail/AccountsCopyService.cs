@@ -86,14 +86,15 @@ public sealed class AccountsCopyService
     private async Task LoopAsync(CancellationToken ct)
     {
         try { await Task.Delay(TimeSpan.FromSeconds(30), ct); } catch (OperationCanceledException) { return; }
-        while (!ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested && !_e.IsStoppedForVersionChange)
         {
             try { await RunOnceAsync(ct); }
+            catch (OperationCanceledException) when (_e.IsStoppedForVersionChange) { return; }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex) { Fail(Connector.Friendly(ex)); Log.Warn("accounts copy: " + AccountSync.Describe(ex)); }
             // After the round (which may follow a "moved" note first).
             try { await CleanUpAsync(ct); }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || _e.IsStoppedForVersionChange) { return; }
             catch (Exception ex) { Log.Warn("accounts copy: clean-up: " + AccountSync.Describe(ex)); }
             try
             {
@@ -109,6 +110,7 @@ public sealed class AccountsCopyService
     /// once done. A mailbox whose account isn't in Magpie here any more can't be reached: its entry goes (logged).</summary>
     private async Task CleanUpAsync(CancellationToken ct)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var o = Options;
         if (o.CleanUp.Count == 0 && o.Spares.Count == 0) return;
         await _busy.WaitAsync(ct);
@@ -220,6 +222,7 @@ public sealed class AccountsCopyService
     /// would stay there for good).</summary>
     public async Task<bool> CleanUpNowAsync(string email, CancellationToken ct)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var key = AccountsCopy.Key(email);
         var o = Options;
         await _busy.WaitAsync(ct);
@@ -283,6 +286,7 @@ public sealed class AccountsCopyService
     /// <paramref name="rebuild"/> writes a new copy when the one that was there has gone ("Update the copy now").</summary>
     public async Task RunOnceAsync(CancellationToken ct, bool rebuild = false)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         if (!Options.Enabled) return;
         await _busy.WaitAsync(ct);
         try
@@ -520,6 +524,7 @@ public sealed class AccountsCopyService
     /// accounts and settings start it.</summary>
     public async Task EnableAsync(string homeEmail, string password, bool includeSettings, bool includeAi, bool autoAdd, CancellationToken ct)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         if (password.Length < AccountsCopy.MinPasswordLength) throw new ArgumentException($"Use at least {AccountsCopy.MinPasswordLength} characters.");
         var home = _e.Accounts.FirstOrDefault(a => AccountsCopy.Key(a.Email) == AccountsCopy.Key(homeEmail)) ?? throw new ArgumentException("Choose a home account.");
         var file = await FindAsync(home, null, ct);
@@ -589,6 +594,7 @@ public sealed class AccountsCopyService
     /// <summary>The choices changed while the copy is on (what comes along, adding by themselves): every PC follows.</summary>
     public void SetChoices(bool includeSettings, bool includeAi, bool autoAdd)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var o = Options;
         var share = o.IncludeSettings != includeSettings || o.IncludeAiKeys != includeAi;
         o.AutoAdd = autoAdd;
@@ -603,6 +609,7 @@ public sealed class AccountsCopyService
     /// the other PCs ask for it once.</summary>
     public void ChangePassword(string newPassword)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         if (newPassword.Length < AccountsCopy.MinPasswordLength) throw new ArgumentException($"Use at least {AccountsCopy.MinPasswordLength} characters.");
         _e.Vault.Set(AccountsCopy.VaultNewPassword, newPassword);
         Poke();
@@ -611,6 +618,7 @@ public sealed class AccountsCopyService
     /// <summary>The sync password typed again after another PC changed it.</summary>
     public void SetPassword(string password)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         if (password.Length < AccountsCopy.MinPasswordLength) throw new ArgumentException($"Use at least {AccountsCopy.MinPasswordLength} characters.");
         _e.Vault.Set(AccountsCopy.VaultPassword, password);
         _e.Vault.Set(AccountsCopy.VaultNewPassword, null);
@@ -623,6 +631,7 @@ public sealed class AccountsCopyService
     /// follow. When anything fails, nothing has moved: the copy stays where it was (the error says why).</summary>
     public async Task MoveHomeAsync(string newHomeEmail, CancellationToken ct)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         await _busy.WaitAsync(ct);
         try
         {
@@ -778,6 +787,7 @@ public sealed class AccountsCopyService
     /// false it only stops on this PC.</summary>
     public async Task DisableAsync(bool deleteCopy, CancellationToken ct)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         await _busy.WaitAsync(ct);
         try
         {
@@ -909,6 +919,7 @@ public sealed class AccountsCopyService
     /// </summary>
     public List<Account> AddFromCopy(AccountsCopy.Contents copy, Account home, string password, IEnumerable<string> emails)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var o = Options;
         var homeKey = AccountsCopy.Key(home.Email);
         var wanted = emails.Select(AccountsCopy.Key).ToHashSet();
@@ -968,6 +979,7 @@ public sealed class AccountsCopyService
     /// <summary>Settings → Accounts: add accounts that wait in the copy (not added by themselves, or "Not now" before).</summary>
     public List<Account> AddWaiting(IEnumerable<AccountsCopy.CopiedAccount> chosen)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var toAdd = new List<Account>();
         foreach (var c in chosen)
         {
@@ -986,6 +998,7 @@ public sealed class AccountsCopyService
     /// here too" the caller runs <see cref="CleanUpNowAsync"/> (and asks when that can't be done).</summary>
     public void AnswerRemoved(Account account, bool removeHere)
     {
+        using var versionGuard = _e.EnterProfileOperation();
         var key = AccountsCopy.Key(account.Email);
         if (removeHere) { _e.RemoveAccount(account.Id); return; }
         // Kept: it counts as changed here now, so the copy gets it back (and its removal note goes).

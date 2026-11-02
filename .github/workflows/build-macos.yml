@@ -1,0 +1,91 @@
+name: macOS Build
+
+# Standalone macOS-only pipeline. Windows and Android never run here.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'macOS/**'
+      - 'common/**'
+      - 'Directory.Build.props'
+      - 'CHANGELOG.md'
+      - 'Magpie.sln'
+      - 'global.json'
+      - 'windows/Magpie.App/Assets/app-256.png'
+      - '.github/workflows/build-macos.yml'
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+    paths:
+      - 'macOS/**'
+      - 'common/**'
+      - 'Directory.Build.props'
+      - 'CHANGELOG.md'
+      - 'Magpie.sln'
+      - 'global.json'
+      - 'windows/Magpie.App/Assets/app-256.png'
+      - '.github/workflows/build-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest   # Apple Silicon (arm64)
+    env:
+      # Design SY1 / SA1: Magpie's own Google / Microsoft sign-in apps, built into the release (empty = not built in).
+      MAGPIE_GOOGLE_CLIENT_ID: ${{ secrets.MAGPIE_GOOGLE_CLIENT_ID }}
+      MAGPIE_GOOGLE_CLIENT_SECRET: ${{ secrets.MAGPIE_GOOGLE_CLIENT_SECRET }}
+      MAGPIE_MICROSOFT_CLIENT_ID: ${{ secrets.MAGPIE_MICROSOFT_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Magpie for Mac is .NET 10 (Avalonia 12 + the WKWebView control); Magpie.Core stays .NET 8. macOS/global.json
+      # picks SDK 10 for everything built from macOS/.
+      - name: Resolve shared build version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 common/scripts/ci_version.py)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Set up .NET 8 and 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # Mac headless tests stay advisory; app and disk-image checks remain blocking.
+      - name: Mac app tests (headless)
+        continue-on-error: true
+        working-directory: macOS
+        run: |
+          set -o pipefail   # without it tee would hide the exit code (GitHub's default bash has no pipefail)
+          dotnet test Magpie.Mac.Tests/Magpie.Mac.Tests.csproj -c Release 2>&1 | tee mac-tests.log || {
+            echo "::error title=Mac headless tests failed::$(grep -E '\[FAIL\]|Failed |Assert|error |Expected|Actual' mac-tests.log | head -n 60 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
+
+      # macOS/build/build.sh <version> builds the app and writes macOS/out/Magpie_<version>.dmg (see macOS/README.md).
+      - name: Build Magpie for Mac
+        run: |
+          set -o pipefail
+          bash macOS/build/build.sh "$VERSION" 2>&1 | tee mac-build.log || {
+            echo "::error title=build.sh failed::$(tail -n 50 mac-build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          }
+
+      - name: Upload Mac build for release assembly
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-macos-${{ env.VERSION }}
+          path: macOS/out/*.dmg
+          if-no-files-found: error
+          retention-days: 7

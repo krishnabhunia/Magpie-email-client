@@ -59,10 +59,10 @@ version, macOS 14+) → `codesign --force --deep --sign -` → `hdiutil create �
 
 ## How CI picks it up
 
-The **macos** job in `.github/workflows/build.yml` (on `macos-latest`, Apple Silicon) installs .NET 8 and 10, runs
+The independent **macos** job in `.github/workflows/build-macos.yml` (on `macos-latest`, Apple Silicon) installs .NET 8 and 10, runs
 the headless tests (`continue-on-error` until they have run on a Mac runner) and `bash macOS/build/build.sh <version>`, which writes `macOS/out/Magpie_<version>.dmg`. The
-package job puts that file into `macOS/` inside `Magpie_<version>.zip` and on the release with a `.sha256` — the
-file the Mac app updates from. The job runs only when both exist:
+release assembler in `.github/workflows/build.yml` puts that file into `macOS/` inside `Magpie_<version>.zip` and on the release with a `.sha256` when a matching Windows release is being packaged — the
+file the Mac app updates from. A Mac-only change runs this workflow on its own. Building requires both:
 
 | File | Job |
 |---|---|

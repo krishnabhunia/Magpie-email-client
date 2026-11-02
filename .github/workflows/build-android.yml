@@ -1,0 +1,74 @@
+name: Android Build
+
+# Standalone Android-only pipeline, currently a no-op until android/build.sh exists.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'android/**'
+      - 'common/**'
+      - 'Directory.Build.props'
+      - 'CHANGELOG.md'
+      - 'Magpie.sln'
+      - 'global.json'
+      - '.github/workflows/build-android.yml'
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+    paths:
+      - 'android/**'
+      - 'common/**'
+      - 'Directory.Build.props'
+      - 'CHANGELOG.md'
+      - 'Magpie.sln'
+      - 'global.json'
+      - '.github/workflows/build-android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check for an Android app
+        id: app
+        shell: bash
+        run: |
+          if [ -f android/build.sh ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Resolve shared build version
+        if: steps.app.outputs.present == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 common/scripts/ci_version.py)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v6
+        if: steps.app.outputs.present == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # android/build.sh <version> writes android/out/Magpie_<version>.apk (see android/README.md).
+      - name: Build Magpie for Android
+        if: steps.app.outputs.present == 'true'
+        run: bash android/build.sh "$VERSION"
+
+      - name: Upload Android build for release assembly
+        if: steps.app.outputs.present == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-android-${{ env.VERSION }}
+          path: android/out/*.apk
+          if-no-files-found: error
+          retention-days: 7

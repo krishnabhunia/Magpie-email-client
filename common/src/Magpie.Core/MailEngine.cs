@@ -31,6 +31,12 @@ public sealed class MailEngine : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _timers;
     private Task? _rules;
+    private readonly CancellationTokenSource _versionStop = new();
+    private readonly Updates.VersionChangeOperations _versionOperations = new();
+    private readonly ConcurrentBag<AccountSync> _retiredSyncs = new();
+    private int _versionStopping;
+    /// <summary>A stopped engine must be replaced by restarting the app, including after a failed installation.</summary>
+    public bool IsStoppedForVersionChange => Volatile.Read(ref _versionStopping) != 0;
     private readonly object _ruleGate = new();
     private readonly SemaphoreSlim _deferredRulesGate = new(1, 1);
     private long _lastDeferredRuleMessage;
@@ -98,6 +104,28 @@ public sealed class MailEngine : IDisposable
     }
 
     public AppSettings Config => Settings.Current;
+
+    /// <summary>Tracks a platform workflow that may save accounts, refreshed sign-ins or other profile data.</summary>
+    public async Task<T> WithProfileOperationAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct = default)
+    {
+        using var admission = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        linked.Token.ThrowIfCancellationRequested();
+        return await operation(linked.Token);
+    }
+
+    public Task WithProfileOperationAsync(Func<CancellationToken, Task> operation, CancellationToken ct = default) =>
+        WithProfileOperationAsync(async token => { await operation(token); return true; }, ct);
+
+    /// <summary>An AI connection test may persist learned request settings, so version changes must drain it too.</summary>
+    public async Task<AiTestResult> TestAiAsync(AiSettings candidate, string? key, CancellationToken ct = default)
+    {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        linked.Token.ThrowIfCancellationRequested();
+        return await Ai.TestAsync(candidate, key, linked.Token);
+    }
+
     public IReadOnlyList<Account> Accounts => Settings.Current.Accounts;
     public Account? AccountById(string id) => Settings.Current.Accounts.FirstOrDefault(a => a.Id == id);
 
@@ -106,6 +134,8 @@ public sealed class MailEngine : IDisposable
 
     public void Start()
     {
+        ThrowIfChangingVersion();
+        if (_cts != null) return;
         _cts = new CancellationTokenSource();
         Store.RecoverStuckOutbox();
         // Design SY1: an older Magpie may have listed the accounts copy email (Gmail All Mail) before it was hidden.
@@ -128,6 +158,7 @@ public sealed class MailEngine : IDisposable
 
     private void StartAccount(Account a, bool takeTurns = false)
     {
+        ThrowIfChangingVersion();
         var sync = new AccountSync(a, Store, Connector, IsKnownContact, SenderOverride)
         {
             MimePathFor = Paths.MimePath,
@@ -208,6 +239,8 @@ public sealed class MailEngine : IDisposable
 
     public void AddAccount(Account a, string? password, OAuthTokens? tokens)
     {
+        using var operation = _versionOperations.Enter();
+        ThrowIfChangingVersion();
         if (Accounts.Any(x => x.Email.Equals(a.Email, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"{a.Email} is already added.");
         if (password != null) Vault.Set(SecretVault.PasswordKey(a.Id), password);
@@ -229,6 +262,8 @@ public sealed class MailEngine : IDisposable
     /// in the vault. They take turns for the first download. Accounts already here are skipped.</summary>
     public List<Account> AddAccounts(IEnumerable<Account> accounts, bool fromCopy = false)
     {
+        using var operation = _versionOperations.Enter();
+        ThrowIfChangingVersion();
         var added = new List<Account>();
         foreach (var a in accounts)
         {
@@ -262,13 +297,16 @@ public sealed class MailEngine : IDisposable
     /// <summary>Design SY1: an account changed by another PC (through the copy): saved already, its sync starts again.</summary>
     internal void RestartAccount(Account a)
     {
-        if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
+        ThrowIfChangingVersion();
+        if (_syncs.TryRemove(a.Id, out var old)) { _retiredSyncs.Add(old); old.Dispose(); }
         if (a.Enabled) StartAccount(a);
         Changed?.Invoke(new ChangeSet { AccountId = a.Id, FoldersChanged = true });
     }
 
     public void UpdateAccount(Account a, string? newPassword = null, OAuthTokens? tokens = null)
     {
+        using var operation = _versionOperations.Enter();
+        ThrowIfChangingVersion();
         var list = Settings.Current.Accounts;
         var i = list.FindIndex(x => x.Id == a.Id);
         if (i < 0) return;
@@ -278,7 +316,7 @@ public sealed class MailEngine : IDisposable
         // Design SY1: a new sign-in travels to the other PCs (it is part of the account's fingerprint in the copy).
         if (tokens != null || newPassword != null) Settings.Current.AccountsCopy.SignedIn[Magpie.Core.Settings.AccountsCopy.Key(a.Email)] = DateTimeOffset.Now;
         Settings.Save();
-        if (_syncs.TryRemove(a.Id, out var old)) old.Dispose();
+        if (_syncs.TryRemove(a.Id, out var old)) { _retiredSyncs.Add(old); old.Dispose(); }
         if (a.Enabled) StartAccount(a);
         Calendar.Poke();   // a new sign-in may now allow the calendar (design B2)
         Contacts.Poke();   // … and contacts (design B4)
@@ -287,7 +325,9 @@ public sealed class MailEngine : IDisposable
 
     public void RemoveAccount(string accountId)
     {
-        if (_syncs.TryRemove(accountId, out var s)) s.Dispose();
+        using var operation = _versionOperations.Enter();
+        ThrowIfChangingVersion();
+        if (_syncs.TryRemove(accountId, out var s)) { _retiredSyncs.Add(s); s.Dispose(); }
         // Design SY1: the copy notes the removal (other PCs ask before removing it there) and this PC doesn't add it back.
         if (AccountById(accountId) is { } gone)
         {
@@ -348,6 +388,7 @@ public sealed class MailEngine : IDisposable
 
     public void SetRead(string accountId, string threadKey, bool read)
     {
+        using var operation = _versionOperations.Enter();
         var rows = Store.GetThreadCopies(accountId, threadKey);
         var folders = new HashSet<long>();
         foreach (var m in rows)
@@ -363,6 +404,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Marks only the newest message unread (Spark behaviour for "mark unread").</summary>
     public void MarkLatestUnread(string accountId, string threadKey)
     {
+        using var operation = _versionOperations.Enter();
         var rows = Store.GetThreadCopies(accountId, threadKey);
         var latest = rows.OrderByDescending(r => r.Date).FirstOrDefault();
         if (latest == null) return;
@@ -378,6 +420,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Pin = IMAP \Flagged (Gmail star, Outlook flag), so it shows on every device.</summary>
     public void SetPinned(string accountId, string threadKey, bool pinned)
     {
+        using var operation = _versionOperations.Enter();
         var rows = Store.GetThreadCopies(accountId, threadKey);
         var changed = new List<MessageRow>();
         if (pinned)
@@ -413,6 +456,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Moves the conversation's copies in <paramref name="fromFolders"/> to Archive (Gmail: All Mail).</summary>
     public async Task ArchiveAsync(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, CancellationToken ct = default)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var dest = await DestinationAsync(accountId, FolderRole.Archive, ct) ?? throw new InvalidOperationException("This account has no Archive folder.");
         MoveCopies(accountId, threadKey, fromFolders.Where(f => f != dest.Id).ToList(), dest);
     }
@@ -420,6 +467,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Trash; in Trash (or Junk) itself it deletes permanently.</summary>
     public async Task TrashAsync(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, CancellationToken ct = default)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var trash = await DestinationAsync(accountId, FolderRole.Trash, ct);
         var folders = Store.GetFolders(accountId).ToDictionary(f => f.Id);
         var copies = Store.GetThreadCopies(accountId, threadKey).Where(m => fromFolders.Contains(m.FolderId)).ToList();
@@ -437,8 +488,11 @@ public sealed class MailEngine : IDisposable
         if (touched.Count > 0) Touched(accountId, touched);
     }
 
-    public void MoveTo(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, MailFolder dest) =>
+    public void MoveTo(string accountId, string threadKey, IReadOnlyCollection<long> fromFolders, MailFolder dest)
+    {
+        using var operation = _versionOperations.Enter();
         MoveCopies(accountId, threadKey, fromFolders.Where(f => f != dest.Id).ToList(), dest);
+    }
 
     // ───────────────────────── delete for good (design DX1-A: Shift+Delete, "Delete forever…") ─────────────────────────
 
@@ -468,6 +522,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public Task<int> DeleteForeverAsync(string accountId, IEnumerable<string> threadKeys, IReadOnlyCollection<long> inFolders)
     {
+        using var operation = _versionOperations.Enter();
         var copies = CopiesToDeleteForever(accountId, threadKeys, inFolders);
         if (copies.Count == 0) return Task.FromResult(0);
         var touched = new HashSet<long>();
@@ -492,6 +547,7 @@ public sealed class MailEngine : IDisposable
     /// (also those not listed here yet). Returns how many were on this PC.</summary>
     public int EmptyFolder(string accountId, FolderRole role)
     {
+        using var operation = _versionOperations.Enter();
         if (role is not (FolderRole.Trash or FolderRole.Junk)) throw new ArgumentException("Only Trash and Spam can be emptied.");
         var folder = Store.GetFolders(accountId).FirstOrDefault(f => f.Role == role);
         if (folder == null) return 0;
@@ -507,6 +563,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Restore (T2): the conversation's copies in Trash go back to the folder they came from (Inbox when not known).</summary>
     public void Restore(string accountId, string threadKey)
     {
+        using var operation = _versionOperations.Enter();
         var folders = Store.GetFolders(accountId);
         var trash = folders.Where(f => f.Role == FolderRole.Trash).Select(f => f.Id).ToHashSet();
         var inbox = folders.FirstOrDefault(f => f.Role == FolderRole.Inbox) ?? throw new InvalidOperationException("This account has no Inbox.");
@@ -528,6 +585,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Not spam (T6): the conversation goes to the Inbox and its senders get through the Gatekeeper from now on.</summary>
     public void NotSpam(string accountId, string threadKey)
     {
+        using var operation = _versionOperations.Enter();
         var folders = Store.GetFolders(accountId);
         var junk = folders.Where(f => f.Role == FolderRole.Junk).Select(f => f.Id).ToList();
         var inbox = folders.FirstOrDefault(f => f.Role == FolderRole.Inbox) ?? throw new InvalidOperationException("This account has no Inbox.");
@@ -541,6 +599,7 @@ public sealed class MailEngine : IDisposable
     /// Time in Trash is counted from when Magpie moved it there, or first saw it there.</summary>
     public int AutoEmptyTrash(DateTimeOffset now)
     {
+        using var operation = _versionOperations.Enter();
         var days = Config.EmptyTrashAfterDays;
         if (days <= 0) return 0;
         var n = 0;
@@ -573,6 +632,7 @@ public sealed class MailEngine : IDisposable
 
     public void Snooze(string accountId, string threadKey, DateTimeOffset until)
     {
+        using var operation = _versionOperations.Enter();
         var inbox = FolderIds(FolderRole.Inbox, accountId);
         Store.SetSnooze(accountId, threadKey, inbox, until);
         Touched(accountId, inbox);
@@ -580,6 +640,7 @@ public sealed class MailEngine : IDisposable
 
     public void Unsnooze(string accountId, string threadKey)
     {
+        using var operation = _versionOperations.Enter();
         var inbox = FolderIds(FolderRole.Inbox, accountId);
         Store.SetSnooze(accountId, threadKey, inbox, null);
         Store.BumpThread(accountId, threadKey, DateTimeOffset.Now);
@@ -589,6 +650,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Set aside (design B7, key L): out of the Inbox without a date, into one pile; false puts it back on top of the Inbox.</summary>
     public void SetAside(string accountId, string threadKey, bool aside)
     {
+        using var operation = _versionOperations.Enter();
         var touched = new HashSet<long>();
         SetAsideRows(accountId, threadKey, aside, touched);
         Touched(accountId, touched);
@@ -605,12 +667,14 @@ public sealed class MailEngine : IDisposable
     /// <param name="always">True: remind at that time regardless. False: only if nobody replied.</param>
     public void RemindMe(string accountId, string threadKey, string subject, DateTimeOffset due, bool always)
     {
+        using var operation = _versionOperations.Enter();
         Store.AddReminder(new Reminder { AccountId = accountId, ThreadKey = threadKey, Subject = subject, After = DateTimeOffset.Now, Due = due, Always = always });
         Changed?.Invoke(new ChangeSet { AccountId = accountId });
     }
 
     public void SetTags(string accountId, string threadKey, IEnumerable<string> tags)
     {
+        using var operation = _versionOperations.Enter();
         var joined = string.Join(",", tags.Select(t => t.Replace(",", " ").Trim()).Where(t => t.Length > 0).Distinct());
         var rows = Store.GetThreadCopies(accountId, threadKey);
         foreach (var r in rows) Store.SetTags(r.Id, joined);
@@ -622,6 +686,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Smart inbox correction: "this sender belongs in People/Notifications/Newsletters" (remembered).</summary>
     public void SetSenderCategory(string accountId, string address, Category cat)
     {
+        using var operation = _versionOperations.Enter();
         Settings.Current.SenderCategories[address] = cat;
         Settings.Save();
         foreach (var a in Accounts) Store.SetCategory(a.Id, address, cat);
@@ -638,6 +703,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public MailStore.LocalEvent? TrackInvite(string accountId, CalendarInvite inv)
     {
+        using var operation = _versionOperations.Enter();
         if (inv.Uid.Length == 0) return null;
         var ev = Store.GetEvent(accountId, inv.Uid);
         if (inv.IsCancel)
@@ -668,6 +734,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public (long OutboxId, MailStore.LocalEvent? Before) AnswerInvite(MessageRow message, CalendarInvite inv, InviteAnswer answer, string? note)
     {
+        using var operation = _versionOperations.Enter();
         var account = AccountById(message.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
         var organizer = inv.Organizer?.Email;
         if (string.IsNullOrWhiteSpace(organizer) || !organizer.Contains('@')) throw new InvalidOperationException("This invite doesn't say who organised it, so there is nobody to answer.");
@@ -694,6 +761,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Undo an answer still in its undo window: the reply isn't sent and the old answer comes back.</summary>
     public bool UndoInviteAnswer(long outboxId, string accountId, string uid, MailStore.LocalEvent? before)
     {
+        using var operation = _versionOperations.Enter();
         if (Recall(outboxId) == null) return false;
         if (before != null) Store.SaveEvent(before);
         else if (Store.GetEvent(accountId, uid) is { } ev) Store.SaveEvent(ev with { Answer = "" });
@@ -705,6 +773,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Sends a quick reply to <paramref name="original"/> through the outbox (so Undo works). Returns the outbox id.</summary>
     public async Task<long> QuickReplyAsync(MessageRow original, string text, CancellationToken ct = default)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var account = AccountById(original.AccountId) ?? throw new InvalidOperationException("This account is no longer in Magpie.");
         var (body, _) = await LoadAsync(original, false, ct);
         var d = Composer.QuickReply(account, original, body, MyAddresses, text);
@@ -720,6 +792,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public HashSet<long> RunRules(string accountId, IReadOnlyList<MessageRow> messages, IReadOnlyList<MailRule>? only = null, IReadOnlySet<long>? notifyWhenReady = null)
     {
+        using var operation = _versionOperations.Enter();
         lock (_ruleGate) return RunRulesCore(accountId, messages, only, notifyWhenReady);
     }
 
@@ -759,6 +832,10 @@ public sealed class MailEngine : IDisposable
 
     internal async Task ProcessDeferredRulesAsync(CancellationToken ct)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         await _deferredRulesGate.WaitAsync(ct);
         try
         {
@@ -913,6 +990,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Rules saved twice for one sender before rules were kept unique: the newest stays, the others' emails join it.</summary>
     public int MergeDuplicateAutoDeleteRules()
     {
+        using var operation = _versionOperations.Enter();
         var merged = 0;
         foreach (var g in Store.GetAutoDeleteRules().GroupBy(r => (r.Pattern, r.AccountId)).Where(g => g.Count() > 1))
         {
@@ -934,6 +1012,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public int SaveAutoDeleteRule(AutoDeleteRule rule, bool startOnExisting)
     {
+        using var operation = _versionOperations.Enter();
         rule.Pattern = AutoDelete.NormalisePattern(rule.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
         rule.Amount = Math.Clamp(rule.Amount, 1, 100);
         rule.AccountId ??= "";
@@ -996,6 +1075,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public AutoDelete.DeleteFromResult ApplyDeleteFrom(AutoDelete.DeleteFromRequest req, DateTimeOffset now)
     {
+        using var operation = _versionOperations.Enter();
         var pattern = AutoDelete.NormalisePattern(req.Pattern) ?? throw new ArgumentException("Write an address like name@example.com, or *@example.com for everyone there.");
         var accountId = req.AccountId ?? "";
         var cut = req.KeepNothing ? (DateTimeOffset?)null : AutoDelete.KeepSince(req.Otp, req.Amount, req.Unit, now);
@@ -1032,6 +1112,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Moves these emails (one by one, not whole conversations) to Trash; in accounts without Trash they are deleted.</summary>
     public int TrashEmails(IReadOnlyList<MessageRow> rows)
     {
+        using var operation = _versionOperations.Enter();
         var now = DateTimeOffset.Now;
         foreach (var acc in rows.GroupBy(m => m.AccountId))
         {
@@ -1066,6 +1147,7 @@ public sealed class MailEngine : IDisposable
 
     public void PauseAutoDeleteRule(string id, bool paused)
     {
+        using var operation = _versionOperations.Enter();
         var rule = Store.GetAutoDeleteRules().FirstOrDefault(r => r.Id == id);
         if (rule == null) return;
         rule.Paused = paused;
@@ -1076,6 +1158,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Remove asks (design AD4): keep the timers already on emails, or clear them all.</summary>
     public void RemoveAutoDeleteRule(string id, bool clearTimers)
     {
+        using var operation = _versionOperations.Enter();
         Store.DeleteAutoDeleteRule(id, clearTimers);
         AutoDeleteTouched();
     }
@@ -1083,6 +1166,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>New Inbox mail from a sender with a rule gets its timer (the earliest, if several rules match).</summary>
     public void TagArrivals(string accountId, IReadOnlyList<MessageRow> arrivals)
     {
+        using var operation = _versionOperations.Enter();
         if (arrivals.Count == 0) return;
         var rules = Store.GetAutoDeleteRules().Where(r => !r.Paused && AutoDelete.AppliesToAccount(r, accountId)).ToList();
         if (rules.Count == 0) return;
@@ -1100,6 +1184,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>"Keep this one" (design AD3): the conversation's timers come off, for good.</summary>
     public void KeepFromAutoDelete(string accountId, string threadKey)
     {
+        using var operation = _versionOperations.Enter();
         Store.KeepRows(Store.DeleteTimers(accountId, threadKey).Select(t => t.Id));
         AutoDeleteTouched(accountId);
     }
@@ -1107,6 +1192,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>"Keep all" in Deleting soon: every timer due in the next 7 days comes off.</summary>
     public void KeepAllDeletingSoon()
     {
+        using var operation = _versionOperations.Enter();
         Store.KeepRows(Store.RowsDeletingBefore(DateTimeOffset.Now.AddDays(7)));
         AutoDeleteTouched();
     }
@@ -1114,6 +1200,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>The timer pass: due emails move to Trash (queued for the server). Pinned ones and paused rules are skipped.</summary>
     public int RunDueDeletes(DateTimeOffset now)
     {
+        using var operation = _versionOperations.Enter();
         var due = Store.DueDeletes(now);
         if (due.Count == 0) return 0;
         foreach (var acc in due.GroupBy(m => m.AccountId))
@@ -1159,6 +1246,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public HashSet<long> RunGatekeeper(string accountId, IReadOnlyList<MessageRow> arrivals)
     {
+        using var operation = _versionOperations.Enter();
         var kept = new HashSet<long>();
         var g = Config.Gatekeeper;
         if (arrivals.Count == 0 || (!g.Enabled && g.Blocked.Count == 0)) return kept;
@@ -1210,6 +1298,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Allow: this sender goes straight in from now on; their waiting mail moves to the Inbox.</summary>
     public void AllowSender(string address)
     {
+        using var operation = _versionOperations.Enter();
         var a = address.Trim().ToLowerInvariant();
         var g = Config.Gatekeeper;
         g.Blocked.Remove(a);
@@ -1236,6 +1325,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Block: this sender's mail moves to Spam on the server and keeps doing so. Nothing is deleted.</summary>
     public void BlockSender(string address)
     {
+        using var operation = _versionOperations.Enter();
         var a = address.Trim().ToLowerInvariant();
         var g = Config.Gatekeeper;
         g.Allowed.Remove(a);
@@ -1258,6 +1348,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>The Gatekeeper was switched off: everything waiting comes into the Inbox (senders aren't marked allowed).</summary>
     public void OpenGate()
     {
+        using var operation = _versionOperations.Enter();
         var rows = Store.GateMessages();
         if (rows.Count == 0) return;
         Store.SetAtGate(rows.Select(r => r.Id), false, DateTimeOffset.Now);
@@ -1286,6 +1377,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>"Also apply to the N matching messages already in Inbox": runs just this rule over them. Returns how many matched.</summary>
     public int ApplyRuleToInbox(MailRule rule)
     {
+        using var operation = _versionOperations.Enter();
         var matches = RuleMatchesInInbox(rule);
         var once = rule.Clone();
         once.Enabled = true;   // asked for explicitly, so it runs now even if the rule is switched off for new mail
@@ -1299,6 +1391,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Body from the local store, downloading it first if needed.</summary>
     public async Task<(MessageBody? body, MimeMessage? mime)> LoadAsync(MessageRow row, bool needMime, CancellationToken ct)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var body = Store.GetBody(row.Id);
         if (body != null && !needMime) return (body, null);
         if (!_syncs.TryGetValue(row.AccountId, out var sync)) return (body, null);
@@ -1343,6 +1439,7 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public long QueueSend(Draft d, DateTimeOffset sendAt, DateTimeOffset? remindIfNoReply)
     {
+        using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account to send from.");
         var msg = Composer.Build(d, account);
         var threadKey = string.IsNullOrEmpty(d.ThreadKey) ? "r:" + Threading.NormalizeId(msg.MessageId) : d.ThreadKey;
@@ -1369,6 +1466,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Undo send / cancel a scheduled message. Returns the draft to reopen, or null if it already went.</summary>
     public Draft? Recall(long outboxId)
     {
+        using var operation = _versionOperations.Enter();
         var item = Store.GetOutbox().FirstOrDefault(o => o.Id == outboxId);
         if (item == null || !Store.CancelOutbox(outboxId)) return null;
         OutboxChanged?.Invoke();
@@ -1380,6 +1478,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Saves the message in the account's Drafts folder on the server (replacing the draft it was opened from).</summary>
     public async Task SaveDraftAsync(Draft d, CancellationToken ct = default)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
         var msg = Composer.Build(d, account);
@@ -1418,6 +1520,7 @@ public sealed class MailEngine : IDisposable
     /// (sent, discarded) nothing is written and 0 is returned.</param>
     public long SaveLocalDraft(Draft d, bool pendingUpload, bool insertIfMissing = true)
     {
+        using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         var msg = Composer.Build(d, account);
         var text = MimeText.HtmlToText(d.Html);
@@ -1464,6 +1567,7 @@ public sealed class MailEngine : IDisposable
 
     public void DeleteLocalDraft(long id)
     {
+        using var operation = _versionOperations.Enter();
         Store.DeleteLocalDraft(id);
         Changed?.Invoke(new ChangeSet());
     }
@@ -1479,6 +1583,10 @@ public sealed class MailEngine : IDisposable
     /// <summary>Uploads drafts that were kept on this PC while offline, once their account is connected again.</summary>
     private async Task FlushPendingDraftsAsync(CancellationToken ct)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         if (Interlocked.Exchange(ref _flushingDrafts, 1) == 1) return;
         try
         {
@@ -1508,6 +1616,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>Deletes a server draft (after it was sent or re-saved).</summary>
     public void DeleteDraft(long rowId)
     {
+        using var operation = _versionOperations.Enter();
         var row = Store.GetMessage(rowId);
         if (row == null) return;
         Queue(row, PendingOpKind.Delete);
@@ -1517,6 +1626,7 @@ public sealed class MailEngine : IDisposable
 
     public void Reschedule(long outboxId, DateTimeOffset when)
     {
+        using var operation = _versionOperations.Enter();
         Store.RescheduleOutbox(outboxId, when);
         OutboxChanged?.Invoke();
     }
@@ -1524,6 +1634,7 @@ public sealed class MailEngine : IDisposable
     /// <summary>"Send now" (design SN1): the message goes out at once instead of at the next 2 s pass. False when it is already on its way.</summary>
     public bool SendNow(long outboxId)
     {
+        if (IsStoppedForVersionChange) return false;
         var item = Store.GetOutbox().FirstOrDefault(o => o.Id == outboxId);
         if (item == null || item.Status is not (OutboxStatus.Queued or OutboxStatus.Failed)) return false;
         Store.RescheduleOutbox(outboxId, DateTimeOffset.Now);
@@ -1543,6 +1654,10 @@ public sealed class MailEngine : IDisposable
 
     internal async Task ProcessOutboxAsync(CancellationToken ct)
     {
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var now = DateTimeOffset.Now;
         foreach (var item in Store.GetOutbox().Where(o => o.SendAt <= now))
         {
@@ -1674,7 +1789,7 @@ public sealed class MailEngine : IDisposable
 
     public List<Reminder> DueReminders() => Store.GetReminders(ReminderState.Due);
     public List<Reminder> WaitingReminders() => Store.GetReminders(ReminderState.Waiting);
-    public void DismissReminder(long id) { Store.SetReminderState(id, ReminderState.Done); Changed?.Invoke(new ChangeSet()); }
+    public void DismissReminder(long id) { using var operation = _versionOperations.Enter(); Store.SetReminderState(id, ReminderState.Done); Changed?.Invoke(new ChangeSet()); }
 
     /// <summary>People we have written to move to People (unless the user chose otherwise).</summary>
     private void PromoteKnownSenders()
@@ -1689,8 +1804,48 @@ public sealed class MailEngine : IDisposable
         }
     }
 
+    /// <summary>Design SY1: the accounts copy saves accounts and settings too; its work waits for and stops at a version change.</summary>
+    internal IDisposable EnterProfileOperation()
+    {
+        var lease = _versionOperations.Enter();
+        if (!IsStoppedForVersionChange) return lease;
+        lease.Dispose();
+        throw new OperationCanceledException("Magpie is stopping for a version change.");
+    }
+
+    private void ThrowIfChangingVersion()
+    {
+        if (IsStoppedForVersionChange) throw new OperationCanceledException("Restart Magpie before continuing after a version change.");
+    }
+
+    /// <summary>
+    /// Permanently stops and drains mail, draft/outbox, calendar and contacts work before a version snapshot. Close
+    /// compose windows and disable editing UI first. Restart this process if the transition then fails; this engine
+    /// cannot resume. Cancellation aborts the caller's wait, never permits taking a partial snapshot.
+    /// </summary>
+    public async Task StopForVersionChangeAsync(CancellationToken ct = default)
+    {
+        Interlocked.Exchange(ref _versionStopping, 1);
+        _versionStop.Cancel();
+        try { _cts?.Cancel(); } catch { }
+        Http.CancelPendingRequests();
+        var drain = _versionOperations.StopAsync(ct);
+        var accountStops = _syncs.Values.Concat(_retiredSyncs).Distinct()
+            .Select(sync => sync.StopForVersionChangeAsync(ct)).ToArray();
+        var calendars = Calendar.StopForVersionChangeAsync(ct);
+        var contacts = Contacts.StopForVersionChangeAsync(ct);
+        foreach (var task in new[] { _timers, _rules }.Where(t => t != null))
+            try { await task!.WaitAsync(ct); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        await drain;
+        await Task.WhenAll(accountStops.Append(calendars).Append(contacts));
+        Settings.Save(notify: false);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+    }
+
     public void Dispose()
     {
+        try { _versionStop.Cancel(); } catch { }
         try { _cts?.Cancel(); } catch { }
         AccountsCopy.Stop();
         foreach (var s in _syncs.Values) s.Dispose();

@@ -23,6 +23,9 @@
 
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Updates rename/replace the running bundle. Extract managed dependencies before startup so a later
+         assembly load during handoff or recovery cannot reopen the replacement EXE with the old bundle offsets. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <UseAppHost>true</UseAppHost>

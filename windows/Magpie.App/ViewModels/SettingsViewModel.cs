@@ -385,8 +385,8 @@ public partial class SettingsViewModel : ObservableObject
         ("Notification sound", "Notifications", "Play a sound for new mail", "sound notifications alert new mail", "RowNotifySound"),
         ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
         ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
-        ("Check for updates", "Updates", "Check now, download, restart into the new version", "update check download restart version github", "RowUpdateCard"),
-        ("Auto update", "Updates", "Check at start and once a day; install new versions in the background", "auto update automatic check daily download install background new version", "RowUpdateSwitches"),
+        ("Choose a version or restore a backup", "Updates", "Stable and beta versions, rollback, history and paired data recovery", "update check download restart version github stable beta rollback restore history backup", "RowUpdateCard"),
+        ("Check automatically", "Updates", "Pause or resume checks; choose and confirm every version change", "auto update automatic check pause resume daily version pin", "RowUpdateSwitches"),
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
@@ -823,7 +823,7 @@ public partial class SettingsViewModel : ObservableObject
             var conn = item?.ToConnection() ?? new AiConnection { Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim(), Temperature = Temperature };
             var candidate = new AiSettings { Enabled = true, Provider = Provider, Endpoint = Endpoint.Trim(), Model = Model.Trim(), Connections = { conn }, ActiveId = conn.Id };
             if (!AiService.IsConfigured(candidate, ApiKey)) throw new AiException("Fill in the endpoint, model and API key first.");
-            var result = await Task.Run(() => _e.Ai.TestAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
+            var result = await Task.Run(() => _e.TestAiAsync(candidate, string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(), CancellationToken.None));
             var reply = result.Reply;
             if (item != null && AiConnections.Contains(item))
             {
@@ -934,6 +934,7 @@ public partial class SettingsViewModel : ObservableObject
 
     private bool SaveCore()
     {
+        if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return false;
         if (HasTypographyErrors)
         {
             Page = "Fonts";

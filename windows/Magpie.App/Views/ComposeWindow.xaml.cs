@@ -29,6 +29,7 @@ public partial class ComposeWindow : Window
 
     public static async void Open(ComposeMode mode, MessageRow? original, string? prefill = null)
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         var e = AppServices.Engine;
         if (e.Accounts.Count == 0) { AddAccountWindow.ShowAdd(Application.Current.MainWindow); return; }
         try
@@ -56,6 +57,7 @@ public partial class ComposeWindow : Window
     /// <summary>Open a draft assistant without generating or sending anything.</summary>
     public static void OpenAiDraft()
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         var account = AppServices.Engine.Accounts.FirstOrDefault(a => a.Enabled);
         if (account == null) return;
         var window = new ComposeWindow(new Draft { AccountId = account.Id, Mode = ComposeMode.New }, null);
@@ -124,6 +126,7 @@ public partial class ComposeWindow : Window
 
     private static void Show(Draft d, string? prefill)
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         var w = new ComposeWindow(d, prefill);
         w.Show();
         w.Activate();

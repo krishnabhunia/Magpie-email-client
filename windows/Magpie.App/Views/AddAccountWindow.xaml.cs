@@ -14,6 +14,7 @@ public partial class AddAccountWindow : Window
 
     private static void Show(Window owner, Account? reauth, bool welcome)
     {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
         var w = new AddAccountWindow(new AddAccountViewModel(reauth, welcome));
         if (owner is { IsVisible: true }) w.Owner = owner;
         else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
