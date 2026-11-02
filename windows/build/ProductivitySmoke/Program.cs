@@ -59,6 +59,7 @@ internal static partial class Program
                 CheckFeatureSettings(owner, engine, output, theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
+                CheckVersionManager(owner, output, theme);
             }
             if (expectStartupFailure)
             {

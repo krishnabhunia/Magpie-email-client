@@ -17,7 +17,9 @@ public sealed class ModelRefreshService : IDisposable
     public static readonly TimeSpan Every = TimeSpan.FromHours(24);
     private readonly MailEngine _e;
     private Timer? _timer;
-    private int _running;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _stop = new();
+    private volatile bool _stopping;
 
     public ModelRefreshService(MailEngine e) { _e = e; }
 
@@ -26,16 +28,18 @@ public sealed class ModelRefreshService : IDisposable
     /// <summary>One round: the connection in use only. Public so a test or a "Check now" can call it.</summary>
     public async Task RefreshAsync()
     {
-        if (Interlocked.Exchange(ref _running, 1) == 1) return;
+        if (_stopping || _e.IsStoppedForVersionChange || !_gate.Wait(0)) return;
         try
         {
+            if (_stopping || _e.IsStoppedForVersionChange) return;
             var ai = _e.Config.Ai;
             if (!ai.Enabled || ai.Active is not { } c) return;
             if (!AiService.EndpointAllowed(c.Endpoint)) return;   // https, or a server on this PC — the key goes nowhere else
             var key = _e.Vault.Get(SecretVault.AiKeyFor(c.Id));
             var local = c.Provider == AiProviderKind.Ollama || AiProviderFactory.IsLocalEndpoint(c.Endpoint);
             if (string.IsNullOrWhiteSpace(key) && !local && c.Provider != AiProviderKind.Custom) return;
-            var fetched = await ModelCatalog.ListAsync(_e.Http, c.Provider, c.Endpoint, string.IsNullOrWhiteSpace(key) ? null : key.Trim(), CancellationToken.None);
+            var fetched = await ModelCatalog.ListAsync(_e.Http, c.Provider, c.Endpoint, string.IsNullOrWhiteSpace(key) ? null : key.Trim(), _stop.Token);
+            _stop.Token.ThrowIfCancellationRequested();
             var now = DateTimeOffset.UtcNow;
             var merged = ModelCatalog.Merge(c.Models, fetched, now, checkedBefore: c.ModelsCheckedAt != null);
             var live = _e.Config.Ai.Connections.FirstOrDefault(x => x.Id == c.Id);
@@ -46,9 +50,22 @@ public sealed class ModelRefreshService : IDisposable
             _e.Settings.Save(notify: false);
             Log.Info($"AI models: {merged.Count} from {AiSettings.ProviderName(c.Provider)}" + (fresh.Count > 0 ? ", new: " + string.Join(", ", fresh) : ""));
         }
+        catch (OperationCanceledException) when (_stopping) { }
         catch (Exception ex) { Log.Warn("AI model list (daily): " + ex.Message); }
-        finally { Interlocked.Exchange(ref _running, 0); }
+        finally { _gate.Release(); }
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public async Task StopForVersionChangeAsync(CancellationToken ct)
+    {
+        Dispose();
+        await _gate.WaitAsync(ct);
+        _gate.Release();
+    }
+
+    public void Dispose()
+    {
+        _stopping = true;
+        _timer?.Dispose();
+        _stop.Cancel();
+    }
 }

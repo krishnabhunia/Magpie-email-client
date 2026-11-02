@@ -51,6 +51,30 @@ public static class Program
             var note = Magpie.Core.Updates.InstalledUpdate.Read(AppPaths.Default().Updates);
             if (note != null && note.To == Services.UpdateService.Current.ToString()) { AfterUpdate = true; UpdatedFrom = note.From; }
             else if (note != null) Magpie.Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
+            // The durable transition record also covers an interruption between the EXE swap and process launch.
+            try
+            {
+                var paths = AppPaths.Default();
+                Magpie.Core.Updates.VersionBackup.RecoverInterruptedRestore(paths);
+                var pending = Magpie.Core.Updates.UpdateHistory.List(paths).FirstOrDefault(e =>
+                    e.Status is Magpie.Core.Updates.UpdateHistory.Preparing or Magpie.Core.Updates.UpdateHistory.Downloading
+                        or Magpie.Core.Updates.UpdateHistory.Installing);
+                if (pending is { Status: Magpie.Core.Updates.UpdateHistory.Installing }
+                    && pending.To == Services.UpdateService.Current.ToString())
+                {
+                    AfterUpdate = true;
+                    UpdatedFrom = pending.From;
+                }
+                else if (pending != null && pending.From == Services.UpdateService.Current.ToString()
+                         && pending.To != Services.UpdateService.Current.ToString())
+                {
+                    // The old EXE is still in place. Cancel a staged data restore that never reached its target app.
+                    Magpie.Core.Updates.VersionBackup.CancelPendingForVersion(paths, pending.To);
+                    Magpie.Core.Updates.UpdateHistory.SetStatus(paths, pending.Id, Magpie.Core.Updates.UpdateHistory.Failed,
+                        "The transition was interrupted before the selected application started. The current application was kept.");
+                }
+            }
+            catch (Exception ex) { Log.Error("version transition recovery needs attention", ex); }
         }
 
         if (!createdNew)

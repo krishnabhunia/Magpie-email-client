@@ -10,9 +10,20 @@ namespace Magpie.App.Services;
 /// <summary>Design EX1: saving and restoring a settings backup (Settings → General, and the Add account window).</summary>
 public static class BackupUi
 {
+    private static int _active;
+    public static bool IsBusy => System.Threading.Volatile.Read(ref _active) > 0;
+
     private const string Filter = "Magpie settings backup|*" + SettingsBackup.Extension + "|All files|*.*";
 
     public static async Task SaveAsync(Window owner)
+    {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
+        System.Threading.Interlocked.Increment(ref _active);
+        try { await SaveCoreAsync(owner); }
+        finally { System.Threading.Interlocked.Decrement(ref _active); }
+    }
+
+    private static async Task SaveCoreAsync(Window owner)
     {
         var e = AppServices.Engine;
         var password = PasswordDialog.Ask(owner, "Save a backup of your settings",
@@ -41,6 +52,14 @@ public static class BackupUi
     }
 
     public static async Task RestoreAsync(Window owner)
+    {
+        if (AppServices.Updates?.IsProfileFrozen == true) return;
+        System.Threading.Interlocked.Increment(ref _active);
+        try { await RestoreCoreAsync(owner); }
+        finally { System.Threading.Interlocked.Decrement(ref _active); }
+    }
+
+    private static async Task RestoreCoreAsync(Window owner)
     {
         var e = AppServices.Engine;
         var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Restore from a settings backup", Filter = Filter };

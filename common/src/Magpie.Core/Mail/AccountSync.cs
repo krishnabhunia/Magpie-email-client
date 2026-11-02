@@ -119,6 +119,8 @@ public sealed class AccountSync : IDisposable
     private readonly SemaphoreSlim _wake = new(0, int.MaxValue);
     private CancellationTokenSource? _cts;
     private Task? _loop, _idleLoop;
+    private readonly CancellationTokenSource _versionStop = new();
+    private readonly Updates.VersionChangeOperations _operations = new();
     private bool _initialDone;
     /// <summary>Folder id → older emails still to list. Missing = not checked yet in this session.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _remaining = new();
@@ -1009,6 +1011,10 @@ public sealed class AccountSync : IDisposable
 
     public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         ct.ThrowIfCancellationRequested();
         var saved = _store.GetBody(row.Id);
         if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
@@ -1019,6 +1025,10 @@ public sealed class AccountSync : IDisposable
 
     private async Task<MessageBody?> FetchBodyCoreAsync(MessageRow row, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var saved = _store.GetBody(row.Id);
         if (saved != null && !MimeText.NeedsDownload(saved)) return saved;
         if (await LocalMimeAsync(row, ct) is { } local)
@@ -1058,6 +1068,10 @@ public sealed class AccountSync : IDisposable
     /// emails saved before pictures were kept), so the next opening needs neither.</summary>
     public async Task<MimeMessage?> GetMimeAsync(MessageRow row, CancellationToken ct, bool refreshBody = false)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var path = MimePathFor?.Invoke(Account.Id, row.Id);
         if (path != null && File.Exists(path))
         {
@@ -1091,6 +1105,10 @@ public sealed class AccountSync : IDisposable
     /// <summary>Replays queued local changes (read/pin/move/delete) to the server.</summary>
     public async Task FlushPendingOpsAsync(CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var ops = _store.GetPendingOps(Account.Id);
         if (ops.Count == 0) return;
         var folders = _store.GetFolders(Account.Id).ToDictionary(f => f.Id);
@@ -1240,6 +1258,10 @@ public sealed class AccountSync : IDisposable
     /// <summary>Appends a message to the folder with the given role. False when the account has no such folder.</summary>
     public async Task<bool> AppendAsync(FolderRole role, MimeMessage msg, KitFlags flags, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var target = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == role);
         if (target == null) return false;
         await _ui.UseAsync(async client =>
@@ -1256,6 +1278,10 @@ public sealed class AccountSync : IDisposable
     /// </summary>
     public async Task<bool> ReplaceDraftAsync(MimeMessage msg, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var target = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Drafts);
         if (target == null) return false;
         await _ui.UseAsync(async client =>
@@ -1270,6 +1296,10 @@ public sealed class AccountSync : IDisposable
     /// <summary>After a message is sent: removes its saved drafts (same Message-ID) from the Drafts folder.</summary>
     public async Task DeleteDraftsByMessageIdAsync(string messageId, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(messageId)) return;
         var target = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == FolderRole.Drafts);
         if (target == null) return;
@@ -1296,6 +1326,10 @@ public sealed class AccountSync : IDisposable
     /// <summary>Creates a folder (e.g. "Archive") at the top level of the personal namespace.</summary>
     public async Task<MailFolder?> EnsureFolderAsync(string name, FolderRole role, CancellationToken ct)
     {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         var existing = _store.GetFolders(Account.Id).FirstOrDefault(f => f.Role == role);
         if (existing != null) return existing;
         return await _ui.UseAsync(async client =>
@@ -1358,8 +1392,22 @@ public sealed class AccountSync : IDisposable
         }
     }
 
+    public async Task StopForVersionChangeAsync(CancellationToken ct = default)
+    {
+        _versionStop.Cancel();
+        try { _cts?.Cancel(); } catch { }
+        var drain = _operations.StopAsync(ct);
+        foreach (var task in new[] { _loop, _idleLoop }.Where(t => t != null))
+            try { await task!.WaitAsync(ct); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        await drain;
+        _sync.Dispose();
+        _ui.Dispose();
+    }
+
     public void Dispose()
     {
+        try { _versionStop.Cancel(); } catch { }
         try { _cts?.Cancel(); } catch { }
         _sync.Dispose();
         _ui.Dispose();

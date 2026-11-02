@@ -191,11 +191,15 @@ public partial class AddAccountViewModel : ObservableObject
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         try
         {
-            var err = await Task.Run(() => _e.Connector.TestAsync(a, Password, _cts.Token));
-            if (err != null) { Error = err; ShowAdvanced = true; return; }
-            if (IsReauth) _e.UpdateAccount(a, Password);
-            else _e.AddAccount(a, Password, null);
-            Done?.Invoke();
+            await _e.WithProfileOperationAsync(async ct =>
+            {
+                var err = await Task.Run(() => _e.Connector.TestAsync(a, Password, ct), ct);
+                ct.ThrowIfCancellationRequested();
+                if (err != null) { Error = err; ShowAdvanced = true; return; }
+                if (IsReauth) _e.UpdateAccount(a, Password);
+                else _e.AddAccount(a, Password, null);
+                Done?.Invoke();
+            }, _cts.Token);
         }
         catch (OperationCanceledException) { Error = "Cancelled or timed out."; }
         catch (Exception ex) { Error = Connector.Friendly(ex); }
@@ -221,21 +225,27 @@ public partial class AddAccountViewModel : ObservableObject
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         try
         {
-            var tokens = await _e.OAuth.SignInAsync(cfg, Email.Trim(), url => Ui.OpenExternal(url), _cts.Token);
-            if (!string.IsNullOrEmpty(tokens.Email) && !tokens.Email.Equals(Email.Trim(), StringComparison.OrdinalIgnoreCase))
+            await _e.WithProfileOperationAsync(async ct =>
             {
-                Error = $"You signed in as {tokens.Email}, but this account is {Email.Trim()}. Sign in with the matching account.";
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(DisplayName) && !string.IsNullOrWhiteSpace(tokens.Name)) DisplayName = tokens.Name!;
-            var a = BuildAccount(AuthMethod.OAuth2);
-            Status = "Checking the mailbox…";
-            _e.OAuth.Remember(a.Id, tokens);
-            var err = await Task.Run(() => _e.Connector.TestAsync(a, null, CancellationToken.None));
-            if (err != null) { Error = err; return; }
-            if (IsReauth) _e.UpdateAccount(a, null, tokens);
-            else _e.AddAccount(a, null, tokens);
-            Done?.Invoke();
+                var tokens = await _e.OAuth.SignInAsync(cfg, Email.Trim(), url => Ui.OpenExternal(url), ct);
+                ct.ThrowIfCancellationRequested();
+                if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return;
+                if (!string.IsNullOrEmpty(tokens.Email) && !tokens.Email.Equals(Email.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    Error = $"You signed in as {tokens.Email}, but this account is {Email.Trim()}. Sign in with the matching account.";
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(DisplayName) && !string.IsNullOrWhiteSpace(tokens.Name)) DisplayName = tokens.Name!;
+                var a = BuildAccount(AuthMethod.OAuth2);
+                Status = "Checking the mailbox…";
+                _e.OAuth.Remember(a.Id, tokens);
+                var err = await Task.Run(() => _e.Connector.TestAsync(a, null, ct), ct);
+                ct.ThrowIfCancellationRequested();
+                if (err != null) { Error = err; return; }
+                if (IsReauth) _e.UpdateAccount(a, null, tokens);
+                else _e.AddAccount(a, null, tokens);
+                Done?.Invoke();
+            }, _cts.Token);
         }
         catch (OperationCanceledException) { Error = "Sign-in was cancelled or timed out."; }
         catch (Exception ex) { Error = ex is ReauthRequiredException or InvalidOperationException or TimeoutException ? ex.Message : Connector.Friendly(ex); }

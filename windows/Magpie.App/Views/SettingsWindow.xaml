@@ -1459,7 +1459,7 @@
                                     <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <TextBlock Text="{Binding Detail}" Style="{StaticResource Text.Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
-                                <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="8" Margin="0,10,0,0" Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
+                                <ProgressBar Value="{Binding Progress, Mode=OneWay}" IsIndeterminate="{Binding IsPreparing}" Maximum="1" Height="8" Margin="0,10,0,0" Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
                                 <Border Background="{DynamicResource Brush.Window.Background}" CornerRadius="8" Padding="12,10" Margin="0,12,0,0" Visibility="{Binding ShowNotes, Converter={StaticResource BoolToVis}}">
                                     <StackPanel>
                                         <TextBlock Text="What's new" FontWeight="SemiBold" Margin="0,0,0,4" />
@@ -1468,14 +1468,16 @@
                                                 Command="{Binding OpenReleasePageCommand}" />
                                     </StackPanel>
                                 </Border>
-                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                <WrapPanel Margin="0,14,0,0">
                                     <Button Style="{StaticResource Button.Primary}" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvBool}}" Margin="0,0,8,0" />
-                                    <Button Style="{StaticResource Button.Secondary}" Content="Choose version / Roll back" Command="{Binding OpenVersionHistoryCommand}" Margin="0,0,8,0" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Choose version / Roll back" Command="{Binding OpenVersionHistoryCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvBool}}" Margin="0,0,8,6" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="History / Restore" Command="{Binding OpenTransitionHistoryCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvBool}}" Margin="0,0,8,6" />
+                                    <Button Style="{StaticResource Button.Secondary}" Content="Cancel" Command="{Binding CancelDownloadCommand}" Visibility="{Binding CanCancel, Converter={StaticResource BoolToVis}}" Margin="0,0,8,6" />
                                     <Button Style="{StaticResource Button.Secondary}" Content="Later" FontWeight="Normal" Command="{Binding LaterCommand}" Margin="0,0,8,0"
                                             Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
                                     <Button Style="{StaticResource Button.Secondary}" Content="Skip this version" FontWeight="Normal" Command="{Binding SkipCommand}"
                                             Visibility="{Binding ShowLaterSkip, Converter={StaticResource BoolToVis}}" />
-                                </StackPanel>
+                                </WrapPanel>
                                 <TextBlock Text="{Binding LastChecked}" Style="{StaticResource Text.Caption}" Margin="0,10,0,0" />
                             </StackPanel>
                         </Border>
@@ -1485,14 +1487,14 @@
                                 <CheckBox IsChecked="{Binding AutoUpdate, Mode=TwoWay}" Margin="0,3">
                                     <StackPanel>
                                         <TextBlock Text="Check automatically" FontWeight="SemiBold" />
-                                        <TextBlock Text="Checks at start and periodically. You choose which stable or beta version to install; no version is downloaded or installed automatically." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        <TextBlock Text="When enabled, checks at start and once a day. Pause this switch to stop automatic checks. Every installation needs your exact version choice and confirmation." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </CheckBox>
                                 <CheckBox Content="Include test versions (pre-releases)" IsChecked="{Binding IncludePrerelease, Mode=TwoWay}" Margin="0,3" />
                             </StackPanel>
                         </Border>
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
-                                   Text="Each download is checked against the SHA-256 published with the release. Updating replaces only Magpie.exe — your mail, settings and sign-ins stay as they are — and the old version is kept as Magpie.previous.exe. If the new one fails to start, Magpie offers to go back to it." />
+                                   Text="Each release must pass compatibility and SHA-256 checks. Before installation, Magpie saves the application, mail, drafts, settings and encrypted sign-ins together. Use History / Restore to recover that saved state. Releases without verified compatibility and administrator installations remain blocked." />
                         <TextBlock Text="{Binding PortableNote}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="{Binding IsPortable, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
 

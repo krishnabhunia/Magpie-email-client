@@ -22,6 +22,9 @@ public sealed class CalendarService
     private readonly ConcurrentDictionary<string, CalendarProblem> _problems = new();
     private readonly ConcurrentDictionary<string, byte> _removed = new();
     private readonly object _accountGate = new();
+    private readonly CancellationTokenSource _lifetime = new();
+    private Task? _loop;
+    private bool _stopped;
 
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromMinutes(5);
     /// <summary>The window kept on this PC: two months back, thirteen months ahead.</summary>
@@ -48,7 +51,27 @@ public sealed class CalendarService
     /// <summary>Why an account's calendar can't be shown or updated right now (account id → problem).</summary>
     public IReadOnlyDictionary<string, CalendarProblem> Problems => _problems;
 
-    public void Start(CancellationToken ct) => _ = Task.Run(() => LoopAsync(ct));
+    public void Start(CancellationToken ct)
+    {
+        if (_stopped) throw new InvalidOperationException("Restart Magpie before starting sync again.");
+        if (_loop != null) return;
+        _loop = Task.Run(async () =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+            await LoopAsync(linked.Token);
+        });
+    }
+
+    public async Task StopForVersionChangeAsync(CancellationToken ct = default)
+    {
+        lock (_accountGate) _stopped = true;
+        _lifetime.Cancel();
+        if (_loop != null)
+            try { await _loop.WaitAsync(ct); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        await _syncGate.WaitAsync(ct);
+        _syncGate.Release();
+    }
 
     /// <summary>Check Google now (after a change, a new sign-in, or a calendar ticked on).</summary>
     public void Poke() => _wake.Release();
@@ -57,6 +80,7 @@ public sealed class CalendarService
     {
         lock (_accountGate)
         {
+            if (_stopped) throw new OperationCanceledException("Magpie is stopping for a version change.");
             _removed[accountId] = 0;
             _store.DeleteCalendarsForAccount(accountId);
             _problems.TryRemove(accountId, out _);
@@ -68,7 +92,7 @@ public sealed class CalendarService
     {
         lock (_accountGate)
         {
-            if (_removed.ContainsKey(accountId)) return false;
+            if (_stopped || _removed.ContainsKey(accountId)) return false;
             work();
             return true;
         }
@@ -92,6 +116,9 @@ public sealed class CalendarService
 
     public async Task SyncNowAsync(CancellationToken ct)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
         await _syncGate.WaitAsync(ct);
         try
         {
@@ -189,7 +216,7 @@ public sealed class CalendarService
 
     public void SetSelected(CalendarInfo cal, bool selected)
     {
-        _store.SetCalendarSelected(cal.AccountId, cal.Id, selected);
+        if (!ForActiveAccount(cal.AccountId, () => _store.SetCalendarSelected(cal.AccountId, cal.Id, selected))) return;
         Changed?.Invoke();
         if (selected) Poke();   // download its events
     }

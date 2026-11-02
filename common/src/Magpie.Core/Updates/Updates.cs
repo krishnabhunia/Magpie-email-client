@@ -139,6 +139,10 @@ public sealed class ReleaseInfo
     public string ShaUrl { get; init; } = "";
     public long ExeSize { get; init; }
     public DateTimeOffset? Published { get; init; }
+    public string AssetName { get; init; } = UpdateClient.ExeAsset;
+    public string ManifestUrl { get; init; } = "";
+    public string ManifestShaUrl { get; init; } = "";
+    public bool AssetAvailable => ExeUrl.Length > 0 && ShaUrl.Length > 0;
 }
 
 /// <summary>Reads GitHub Releases and downloads a verified Magpie.exe (design U1).</summary>
@@ -194,7 +198,7 @@ public sealed class UpdateClient
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Array)
                 throw new InvalidDataException("GitHub returned an invalid releases list.");
-            results.AddRange(ParseReleases(json, _asset));
+            results.AddRange(ParseReleases(json, _asset, includeUnavailable: true));
             if (document.RootElement.GetArrayLength() < 100) return results;
         }
         throw new InvalidDataException("GitHub release history is incomplete. Please try again later.");
@@ -214,7 +218,7 @@ public sealed class UpdateClient
     public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json) => ParseReleases(json, UpdateAsset.WindowsExe);
 
     /// <summary>Releases (not drafts) that have both <paramref name="asset"/>'s file and its .sha256 attached.</summary>
-    public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json, UpdateAsset asset)
+    public static List<(ReleaseInfo Info, bool Prerelease)> ParseReleases(string json, UpdateAsset asset, bool includeUnavailable = false)
     {
         var list = new List<(ReleaseInfo, bool)>();
         using var doc = JsonDocument.Parse(json);
@@ -228,7 +232,7 @@ public sealed class UpdateClient
             var tagVersion = tag.Trim().TrimStart('v', 'V');
             var exeName = asset.FileFor(tagVersion);
             var shaName = asset.ShaFor(tagVersion);
-            string exe = "", sha = "";
+            string exe = "", sha = "", manifest = "", manifestSha = "";
             long size = 0;
             if (r.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
                 foreach (var a in assets.EnumerateArray())
@@ -237,18 +241,44 @@ public sealed class UpdateClient
                     var url = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() ?? "" : "";
                     if (string.Equals(name, exeName, StringComparison.OrdinalIgnoreCase)) { exe = url; size = a.TryGetProperty("size", out var s) ? s.GetInt64() : 0; }
                     else if (string.Equals(name, shaName, StringComparison.OrdinalIgnoreCase)) sha = url;
+                    else if (name == ReleaseCompatibility.AssetName) manifest = url;
+                    else if (name == ReleaseCompatibility.AssetName + ".sha256") manifestSha = url;
                 }
-            if (exe.Length == 0 || sha.Length == 0) continue;
+            if (!includeUnavailable && (exe.Length == 0 || sha.Length == 0)) continue;
             var pre = (r.TryGetProperty("prerelease", out var p) && p.ValueKind == JsonValueKind.True) || ver.IsPrerelease;
             list.Add((new ReleaseInfo
             {
                 Version = ver, Tag = tag, ExeUrl = exe, ShaUrl = sha, ExeSize = size,
+                AssetName = exeName, ManifestUrl = manifest, ManifestShaUrl = manifestSha,
                 Notes = r.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "",
                 PageUrl = r.TryGetProperty("html_url", out var h) ? h.GetString() ?? ReleasesPage : ReleasesPage,
                 Published = r.TryGetProperty("published_at", out var pa) && pa.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(pa.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var pd) ? pd : null,
             }, pre));
         }
         return list;
+    }
+
+    /// <summary>Loads the contract only from this repository's exact release; absent metadata is not compatibility.</summary>
+    public async Task<ReleaseCompatibility?> LoadCompatibilityAsync(ReleaseInfo release, CancellationToken ct)
+    {
+        if (release.ManifestUrl.Length == 0 || release.ManifestShaUrl.Length == 0) return null;
+        RequireReleaseAssetUrl(release.ManifestUrl, release.Tag, ReleaseCompatibility.AssetName);
+        RequireReleaseAssetUrl(release.ManifestShaUrl, release.Tag, ReleaseCompatibility.AssetName + ".sha256");
+        var checksum = ParseSha256(await _http.GetStringAsync(release.ManifestShaUrl, ct))
+                       ?? throw new InvalidDataException("The compatibility information's checksum is unreadable.");
+        var bytes = await _http.GetByteArrayAsync(release.ManifestUrl, ct);
+        if (bytes.Length > 128 * 1024 || !string.Equals(Convert.ToHexString(SHA256.HashData(bytes)), checksum, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The compatibility information did not match its published checksum.");
+        return ReleaseCompatibility.Parse(System.Text.Encoding.UTF8.GetString(bytes), release.Version);
+    }
+
+    private static void RequireReleaseAssetUrl(string url, string tag, string filename)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https"
+            || uri.Host != "github.com" || !uri.IsDefaultPort || uri.UserInfo.Length > 0
+            || uri.Query.Length > 0 || uri.Fragment.Length > 0
+            || Uri.UnescapeDataString(uri.AbsolutePath) != $"/{Repo}/releases/download/{tag}/{filename}")
+            throw new InvalidDataException("The release file is not published at the expected Magpie GitHub location.");
     }
 
     public static ReleaseInfo? PickNewest(IEnumerable<(ReleaseInfo Info, bool Prerelease)> releases, bool includePrerelease) =>
@@ -268,37 +298,52 @@ public sealed class UpdateClient
 
     /// <summary>The same, also returning the published SHA-256 (lower-case hex) the file was checked against, so it
     /// can be checked again just before it is installed (Magpie for Mac).</summary>
-    public async Task<(string Path, string Sha256)> DownloadCheckedAsync(ReleaseInfo release, string folder, IProgress<double>? progress, CancellationToken ct)
+    public async Task<(string Path, string Sha256)> DownloadCheckedAsync(ReleaseInfo release, string folder, IProgress<double>? progress,
+        CancellationToken ct, ReleaseCompatibility? compatibility = null)
     {
         Directory.CreateDirectory(folder);
         var expected = ParseSha256(await _http.GetStringAsync(release.ShaUrl, ct))
                        ?? throw new InvalidOperationException("The release's checksum file is unreadable.");
+        if (compatibility != null)
+        {
+            RequireReleaseAssetUrl(release.ExeUrl, release.Tag, release.AssetName);
+            RequireReleaseAssetUrl(release.ShaUrl, release.Tag, release.AssetName + ".sha256");
+            if (compatibility.Version != release.Version.ToString()
+                || !compatibility.AssetSha256.TryGetValue(release.AssetName, out var bound)
+                || !string.Equals(bound, expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The download checksum does not match the release's compatibility information.");
+        }
         var final = Path.Combine(folder, _asset.LocalFileFor(release.Version));
         if (File.Exists(final) && await HashFileAsync(final, ct) == expected) { progress?.Report(1); return (final, expected); }
         var part = final + ".part";
-        using (var res = await _http.GetAsync(release.ExeUrl, HttpCompletionOption.ResponseHeadersRead, ct))
+        try
         {
-            res.EnsureSuccessStatusCode();
-            var total = res.Content.Headers.ContentLength ?? release.ExeSize;
-            await using var src = await res.Content.ReadAsStreamAsync(ct);
-            await using var dst = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-            var buf = new byte[81920];
-            long done = 0;
-            int n;
-            while ((n = await src.ReadAsync(buf, ct)) > 0)
+            using (var res = await _http.GetAsync(release.ExeUrl, HttpCompletionOption.ResponseHeadersRead, ct))
             {
-                await dst.WriteAsync(buf.AsMemory(0, n), ct);
-                done += n;
-                if (total > 0) progress?.Report(Math.Min(1, (double)done / total));
+                res.EnsureSuccessStatusCode();
+                var total = res.Content.Headers.ContentLength ?? release.ExeSize;
+                await using var src = await res.Content.ReadAsStreamAsync(ct);
+                await using var dst = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                var buf = new byte[81920];
+                long done = 0;
+                int n;
+                while ((n = await src.ReadAsync(buf, ct)) > 0)
+                {
+                    await dst.WriteAsync(buf.AsMemory(0, n), ct);
+                    done += n;
+                    if (total > 0) progress?.Report(Math.Min(1, (double)done / total));
+                }
             }
+            var actual = await HashFileAsync(part, ct);
+            if (actual != expected)
+                throw new InvalidOperationException("The download didn't match its checksum and was thrown away. Try again later.");
+            File.Move(part, final, true);
         }
-        var actual = await HashFileAsync(part, ct);
-        if (actual != expected)
+        catch
         {
             try { File.Delete(part); } catch { }
-            throw new InvalidOperationException("The download didn't match its checksum and was thrown away. Try again later.");
+            throw;
         }
-        File.Move(part, final, true);
         progress?.Report(1);
         return (final, expected);
     }
