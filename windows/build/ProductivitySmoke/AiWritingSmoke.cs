@@ -13,7 +13,7 @@ using Magpie.Core.Settings;
 
 namespace ProductivitySmoke;
 
-/// <summary>AW1 (11.0.0): "What the reply says", formality, versions, Save as defaults, and the Forward note — with a fake local provider.</summary>
+/// <summary>AW1 (12.0.0): "What the reply says", formality, versions, Save as defaults, and the Forward note — with a fake local provider.</summary>
 internal static partial class Program
 {
     private static void CheckAiWritingFlow(string root, MailEngine originalEngine)

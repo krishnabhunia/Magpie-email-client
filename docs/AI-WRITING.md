@@ -1,6 +1,6 @@
-# AI writing for Reply, Reply All and Forward (11.0.0)
+# AI writing for Reply, Reply All and Forward (12.0.0)
 
-Version 11.0.0 implements Q85–Q87 / issues #113–#115 from the approved [AW1 design](designs/AW1-ai-writing.html) (approved 30 Oct 2026). It builds on the 10.0.0 AI replies ([FR1](FONTS-AI-REPLIES.md)).
+Version 12.0.0 implements Q85–Q87 / issues #113–#115 from the approved [AW1 design](designs/AW1-ai-writing.html) (approved 30 Oct 2026). It builds on the 10.0.0 AI replies ([FR1](FONTS-AI-REPLIES.md)).
 
 | Item | What it does |
 |---|---|
@@ -20,7 +20,7 @@ A saved Tone of Formal becomes Professional + Formality Formal; Informal becomes
 
 | Check | Result |
 |---|---|
-| Core tests (`Release1100Tests` + updated `Release1000Tests`) | Run on Linux — see the PR |
+| Core tests (`Release1200Tests` + updated `Release1000Tests`) | Run on Linux — see the PR |
 | Windows build, DpDump, `xaml_check.py`, `--check-refs` | Run on Linux — see the PR |
 | `windows/build/ProductivitySmoke` → `CheckAiWritingFlow` (fake local provider: suggestion, Yes → No, versions, collected changes, Save as defaults, Forward off / on, greeting update) | Runs in the Windows CI job |
 

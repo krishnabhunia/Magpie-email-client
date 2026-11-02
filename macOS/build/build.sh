@@ -59,9 +59,9 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 0
 fi
 
-# 3. Icon: Magpie.icns from the Windows app's 256 px picture.
+# 3. Icon: Magpie.icns from the Mac app's own 256 px picture.
 ICONSET="$OUT/Magpie.iconset"
-SRC_PNG="$ROOT/windows/Magpie.App/Assets/app-256.png"
+SRC_PNG="$MAC/Magpie.Mac/Assets/magpie.png"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
   sips -z "$size" "$size" "$SRC_PNG" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
