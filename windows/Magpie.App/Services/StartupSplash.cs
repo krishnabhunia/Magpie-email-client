@@ -221,7 +221,7 @@ public sealed class StartupSplash
         catch (Exception ex) { Log.Warn("start-up screen: " + ex.Message); }
     }
 
-    internal string Heading => _restarting ? "Restarting Magpie" : _afterUpdate ? "Getting the new version ready" : "Getting your mail ready";
+    internal string Heading => _restarting ? "Restarting Magpie" : _afterUpdate ? "Getting the new version ready" : "Your workspace. Waking up.";
     internal string VersionText => "Version " + _version + (_afterUpdate ? " · just updated" : "");
     internal IReadOnlyList<SplashAccount> Chips => _prefs.ShowAccounts ? _prefs.Accounts : Array.Empty<SplashAccount>();
 
@@ -241,7 +241,7 @@ public sealed class StartupSplash
 /// <summary>The start-up screen's window, built in code (no XAML, no app resources) for its own thread.</summary>
 internal sealed class SplashWindow : Window
 {
-    private const double CardWidth = 560, StripWidth = 200, Margin_ = 18;
+    private const double CardWidth = 760, Margin_ = 18;
 
     private readonly StartupSplash _owner;
     private readonly Palette _p;
@@ -257,8 +257,8 @@ internal sealed class SplashWindow : Window
 
     private sealed record Palette(Color Bg, Color Text, Color Muted, Color Line, Color Accent, Color Soft, Color Danger, Color OnAccent, Color Strip, Color Cream, Color StripMuted);
 
-    private static readonly Palette Light = new(C("#F7F6F2"), C("#14181C"), C("#5A6068"), C("#DCD8CF"), C("#14606E"), C("#DFE9E9"), C("#B3261E"), C("#FFFFFF"), C("#14181C"), C("#F7F6F2"), C("#B9B6AE"));
-    private static readonly Palette Dark = new(C("#1E2328"), C("#E8E6E1"), C("#9AA1A8"), C("#2C3238"), C("#4FA6B5"), C("#1B2A2E"), C("#E0645A"), C("#08191C"), C("#0E1114"), C("#F1EFE9"), C("#9AA1A8"));
+    private static readonly Palette Light = new(C("#EFF3FF"), C("#192852"), C("#596C95"), C("#C8D5F5"), C("#536CE5"), C("#DCE5FB"), C("#AF375A"), C("#FFFFFF"), C("#D9E4FF"), C("#182C68"), C("#4B6090"));
+    private static readonly Palette Dark = new(C("#0B1430"), C("#F5F7FF"), C("#B9C6E7"), C("#4A5A85"), C("#8BA4FF"), C("#28375F"), C("#FF8A9B"), C("#111B3B"), C("#101C45"), C("#F6F8FF"), C("#A7B9E4"));
 
     public SplashWindow(StartupSplash owner, bool dark)
     {
@@ -331,69 +331,112 @@ internal sealed class SplashWindow : Window
         Top = Math.Round(cy - size.Height / 2);
     }
 
+    // Approved combination: Signature Magpie's premium brand treatment with Intelligence's real startup milestones.
+    // The window is built without App resources because it runs before Application.InitializeComponent on its own STA.
     private UIElement Build()
     {
+        var background = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+        background.GradientStops.Add(new GradientStop(C(_p == Dark ? "#0C1331" : "#EDF2FF"), 0));
+        background.GradientStops.Add(new GradientStop(C(_p == Dark ? "#182859" : "#DBE7FF"), 0.58));
+        background.GradientStops.Add(new GradientStop(C(_p == Dark ? "#092C4C" : "#CBDBFC"), 1));
+        background.Freeze();
+
         var card = new Border
         {
             Width = CardWidth,
-            CornerRadius = new CornerRadius(10),
-            Background = B(_p.Bg),
+            CornerRadius = new CornerRadius(18),
+            Background = background,
             BorderBrush = B(_p.Line),
             BorderThickness = new Thickness(1),
             Margin = new Thickness(Margin_),
-            Effect = new DropShadowEffect { BlurRadius = 26, ShadowDepth = 6, Direction = 270, Opacity = 0.28, Color = Colors.Black },
+            Effect = new DropShadowEffect { BlurRadius = 35, ShadowDepth = 8, Direction = 270, Opacity = 0.36, Color = Colors.Black },
         };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(StripWidth) });
+
+        var grid = new Grid { MinHeight = 385 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         card.Child = grid;
 
-        // Brand strip
-        var strip = new Border { Background = B(_p.Strip), CornerRadius = new CornerRadius(9, 0, 0, 9), Padding = new Thickness(22, 22, 20, 22) };
-        var stripPanel = new DockPanel { LastChildFill = false };
-        var mark = Mark(52);
-        DockPanel.SetDock(mark, Dock.Top);
-        stripPanel.Children.Add(mark);
-        var names = new StackPanel { Margin = new Thickness(0, 40, 0, 0) };
-        DockPanel.SetDock(names, Dock.Bottom);
-        names.Children.Add(new TextBlock { Text = "Magpie", FontFamily = _display, FontWeight = FontWeights.SemiBold, FontSize = 28, Foreground = B(_p.Cream) });
-        names.Children.Add(new TextBlock { Text = _owner.VersionText, FontFamily = _mono, FontSize = 11.5, Foreground = B(_p.StripMuted), Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
-        stripPanel.Children.Add(names);
-        strip.Child = stripPanel;
-        grid.Children.Add(strip);
+        // Brand hero: an illustrated magpie, wordmark and tagline on a navy/indigo glow.
+        var hero = new Border
+        {
+            Background = B(_p.Strip),
+            CornerRadius = new CornerRadius(17, 0, 0, 17),
+            Padding = new Thickness(22, 36, 22, 29),
+        };
+        var heroPanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var mark = Mark(174);
+        mark.HorizontalAlignment = HorizontalAlignment.Center;
+        heroPanel.Children.Add(mark);
+        heroPanel.Children.Add(new TextBlock
+        {
+            Text = "magpie.", FontFamily = _ui, FontSize = 42, FontWeight = FontWeights.Bold,
+            Foreground = B(_p.Cream), HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 9, 0, 0),
+        });
+        heroPanel.Children.Add(new TextBlock
+        {
+            Text = "Your email, beautifully organized.",
+            FontSize = 12, Foreground = B(_p.StripMuted),
+            HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 5, 0, 21),
+        });
+        heroPanel.Children.Add(new TextBlock
+        {
+            Text = _owner.VersionText, FontFamily = _mono, FontSize = 11,
+            Foreground = B(_p.StripMuted), HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        hero.Child = heroPanel;
+        grid.Children.Add(hero);
 
-        // Steps side
-        var right = new StackPanel { Margin = new Thickness(22, 20, 22, 18) };
+        // Genuine startup state. Completed/current/pending steps are driven by StartupSplash.Next(), never a timer.
+        var right = new StackPanel { Margin = new Thickness(32, 37, 32, 24), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(right, 1);
+        right.Children.Add(new TextBlock
+        {
+            Text = "MAGPIE  ·  STARTING UP", FontSize = 10.5, FontWeight = FontWeights.Bold,
+            Foreground = B(_p.Accent), Margin = new Thickness(0, 0, 0, 12),
+        });
         _heading.Text = _owner.Heading;
-        _heading.FontSize = 14;
-        _heading.FontWeight = FontWeights.SemiBold;
+        _heading.FontSize = 22;
+        _heading.FontWeight = FontWeights.Bold;
+        _heading.TextWrapping = TextWrapping.Wrap;
         _heading.Foreground = B(_p.Text);
-        _heading.Margin = new Thickness(0, 0, 0, 12);
+        _heading.Margin = new Thickness(0, 0, 0, 19);
         right.Children.Add(_heading);
         right.Children.Add(_steps);
 
         var chips = _owner.Chips;
         if (chips.Count > 0)
         {
-            _chips.Margin = new Thickness(0, 12, 0, 0);
+            _chips.Margin = new Thickness(0, 9, 0, 0);
             foreach (var a in chips.Take(4)) _chips.Children.Add(Chip(a.Email, a.Color));
             if (chips.Count > 4) _chips.Children.Add(Chip($"+{chips.Count - 4} more", null));
             right.Children.Add(_chips);
         }
 
-        _bar.Margin = new Thickness(0, 14, 0, 0);
+        right.Children.Add(new TextBlock
+        {
+            Text = "STARTUP PROGRESS", FontSize = 10, FontWeight = FontWeights.SemiBold,
+            Foreground = B(_p.Muted), Margin = new Thickness(0, 16, 0, 8),
+        });
+        _bar.Height = 5;
+        _bar.Margin = new Thickness(0, 0, 0, 0);
         _bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) });
         _bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var track = new Border { Background = B(_p.Soft), CornerRadius = new CornerRadius(2) };
+        var track = new Border { Background = B(_p.Soft), CornerRadius = new CornerRadius(3) };
         Grid.SetColumnSpan(track, 2);
         _bar.Children.Add(track);
-        _bar.Children.Add(new Border { Background = B(_p.Accent), CornerRadius = new CornerRadius(2) });
+        var fill = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        fill.GradientStops.Add(new GradientStop(C("#8C70ED"), 0));
+        fill.GradientStops.Add(new GradientStop(C("#63D6F1"), 1));
+        fill.Freeze();
+        _bar.Children.Add(new Border { Background = fill, CornerRadius = new CornerRadius(3) });
         right.Children.Add(_bar);
 
-        _slow.Margin = new Thickness(0, 12, 0, 0);
+        _slow.Margin = new Thickness(0, 14, 0, 0);
         _slow.Orientation = Orientation.Horizontal;
-        _slow.Children.Add(new TextBlock { Text = "This is taking longer than usual.", FontSize = 12, Foreground = B(_p.Muted), VerticalAlignment = VerticalAlignment.Center });
+        _slow.Children.Add(new TextBlock { Text = "This is taking longer than usual.", FontSize = 11, Foreground = B(_p.Muted), VerticalAlignment = VerticalAlignment.Center });
         var slowLog = Link("Open log folder", OpenLogFolder);
         slowLog.Margin = new Thickness(10, 0, 0, 0);
         _slow.Children.Add(slowLog);
@@ -401,23 +444,53 @@ internal sealed class SplashWindow : Window
 
         _error.Margin = new Thickness(0, 12, 0, 0);
         right.Children.Add(_error);
+        right.Children.Add(new TextBlock
+        {
+            Text = "Your mail stays on this PC  ·  Sync continues in the background",
+            FontSize = 10, Foreground = B(_p.Muted),
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 20, 0, 0),
+        });
         grid.Children.Add(right);
         return card;
     }
 
     private FrameworkElement Mark(double size)
     {
-        var c = new Canvas { Width = 64, Height = 64 };
-        var tile = new Rectangle { Width = 59, Height = 59, RadiusX = 14, RadiusY = 14, Fill = B(C("#14181C")), Stroke = B(Color.FromArgb(0x29, 0xFF, 0xFF, 0xFF)), StrokeThickness = 1 };
-        Canvas.SetLeft(tile, 2.5); Canvas.SetTop(tile, 2.5);
-        c.Children.Add(tile);
-        var env = new Rectangle { Width = 38, Height = 27, RadiusX = 3.5, RadiusY = 3.5, Fill = B(C("#F7F6F2")) };
-        Canvas.SetLeft(env, 11); Canvas.SetTop(env, 20);
-        c.Children.Add(env);
-        c.Children.Add(new Path { Data = Geometry.Parse("M11.6,21.2 L30,35.5 L48.4,21.2 Z"), Fill = B(C("#14606E")) });
-        c.Children.Add(new Path { Data = Geometry.Parse("M40,22 L55,12.5 L57.3,16.2 L42.6,25.4 Z"), Fill = B(C("#F7F6F2")) });
-        c.Children.Add(new Path { Data = Geometry.Parse("M42.6,25.4 L57.3,16.2 L58.4,18 L43.9,27.2 Z"), Fill = B(C("#4B3F86")) });
-        return new Viewbox { Width = size, Height = size, Child = c, HorizontalAlignment = HorizontalAlignment.Left };
+        // Vector illustration: no download, GPU dependency or delayed image decode during startup.
+        var canvas = new Canvas { Width = 160, Height = 125 };
+        var tail = new Path
+        {
+            Data = Geometry.Parse("M57,72 L4,120 L92,89 Z"),
+            Fill = new LinearGradientBrush(C("#47DEEF"), C("#8856E9"), new Point(0, 0), new Point(1, 1)),
+        };
+        canvas.Children.Add(tail);
+        var wing = new Path
+        {
+            Data = Geometry.Parse("M30,69 C42,33 77,17 116,38 C104,52 88,70 65,87 L23,106 Z"),
+            Fill = new LinearGradientBrush(C("#47DDF3"), C("#7D61E9"), new Point(0, 0), new Point(1, 1)),
+        };
+        canvas.Children.Add(wing);
+        canvas.Children.Add(new Path
+        {
+            Data = Geometry.Parse("M70,66 C95,30 123,18 149,33 C139,38 132,44 130,52 C126,81 106,95 77,90 Z"),
+            Fill = B(C("#162454")),
+        });
+        canvas.Children.Add(new Path
+        {
+            Data = Geometry.Parse("M81,79 C101,83 118,79 130,61 C123,90 104,102 83,93 Z"),
+            Fill = B(C("#E4F4FF")),
+        });
+        canvas.Children.Add(new Path
+        {
+            Data = Geometry.Parse("M145,36 L160,42 L143,46 Z"),
+            Fill = B(C("#9EEBF7")),
+        });
+        canvas.Children.Add(new Ellipse
+        {
+            Width = 5, Height = 5, Fill = B(C("#F5F8FF")),
+            Margin = new Thickness(134, 34, 0, 0),
+        });
+        return new Viewbox { Width = size, Height = size * 0.79, Child = canvas };
     }
 
     private Border Chip(string text, string? colour)
