@@ -58,6 +58,9 @@ internal static partial class Program
                     Assert(window.Selection == null, "Browsing a version does not accept or install it: " + scenario);
                 }
 
+                string RowText(int index) => (string)versions.Items[index].GetType().GetProperty("Label")!
+                    .GetValue(versions.Items[index])!;
+
                 Assert(versions.Items.Count == 2 && showAll.IsChecked != true,
                     "Normal update view has one newest compatible beta and one stable release");
                 NoSelection("opening");
@@ -77,15 +80,29 @@ internal static partial class Program
                 versions.SelectedIndex = 0;
                 Assert(select.Content.ToString()!.Contains("v12.0.0-beta.3", StringComparison.Ordinal),
                     "An incompatible newer beta never hides the newest compatible one");
+                Assert(RowText(0).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
+                    RowText(0).Contains("(LATEST)", StringComparison.Ordinal) &&
+                    RowText(0).Contains("Exact tag: v12.0.0-beta.3", StringComparison.Ordinal),
+                    "Newest compatible beta is rank 1 with immutable exact tag");
+                Assert(RowText(0).Contains("30 Oct 2026", StringComparison.Ordinal),
+                    "Release list shows the publication date with local clock time");
 
                 showAll.IsChecked = true;
                 Assert(versions.Items.Count == 3, "Show all retains every beta commit for exact-version selection");
+                Assert(RowText(0).Contains("v12.0.0-beta.4", StringComparison.Ordinal) &&
+                    !RowText(0).Contains("(LATEST)", StringComparison.Ordinal),
+                    "Blocked beta keeps exact identifier without a misleading installable rank");
+                Assert(RowText(1).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
+                    RowText(2).Contains("v12.0.0-beta 2", StringComparison.Ordinal),
+                    "Beta 1 means newest compatible release and Beta 2 means the previous one");
                 NoSelection("show all beta builds");
                 versions.SelectedIndex = 0; // 12.0.0-beta.4 is incompatible.
                 Assert(!select.IsEnabled && compatibility.Text.Contains("cannot safely", StringComparison.OrdinalIgnoreCase),
                     "Show all explains why the newest beta is blocked");
                 channel.SelectedIndex = 0;
                 Assert(versions.Items.Count == 5, "Show all includes missing assets and all stable and beta builds");
+                Assert(RowText(1).Contains("(LATEST)", StringComparison.Ordinal),
+                    "Latest compatible stable release is visibly marked");
                 NoSelection("show all channels");
                 versions.SelectedIndex = 0; // 13.0.0 application is missing.
                 Assert(!select.IsEnabled && compatibility.Text.Contains("missing", StringComparison.OrdinalIgnoreCase),
