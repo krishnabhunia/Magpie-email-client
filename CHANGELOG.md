@@ -7,6 +7,11 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 13.0.2 (3 Nov 2026)
+### Fixed
+- **Recognisable beta versions on Windows.** The newest compatible beta in each release series is displayed as `vX.Y.Z-beta 1` (LATEST when it is also the newest beta overall), followed by `beta 2`, `beta 3`, and so on; these are view-only ranks and can change when another build is published. The immutable full release tag is shown beneath each beta, with the release date and local time, for reliable exact-version installation or rollback. The newest compatible stable release is also marked LATEST.
+<!-- closes: #128 -->
+
 ## 13.0.1 (3 Nov 2026)
 ### Fixed
 - **Windows version chooser shows one current build per release channel.** Normal updates show the newest compatible Windows stable and/or beta release, not every earlier PR build; **Show all builds** restores exact historical choices and rollback continues to list all older versions. The update badge counts channels instead of every beta commit.
