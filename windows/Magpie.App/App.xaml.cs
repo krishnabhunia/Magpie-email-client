@@ -153,6 +153,7 @@ public partial class App : Application
             main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
                 DispatcherPriority.ApplicationIdle);
         Program.StartupComplete = true;
+        SplashPlan.RememberStarted(AppPaths.Default().Root, UpdateService.Current.ToString());   // design SP1: "after an update" also after the installer
         try { UpdateHistory.CompleteStartup(AppPaths.Default(), UpdateService.Current); }
         catch (Exception ex) { Log.Error("could not record version startup completion", ex); }
         if (Program.AfterUpdate) Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);

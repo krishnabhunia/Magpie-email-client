@@ -41,7 +41,7 @@ public sealed class StartupSplash
     private int _step;
     private int _accounts;
     private int _suspended;
-    private bool _finished, _closeNow;
+    private bool _finished, _closeNow, _failed;
     private volatile bool _closed;
     private Thread? _thread;
     private Dispatcher? _ui;
@@ -87,7 +87,8 @@ public sealed class StartupSplash
                 try { _ui.InvokeShutdown(); } catch { }
             };
             bool closeNow, finished, hidden;
-            lock (_gate) { closeNow = _closeNow; finished = _finished; hidden = _suspended > 0; }
+            // A failure is not a finish: Fail shows the error card on this window, it must not be closed here.
+            lock (_gate) { closeNow = _closeNow; finished = _finished && !_failed; hidden = _suspended > 0; }
             if (!closeNow)
             {
                 _win = new SplashWindow(this, _dark);
@@ -195,7 +196,7 @@ public sealed class StartupSplash
     /// </summary>
     public SplashChoice? Fail(string message, bool canGoBack)
     {
-        lock (_gate) { _finished = true; _suspended = 0; }
+        lock (_gate) { _finished = true; _failed = true; _suspended = 0; }
         if (Current == this) Current = null;
         if (!_ready.Wait(CallTimeout) || _closed || _ui == null || _win == null)
         {
@@ -559,6 +560,7 @@ internal sealed class SplashWindow : Window
 
     public void ShowError(int step, string message, bool canGoBack, Action<SplashChoice> choose)
     {
+        CancelClose();
         _slowTimer.Stop();
         _slow.Visibility = Visibility.Collapsed;
         _chips.Visibility = Visibility.Collapsed;
@@ -647,6 +649,9 @@ internal sealed class SplashWindow : Window
         base.Hide();
     }
 
+    private DispatcherTimer? _closeTimer;
+    private DoubleAnimation? _fadeOut;
+
     public void CloseAfter(TimeSpan hold, bool fade)
     {
         if (_closing) return;
@@ -654,14 +659,29 @@ internal sealed class SplashWindow : Window
         _slowTimer.Stop();
         void Go()
         {
+            _closeTimer = null;
+            if (!_closing) return;
             if (!fade || !Animate || !IsVisible) { Close(); return; }
             var a = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(160));
-            a.Completed += (_, _) => Close();
+            a.Completed += (_, _) => { if (_closing && ReferenceEquals(_fadeOut, a)) Close(); };
+            _fadeOut = a;
             BeginAnimation(OpacityProperty, a);
         }
         if (hold <= TimeSpan.Zero) { Go(); return; }
         var t = new DispatcherTimer { Interval = hold };
         t.Tick += (_, _) => { t.Stop(); Go(); };
+        _closeTimer = t;
         t.Start();
+    }
+
+    /// <summary>The error card wins over a close already on its way (a finish that raced the failure).</summary>
+    private void CancelClose()
+    {
+        _closeTimer?.Stop();
+        _closeTimer = null;
+        _fadeOut = null;
+        BeginAnimation(OpacityProperty, null);
+        Opacity = 1;
+        _closing = false;
     }
 }

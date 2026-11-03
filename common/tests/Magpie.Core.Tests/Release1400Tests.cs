@@ -180,4 +180,30 @@ public class Release1400Tests
         }
         finally { dir.Delete(true); }
     }
+
+    [Theory]
+    [InlineData(null, "14.0.0", false, false, false)]      // fresh install
+    [InlineData(null, "14.0.0", false, true, true)]        // first start of 14.0.0 after 13.x (no record yet)
+    [InlineData("14.0.0", "14.0.0", false, true, false)]   // same version again
+    [InlineData("13.0.0", "14.0.0", false, true, true)]    // installer or replaced portable EXE
+    [InlineData("14.0.0", "14.0.0", true, true, true)]     // the in-app updater says so
+    [InlineData(" 14.0.0 ", "14.0.0", false, true, false)]
+    public void New_version_is_found_without_the_updater(string? last, string current, bool updater, bool hasSettings, bool isNew) =>
+        Assert.Equal(isNew, SplashPlan.IsNewVersion(last, current, updater, hasSettings));
+
+    [Fact]
+    public void Started_version_is_remembered()
+    {
+        var dir = Directory.CreateTempSubdirectory("magpie-sp1-");
+        try
+        {
+            Assert.Null(SplashPlan.ReadLastStarted(dir.FullName));
+            SplashPlan.RememberStarted(dir.FullName, "14.0.0");
+            Assert.Equal("14.0.0", SplashPlan.ReadLastStarted(dir.FullName));
+            SplashPlan.RememberStarted(dir.FullName, "14.1.0");
+            Assert.Equal("14.1.0", SplashPlan.ReadLastStarted(dir.FullName));
+            Assert.False(SplashPlan.IsNewVersion(SplashPlan.ReadLastStarted(dir.FullName), "14.1.0", false, true));
+        }
+        finally { dir.Delete(true); }
+    }
 }

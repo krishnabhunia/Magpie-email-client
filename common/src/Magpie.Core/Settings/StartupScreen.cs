@@ -115,6 +115,49 @@ public static class SplashPlan
     public static TimeSpan HoldBeforeClose(TimeSpan shownFor) =>
         shownFor >= MinVisible ? TimeSpan.Zero : MinVisible - shownFor;
 
+    /// <summary>File in the settings folder holding the last version that started all the way (its main window drew).</summary>
+    public const string LastStartedFile = "last-started-version.txt";
+
+    /// <summary>
+    /// "Only the first time after an update" must also catch updates made with the installer or by replacing the
+    /// portable EXE, which pass no --after-update: a version different from the last one that started is new. With no
+    /// record yet, an existing settings file means Magpie was used before this version (the first start of 14.0.0
+    /// after 13.x), and no settings file means a fresh install, which is not an update.
+    /// </summary>
+    public static bool IsNewVersion(string? lastStarted, string current, bool updaterSaysSo, bool hasSettings)
+    {
+        if (updaterSaysSo) return true;
+        var last = (lastStarted ?? "").Trim();
+        if (last.Length == 0) return hasSettings;
+        return !string.Equals(last, current.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string? ReadLastStarted(string settingsFolder)
+    {
+        try
+        {
+            var f = Path.Combine(settingsFolder, LastStartedFile);
+            if (!File.Exists(f)) return null;
+            var text = File.ReadAllText(f).Trim();
+            return text.Length is > 0 and <= 64 ? text : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Records <paramref name="version"/> once it has started all the way; never throws.</summary>
+    public static void RememberStarted(string settingsFolder, string version)
+    {
+        try
+        {
+            if (string.Equals(ReadLastStarted(settingsFolder), version, StringComparison.OrdinalIgnoreCase)) return;
+            Directory.CreateDirectory(settingsFolder);
+            var f = Path.Combine(settingsFolder, LastStartedFile);
+            File.WriteAllText(f + ".next", version);
+            File.Move(f + ".next", f, overwrite: true);
+        }
+        catch (Exception ex) { Log.Warn("could not note the started version: " + ex.Message); }
+    }
+
     public static bool IsSlow(TimeSpan shownFor, bool finished) => !finished && shownFor >= SlowAfter;
 
     /// <summary>The step lines: (while it runs, once it's done). Step 3 names the accounts.</summary>

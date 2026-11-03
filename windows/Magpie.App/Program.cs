@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Threading;
@@ -109,10 +110,15 @@ public static class Program
     {
         try
         {
-            var prefs = Magpie.Core.Settings.SplashPrefs.Read(AppPaths.Default().Settings);
+            var paths = AppPaths.Default();
+            var prefs = Magpie.Core.Settings.SplashPrefs.Read(paths.Settings);
+            var current = Services.UpdateService.Current.ToString();
+            // In-app update, installer or a replaced portable EXE: all count as "after an update".
+            var newVersion = Magpie.Core.Settings.SplashPlan.IsNewVersion(
+                Magpie.Core.Settings.SplashPlan.ReadLastStarted(paths.Root), current, AfterUpdate, File.Exists(paths.Settings));
             var tray = StartupArgs.Contains("--tray") && prefs.Accounts.Count > 0;
-            if (!Magpie.Core.Settings.SplashPlan.ShouldShow(prefs.Mode, AfterUpdate, tray)) return;
-            Services.StartupSplash.Start(prefs, Services.UpdateService.Current.ToString(), AfterUpdate, AfterRestart);
+            if (!Magpie.Core.Settings.SplashPlan.ShouldShow(prefs.Mode, newVersion, tray)) return;
+            Services.StartupSplash.Start(prefs, current, newVersion, AfterRestart);
         }
         catch (Exception ex) { Log.Warn("start-up screen skipped: " + ex.Message); }
     }
