@@ -1,0 +1,507 @@
+<title>Magpie Splash Screen</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: Magpie design-board language (AW1 / FR1) — header + tabs, then one framed board per option; each splash sits on a mock desktop. */
+:root{
+  --bg:#ecebe6; --board:#f7f6f2; --panel:#ffffff; --side:#edebe5; --line:#dcd8cf; --line2:#e8e5de;
+  --text:#20272c; --muted:#626972; --faint:#8a9097;
+  --teal:#14606e; --teal-ink:#ffffff; --tealsoft:#e6eff0;
+  --purple:#4b3f86; --purplesoft:#f1eef9; --purpleline:#d9d2ef;
+  --warn:#87541d; --warnbg:#fff3dc; --success:#256745; --successbg:#e5f2ea; --error:#a4313d; --errorbg:#fbe9e7;
+  --chrome:#13181c; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(20,30,40,.06),0 8px 24px rgba(20,30,40,.06);
+  --desk:#d9dcd6; --desk2:#c9cec8;
+  /* Magpie's own app colours (Light.xaml / Dark.xaml) — fixed, they are what the splash will really use */
+  --l-bg:#f7f6f2; --l-text:#14181c; --l-muted:#5a6068; --l-line:#dcd8cf; --l-accent:#14606e; --l-ai:#4b3f86; --l-soft:#dfe9e9;
+  --d-bg:#171c20; --d-text:#e4e8ea; --d-muted:#a2abb2; --d-line:#323a40; --d-accent:#4fa6b5; --d-ai:#b3a6ee; --d-soft:#1d3338;
+  --ink:#14181c; --cream:#f7f6f2; --plume:#4b3f86;
+  --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --f-ui:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --side:#1a1f23; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94; --errorbg:#3a1f22;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+  --desk:#252b30; --desk2:#1d2226; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --side:#1a1f23; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94; --errorbg:#3a1f22;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+  --desk:#252b30; --desk2:#1d2226; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--f-ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px;margin:0}
+.wrap{max-width:1280px;margin:0 auto;display:grid;gap:14px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 24px/1.2 var(--f-display)}
+h2{font:600 24px/1.2 var(--f-display)}
+h3{font:600 15px/1.3 var(--f-ui)}
+p{margin:0}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-top:6px}
+.brand svg{width:28px;height:28px}
+.stamp{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--board);white-space:nowrap}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:var(--board);padding:10px 16px;border-radius:4px;cursor:pointer;display:flex;gap:10px;align-items:center;color:var(--text)}
+.tab small{font:500 11px var(--f-mono);color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--teal);color:var(--teal-ink);border-color:var(--teal)}
+.tab[aria-selected="true"] small{color:inherit;opacity:.8}
+.win{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--board);box-shadow:var(--shadow)}
+.chrome{background:var(--chrome);color:var(--chrome-ink);display:flex;justify-content:space-between;align-items:center;padding:9px 16px;font-size:12.5px;gap:10px}
+.chrome .ap{font:600 16px var(--f-display)}
+.chrome .ap small{font:400 11px var(--f-ui);opacity:.7;margin-left:8px}
+.screen{padding:24px 28px 28px;display:grid;gap:18px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.head p{margin-top:6px;color:var(--muted);max-width:72ch}
+.qtag{font:500 11px var(--f-mono);background:var(--purplesoft);color:var(--purple);padding:4px 8px;border-radius:4px;white-space:nowrap}
+.two{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,4fr);gap:18px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;border-right:1px solid var(--line);background:transparent;padding:6px 12px;cursor:pointer;font-size:12.5px}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--teal);color:var(--teal-ink);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:6px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:12.5px}
+.btn svg{width:14px;height:14px}
+.small{font-size:12px;color:var(--muted)}
+
+/* Mock desktop */
+.desk{position:relative;border-radius:6px;background:
+  radial-gradient(ellipse at 20% 0%,var(--desk) 0,transparent 60%),
+  linear-gradient(160deg,var(--desk),var(--desk2));
+  border:1px solid var(--line);min-height:400px;display:grid;place-items:center;padding:36px 16px 56px;overflow:hidden}
+.taskbar{position:absolute;left:0;right:0;bottom:0;height:40px;background:color-mix(in srgb,var(--chrome) 88%,transparent);display:flex;align-items:center;justify-content:center;gap:10px}
+.taskbar i{width:22px;height:22px;border-radius:5px;background:rgba(255,255,255,.14);display:block}
+.taskbar i.on{background:none;position:relative}
+.taskbar i.on svg{width:22px;height:22px}
+.taskbar i.on::after{content:"";position:absolute;left:7px;right:7px;bottom:-6px;height:3px;border-radius:2px;background:#4fa6b5}
+.sizetag{position:absolute;top:10px;left:12px;font:500 11px var(--f-mono);color:var(--muted)}
+
+/* Splash surfaces (use Magpie's real app colours) */
+.sp{--bg:var(--l-bg);--tx:var(--l-text);--mu:var(--l-muted);--ln:var(--l-line);--ac:var(--l-accent);--ai:var(--l-ai);--so:var(--l-soft);
+  background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.12),0 24px 60px rgba(0,0,0,.22);position:relative;overflow:hidden;max-width:100%}
+.sp.dark{--bg:var(--d-bg);--tx:var(--d-text);--mu:var(--d-muted);--ln:var(--d-line);--ac:var(--d-accent);--ai:var(--d-ai);--so:var(--d-soft)}
+.sp .name{font:600 34px/1 var(--f-display);letter-spacing:-.01em}
+.sp .ver{font:500 11.5px var(--f-mono);color:var(--mu);letter-spacing:.02em}
+.sp .stat{font-size:12.5px;color:var(--mu);display:flex;justify-content:space-between;gap:10px}
+.mark{display:block}
+
+/* SP1 */
+.sp1{width:440px;height:270px;display:grid;grid-template-rows:1fr auto;padding:0}
+.sp1 .mid{display:grid;justify-items:center;align-content:center;gap:12px;padding:28px 24px 8px}
+.sp1 .mark{width:72px;height:72px}
+.sp1 .foot{padding:0 22px 18px;display:grid;gap:9px}
+.bar{height:3px;border-radius:3px;background:var(--so);overflow:hidden;position:relative}
+.bar b{position:absolute;inset:0 auto 0 0;width:38%;background:var(--ac);border-radius:3px}
+.run .bar.indet b{animation:slide 1.3s ease-in-out infinite}
+@keyframes slide{0%{left:-38%}100%{left:100%}}
+.sp1 .name,.sp1 .mark,.sp1 .ver{transition:opacity .4s,transform .5s}
+.run.pre .sp1 .mark{opacity:0;transform:scale(.86)}
+.run.pre .sp1 .name,.run.pre .sp1 .ver{opacity:0;transform:translateY(6px)}
+
+/* SP2 */
+.sp2{width:560px;max-width:100%;display:grid;grid-template-columns:200px 1fr}
+.sp2 .left{background:var(--ink);color:var(--cream);display:grid;align-content:space-between;padding:22px 20px;gap:30px}
+.sp2 .left .mark{width:52px;height:52px}
+.sp2 .left .name{font-size:28px;color:var(--cream)}
+.sp2 .left .ver{color:#b9b6ae}
+.sp2 .right{padding:22px 22px 18px;display:grid;gap:14px;align-content:start}
+.sp2 .right h3{font:600 14px var(--f-ui)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+.steps li{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;font-size:13px}
+.steps .ic{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--ln);display:grid;place-items:center}
+.steps .t{color:var(--mu)}
+.steps .ms{font:500 11px var(--f-mono);color:var(--mu);font-variant-numeric:tabular-nums}
+.steps li.done .ic{background:var(--ac);border-color:var(--ac)}
+.steps li.done .ic::after{content:"";width:6px;height:3px;border-left:2px solid var(--bg);border-bottom:2px solid var(--bg);transform:translateY(-1px) rotate(-45deg)}
+.steps li.done .t{color:var(--tx)}
+.steps li.now .ic{border-color:var(--ac);border-top-color:transparent;animation:spin .8s linear infinite}
+.steps li.now .t{color:var(--tx);font-weight:600}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp2 .acc{display:flex;gap:6px;flex-wrap:wrap}
+.sp2 .acc span{font:500 11px var(--f-ui);border:1px solid var(--ln);border-radius:999px;padding:2px 8px;color:var(--mu);display:inline-flex;gap:5px;align-items:center}
+.sp2 .acc span::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+
+/* SP3 */
+.sp3{width:620px;max-width:100%;background:var(--ink);color:var(--cream);border-color:#2a3036;min-height:340px;display:grid;grid-template-rows:1fr auto}
+.sp3 canvas{position:absolute;inset:0;width:100%;height:100%}
+.sp3 .content{position:relative;padding:30px 32px 10px;display:grid;gap:16px;align-content:start}
+.sp3 .row{display:flex;gap:14px;align-items:center}
+.sp3 .mark{width:56px;height:56px}
+.sp3 .name{color:var(--cream);font-size:38px}
+.sp3 .ver{color:#b9b6ae}
+.sp3 .tag{font:600 10.5px var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:#c7bee8}
+.sp3 .upd{display:grid;gap:10px;max-width:46ch}
+.sp3 .pill{justify-self:start;font:600 12px var(--f-mono);background:#22c55e;color:#06290f;border-radius:999px;padding:4px 10px}
+.sp3 ul{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+.sp3 li{font-size:13px;line-height:1.45;color:#d8d5ce;display:grid;grid-template-columns:14px 1fr;gap:8px}
+.sp3 li::before{content:"";width:6px;height:6px;border-radius:50%;background:#4fa6b5;margin-top:7px}
+.sp3 li b{color:var(--cream);font-weight:600}
+.sp3 .foot{position:relative;padding:12px 32px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:#b9b6ae}
+.sp3 .foot .bar{flex:1 1 140px;background:#2a3036}
+.sp3 .foot .bar b{background:#4fa6b5}
+.sp3 .cta{display:flex;gap:8px}
+.sp3 .cta button{border:1px solid #5a6470;background:transparent;color:#e9ecee;border-radius:4px;padding:5px 11px;font-size:12px;cursor:pointer}
+.sp3 .cta button.go{background:#4fa6b5;border-color:#4fa6b5;color:#08191c;font-weight:600}
+
+/* Notes */
+.notes{padding:16px 18px;display:grid;gap:12px}
+.pc{display:grid;gap:6px}
+.pc h3{font-size:13px}
+.pc ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px}
+.good h3{color:var(--success)} .bad h3{color:var(--error)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--side)}
+td.n,th.n{width:44px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+code,.mono{font:12px var(--f-mono)}
+.chip{display:inline-block;font:600 10.5px var(--f-ui);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px}
+.chip.ok{background:var(--successbg);color:var(--success)} .chip.no{background:var(--errorbg);color:var(--error)} .chip.q{background:var(--warnbg);color:var(--warn)} .chip.ai{background:var(--purplesoft);color:var(--purple)}
+.cmp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cmp .card{padding:14px 16px;display:grid;gap:8px;align-content:start}
+.cmp .card h3{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.cmp .card h3 small{font:500 11px var(--f-mono);color:var(--muted)}
+/* Settings mock */
+.set{display:grid;grid-template-columns:180px 1fr;min-height:260px}
+.set nav{background:var(--side);border-right:1px solid var(--line);padding:12px 8px;display:grid;gap:2px;align-content:start;font-size:13px}
+.set nav span{padding:6px 10px;border-radius:4px;color:var(--muted)}
+.set nav span.on{background:var(--tealsoft);color:var(--teal);font-weight:600}
+.set .pg{padding:18px 20px;display:grid;gap:14px;align-content:start}
+.srow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--line2)}
+.srow b{font-weight:600;font-size:13.5px} .srow p{font-size:12px;color:var(--muted);margin-top:2px}
+.radios{display:grid;gap:6px;font-size:13px}
+.radios label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.newtag{font:600 10px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;background:var(--warnbg);color:var(--warn);padding:2px 6px;border-radius:3px;margin-left:6px;vertical-align:2px}
+ol.qs{margin:0;padding-left:20px;display:grid;gap:8px;font-size:13.5px}
+@media (max-width:900px){.two,.cmp{grid-template-columns:1fr}.set{grid-template-columns:1fr}.set nav{display:none}}
+@media (max-width:640px){.sp2{grid-template-columns:1fr}.sp2 .left{grid-template-columns:auto 1fr;align-items:center;gap:12px}.sp1{width:100%}.screen{padding:18px 14px}.sp3 .content{padding:24px 20px 8px}.sp3 .foot{padding:12px 20px 16px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="mk" viewBox="0 0 64 64">
+      <rect x="2.5" y="2.5" width="59" height="59" rx="14" fill="#14181c" stroke="#ffffff" stroke-opacity=".16"/>
+      <rect x="11" y="20" width="38" height="27" rx="3.5" fill="#f7f6f2"/>
+      <path d="M11.6 21.2 30 35.5 48.4 21.2 Z" fill="#14606e"/>
+      <path d="M40 22 55 12.5 57.3 16.2 42.6 25.4 Z" fill="#f7f6f2"/>
+      <path d="M42.6 25.4 57.3 16.2 58.4 18 43.9 27.2 Z" fill="#4b3f86"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Design board · SP1 · for approval</div>
+      <div class="brand"><svg aria-hidden="true"><use href="#mk"/></svg><h1>Magpie / Splash screen</h1></div>
+    </div>
+    <span class="stamp">Approved 3 Nov 2026: B · built in Magpie 14.0.0</span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Design screens">
+    <button class="tab" role="tab" aria-selected="true" data-go="a">A · Quiet mark <small>SP1-A</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="b">B · Start-up steps <small>SP1-B</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="c">C · Plume + What's new <small>SP1-C</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="compare">Compare <small>A vs B vs C</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="rules">When it shows <small>SP1-S</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="plan">PR plan <small>questions</small></button>
+  </nav>
+
+  <!-- A -->
+  <section class="win" data-view="a">
+    <div class="chrome"><span class="ap">Option A<small>Quiet mark</small></span><span>SP1-A</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Just the mark, a name and one line of progress</h2><p>A small borderless card in the middle of the screen. It follows Magpie's theme (Match Windows / Light / Dark), shows the version, and says what Magpie is doing in one line. Closes with a short fade the moment the main window has drawn.</p></div><span class="qtag">440 × 270 px</span></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Theme for option A"><button aria-pressed="true" data-theme-for="a" data-t="light">Light</button><button aria-pressed="false" data-theme-for="a" data-t="dark">Dark</button></div>
+        <button class="btn" data-replay="a"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>Play start-up</button>
+        <span class="small">Status lines are the real start-up stages in <code>App.OnStartup</code>.</span>
+      </div>
+      <div class="two">
+        <div class="desk" id="desk-a"><span class="sizetag">Desktop · centred on the monitor Magpie opens on</span>
+          <div class="sp sp1" id="sp-a">
+            <div class="mid">
+              <svg class="mark" aria-hidden="true"><use href="#mk"/></svg>
+              <div class="name">Magpie</div>
+              <div class="ver">Mail · Version 14.0.0</div>
+            </div>
+            <div class="foot">
+              <div class="bar indet"><b></b></div>
+              <div class="stat"><span id="a-stat">Opening your mail folder…</span><span>© Krishna Bhunia</span></div>
+            </div>
+          </div>
+          <div class="taskbar"><i></i><i></i><i class="on"><svg><use href="#mk"/></svg></i><i></i></div>
+        </div>
+        <div class="card notes">
+          <div class="pc good"><h3>Good</h3><ul><li>Calm, matches the Spark-style quiet look Magpie already has</li><li>Smallest change; nothing new to learn</li><li>Reads well in both themes</li></ul></div>
+          <div class="pc bad"><h3>Trade-offs</h3><ul><li>If start-up is slow you only see one line</li><li>Nothing special after an update (the tray balloon still says "Magpie updated")</li></ul></div>
+          <div class="pc"><h3>Status lines it cycles through</h3><ul class="small"><li>Checking the last update…</li><li>Opening your mail folder…</li><li>Loading your settings…</li><li>Starting 3 accounts…</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="win" data-view="b" hidden>
+    <div class="chrome"><span class="ap">Option B<small>Start-up steps</small></span><span>SP1-B</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Show each start-up step with its time</h2><p>A dark brand strip on the left; on the right, the four things Magpie really does before the window opens, ticked off as they finish, with milliseconds. Your accounts appear as chips in their own colour dots. Useful for seeing where a slow start comes from.</p></div><span class="qtag">560 × 300 px</span></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Theme for option B"><button aria-pressed="true" data-theme-for="b" data-t="light">Light</button><button aria-pressed="false" data-theme-for="b" data-t="dark">Dark</button></div>
+        <button class="btn" data-replay="b"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>Play start-up</button>
+        <span class="small">Times are an example; Magpie measures and writes them to <code>magpie.log</code> too.</span>
+      </div>
+      <div class="two">
+        <div class="desk"><span class="sizetag">Desktop</span>
+          <div class="sp sp2" id="sp-b">
+            <div class="left">
+              <svg class="mark" aria-hidden="true"><use href="#mk"/></svg>
+              <div style="display:grid;gap:6px"><div class="name">Magpie</div><div class="ver">Version 14.0.0</div></div>
+            </div>
+            <div class="right">
+              <h3>Getting your mail ready</h3>
+              <ol class="steps" id="b-steps">
+                <li class="done"><span class="ic"></span><span class="t">Checked the last update</span><span class="ms">42 ms</span></li>
+                <li class="done"><span class="ic"></span><span class="t">Opened your mail folder</span><span class="ms">318 ms</span></li>
+                <li class="now"><span class="ic"></span><span class="t">Loading settings, look and fonts</span><span class="ms">…</span></li>
+                <li><span class="ic"></span><span class="t">Starting accounts</span><span class="ms"></span></li>
+              </ol>
+              <div class="acc"><span style="--c:#d93025">krishnabhunia@gmail.com</span><span style="--c:#0a66c2">kri.subsc@gmail.com</span><span style="--c:#1b6b2e">Outlook</span></div>
+              <div class="bar"><b id="b-bar" style="width:55%;transition:width .3s"></b></div>
+            </div>
+          </div>
+          <div class="taskbar"><i></i><i></i><i class="on"><svg><use href="#mk"/></svg></i><i></i></div>
+        </div>
+        <div class="card notes">
+          <div class="pc good"><h3>Good</h3><ul><li>Honest: shows exactly what Magpie is waiting on</li><li>A slow step (locked drive, big mail folder move) is obvious</li><li>Account chips confirm every account came up</li></ul></div>
+          <div class="pc bad"><h3>Trade-offs</h3><ul><li>Busier; on a fast PC the steps flash past (kept at least 0.8 s)</li><li>Shows email addresses on screen at start (a Settings switch can hide them)</li></ul></div>
+          <div class="pc"><h3>If a step fails</h3><p class="small">The step turns red and the card shows the message with <b>Open log folder</b> and, after an update, <b>Go back to the previous version</b>, in place of today's plain Windows message box.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="win" data-view="c" hidden>
+    <div class="chrome"><span class="ap">Option C<small>Plume + What's new</small></span><span>SP1-C</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>A branded card that turns into "What's new" after an update</h2><p>Always dark ink with a slow drifting plume of teal and purple feather strokes (the colours of the icon). On a normal start it shows the name and progress. The first start after an update adds the version jump and the top 3 lines from the CHANGELOG, then carries on by itself.</p></div><span class="qtag">620 × 340 px</span></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Start type for option C"><button aria-pressed="false" data-mode="normal">Normal start</button><button aria-pressed="true" data-mode="update">First start after update</button></div>
+        <button class="btn" data-replay="c"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>Play start-up</button>
+      </div>
+      <div class="two">
+        <div class="desk"><span class="sizetag">Desktop</span>
+          <div class="sp sp3" id="sp-c">
+            <canvas id="plume" aria-hidden="true"></canvas>
+            <div class="content">
+              <div class="row"><svg class="mark" aria-hidden="true"><use href="#mk"/></svg><div style="display:grid;gap:6px"><div class="name">Magpie</div><div class="ver">Mail · Version 14.0.0</div></div></div>
+              <div class="upd" id="c-upd">
+                <span class="pill">Updated 13.0.0 → 14.0.0</span>
+                <span class="tag">What's new</span>
+                <ul>
+                  <li><span><b>Splash screen</b> while Magpie opens, with a short "What's new" after each update.</span></li>
+                  <li><span><b>AI note when you click Forward</b> came in 13.0.0 if you skipped it.</span></li>
+                  <li><span>Settings → General → <b>Start-up screen</b> to choose when it shows.</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="foot">
+              <div class="bar indet"><b></b></div>
+              <span id="c-stat">Starting accounts…</span>
+              <div class="cta" id="c-cta"><button>Full changelog</button><button class="go">Continue · 4</button></div>
+            </div>
+          </div>
+          <div class="taskbar"><i></i><i></i><i class="on"><svg><use href="#mk"/></svg></i><i></i></div>
+        </div>
+        <div class="card notes">
+          <div class="pc good"><h3>Good</h3><ul><li>Most distinctive; feels like a finished product</li><li>Tells you what changed after an update, at the moment you notice the update</li><li>"Continue" counts down 4 s, so it never blocks</li></ul></div>
+          <div class="pc bad"><h3>Trade-offs</h3><ul><li>Always dark, does not follow the Light theme</li><li>The plume animation costs a little GPU for ~1 s (off with Windows "Animation effects" off)</li><li>Largest change of the three</li></ul></div>
+          <div class="pc"><h3>Where "What's new" comes from</h3><p class="small">The release notes the updater already downloads from the GitHub release (first 3 bullet headlines). Offline or none found: the card shows only the version jump.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Compare -->
+  <section class="win" data-view="compare" hidden>
+    <div class="chrome"><span class="ap">Compare<small>A · B · C</small></span><span>SP1</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Side by side</h2><p>Mixes are fine, for example A's look with C's "What's new" after updates, or B's steps shown only when start-up is slower than 3 s.</p></div></div>
+      <div class="tw"><table>
+        <thead><tr><th class="n">#</th><th>Point</th><th>A · Quiet mark</th><th>B · Start-up steps</th><th>C · Plume + What's new</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Size</td><td>440 × 270</td><td>560 × 300</td><td>620 × 340</td></tr>
+          <tr><td class="n">2</td><td>Follows Light / Dark theme</td><td><span class="chip ok">Yes</span></td><td><span class="chip ok">Yes</span> (brand strip stays dark)</td><td><span class="chip no">Always dark</span></td></tr>
+          <tr><td class="n">3</td><td>Shows progress</td><td>One line + moving bar</td><td>4 ticked steps + ms + bar</td><td>One line + moving bar</td></tr>
+          <tr><td class="n">4</td><td>After an update</td><td>Same as normal</td><td>Same as normal</td><td>Version jump + 3 highlights, 4 s</td></tr>
+          <tr><td class="n">5</td><td>Errors at start</td><td>Message in the card</td><td>Failed step in red + message</td><td>Message in the card</td></tr>
+          <tr><td class="n">6</td><td>Motion</td><td>Fade in, bar</td><td>Ticks, bar</td><td>Plume drift, bar</td></tr>
+          <tr><td class="n">7</td><td>Build effort</td><td><span class="chip ok">Small</span></td><td><span class="chip q">Medium</span></td><td><span class="chip q">Medium</span></td></tr>
+          <tr><td class="n">8</td><td>My pick</td><td colspan="3"><b>A + C's "What's new"</b>: quiet every day, informative after an update, and it follows your theme.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- Rules -->
+  <section class="win" data-view="rules" hidden>
+    <div class="chrome"><span class="ap">When it shows<small>same for A, B, C</small></span><span>SP1-S</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>When the splash appears, and how you turn it off</h2><p>The splash runs on its own thread, so it keeps moving while Magpie opens its data folder and database on the main thread. It appears within ~150 ms of double-clicking.</p></div></div>
+      <div class="two">
+        <div class="tw"><table>
+          <thead><tr><th class="n">#</th><th>Situation</th><th>Splash</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Normal start (Start menu, desktop, taskbar)</td><td><span class="chip ok">Shows</span></td></tr>
+            <tr><td class="n">2</td><td>Start with Windows (<code>--tray</code>, accounts set up)</td><td><span class="chip no">Never</span> — Magpie starts quietly in the tray</td></tr>
+            <tr><td class="n">3</td><td>Second launch while Magpie runs</td><td><span class="chip no">Never</span> — brings the window forward</td></tr>
+            <tr><td class="n">4</td><td>First start after an update</td><td><span class="chip ok">Shows</span> (C: with What's new)</td></tr>
+            <tr><td class="n">5</td><td>Restart after settings restore / mail folder move</td><td><span class="chip ok">Shows</span>, line says "Restarting…"</td></tr>
+            <tr><td class="n">6</td><td>Opened from a <code>mailto:</code> link</td><td><span class="chip ok">Shows</span>, then compose opens</td></tr>
+            <tr><td class="n">7</td><td>First run, no accounts</td><td><span class="chip ok">Shows</span>, then the Welcome / Add account window</td></tr>
+            <tr><td class="n">8</td><td>Shortest time on screen</td><td>0.8 s, so it never just flickers</td></tr>
+            <tr><td class="n">9</td><td>Longer than 10 s</td><td>Adds "This is taking longer than usual" + <b>Open log folder</b></td></tr>
+            <tr><td class="n">10</td><td>Start-up fails</td><td>The card shows the error and buttons, replacing the Windows message box</td></tr>
+            <tr><td class="n">11</td><td>Click on the splash</td><td>Nothing (can't be closed by mistake); Esc hides it early once the window is ready</td></tr>
+          </tbody>
+        </table></div>
+        <div class="card">
+          <div class="set">
+            <nav aria-label="Settings pages (mock)"><span class="on">General</span><span>Toolbar &amp; buttons</span><span>Accounts</span><span>AI writing</span><span>Updates</span><span>About</span></nav>
+            <div class="pg">
+              <div class="srow"><div><b>Start-up screen<span class="newtag">New</span></b><p>The card you see while Magpie opens.</p></div></div>
+              <div class="radios" role="radiogroup" aria-label="When to show the start-up screen">
+                <label><input type="radio" name="when" id="w1" checked> Every time Magpie opens</label>
+                <label><input type="radio" name="when" id="w2"> Only the first time after an update</label>
+                <label><input type="radio" name="when" id="w3"> Never</label>
+              </div>
+              <div class="srow"><div><b>Show my accounts on it</b><p>Option B only: the account chips.</p></div><input type="checkbox" id="w4" checked aria-label="Show my accounts on it"></div>
+              <p class="small">Also found by Settings search: "splash", "start-up", "logo", "loading screen".</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Plan -->
+  <section class="win" data-view="plan" hidden>
+    <div class="chrome"><span class="ap">PR plan<small>after your approval</small></span><span>SP1</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>What the PR will contain, and what I need from you</h2><p>One GitHub issue, one draft PR from a new branch; it goes Ready to Review after the Actions workflow passes. Nothing is built until you approve a design.</p></div><span class="qtag">14.0.0 · New</span></div>
+      <div class="tw"><table>
+        <thead><tr><th class="n">#</th><th>Item</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Branch / PR</td><td><code>claude/magpie-splash-sp1</code> → draft PR → Ready after CI; publishes a beta per your house rules</td></tr>
+          <tr><td class="n">2</td><td>Version</td><td>CHANGELOG "### New" → <b>14.0.0</b> via <code>release_prep.py</code></td></tr>
+          <tr><td class="n">3</td><td>Windows code</td><td><code>windows/Magpie.App/Views/SplashWindow.xaml(.cs)</code> on its own STA thread · <code>SplashService</code> (stages, min 0.8 s, 10 s note, error mode) · hooks in <code>App.OnStartup</code> / <code>StartUi</code> · closes on the main window's first render</td></tr>
+          <tr><td class="n">4</td><td>Setting</td><td><code>Appearance.Splash</code> = Always / AfterUpdate / Never (default Always), normalised for old settings files · Settings → General row · 4 search keywords</td></tr>
+          <tr><td class="n">5</td><td>What's new (if C)</td><td>Reads the release notes the updater already keeps; offline-safe</td></tr>
+          <tr><td class="n">6</td><td>Tests</td><td>Setting default + old-file upgrade · when-to-show rules (table rows 1–7) · min/max timing · release-note headline parsing · XAML static check</td></tr>
+          <tr><td class="n">7</td><td>Docs</td><td>This board as <code>docs/designs/SP1-splash.html</code> · README + DEVICE-CHECKLIST lines · CHANGELOG</td></tr>
+          <tr><td class="n">8</td><td>Not verified in CI</td><td>Real look on your laptop (CI has no screen); I'll list it in the PR</td></tr>
+        </tbody>
+      </table></div>
+      <div class="card notes">
+        <h3>Do you have any lacunas, questions, blockers, doubts? Mine:</h3>
+        <ol class="qs">
+          <li><b>Which design?</b> A, B, C, or a mix (my pick: A + C's What's new).</li>
+          <li><b>Default setting:</b> "Every time" (my pick) or "Only after an update"?</li>
+          <li><b>Errors in the splash</b> instead of the Windows message box: yes (my pick) or keep the message box?</li>
+          <li><b>macOS:</b> the Mac app (Avalonia) has no splash either. Windows only in this PR (my pick), or both?</li>
+        </ol>
+        <p class="small">No answer on a point → the pick in brackets applies.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const views=[...document.querySelectorAll('[data-view]')], tabs=[...document.querySelectorAll('[data-go]')];
+  const ids=views.map(v=>v.dataset.view);
+  function show(id){ if(!ids.includes(id)) id='a';
+    views.forEach(v=>v.hidden=v.dataset.view!==id);
+    tabs.forEach(t=>t.setAttribute('aria-selected',t.dataset.go===id));
+    if(id==='c') startPlume(); }
+  tabs.forEach(t=>t.addEventListener('click',()=>{ location.hash=t.dataset.go; }));
+  addEventListener('hashchange',()=>show(location.hash.slice(1)));
+  show(location.hash.slice(1));
+
+  document.querySelectorAll('[data-theme-for]').forEach(b=>b.addEventListener('click',()=>{
+    const k=b.dataset.themeFor, sp=document.getElementById('sp-'+k);
+    sp.classList.toggle('dark',b.dataset.t==='dark');
+    document.querySelectorAll('[data-theme-for="'+k+'"]').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  }));
+
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const timers={};
+  function clear(k){(timers[k]||[]).forEach(clearTimeout);timers[k]=[];}
+  function at(k,ms,fn){(timers[k]=timers[k]||[]).push(setTimeout(fn,ms));}
+
+  // A
+  const aLines=['Checking the last update…','Opening your mail folder…','Loading your settings…','Starting 3 accounts…','Ready'];
+  const deskA=document.getElementById('desk-a'), aStat=document.getElementById('a-stat'), spA=document.getElementById('sp-a');
+  function playA(){ clear('a'); spA.style.opacity=1; deskA.classList.add('run','pre');
+    at('a',60,()=>deskA.classList.remove('pre'));
+    aLines.forEach((l,i)=>at('a',300+i*650,()=>aStat.textContent=l));
+    at('a',300+aLines.length*650,()=>{spA.style.transition='opacity .25s';spA.style.opacity=0;});
+    at('a',300+aLines.length*650+900,()=>{spA.style.opacity=1;aStat.textContent='Opening your mail folder…';deskA.classList.remove('run');}); }
+  deskA.classList.add('run');
+
+  // B
+  const bSteps=[['Checked the last update','42 ms'],['Opened your mail folder','318 ms'],['Loaded settings, look and fonts','121 ms'],['Started 3 accounts','264 ms']];
+  const bNow=['Checking the last update','Opening your mail folder','Loading settings, look and fonts','Starting accounts'];
+  const lis=[...document.querySelectorAll('#b-steps li')], bBar=document.getElementById('b-bar');
+  function setB(n,now){ lis.forEach((li,i)=>{ li.className=i<n?'done':(i===n&&now?'now':'');
+      li.querySelector('.t').textContent=i<n?bSteps[i][0]:bNow[i];
+      li.querySelector('.ms').textContent=i<n?bSteps[i][1]:(i===n&&now?'…':''); });
+    bBar.style.width=(n/4*100)+'%'; }
+  function playB(){ clear('b'); setB(0,true); [1,2,3,4].forEach((n,i)=>at('b',500+i*600,()=>setB(n,n<4))); at('b',3600,()=>setB(2,true)); }
+
+  // C
+  const spC=document.getElementById('sp-c'), cUpd=document.getElementById('c-upd'), cCta=document.getElementById('c-cta'), goBtn=cCta.querySelector('.go'), cStat=document.getElementById('c-stat');
+  let mode='update';
+  function setMode(m){ mode=m; cUpd.hidden=m!=='update'; cCta.hidden=m!=='update'; cStat.textContent=m==='update'?'Starting accounts…':'Opening your mail folder…';
+    document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===m)); }
+  document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+  function playC(){ clear('c'); spC.parentElement.classList.add('run');
+    if(mode==='update'){ [4,3,2,1].forEach((s,i)=>at('c',i*1000,()=>goBtn.textContent='Continue · '+s)); at('c',4000,()=>goBtn.textContent='Continue'); }
+    else { ['Opening your mail folder…','Loading your settings…','Starting 3 accounts…'].forEach((l,i)=>at('c',i*700,()=>cStat.textContent=l)); } }
+  spC.parentElement.classList.add('run');
+
+  document.querySelectorAll('[data-replay]').forEach(b=>b.addEventListener('click',()=>({a:playA,b:playB,c:playC})[b.dataset.replay]()));
+
+  // Plume canvas: feather strokes drifting
+  let plumeOn=false;
+  function startPlume(){ if(plumeOn) return; plumeOn=true;
+    const cv=document.getElementById('plume'), ctx=cv.getContext('2d');
+    const strokes=Array.from({length:26},(_,i)=>({a:-0.62+Math.random()*.18, o:i/26, c:i%3===0?'#4b3f86':(i%3===1?'#14606e':'#4fa6b5'), w:1+Math.random()*2.2, s:.00006+Math.random()*.00005}));
+    function size(){ const r=cv.getBoundingClientRect(), d=devicePixelRatio||1; cv.width=r.width*d; cv.height=r.height*d; ctx.setTransform(d,0,0,d,0,0); }
+    size(); addEventListener('resize',size);
+    function draw(t){ const W=cv.width/(devicePixelRatio||1), H=cv.height/(devicePixelRatio||1);
+      ctx.clearRect(0,0,W,H);
+      strokes.forEach((s,i)=>{ const p=(s.o+(reduce?0:t*s.s))%1;
+        const x0=W*0.55+p*W*0.7-W*0.2, y0=H*1.05;
+        const len=H*0.9;
+        ctx.beginPath(); ctx.moveTo(x0,y0);
+        ctx.quadraticCurveTo(x0+len*0.35, y0-len*0.55, x0+len*0.9*Math.cos(s.a)+len*0.25, y0+len*Math.sin(s.a)*1.1);
+        ctx.strokeStyle=s.c; ctx.globalAlpha=0.22+0.3*Math.sin(p*Math.PI); ctx.lineWidth=s.w; ctx.stroke(); });
+      ctx.globalAlpha=1;
+      if(!reduce) requestAnimationFrame(draw); }
+    requestAnimationFrame(draw); }
+})();
+</script>

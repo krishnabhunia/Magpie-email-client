@@ -18,3 +18,15 @@ Tick these after running `Magpie.exe` on the laptop. If anything fails, send `%A
 | S4 | Turn Summarise OFF again | Button disappears from the open thread without restarting |
 | G1 | (after SIGN-IN-SETUP) Add Gmail with Google sign-in | Browser sign-in → back in Magpie → account syncs |
 | M1 | (after SIGN-IN-SETUP) Add Outlook with Microsoft sign-in | Same |
+
+## 14.0.0 — Start-up screen (SP1 B)
+
+| # | Check | Expected |
+|---|-------|----------|
+| SP1 | Quit Magpie (tray → Exit), open it from the Start menu | The card appears at once where the Magpie window opens; the 4 steps tick with times; accounts as chips; it fades when the window has drawn |
+| SP2 | Settings → General → Start-up screen → Dark theme on, reopen | Card in dark colours; Light / Match Windows follow too |
+| SP3 | Start-up screen → **Only the first time after an update**, reopen | No card; after the next update, the card says "Getting the new version ready · just updated" |
+| SP4 | Start-up screen → **Never**, reopen | No card |
+| SP5 | Sign out and in with **Start with Windows** on | Magpie starts in the tray, no card |
+| SP6 | Untick **Show my accounts on it**, reopen | No chips |
+| SP7 | `%APPDATA%\Magpie\magpie.log` | One line "start-up 1.2 s (update … · mail folder … · look … · accounts …)" per start |

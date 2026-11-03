@@ -357,6 +357,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
         ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
+        ("Start-up screen", "General", "The card you see while Magpie opens: every time, only after an update, or never", "splash start-up startup screen logo loading launch opening steps accounts", "RowSplash"),
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
         ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
         ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
@@ -536,6 +537,10 @@ public partial class SettingsViewModel : ObservableObject
         if (Enum.TryParse<RowActionsMode>(mode, out var v)) RowMode = v;
     }
 
+    // ── Start-up screen (design SP1) ──
+    [ObservableProperty] private SplashMode _splash;
+    [ObservableProperty] private bool _splashAccounts;
+
     // ── Appearance: theme (design B1) ──
     [ObservableProperty] private ThemeMode _theme;
     public bool WindowsIsDark { get; } = ThemeManager.WindowsUsesDark();
@@ -712,6 +717,8 @@ public partial class SettingsViewModel : ObservableObject
 
         var ap = c.Appearance;
         _theme = ap.Theme;
+        _splash = ap.Splash;
+        _splashAccounts = ap.SplashAccounts;
         _buttonStyle = ap.ButtonStyle;
         _colourful = ap.Colourful;
         _counts = ap.Counts;
@@ -980,6 +987,7 @@ public partial class SettingsViewModel : ObservableObject
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
             DeleteDates = new DeleteDateLook { Hover = DeleteHover, List = DeleteList, Reader = DeleteReader },
+            Splash = Splash, SplashAccounts = SplashAccounts,
         };
         c.Appearance.Normalise();
         c.Updates.AutoUpdate = AutoUpdate;

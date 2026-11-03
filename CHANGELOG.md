@@ -7,6 +7,13 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 14.0.0 (3 Nov 2026)
+### New
+- **Start-up screen.** While Magpie opens you now see a card with the Magpie mark and version on the left and, on the right, the four things Magpie does before its window appears: checking the last update, opening your mail folder, loading settings, look and fonts, and starting your accounts. Each step ticks off with how long it took, your accounts show as small chips in their colours, and the card fades as soon as the window is ready (it stays at least 0.8 seconds so it never just flickers). It follows Light, Dark or Match Windows, and appears where the Magpie window will open.
+- **If start-up is slow or fails, it says so.** After 10 seconds the card adds "This is taking longer than usual" with **Open log folder**. If Magpie can't start, the step that failed turns red and the message shows on the card with **Open log folder**, **Close** and, on the first start after an update, **Go back to the previous version**, instead of a plain Windows message box.
+- **Settings → General → Start-up screen:** every time Magpie opens (the default), only the first time after an update, or never, plus **Show my accounts on it**. Magpie never shows it when it starts with Windows into the notification area, or when it's already running. Settings search finds it ("splash", "start-up", "loading").
+- Windows only for now; the Mac app starts as before.
+
 ## 13.0.0 (3 Nov 2026)
 ### New
 - **AI note when you click Forward.** Turn on Settings → AI writing → **When I click Forward** and Magpie writes the note above the forwarded email. Pick why you're forwarding (FYI only, Please handle, Please review, Introduce, Escalate or Custom) or type it in a few words. It can add a 2-line summary and mention the attachment by name; attachment contents are never sent. The note starts "Hi," and gets the name as soon as you add a recipient, without writing it again. Forward asks for its own permission once per cloud AI connection.

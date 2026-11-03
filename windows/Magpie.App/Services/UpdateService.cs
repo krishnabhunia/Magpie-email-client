@@ -691,7 +691,20 @@ public sealed partial class UpdateService : ObservableObject
     }
 
     /// <summary>A startup failure restores the saved app and stages its matching data before any old engine restarts.</summary>
-    public static bool OfferRollback(Exception error)
+    /// <summary>Design SP1: true when a failed first start can go back to the version saved before this update.</summary>
+    public static bool CanOfferRollback()
+    {
+        try
+        {
+            var paths = AppPaths.Default();
+            var transition = UpdateHistory.List(paths).FirstOrDefault(e => e.Status == UpdateHistory.Installing && e.To == Current.ToString());
+            return transition?.SnapshotId != null;
+        }
+        catch { return false; }
+    }
+
+    /// <param name="confirmed">The user already chose "Go back to the previous version" on the start-up screen (design SP1): don't ask again.</param>
+    public static bool OfferRollback(Exception error, bool confirmed = false)
     {
         var paths = AppPaths.Default();
         try
@@ -700,7 +713,7 @@ public sealed partial class UpdateService : ObservableObject
             if (transition?.SnapshotId is not { } id) return false;
             var snapshot = VersionBackup.Read(paths, id);
             VersionBackup.Validate(snapshot);
-            var answer = MessageBox.Show($"Magpie v{Current} could not start:\n\n{error.Message}\n\n" +
+            var answer = confirmed ? MessageBoxResult.Yes : MessageBox.Show($"Magpie v{Current} could not start:\n\n{error.Message}\n\n" +
                 $"Restore Magpie v{snapshot.Version} and the local data saved immediately before this change?",
                 "Restore the last working version", MessageBoxButton.YesNo, MessageBoxImage.Error, MessageBoxResult.Yes);
             if (answer != MessageBoxResult.Yes) return false;

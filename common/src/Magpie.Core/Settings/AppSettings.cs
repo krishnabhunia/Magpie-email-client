@@ -235,6 +235,10 @@ public sealed class Appearance
     public RowActionsSettings RowActions { get; set; } = new();
     /// <summary>Design DD1: how an email's auto-delete date shows (pointing at a row, on the row, in the reading pane).</summary>
     public DeleteDateLook DeleteDates { get; set; } = new();
+    /// <summary>Design SP1: when the start-up screen shows (Always / only the first start after an update / Never).</summary>
+    public SplashMode Splash { get; set; } = SplashMode.Always;
+    /// <summary>Design SP1-B: your accounts as chips on the start-up screen.</summary>
+    public bool SplashAccounts { get; set; } = true;
 
     public static List<ToolbarButton> DefaultToolbar() =>
         ToolbarIds.Select((id, i) => new ToolbarButton { Id = id, Visible = i < DefaultVisible }).ToList();
@@ -251,6 +255,7 @@ public sealed class Appearance
         (RowActions ??= new()).Normalise();
         (DeleteDates ??= new()).Normalise();
         if (!Enum.IsDefined(Theme)) Theme = ThemeMode.MatchWindows;
+        if (!Enum.IsDefined(Splash)) Splash = SplashMode.Always;
     }
 
     public Appearance Clone() => new()
@@ -258,6 +263,7 @@ public sealed class Appearance
         Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(), DeleteDates = DeleteDates.Clone(),
+        Splash = Splash, SplashAccounts = SplashAccounts,
     };
 }
 
