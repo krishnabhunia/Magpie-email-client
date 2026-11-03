@@ -11,6 +11,12 @@ public sealed class VersionHistoryWindow : Window
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ComboBox _direction = new() { Width = 190, Margin = new Thickness(0, 0, 12, 0) };
     private readonly ComboBox _channel = new() { Width = 170 };
+    private readonly CheckBox _showAllBuilds = new()
+    {
+        Content = "Show all builds (including earlier betas)",
+        Margin = new Thickness(0, 10, 0, 0),
+        IsChecked = false,
+    };
     private readonly ListBox _versions = new() { MinHeight = 140, Margin = new Thickness(0, 14, 0, 10) };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
@@ -44,6 +50,7 @@ public sealed class VersionHistoryWindow : Window
         NameScope.SetNameScope(this, new NameScope());
         RegisterName("DirectionFilter", _direction);
         RegisterName("ChannelFilter", _channel);
+        RegisterName("ShowAllBuilds", _showAllBuilds);
         RegisterName("ReleaseList", _versions);
         RegisterName("ReleaseSummary", _summary);
         RegisterName("CompatibilityMessage", _compatibility);
@@ -90,8 +97,10 @@ public sealed class VersionHistoryWindow : Window
         _direction.Items.Add("Update (newer)"); _direction.Items.Add("Roll back (older)"); _direction.SelectedIndex = 0;
         _channel.Items.Add("Stable and beta"); _channel.Items.Add("Stable only"); _channel.Items.Add("Beta only"); _channel.SelectedIndex = 0;
         _direction.SelectionChanged += (_, _) => Refresh(); _channel.SelectionChanged += (_, _) => Refresh();
+        _showAllBuilds.Checked += (_, _) => Refresh(); _showAllBuilds.Unchecked += (_, _) => Refresh();
         var filters = new StackPanel { Orientation = Orientation.Horizontal };
         filters.Children.Add(_direction); filters.Children.Add(_channel); header.Children.Add(filters);
+        header.Children.Add(_showAllBuilds);
 
         var details = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
         details.Children.Add(_message); details.Children.Add(_compatibility);
@@ -136,15 +145,40 @@ public sealed class VersionHistoryWindow : Window
     private void Refresh()
     {
         if (_direction.SelectedIndex < 0 || _channel.SelectedIndex < 0) return;
-        var rows = _choices.Where(c => IsRollback ? c.Release.Version.CompareTo(_current) < 0 : c.Release.Version.CompareTo(_current) > 0)
+        // Update: only the newest installable release for this platform in each selected channel.
+        // The full retained catalogue is still accessible for exact-version selection and rollback.
+        _showAllBuilds.IsEnabled = !IsRollback;
+        var matching = _choices.Where(c => IsRollback ? c.Release.Version.CompareTo(_current) < 0 : c.Release.Version.CompareTo(_current) > 0)
             .Where(c => _channel.SelectedIndex == 0 || (_channel.SelectedIndex == 1 ? !c.Prerelease : c.Prerelease))
-            .OrderByDescending(c => c.Release.Version).GroupBy(c => c.Release.Version.ToString()).Select(g => g.First())
-            .Select(c => new VersionRow(c)).ToList();
+            .OrderByDescending(c => c.Release.Version).GroupBy(c => c.Release.Version.ToString()).Select(g => g.First()).ToList();
+        var visible = !IsRollback && _showAllBuilds.IsChecked != true
+            ? matching.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
+                .GroupBy(c => c.Prerelease).Select(g => g.First()).OrderByDescending(c => c.Release.Version)
+            : matching.AsEnumerable();
+        // Friendly beta numbers are display ranks, newest installable build first in each X.Y.Z series.
+        // They never replace the immutable release tags used for download, checksums and rollback.
+        var installable = _choices.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
+            .OrderByDescending(c => c.Release.Version)
+            .GroupBy(c => c.Release.Version.ToString()).Select(g => g.First()).ToList();
+        var betaRanks = installable.Where(c => c.Prerelease)
+            .GroupBy(c => (c.Release.Version.Major, c.Release.Version.Minor, c.Release.Version.Patch))
+            .SelectMany(g => g.Select((choice, index) => new { choice.Release.Tag, Rank = index + 1 }))
+            .ToDictionary(x => x.Tag, x => x.Rank);
+        var newestBeta = installable.FirstOrDefault(c => c.Prerelease)?.Release.Tag;
+        var newestStable = installable.FirstOrDefault(c => !c.Prerelease)?.Release.Tag;
+        var rows = visible.Select(c => new VersionRow(c,
+            betaRanks.TryGetValue(c.Release.Tag, out var rank) ? (int?)rank : null,
+            c.Release.Tag == (c.Prerelease ? newestBeta : newestStable))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
         Selection = null; _select.IsEnabled = false; _select.Content = "Choose a version";
         _summary.Text = ""; _compatibility.Text = "";
-        _message.Text = rows.Count == 0 ? "No releases match this filter."
-            : $"{rows.Count} release(s), {rows.Count(c => c.Choice.Compatibility.CanInstall)} compatible. Select a row to review it.";
+        _message.Text = rows.Count == 0
+            ? (!IsRollback && _showAllBuilds.IsChecked != true
+                ? "No compatible updates in this channel. Select Show all builds to inspect release history."
+                : "No releases match this filter.")
+            : $"{rows.Count} release(s), {rows.Count(c => c.Choice.Compatibility.CanInstall)} compatible. " +
+                (!IsRollback && _showAllBuilds.IsChecked != true ? "Latest available per channel. " : "") +
+                "Select a row to review it.";
     }
 
     private void ShowSelection()
@@ -158,10 +192,26 @@ public sealed class VersionHistoryWindow : Window
             : choice.Release.Notes.Replace("\r", "").Replace("**", "");
     }
 
-    private sealed record VersionRow(VersionChoice Choice)
+    private sealed record VersionRow(VersionChoice Choice, int? BetaRank, bool Latest)
     {
-        public string Label => $"v{Choice.Release.Version}  ·  {(Choice.Prerelease ? "Beta" : "Stable")}" +
-            (Choice.Release.Published is { } date ? $"  ·  {date.LocalDateTime:d}" : "") +
-            $"\n{(Choice.Release.AssetAvailable ? "Application and checksum available" : "Application or checksum missing")}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
+        public string Label
+        {
+            get
+            {
+                var version = Choice.Release.Version;
+                var friendly = Choice.Prerelease && BetaRank is { } rank
+                    ? $"v{version.Major}.{version.Minor}.{version.Patch}-beta {rank}"
+                    : $"v{version}";
+                var newest = Latest ? "  (LATEST)" : "";
+                var published = Choice.Release.Published is { } date
+                    ? $"  ·  {date.ToLocalTime():dd MMM yyyy, h:mm tt} (local)" : "";
+                // Keep the full tag visible so a shifting display rank never changes an exact selection.
+                var exact = Choice.Prerelease && BetaRank is not null
+                    ? $"\nExact tag: {Choice.Release.Tag}" : "";
+                var availability = Choice.Release.AssetAvailable
+                    ? "Application and checksum available" : "Application or checksum missing";
+                return $"{friendly}{newest}{published}{exact}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
+            }
+        }
     }
 }
