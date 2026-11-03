@@ -24,6 +24,7 @@ public static class MailFolderStartup
 
         while (!paths.MailRootAvailable)
         {
+            using var hidden = StartupSplash.Current?.Suspend();   // design SP1: the question comes first
             var choice = ChoiceDialog.Ask(null, "Your mail folder isn't available",
                 paths.MailRoot + " can't be opened. The drive may be locked (BitLocker or VeraCrypt) or unplugged. Unlock or connect it, then try again.\n\n"
                 + "Magpie doesn't start an empty mailbox in its place on its own, so nothing is mixed up or downloaded twice.",
@@ -48,6 +49,7 @@ public static class MailFolderStartup
     private static void DoMove(AppPaths paths, string target)
     {
         if (string.Equals(System.IO.Path.GetFullPath(target), paths.MailRoot, StringComparison.OrdinalIgnoreCase)) return;
+        using var hidden = StartupSplash.Current?.Suspend();   // design SP1: the move shows its own progress
         var from = paths.MailRoot;
         if (!System.IO.Directory.Exists(from))
         {

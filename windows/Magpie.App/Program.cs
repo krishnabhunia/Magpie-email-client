@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Threading;
@@ -82,6 +83,8 @@ public static class Program
             return 0;
         }
 
+        StartSplash();   // design SP1: appears at once, before the app object and its resources load
+
         try
         {
             var app = new App();
@@ -92,10 +95,32 @@ public static class Program
         {
             // The new version can't even start its UI: offer the previous one.
             Log.Error("start-up failed after update", ex);
+            if (Services.StartupSplash.TryReportFailure("Magpie could not start: " + ex.Message, ex, afterUpdate: true)) return 1;
             if (!Services.UpdateService.OfferRollback(ex))
                 MessageBox.Show("Magpie could not start:\n\n" + ex.Message, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Design SP1: the start-up screen, unless Settings → General → Start-up screen says otherwise or Magpie starts
+    /// quietly with Windows (<c>--tray</c> with accounts set up, the same rule the app uses to stay hidden).
+    /// </summary>
+    private static void StartSplash()
+    {
+        try
+        {
+            var paths = AppPaths.Default();
+            var prefs = Magpie.Core.Settings.SplashPrefs.Read(paths.Settings);
+            var current = Services.UpdateService.Current.ToString();
+            // In-app update, installer or a replaced portable EXE: all count as "after an update".
+            var newVersion = Magpie.Core.Settings.SplashPlan.IsNewVersion(
+                Magpie.Core.Settings.SplashPlan.ReadLastStarted(paths.Root), current, AfterUpdate, File.Exists(paths.Settings));
+            var tray = StartupArgs.Contains("--tray") && prefs.Accounts.Count > 0;
+            if (!Magpie.Core.Settings.SplashPlan.ShouldShow(prefs.Mode, newVersion, tray)) return;
+            Services.StartupSplash.Start(prefs, current, newVersion, AfterRestart);
+        }
+        catch (Exception ex) { Log.Warn("start-up screen skipped: " + ex.Message); }
     }
 
     /// <summary>Lets another copy start now (used before relaunching the previous version after a failed update).</summary>

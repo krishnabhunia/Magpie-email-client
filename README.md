@@ -28,6 +28,7 @@ local-first, with optional AI you control from one Settings page.
 | 17 | Status bar | Online/offline, sync progress, what just arrived, sending + Undo, problems with their fix; click for activity |
 | 18 | Calendar | Google Calendar Day / Week / Month / Agenda views, event editing, Meet links, invitation responses and reminders |
 | 19 | Updates | Checks GitHub Releases daily, downloads and verifies in the background, "Restart now" swaps the EXE (rollback if it fails) |
+| 20 | Start-up screen | While Magpie opens: its mark and version, the four start-up steps ticked off with their times, your accounts as chips; a failed start shows its message and Go back / Open log folder; Settings → General → Start-up screen (every time · after an update · never) |
 
 ## AI features — one page, five switches (approved designs S1–S5)
 

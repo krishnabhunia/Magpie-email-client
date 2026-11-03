@@ -71,8 +71,26 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 86 | "What the reply says": change the response type (Yes → No) before the AI writes | [AW1 / screen 01](designs/AW1-ai-writing.html) | Requested + design shown + approved 30 Oct 2026 · Built in 13.0.0 (Windows) — not yet tried on Windows with a real provider | [#114](https://github.com/krishnabhunia/Magpie-email-client/issues/114) |
 | 87 | AI writing: tone, formality and culture & etiquette options (+ remember per contact) | [AW1 / screens 01, 03](designs/AW1-ai-writing.html) | Requested + design shown + approved 30 Oct 2026 · Built in 13.0.0 (Windows) — not yet tried on Windows with a real provider | [#115](https://github.com/krishnabhunia/Magpie-email-client/issues/115) |
 | 88 | Separate Windows, macOS and Android CI pipelines, with release assembly independent of every platform build | (CI, Krishna 2 Nov 2026) | Approved 2 Nov 2026 — implementation in a separate PR, exact-revision artifacts and CI verification pending | [#120](https://github.com/krishnabhunia/Magpie-email-client/issues/120) |
+| 89 | Start-up screen (splash) while Magpie opens | [SP1](designs/SP1-splash.html) · [screens](https://claude.ai/artifact/4hchUo1ZADWhMG15bJXwVr) | Requested + designs shown + approved 3 Nov 2026 — **B** (Start-up steps) · Built in 14.0.0 (Windows) — not yet tried on Windows; Mac later | — (this session could not create issues) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
+
+## #89 SP1 — Start-up screen (shown 3 Nov 2026, approved 3 Nov 2026: B)
+
+Krishna: *"I want a splash screen for Magpie email client. Pls show me the designs"* → three options (A Quiet mark, B Start-up steps, C Plume + What's new) → *"I like the B"*.
+Open questions left unanswered, so the recommended picks apply: default **Every time**; start-up errors shown **on the screen** instead of the message box; **Windows only** in this PR.
+
+| # | Behaviour | Where |
+|---|---|---|
+| 1 | Own STA thread + Dispatcher, started in `Program.Main` before the App object; built in code (no XAML, no app resources); Topmost, borderless, 560 px card + shadow; follows Light / Dark / Match Windows; centred on the main window's saved place | `windows/Magpie.App/Services/StartupSplash.cs` |
+| 2 | Steps: checking the last update → opening your mail folder (`MailFolderStartup` + `MailEngine`) → loading settings, look and fonts (theme, typography, tray, `MainWindow` built) → starting N accounts (until the main window's first `ContentRendered`); times in ms; one `start-up …` line in magpie.log | `App.xaml.cs` `Next` / `OnFirstRender` → `Finish` |
+| 3 | At least 0.8 s on screen (`SplashPlan.MinVisible`), 160 ms fade; after 10 s "This is taking longer than usual" + Open log folder; Esc closes it once finished | `SplashPlan`, `SplashWindow` |
+| 4 | Failure: the running step turns red, message + Open log folder + Close (+ Go back to the previous version when `UpdateService.CanOfferRollback()`), replaces the message box; Alt+F4 = Close | `StartupSplash.TryReportFailure`, `UpdateService.OfferRollback(ex, confirmed)` |
+| 5 | Hidden while a start-up dialog asks (mail folder missing / move, dispatcher-exception message box) | `Suspend()` |
+| 6 | "After an update" = the in-app updater, the installer or a replaced portable EXE (`last-started-version.txt` in the settings folder, written once the window has drawn; no record + an existing settings.json counts as updated) · Never with `--tray` (accounts set up), never on a second launch; setting `Appearance.Splash` Always / AfterUpdate / Never + `SplashAccounts`, read early by `SplashPrefs` straight from settings.json | `common/src/Magpie.Core/Settings/StartupScreen.cs` |
+| 7 | Settings → General row `RowSplash` (combo + toggle), search keywords "splash start-up startup screen logo loading launch opening steps accounts" | `SettingsWindow.xaml`, `SettingsViewModel.Index` |
+
+Tests: `common/tests/Magpie.Core.Tests/Release1400Tests.cs` (30). Not verified: the look and timing on a real Windows PC (cloud session, no screen).
 
 ## Smoke test first (1.1.1 + 1.1.2 have not been tried on the laptop)
 

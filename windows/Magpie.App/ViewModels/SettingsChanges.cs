@@ -106,6 +106,7 @@ public partial class SettingsViewModel
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
             DeleteDates = new DeleteDateLook { Hover = DeleteHover, List = DeleteList, Reader = DeleteReader },
+            Splash = Splash, SplashAccounts = SplashAccounts,
         };
         c.Appearance.Normalise();
         c.Updates.AutoUpdate = AutoUpdate;

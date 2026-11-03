@@ -239,13 +239,35 @@
                                         </StackPanel>
                                     </CheckBox>
                                 </Border>
-                                <Border x:Name="RowStartup" Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                <Border x:Name="RowStartup" Style="{StaticResource FeatureRow}">
                                     <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding StartWithWindows, Mode=TwoWay}">
                                         <StackPanel>
                                             <TextBlock Text="Start with Windows" FontWeight="Medium" FontSize="13.5" />
                                             <TextBlock Text="Starts quietly in the notification area when you sign in." Style="{StaticResource Text.Caption}" />
                                         </StackPanel>
                                     </CheckBox>
+                                </Border>
+                                <!-- Start-up screen (design SP1) -->
+                                <Border x:Name="RowSplash" Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <ComboBox DockPanel.Dock="Right" Width="240" SelectedValue="{Binding Splash, Mode=TwoWay}" SelectedValuePath="Tag">
+                                                <ComboBoxItem Content="Every time Magpie opens" Tag="{x:Static set:SplashMode.Always}" />
+                                                <ComboBoxItem Content="Only the first time after an update" Tag="{x:Static set:SplashMode.AfterUpdate}" />
+                                                <ComboBoxItem Content="Never" Tag="{x:Static set:SplashMode.Never}" />
+                                            </ComboBox>
+                                            <StackPanel Margin="0,0,16,0">
+                                                <TextBlock Text="Start-up screen" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="The card you see while Magpie opens, with each step it takes. Never shown when Magpie starts with Windows." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <CheckBox Style="{StaticResource Toggle}" Margin="0,12,0,0" IsChecked="{Binding SplashAccounts, Mode=TwoWay}">
+                                            <StackPanel>
+                                                <TextBlock Text="Show my accounts on it" FontWeight="Medium" FontSize="13.5" />
+                                                <TextBlock Text="Each email address as a small chip in its account colour." Style="{StaticResource Text.Caption}" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                    </StackPanel>
                                 </Border>
                             </StackPanel>
                         </Border>

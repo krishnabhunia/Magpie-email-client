@@ -25,6 +25,7 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, a) => Log.Error("unhandled", a.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, a) => { Log.Error("unobserved task", a.Exception); a.SetObserved(); };
 
+        var splash = StartupSplash.Current;   // design SP1
         MailEngine engine;
         try
         {
@@ -37,7 +38,8 @@ public partial class App : Application
             if (SettingsBackup.ApplyPending(paths, protector)) Log.Info("started with restored settings");
             if (File.Exists(Path.Combine(paths.Root, SettingsBackup.RestoreJournal)))
                 throw new IOException("The previous settings could not be recovered. The backup and recovery files have been kept in " + paths.Root + ".");
-            if (!MailFolderStartup.Prepare(paths)) { Shutdown(0); return; }
+            splash?.Next();   // checked the last update → opening the mail folder
+            if (!MailFolderStartup.Prepare(paths)) { splash?.Close(); Shutdown(0); return; }
             engine = new MailEngine(paths, protector);
             if (versionRestored)
             {
@@ -48,12 +50,14 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Error("start-up failed", ex);
+            if (StartupSplash.TryReportFailure("Magpie could not open its data folder: " + ex.Message, ex, Program.AfterUpdate)) { Shutdown(1); return; }
             if (Program.AfterUpdate && UpdateService.OfferRollback(ex)) { Shutdown(1); return; }
             MessageBox.Show("Magpie could not open its data folder:\n\n" + ex.Message, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             return;
         }
         AppServices.Engine = engine;
+        splash?.Next(engine.Accounts.Count);   // opened the mail folder → loading settings, look and fonts
         Log.Info($"Magpie {UpdateService.Current} starting, {engine.Accounts.Count} account(s)" + (Program.AfterUpdate ? $" (updated from {Program.UpdatedFrom})" : ""));
         Icons.Colourful = engine.Config.Appearance.Colourful;
         ThemeManager.Start(engine.Config.Appearance.Theme);
@@ -65,6 +69,7 @@ public partial class App : Application
             Log.Error("start-up failed", ex);
             try { engine.Dispose(); } catch { }
             AppServices.Tray?.Dispose();
+            if (StartupSplash.TryReportFailure("Magpie could not start: " + ex.Message, ex, Program.AfterUpdate)) { Shutdown(1); return; }
             if (Program.AfterUpdate && UpdateService.OfferRollback(ex)) { Shutdown(1); return; }
             MessageBox.Show("Magpie could not start:\n\n" + ex.Message + "\n\nDetails are in " + Log.FilePath, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
@@ -115,7 +120,13 @@ public partial class App : Application
         var main = new MainWindow();
         MainWindow = main;
         var startHidden = Program.StartupArgs.Contains("--tray") && engine.Accounts.Count > 0;
+        // Design SP1: the last step ("Starting N accounts") runs until the main window has drawn.
+        StartupSplash.Current?.Next(engine.Accounts.Count);
+        if (startHidden) StartupSplash.Current?.Close();
+        else main.ContentRendered += OnFirstRender;
         if (!startHidden) main.Show();
+        // Backup in case the first render never reports: the screen is closed once start-up has gone quiet.
+        if (!startHidden) main.Dispatcher.BeginInvoke(() => OnFirstRender(main, EventArgs.Empty), DispatcherPriority.ApplicationIdle);
         // Design I1: the installer can close Magpie, update it and start it again (back in the tray if it was there).
         RestartRegistration.Update(inTray: !main.IsVisible);
         main.IsVisibleChanged += (_, _) => RestartRegistration.Update(inTray: !main.IsVisible);
@@ -142,6 +153,7 @@ public partial class App : Application
             main.Dispatcher.BeginInvoke(() => tray.ShowBalloon("Magpie updated", $"You now have Magpie {UpdateService.Current}. Your mail and settings are as they were.", () => ShowMain()),
                 DispatcherPriority.ApplicationIdle);
         Program.StartupComplete = true;
+        SplashPlan.RememberStarted(AppPaths.Default().Root, UpdateService.Current.ToString());   // design SP1: "after an update" also after the installer
         try { UpdateHistory.CompleteStartup(AppPaths.Default(), UpdateService.Current); }
         catch (Exception ex) { Log.Error("could not record version startup completion", ex); }
         if (Program.AfterUpdate) Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
@@ -149,6 +161,12 @@ public partial class App : Application
             main.Dispatcher.BeginInvoke(() => AddAccountWindow.ShowWelcome(main), DispatcherPriority.ApplicationIdle);
         var startMailto = Program.StartupArgs.FirstOrDefault(a => a.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
         if (startMailto != null) main.Dispatcher.BeginInvoke(() => ComposeWindow.OpenMailto(startMailto), DispatcherPriority.ApplicationIdle);
+    }
+
+    private void OnFirstRender(object? sender, EventArgs e)
+    {
+        if (sender is Window w) w.ContentRendered -= OnFirstRender;
+        if (StartupSplash.Current is { } splash) Log.Info(splash.Finish());
     }
 
     private void OnNewMail(IReadOnlyList<MessageRow> rows)
@@ -253,6 +271,7 @@ public partial class App : Application
         e.Handled = true;
         try
         {
+            using var hidden = StartupSplash.Current?.Suspend();   // a message box must not sit behind the start-up screen
             MessageBox.Show($"Something went wrong:\n\n{root.Message}\n\nDetails were written to {Log.FilePath}.", "Magpie",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
