@@ -14,6 +14,16 @@
 - **Settings → General → Start-up screen:** every time Magpie opens (the default), only the first time after an update, or never, plus **Show my accounts on it**. Magpie never shows it when it starts with Windows into the notification area, or when it's already running. Settings search finds it ("splash", "start-up", "loading").
 - Windows only for now; the Mac app starts as before.
 
+## 13.0.2 (3 Nov 2026)
+### Fixed
+- **Recognisable beta versions on Windows.** The newest compatible beta in each release series is displayed as `vX.Y.Z-beta 1` (LATEST when it is also the newest beta overall), followed by `beta 2`, `beta 3`, and so on; these are view-only ranks and can change when another build is published. The immutable full release tag is shown beneath each beta, with the release date and local time, for reliable exact-version installation or rollback. The newest compatible stable release is also marked LATEST.
+<!-- closes: #128 -->
+
+## 13.0.1 (3 Nov 2026)
+### Fixed
+- **Windows version chooser shows one current build per release channel.** Normal updates show the newest compatible Windows stable and/or beta release, not every earlier PR build; **Show all builds** restores exact historical choices and rollback continues to list all older versions. The update badge counts channels instead of every beta commit.
+<!-- closes: #126 -->
+
 ## 13.0.0 (3 Nov 2026)
 ### New
 - **AI note when you click Forward.** Turn on Settings → AI writing → **When I click Forward** and Magpie writes the note above the forwarded email. Pick why you're forwarding (FYI only, Please handle, Please review, Introduce, Escalate or Custom) or type it in a few words. It can add a 2-line summary and mention the attachment by name; attachment contents are never sent. The note starts "Hi," and gets the name as soon as you add a recipient, without writing it again. Forward asks for its own permission once per cloud AI connection.

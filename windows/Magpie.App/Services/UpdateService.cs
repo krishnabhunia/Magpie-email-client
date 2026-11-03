@@ -480,7 +480,9 @@ public sealed partial class UpdateService : ObservableObject
             var catalog = await _client.ListVersionsAsync(Current, _cts.Token);
             var offers = UpdateClient.SelectVersions(catalog.Where(r => r.Info.AssetAvailable), Current, older: false, cfg.IncludePrerelease);
             var rel = offers.FirstOrDefault().Info;
-            _availableCount = offers.Count;
+            // Historical beta commits remain in the catalogue, but count only the newest
+            // platform-specific release in each selected channel for the title-bar badge.
+            _availableCount = offers.Select(r => r.Prerelease).Distinct().Count();
             OnPropertyChanged(nameof(Badge));
             cfg.LastCheck = DateTimeOffset.Now;
             engine.Settings.Save(notify: false);
