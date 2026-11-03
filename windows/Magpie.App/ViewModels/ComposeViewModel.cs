@@ -312,7 +312,8 @@ public partial class ComposeViewModel : ObservableObject
         ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
         RefreshReplyAi();
         InvalidateLegacyAi();
-        ShowAiRail = ShowDraftAi || ShowRewriteAi || ShowReplyAi;
+        // AW1: the Reply / Forward draft panel sits under the editor, so it no longer needs the assistant rail.
+        ShowAiRail = ShowDraftAi || ShowRewriteAi;
         if (!ShowAiRail) AiPanelOpen = false;
         AiNeedsSetup = ShowAiRail && (ShowDraftAi ? _e.Ai.Availability(AiFeature.Draft) : _e.Ai.Availability(AiFeature.Rewrite)) == AiAvailability.NotConfigured;
         OnPropertyChanged(nameof(ProviderLabel));
@@ -341,6 +342,7 @@ public partial class ComposeViewModel : ObservableObject
         Attachments.Remove(a);
         if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
         MarkEdited();
+        if (a.Carried) InvalidateReplyContext();   // a forward note may name this file
     }
 
     private async Task<Draft?> BuildDraftAsync(bool validate = true)

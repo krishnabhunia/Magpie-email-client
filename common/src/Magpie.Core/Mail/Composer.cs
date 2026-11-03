@@ -29,6 +29,8 @@ public sealed class Draft
     public string InReplyTo { get; set; } = "";
     public string References { get; set; } = "";
     public string ThreadKey { get; set; } = "";
+    /// <summary>AW1 (Q85): the message being forwarded (its row on this PC), so the AI note reads that email.</summary>
+    public long? ForwardOfRow { get; set; }
     /// <summary>Local row of the server draft this came from (deleted after sending).</summary>
     public long? SourceDraftRow { get; set; }
     /// <summary>Id of the copy kept on this PC (design F1), once one exists.</summary>
@@ -150,6 +152,7 @@ public static class Composer
         else if (mode == ComposeMode.Forward)
         {
             d.Subject = Threading.ForwardSubject(original.Subject);
+            d.ForwardOfRow = original.Id;
             d.Html = "<p><br></p>" + sig + ForwardBlock(original, body);
             if (originalMime != null)
                 foreach (var part in originalMime.BodyParts)

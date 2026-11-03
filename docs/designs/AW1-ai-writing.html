@@ -1,0 +1,675 @@
+<title>Magpie AI Writing</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: design board in Magpie's existing FR1 language — a header with screen tabs, then one framed Magpie window per screen. */
+:root{
+  --bg:#ecebe6; --board:#f7f6f2; --panel:#ffffff; --side:#edebe5; --line:#dcd8cf; --line2:#e8e5de;
+  --text:#20272c; --muted:#626972; --faint:#8a9097;
+  --teal:#14606e; --teal-ink:#ffffff; --tealsoft:#e6eff0;
+  --purple:#4b3f86; --purplesoft:#f1eef9; --purpleline:#d9d2ef;
+  --warn:#87541d; --warnbg:#fff3dc; --success:#256745; --successbg:#e5f2ea; --error:#a4313d;
+  --chrome:#13181c; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(20,30,40,.06),0 8px 24px rgba(20,30,40,.06);
+  --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --f-ui:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",Consolas,monospace;
+  --f-mail:Arial,Helvetica,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --side:#1a1f23; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --side:#1a1f23; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25); color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+a.btn{text-decoration:none;color:inherit}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--f-ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1440px;margin:0 auto;display:grid;gap:14px}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 24px/1.2 var(--f-display)}
+h2{font:600 26px/1.2 var(--f-display)}
+h3{font:600 15px/1.3 var(--f-ui)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-top:6px}
+.brand svg{width:26px;height:26px;color:var(--teal)}
+.stamp{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--board);white-space:nowrap}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:var(--board);padding:10px 16px;border-radius:4px;cursor:pointer;display:flex;gap:10px;align-items:center;text-decoration:none;color:var(--text)}
+.tab small{font:500 11px var(--f-mono);color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--teal);color:var(--teal-ink);border-color:var(--teal)}
+.tab[aria-selected="true"] small{color:inherit;opacity:.8}
+.sub{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.sub b{color:var(--text)}
+/* Window frame */
+.win{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--board);box-shadow:var(--shadow)}
+.chrome{background:var(--chrome);color:var(--chrome-ink);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:9px 16px;font-size:12.5px}
+.chrome .ap{font:600 17px var(--f-display)}
+.chrome .ap small{font:400 11px var(--f-ui);opacity:.7;margin-left:8px}
+.chrome .ctl{justify-self:end;letter-spacing:6px;opacity:.7}
+.screen{padding:26px 30px 30px;display:grid;gap:18px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.head p{margin:6px 0 0;color:var(--muted);max-width:70ch}
+.qtag{font:500 11px var(--f-mono);background:var(--purplesoft);color:var(--purple);padding:4px 8px;border-radius:4px;white-space:nowrap}
+.newtag{font:600 10px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;background:var(--warnbg);color:var(--warn);padding:2px 6px;border-radius:3px;margin-left:6px;vertical-align:2px}
+.two{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:18px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+/* Reading pane */
+.toolbar{display:flex;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line2);background:var(--side);flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:13px}
+.btn svg{width:15px;height:15px}
+.btn.primary{background:var(--teal);border-color:var(--teal);color:var(--teal-ink)}
+.btn.ai{background:var(--purple);border-color:var(--purple);color:var(--panel)}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.mail{padding:20px 22px;display:grid;gap:14px}
+.mail .folder{font-size:11px;letter-spacing:.12em;color:var(--muted)}
+.mail h3{font:600 21px/1.25 var(--f-display)}
+.who{display:flex;gap:12px;align-items:center}
+.av{width:36px;height:36px;border-radius:50%;background:var(--tealsoft);color:var(--teal);display:grid;place-items:center;font:600 12px var(--f-ui);flex:none}
+.meta{font-size:12px;color:var(--muted);line-height:1.6}
+.body{font:15px/1.65 var(--f-mail)}
+.body p{margin:0 0 12px}
+.att{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:10px 12px;background:var(--board);font-size:13px}
+.att .x{font:600 10px var(--f-mono);background:var(--successbg);color:var(--success);padding:6px 5px;border-radius:3px}
+.note{font-size:12.5px;color:var(--muted);padding:0 4px}
+.note b{color:var(--text)}
+/* Compose */
+.chead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line2);background:var(--side);font-weight:600;font-size:13.5px}
+.pill{font:500 11px var(--f-ui);padding:3px 8px;border-radius:999px;background:var(--purplesoft);color:var(--purple)}
+.fields{padding:2px 16px}
+.f{display:grid;grid-template-columns:64px 1fr;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px;min-height:42px}
+.f .k{color:var(--muted);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.rc{border:1px solid var(--line);background:var(--board);border-radius:3px;padding:2px 8px;font:12px var(--f-mono)}
+.rc.add{border-style:dashed;cursor:pointer;color:var(--teal);font-family:var(--f-ui)}
+.editor{padding:16px 18px 6px;font:18px/1.55 var(--f-mail);min-height:120px}
+.editor .ph{color:var(--faint);font-size:15px}
+.editor .ins{white-space:pre-wrap;background:linear-gradient(transparent 0,transparent 100%);animation:fade .5s}
+.sig{padding:0 18px 14px;font:18px/1.45 var(--f-mail);color:var(--muted)}
+.fwd{margin:0 18px 16px;border-left:3px solid var(--line);padding:6px 12px;font:13px/1.55 var(--f-mail);color:var(--muted)}
+.estat{display:flex;justify-content:space-between;padding:6px 16px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line2);background:var(--board)}
+/* AI panel */
+.aip{border-top:2px solid var(--purpleline);background:var(--purplesoft);padding:16px;display:grid;gap:14px}
+.aip-h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.aip-h .t{color:var(--purple);font-weight:600;display:flex;gap:7px;align-items:center}
+.aip-h .t svg{width:15px;height:15px}
+.small{font-size:12px;color:var(--muted)}
+.sec{background:var(--panel);border:1px solid var(--purpleline);border-radius:6px;padding:12px 14px;display:grid;gap:10px;min-width:0}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sec-h h3{font-size:13.5px}
+.ask{font-size:12.5px;background:var(--board);border:1px dashed var(--line);border-radius:4px;padding:7px 10px;color:var(--muted)}
+.ask b{color:var(--text);font-weight:500}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:12.5px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.chip .ic{font:600 12px var(--f-mono);width:14px;text-align:center}
+.chip[aria-pressed="true"]{background:var(--purple);border-color:var(--purple);color:var(--panel)}
+.gist{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:stretch}
+.gist textarea{resize:vertical;min-height:44px;border:1px solid var(--line);border-radius:4px;padding:8px 10px;background:var(--panel);font-size:14px;line-height:1.45}
+.kbd{font:11px var(--f-mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--muted)}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+label.l{display:grid;gap:4px;font-size:12px;color:var(--muted);min-width:0}
+label.l select,label.l input[type=text]{border:1px solid var(--line);border-radius:4px;padding:6px 8px;background:var(--panel);font-size:13px;color:var(--text);width:100%}
+.scale{display:grid;gap:4px}
+.scale .rail{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.scale button{border:0;border-right:1px solid var(--line);background:var(--panel);padding:7px 2px;font-size:12px;cursor:pointer}
+.scale button:last-child{border-right:0}
+.scale button[aria-pressed="true"]{background:var(--purple);color:var(--panel);font-weight:600}
+.scale .ends{display:flex;justify-content:space-between;font-size:11px;color:var(--faint)}
+details.sec summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+details.sec summary::-webkit-details-marker{display:none}
+details.sec summary .caret{transition:transform .15s;display:inline-block;color:var(--muted)}
+details[open].sec summary .caret{transform:rotate(90deg)}
+.hint{font-size:11.5px;color:var(--muted);margin:0}
+.draft{background:var(--panel);border:1px solid var(--purpleline);border-radius:6px;overflow:hidden}
+.draft-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--purpleline);flex-wrap:wrap}
+.used{display:flex;flex-wrap:wrap;gap:4px}
+.used span{font:11px var(--f-ui);background:var(--purplesoft);color:var(--purple);border-radius:3px;padding:2px 6px}
+.pager{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pager button{border:1px solid var(--line);background:var(--panel);width:24px;height:24px;border-radius:4px;cursor:pointer;line-height:1}
+.dtext{padding:14px 16px;font:16px/1.6 var(--f-mail);white-space:pre-wrap;min-height:150px;position:relative}
+.dtext.busy{color:transparent}
+.dtext.busy::after{content:"Writing…";position:absolute;inset:14px 16px auto;color:var(--purple);font:600 13px var(--f-ui)}
+.dtext.busy::before{content:"";position:absolute;left:16px;right:30%;top:44px;height:70px;border-radius:4px;background:repeating-linear-gradient(180deg,var(--purplesoft) 0 12px,transparent 12px 22px);animation:pulse 1s infinite}
+.lang{font-size:11.5px;color:var(--warn);background:var(--warnbg);padding:6px 12px}
+.acts{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.acts .l2{display:flex;gap:8px;flex-wrap:wrap}
+.linkbtn{background:none;border:0;color:var(--teal);cursor:pointer;padding:0;font-size:12.5px;text-decoration:underline;text-underline-offset:2px}
+.badge{min-width:18px;height:18px;border-radius:9px;background:var(--warn);color:var(--panel);font:600 11px var(--f-ui);display:none;place-items:center;padding:0 5px}
+.badge.on{display:inline-grid}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(30px);opacity:0;background:var(--chrome);color:var(--chrome-ink);padding:10px 16px;border-radius:6px;font-size:13px;transition:.25s;pointer-events:none;max-width:calc(100% - 32px);z-index:5}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pulse{50%{opacity:.4}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Settings */
+.set{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:600px}
+.snav{background:var(--side);border-right:1px solid var(--line);padding:22px 12px;display:grid;align-content:start;gap:2px}
+.snav .h{font:600 21px var(--f-display);padding:0 10px 14px}
+.snav a{padding:8px 10px;border-radius:4px;color:var(--text);text-decoration:none;font-size:13.5px}
+.snav a.on{background:var(--panel);color:var(--teal);font-weight:600;box-shadow:var(--shadow)}
+.smain{padding:24px 28px;display:grid;gap:16px;min-width:0}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--line2)}
+.row:last-child{border-bottom:0}
+.row .d{font-size:12px;color:var(--muted)}
+.row.ind{padding-left:16px;border-left:2px solid var(--line2);margin-left:4px}
+.sw{width:40px;height:22px;border-radius:11px;background:var(--line);border:0;position:relative;cursor:pointer;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--panel);transition:.15s}
+.sw[aria-checked="true"]{background:var(--purple)}
+.sw[aria-checked="true"]::after{left:21px}
+.pad{padding:14px 18px}
+.footer{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-top:1px solid var(--line);background:var(--side);gap:8px;flex-wrap:wrap}
+.mig{background:var(--warnbg);color:var(--warn);border-radius:4px;padding:10px 12px;font-size:12.5px}
+.mig b{color:inherit}
+/* Scope tables */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{background:var(--side);font-weight:600;font-size:12px;color:var(--muted)}
+td.n{font:500 12px var(--f-mono);color:var(--muted);white-space:nowrap;width:1%}
+tr:last-child td{border-bottom:0}
+.st{font:600 11px var(--f-ui);padding:2px 7px;border-radius:3px;white-space:nowrap}
+.st.new{background:var(--warnbg);color:var(--warn)}
+.st.chg{background:var(--purplesoft);color:var(--purple)}
+.st.same{background:var(--successbg);color:var(--success)}
+.qa{display:grid;gap:10px}
+.q{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:grid;gap:4px}
+.q .rec{font-size:12.5px;color:var(--success)}
+.foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+@media (max-width:1100px){.two,.cols{grid-template-columns:1fr}}
+@media (max-width:760px){.set{grid-template-columns:1fr}.snav{display:none}.grid3{grid-template-columns:1fr 1fr}.screen{padding:18px 14px}.smain{padding:18px 14px}.chrome{grid-template-columns:1fr auto}.chrome .mid{display:none}}
+@media (max-width:460px){.grid3,.grid2{grid-template-columns:1fr}.gist{grid-template-columns:1fr}.f{grid-template-columns:52px 1fr}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Windows · Feature design · Review before implementation</div>
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 20c3-8 8-13 18-17-2 4-4 6-7 8l4 1-6 3 2 2c-4 1-7 2-11 3z"/></svg>
+        <h1>Magpie / AI writing for Reply, Reply All &amp; Forward</h1>
+      </div>
+    </div>
+    <span class="stamp">AW1 · 30 OCT 2026 · APPROVED</span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Design screens">
+    <a class="tab" role="tab" href="#reply" data-v="reply"><small>01</small>Reply &amp; Reply All</a>
+    <a class="tab" role="tab" href="#forward" data-v="forward"><small>02</small>Forward</a>
+    <a class="tab" role="tab" href="#defaults" data-v="defaults"><small>03</small>Settings · AI writing</a>
+    <a class="tab" role="tab" href="#scope" data-v="scope"><small>04</small>What changes &amp; questions</a>
+  </nav>
+  <div class="sub"><span>Builds on the 10.0.0 AI replies (FR1-r1). Magpie's current look is kept; only the AI panel and its settings change.</span><span>Proposed release <b>11.0.0</b> · new feature → x goes up (VB1 rule)</span></div>
+
+  <!-- ============ 01 REPLY ============ -->
+  <section class="win" id="v-reply" data-view="reply">
+    <div class="chrome"><span class="ap">Magpie<small>10.0.0 baseline</small></span><span class="mid">Primary / Inbox</span><span class="ctl">— ▢ ✕</span></div>
+    <div class="screen">
+      <div class="head">
+        <div><h2>Say what you mean. Magpie writes it.</h2>
+        <p>Reply and Reply All start a draft as today. New: a short <b>"What the reply says"</b> box you can change from Yes to No, a <b>formality</b> scale, and <b>culture &amp; etiquette</b> options.</p></div>
+        <span class="qtag">Q86 + Q87 · interactive preview</span>
+      </div>
+      <div class="two">
+        <div style="display:grid;gap:10px;min-width:0">
+          <div class="card">
+            <div class="toolbar">
+              <button class="btn primary" id="bReply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v4"/></svg>Reply</button>
+              <button class="btn" id="bReplyAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 14 2 9l5-5"/><path d="M12 14 7 9l5-5"/><path d="M7 9h8a6 6 0 0 1 6 6v4"/></svg>Reply All</button>
+              <a class="btn" href="#forward"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v4"/></svg>Forward</a>
+            </div>
+            <div class="mail">
+              <div class="folder">PRIMARY / INBOX</div>
+              <h3>Q3 vendor report by Friday?</h3>
+              <div class="who"><span class="av">MC</span><div><b>Maya Chen</b><div class="meta">maya@example.com</div></div></div>
+              <div class="meta">To: Krishna, Alex Rivera · Cc: Nina Patel<br>Today, 10:42 AM</div>
+              <div class="body"><p>Hi Krishna,</p><p>Could you finish the Q3 vendor report by Friday? The template is attached. Let me know if that works for you.</p><p>Thanks,<br>Maya</p></div>
+              <div class="att"><span class="x">XLSX</span><div>Q3-vendor-template.xlsx<div class="meta">86 KB</div></div></div>
+            </div>
+          </div>
+          <div class="note"><b>Reply:</b> Maya only. <b>Reply All:</b> Maya + Alex; Nina in Cc. Recipients are worked out by Magpie, never by the AI.</div>
+        </div>
+
+        <div class="card" style="overflow:hidden">
+          <div class="chead"><span id="cTitle">Reply / Primary</span><span class="pill">Editable draft</span></div>
+          <div class="fields">
+            <div class="f"><span class="k">From</span><span>Krishna · krishnabhunia@gmail.com</span></div>
+            <div class="f"><span class="k">To</span><span class="chips" id="cTo"></span></div>
+            <div class="f" id="cCcRow"><span class="k">Cc</span><span class="chips" id="cCc"></span></div>
+            <div class="f"><span class="k">Subject</span><span>Re: Q3 vendor report by Friday?</span></div>
+          </div>
+          <div class="editor" id="rEditor"><span class="ph">Write a reply, or use the AI draft below…</span></div>
+          <div class="sig">Thanks and Regards,<br>Krishna</div>
+          <div class="estat"><span>Arial · 18 px · Normal</span><span>Signature kept once · quote below untouched</span></div>
+
+          <div class="aip" id="rPanel"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 FORWARD ============ -->
+  <section class="win" id="v-forward" data-view="forward" hidden>
+    <div class="chrome"><span class="ap">Magpie<small>10.0.0 baseline</small></span><span class="mid">Primary / Forward</span><span class="ctl">— ▢ ✕</span></div>
+    <div class="screen">
+      <div class="head">
+        <div><h2>Forward with a note already written</h2>
+        <p>New switch <b>"When I click Forward"</b>. Magpie writes the covering note above the forwarded email. Pick why you're forwarding; the greeting fills in when you add a recipient.</p></div>
+        <span class="qtag">Q85 · interactive preview</span>
+      </div>
+      <div class="two">
+        <div style="display:grid;gap:10px;min-width:0">
+          <div class="card">
+            <div class="toolbar">
+              <a class="btn" href="#reply">Reply</a><a class="btn" href="#reply">Reply All</a>
+              <button class="btn primary" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v4"/></svg>Forward</button>
+            </div>
+            <div class="mail">
+              <div class="folder">PRIMARY / INBOX</div>
+              <h3>Q3 vendor report by Friday?</h3>
+              <div class="who"><span class="av">MC</span><div><b>Maya Chen</b><div class="meta">maya@example.com · Today, 10:42 AM</div></div></div>
+              <div class="body"><p>Could you finish the Q3 vendor report by Friday? The template is attached.</p></div>
+              <div class="att"><span class="x">XLSX</span><div>Q3-vendor-template.xlsx<div class="meta">86 KB · forwarded with the email</div></div></div>
+            </div>
+          </div>
+          <div class="note"><b>What the AI sees:</b> this email's text and the attachment <b>names</b> only, never attachment contents. To is empty until you choose someone.</div>
+        </div>
+
+        <div class="card" style="overflow:hidden">
+          <div class="chead"><span>Forward / Primary</span><span class="pill">Editable draft</span></div>
+          <div class="fields">
+            <div class="f"><span class="k">From</span><span>Krishna · krishnabhunia@gmail.com</span></div>
+            <div class="f"><span class="k">To</span><span class="chips" id="fTo"><button class="rc add" id="fAdd">+ Alex Rivera &lt;alex@example.com&gt; (suggested)</button></span></div>
+            <div class="f"><span class="k">Subject</span><span>Fwd: Q3 vendor report by Friday?</span></div>
+          </div>
+          <div class="editor" id="fEditor"><span class="ph">Write a note, or use the AI draft below…</span></div>
+          <div class="sig">Thanks and Regards,<br>Krishna</div>
+          <div class="fwd">---------- Forwarded message ----------<br>From: Maya Chen &lt;maya@example.com&gt;<br>Subject: Q3 vendor report by Friday?<br>Could you finish the Q3 vendor report by Friday? …<br>📎 Q3-vendor-template.xlsx</div>
+          <div class="aip" id="fPanel"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 SETTINGS ============ -->
+  <section class="win" id="v-defaults" data-view="defaults" hidden>
+    <div class="chrome"><span class="ap">Magpie<small>10.0.0 baseline</small></span><span class="mid">Settings / AI writing</span><span class="ctl">— ▢ ✕</span></div>
+    <div class="set">
+      <nav class="snav" aria-label="Settings pages (illustrative)">
+        <div class="h">Settings</div>
+        <a href="#defaults">General</a><a href="#defaults">Accounts</a><a href="#defaults">Appearance</a><a href="#defaults">Fonts &amp; text</a>
+        <a href="#defaults" class="on">AI writing</a><a href="#defaults">AI providers</a><a href="#defaults">Signatures</a><a href="#defaults">Updates</a><a href="#defaults">About</a>
+      </nav>
+      <div style="display:grid;grid-template-rows:1fr auto;min-width:0">
+        <div class="smain">
+          <div class="head">
+            <div><h2>AI writing</h2><p>Renamed from "AI reply settings" because it now covers Forward too. Choose when Magpie drafts and how your emails should sound.</p></div>
+            <span class="qtag">Q85 + Q86 + Q87</span>
+          </div>
+          <div class="cols">
+            <div style="display:grid;gap:16px;min-width:0">
+              <div class="card pad">
+                <div class="row"><div><b>Enable AI features</b><div class="d">Existing master switch. Off stops every AI feature.</div></div><button class="sw" role="switch" aria-checked="true" aria-label="Enable AI features"></button></div>
+                <div class="row"><div><b>Generate AI drafts</b><div class="d">Existing switch (was "Generate AI replies").</div></div><button class="sw" role="switch" aria-checked="true" aria-label="Generate AI drafts"></button></div>
+                <div class="row ind"><div><b>When I click Reply</b><div class="d">Unchanged.</div></div><button class="sw" role="switch" aria-checked="true" aria-label="When I click Reply"></button></div>
+                <div class="row ind"><div><b>When I click Reply All</b><div class="d">Unchanged.</div></div><button class="sw" role="switch" aria-checked="true" aria-label="When I click Reply All"></button></div>
+                <div class="row ind"><div><b>When I click Forward</b><span class="newtag">New</span><div class="d">Writes the covering note. Starts Off until you turn it on.</div></div><button class="sw" role="switch" aria-checked="false" aria-label="When I click Forward"></button></div>
+                <div class="row"><div><b>Show "What the reply says"</b><span class="newtag">New</span><div class="d">Magpie suggests Yes / No / … from the email; you can change it before the draft is written.</div></div><button class="sw" role="switch" aria-checked="true" aria-label="Show What the reply says"></button></div>
+              </div>
+
+              <div class="card pad" style="display:grid;gap:14px">
+                <div><h3>How it sounds</h3><p class="hint">Defaults for every draft. You can change any of them for one draft from the AI panel.</p></div>
+                <div class="grid2">
+                  <label class="l">Tone<select id="sTone"></select></label>
+                  <label class="l">Purpose (Reply)<select id="sPurpose"><option>Answer the message</option><option>Make a request</option><option>Follow up</option><option>Say thank you</option><option>Apologise</option><option>Decline politely</option><option>Custom</option></select></label>
+                </div>
+                <div class="scale"><span class="small">Formality <span class="newtag">New</span></span><div class="rail" id="sForm"></div><div class="ends"><span>Like a chat</span><span>Like a letter</span></div></div>
+                <div class="grid2">
+                  <label class="l">Length<select id="sLen"><option>Short</option><option selected>Balanced</option><option>Detailed</option></select></label>
+                  <label class="l">Language<select id="sLang"></select></label>
+                </div>
+                <div class="mig"><b>On upgrade:</b> "Formal" and "Informal" move out of Tone into the new Formality scale. A saved Tone of Formal becomes <b>Tone: Professional + Formality: Formal</b>; Informal becomes <b>Tone: Friendly + Formality: Casual</b>. Nothing else you saved changes.</div>
+              </div>
+
+              <div class="card pad" style="display:grid;gap:14px">
+                <div><h3>Culture &amp; etiquette <span class="newtag">New</span></h3><p class="hint">How greetings, names and directness are handled. "Auto" follows what the other person wrote.</p></div>
+                <div class="grid3">
+                  <label class="l">English style<select id="sVar"></select></label>
+                  <label class="l">Business etiquette<select id="sEtq"></select></label>
+                  <label class="l">Directness<select id="sDir"></select></label>
+                  <label class="l">Greeting<select id="sGreet"></select></label>
+                  <label class="l">Form of address<select id="sAddr"></select></label>
+                  <label class="l">Emoji<select id="sEmoji"><option value="0">Never</option><option value="1">Only when Casual or Very casual</option></select></label>
+                </div>
+                <div class="row" style="padding-bottom:0"><div><b>Remember my choices per contact</b><span class="newtag">Optional</span><div class="d">When you change the style for someone (e.g. Very formal + Japanese etiquette for one client), Magpie uses it next time you write to that address. Kept on this PC.</div></div><button class="sw" role="switch" aria-checked="false" aria-label="Remember my choices per contact"></button></div>
+              </div>
+            </div>
+
+            <div style="display:grid;gap:14px;min-width:0">
+              <div class="eyebrow">Example · using these defaults</div>
+              <div class="draft"><div class="draft-h"><div class="used" id="sUsed"></div></div><div class="dtext" id="sPrev" style="min-height:0;font-size:14.5px"></div></div>
+              <p class="hint">Illustrative English text built in this page. No model is called here.</p>
+              <div class="card pad"><div class="eyebrow" style="margin-bottom:6px">AI connection</div><p class="hint" style="font-size:12.5px">Uses the active connection from AI providers, with the consent rules of 10.0.0. Forward asks for its own consent once per connection.</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="footer"><span class="small" id="sDirty">No unapplied changes</span><span style="display:flex;gap:8px"><button class="btn primary" id="sApply" disabled>Apply</button><button class="btn" disabled>Apply and Close</button><button class="btn">Close</button></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 SCOPE ============ -->
+  <section class="win" id="v-scope" data-view="scope" hidden>
+    <div class="chrome"><span class="ap">Magpie<small>design notes</small></span><span class="mid">AW1 · scope</span><span class="ctl">— ▢ ✕</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>What changes, and what I need from you</h2><p>Three new queue items, each with its own GitHub issue, delivered in one PR as 11.0.0 once you approve.</p></div><span class="qtag">PR plan</span></div>
+
+      <h3>Queue items</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>SrNo.</th><th>Item</th><th>What you get</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td class="n">Q85</td><td>AI draft on <b>Forward</b></td><td>"When I click Forward" switch (starts Off). Covering note above the forwarded email; why-you're-forwarding chips (FYI · Please handle · Please review · Introduce · Escalate · Custom); optional 2-line summary and attachment mention; greeting updates when a recipient is added, without rewriting the rest.</td><td><span class="st new">New</span></td></tr>
+          <tr><td class="n">Q86</td><td><b>What the reply says</b> (change the response type)</td><td>Magpie reads the ask, suggests a stance and a one-line answer. Chips: Yes · No · Yes, if… · Need details · Later · Custom. Edit the line ("No, I can't do it") → Rewrite (Ctrl+Enter). Up to 5 versions per draft with ‹ › to go back.</td><td><span class="st new">New</span></td></tr>
+          <tr><td class="n">Q87</td><td><b>Tone, formality &amp; culture</b></td><td>Tone list without Formal/Informal (moved to a 5-step Formality scale). Culture &amp; etiquette: English style, business etiquette, directness, greeting, form of address, emoji. Same controls as defaults in Settings and per draft in the panel. Optional: remember per contact.</td><td><span class="st new">New</span></td></tr>
+          <tr><td class="n">Q81/82</td><td>Reply / Reply All drafts, purpose, length, language, context, consent</td><td>Kept as they are; Language list grows (Marathi, Tamil, Telugu, Gujarati, Spanish, French, German, Japanese).</td><td><span class="st chg">Extended</span></td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Rules that stay the same</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>SrNo.</th><th>Rule</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Sending is always yours</td><td>The draft only goes into the editor when you click Use draft; nothing is sent by the AI.</td></tr>
+          <tr><td class="n">2</td><td>Recipients never come from the AI</td><td>Reply/Reply All recipients are calculated locally; Forward's To is whatever you type.</td></tr>
+          <tr><td class="n">3</td><td>Choices in the panel are for this draft only</td><td>"Save as my defaults" is the only way they change Settings (staged until Apply, as today).</td></tr>
+          <tr><td class="n">4</td><td>Your typed text is safe</td><td>If you've typed, Use draft asks: Append · Replace · Keep editing. Signature and quoted/forwarded block are never touched.</td></tr>
+          <tr><td class="n">5</td><td>Privacy and consent</td><td>Bounded email text; attachment names only; per-feature consent; email text treated as untrusted data; no invented facts or promises beyond what you put in "What the reply says".</td></tr>
+          <tr><td class="n">6</td><td>Stale results dropped</td><td>Switching email, account or AI off cancels pending writes, as in 10.0.0.</td></tr>
+          <tr><td class="n">7</td><td>One request per click</td><td>Stance chips rewrite at once; other changes collect and wait for Rewrite, so the provider isn't called on every click.</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Questions before I build · answered: approved 30 Oct 2026 with the recommended answers</h3>
+      <div class="qa">
+        <div class="q"><b>1 · Formal / Informal leaves the Tone list.</b><span class="small">Tone and Formality would otherwise contradict each other (Tone: Informal + Formality: Very formal). I'd migrate saved values as shown on screen 03.</span><span class="rec">Recommended: move them into Formality.</span></div>
+        <div class="q"><b>2 · Forward when To is still empty.</b><span class="small">Write the note straight away with "Hi," and swap only the greeting when you add someone, or wait until a recipient is added.</span><span class="rec">Recommended: write at once, update the greeting later.</span></div>
+        <div class="q"><b>3 · Culture lists.</b><span class="small">English style: Match sender · Indian · British · American · Global plain. Etiquette: Neutral · Indian · Japanese · German · Middle East · US. Add or remove any?</span><span class="rec">Recommended: these lists; Custom instructions cover the rest.</span></div>
+        <div class="q"><b>4 · Remember per contact.</b><span class="small">Useful for clients who need a fixed style; adds a small table on this PC.</span><span class="rec">Recommended: include it, Off by default.</span></div>
+        <div class="q"><b>5 · Mac.</b><span class="small">The prompt and settings live in shared code, so Mac gets them; the new panel UI is Windows-only in this PR (as with FR1).</span><span class="rec">Recommended: Windows UI now, Mac panel as a later item.</span></div>
+        <div class="q"><b>6 · Do you have any lacunas, questions, blockers or doubts?</b><span class="small">If not, the recommended answers above apply and I'll open the draft PR.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot"><span>Try the controls. Everything here is a local HTML preview with fictional people; no mail or model is connected, and it resets on refresh.</span><span>Repo: krishnabhunia/Magpie-email-client · design file docs/designs/AW1-ai-writing.html</span></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toastEl=$('#toast');let tt;
+function toast(m){toastEl.textContent=m;toastEl.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>toastEl.classList.remove('on'),2600)}
+
+/* ---------- options ---------- */
+const TONES=["Polite","Professional","Friendly","Warm","Firm","Empathetic","Apologetic","Enthusiastic"];
+const FORMS=["Very casual","Casual","Neutral","Formal","Very formal"];
+const LANGS=["Match original","English","Bengali","Hindi","Marathi","Tamil","Telugu","Gujarati","Spanish","French","German","Japanese"];
+const VARS=["Match sender","Indian English","British English","American English","Global plain English"];
+const ETQ=["Neutral","Indian","Japanese","German","Middle East","US"];
+const DIRS=["Direct","Balanced","Diplomatic"];
+const GREETS=["Auto","Dear","Hi","Hello","Respected","No greeting"];
+const ADDRS=["Auto","First name","Ms / Mr + surname","Sir / Madam","Name + ji"];
+
+const STANCES=[
+ {k:"yes",ic:"✓",label:"Yes, I'll do it",gist:"Yes, I'll finish the Q3 vendor report by Friday."},
+ {k:"no",ic:"✕",label:"No, I can't",gist:"No, I can't take on the Q3 vendor report this week."},
+ {k:"cond",ic:"≈",label:"Yes, if…",gist:"Yes, if I get the vendor invoices by Wednesday."},
+ {k:"info",ic:"?",label:"Need details",gist:"I need the vendor list and the format before I start."},
+ {k:"later",ic:"⏱",label:"Later",gist:"I can do it, but only by next Tuesday."},
+ {k:"custom",ic:"✎",label:"Custom",gist:""}
+];
+const FWD=[
+ {k:"fyi",ic:"i",label:"FYI only",gist:"Just so you know about Maya's request."},
+ {k:"handle",ic:"→",label:"Please handle",gist:"Alex, can you take this one?"},
+ {k:"review",ic:"?",label:"Please review",gist:"Review this and tell me what you think."},
+ {k:"intro",ic:"↔",label:"Introduce",gist:"Introduce Alex to Maya; they should talk."},
+ {k:"esc",ic:"!",label:"Escalate",gist:"Flag that Friday's deadline is at risk."},
+ {k:"custom",ic:"✎",label:"Custom",gist:""}
+];
+
+/* ---------- text builder (illustrative) ---------- */
+const reg=f=>f<=1?0:f===2?1:2;
+const MAIN={
+ yes:["Sure, I'll get the Q3 vendor report done by Friday {d}.","Yes, I can finish the Q3 vendor report by Friday {d}.","I confirm that I will complete the Q3 vendor report by Friday {d}."],
+ no:["Sorry, I can't take the Q3 vendor report on this week.","I'm not able to take on the Q3 vendor report this week.","Regrettably, I will not be able to take on the Q3 vendor report this week."],
+ cond:["Happy to do the Q3 vendor report by Friday, as long as I get the vendor invoices by Wednesday.","I can finish the Q3 vendor report by Friday if I receive the vendor invoices by Wednesday.","I will be able to complete the Q3 vendor report by Friday, provided the vendor invoices reach me by Wednesday."],
+ info:["Before I start, could you send me the vendor list and the format you want?","Before I start, could you share the vendor list and the format you need?","Before I begin, could you kindly share the vendor list and the required format?"],
+ later:["I can do it, but Friday's tight. Would next Tuesday work?","I can take this on, but I'll need until next Tuesday. Would that work?","I would be glad to take this on; however, I would need until next Tuesday. Would that be acceptable?"]
+};
+const EXTRA={
+ yes:["I'll {p} it and ping you if anything's missing.","I'll {p} it and let you know if I need anything from the vendors.","I shall {p} it and will inform you in advance should any information be missing."],
+ no:["Maybe Alex has room?","Alex may have capacity, if that helps.","Perhaps Alex could assist, should his schedule permit."],
+ cond:["Otherwise Monday is more realistic.","Otherwise, Monday would be more realistic.","Otherwise, Monday would be a more realistic date."],
+ info:["Then I can give you a date.","Once I have them, I'll confirm a date.","Upon receipt, I will confirm a completion date."],
+ later:["Month-end close is eating my week.","The month-end close is taking most of my week.","The month-end close is occupying most of this week."],
+ custom:["","Let me know if you need anything else.","Please let me know should you require anything further."]
+};
+const OPEN={
+ Polite:["Thanks for asking.","Thank you for your message.","Thank you for your email."],
+ Professional:["","Thanks for the note on the Q3 report.","Thank you for your email regarding the Q3 vendor report."],
+ Friendly:["Thanks for the heads-up!","Thanks for reaching out!","Thank you for reaching out."],
+ Warm:["Hope your week's going well!","I hope your week is going well.","I hope this finds you well."],
+ Firm:["","",""],
+ Empathetic:["I know Friday's tight for everyone.","I understand the deadline is tight.","I appreciate that the timeline is demanding."],
+ Apologetic:["Sorry for the slow reply.","Apologies for the delayed reply.","Please accept my apologies for the delayed response."],
+ Enthusiastic:["Love this one!","Happy to help with this!","I would be delighted to assist."]
+};
+const ETQ_OPEN={Japanese:"Thank you very much for thinking of me for this.","Middle East":"I hope you and your family are well.",US:"Thanks for looping me in."};
+const ETQ_CLOSE={Japanese:"I appreciate your understanding.",Indian:"Please do let me know if anything further is needed."};
+function sentence(t){t=(t||"").trim();if(!t)return"";return /[.!?]$/.test(t)?t:t+"."}
+function greeting(s,name,surname){
+  if(s.greet==="No greeting")return"";
+  const f=s.form;
+  let addr;
+  const a=s.addr==="Auto"?(f>=4?"Ms / Mr + surname":"First name"):s.addr;
+  if(!name)addr="";
+  else if(a==="First name")addr=name;
+  else if(a==="Ms / Mr + surname")addr=surname;
+  else if(a==="Sir / Madam")addr=name==="Alex"?"Sir":"Madam";
+  else addr=name+" ji";
+  let g=s.greet;
+  if(g==="Auto"){g=f>=3?"Dear":f===2?"Hi":"Hi";if(s.etq==="Indian"&&f>=4&&a==="Sir / Madam")g="Respected";}
+  if(!addr)return (g==="Dear"||g==="Respected")?"Hello,":g+",";
+  return g+" "+addr+",";
+}
+function styleBits(s){
+  const r=reg(s.form);
+  const us=s.variant==="American English"||(s.variant==="Match sender"&&false);
+  return {r,d:us?"(Oct 31)":"(31 Oct)",p:us?"prioritize":"prioritise"};
+}
+function buildReply(s){
+  const {r,d,p}=styleBits(s);
+  const parts=[];
+  let open=OPEN[s.tone][r];
+  if(s.etq in ETQ_OPEN&&r>=1)open=ETQ_OPEN[s.etq];
+  if(s.dir==="Direct"||s.etq==="German")open=s.tone==="Apologetic"?open:"";
+  if(s.dir==="Diplomatic"&&(s.stance==="no"||s.stance==="later"))open=(open?open+" ":"")+(r===0?"Really appreciate you thinking of me.":"I really appreciate you thinking of me for this.");
+  let main;
+  if(s.stance==="custom"){main=s.gist.trim()?sentence(s.gist):"(Type what the reply should say above.)";if(r===2&&s.gist.trim())main="Regarding the Q3 vendor report: "+main.charAt(0).toLowerCase()+main.slice(1);}
+  else main=MAIN[s.stance][r].replace("{d}",d);
+  if(s.stance==="no"&&s.dir==="Diplomatic"&&r>=1)main=main.replace("I'm not able","Unfortunately, I'm not able").replace("Regrettably,","Unfortunately,");
+  if(s.emoji&&r===0&&s.stance==="yes")main+=" 👍";
+  if(s.len!=="Short"&&open)parts.push(open);
+  parts.push(main);
+  if(s.len==="Detailed"){const x=(EXTRA[s.stance]||EXTRA.custom)[r].replace("{p}",p);if(x)parts.push(x);}
+  if(s.len!=="Short"&&ETQ_CLOSE[s.etq]&&r>=1)parts.push(ETQ_CLOSE[s.etq]);
+  const g=greeting(s,"Maya","Ms Chen");
+  return (g?g+"\n\n":"")+parts.join(s.len==="Detailed"?"\n\n":" ");
+}
+const FMAIN={
+ fyi:["FYI, Maya's asking for the Q3 vendor report by Friday.","Sharing this for your information: Maya has asked for the Q3 vendor report by Friday.","Please find below, for your information, Maya Chen's request for the Q3 vendor report by Friday."],
+ handle:["Can you take this one? Maya needs the Q3 vendor report by Friday.","Could you please handle this? Maya needs the Q3 vendor report by Friday.","I would be grateful if you could take this forward; Maya Chen requires the Q3 vendor report by Friday."],
+ review:["Can you look at this and tell me what you think?","Could you review the request below and let me know your view?","I would appreciate your review of the request below and your recommendation."],
+ intro:["Looping you in: Maya runs vendor reporting and you two should talk.","Introducing you to Maya Chen, who leads vendor reporting. I think you two should connect.","Please allow me to introduce Maya Chen, who leads vendor reporting. I believe a conversation would be valuable."],
+ esc:["Flagging this: Friday's deadline on the Q3 vendor report is at risk.","I'm flagging this because the Friday deadline for the Q3 vendor report is at risk.","I wish to bring to your attention that the Friday deadline for the Q3 vendor report is at risk."]
+};
+function buildForward(s){
+  const {r,d}=styleBits(s);
+  const parts=[];
+  let main=s.stance==="custom"?(s.gist.trim()?sentence(s.gist):"(Type what the note should say above.)"):FMAIN[s.stance][r];
+  if(s.emoji&&r===0)main+=" 🙏";
+  parts.push(main);
+  if(s.summary)parts.push((r===2?"In brief: ":"In short: ")+"Maya needs the Q3 vendor report by Friday "+d+".");
+  if(s.attach)parts.push(r===0?"Template's attached.":"The template (Q3-vendor-template.xlsx) is attached.");
+  if(s.len==="Detailed")parts.push(r===0?"Shout if you need me.":r===1?"Let me know if you need anything from me.":"Please let me know should you require anything further from me.");
+  const g=greeting(s,s.recipient?"Alex":"","Mr Rivera");
+  const body=s.len==="Short"?parts[0]:parts.join(" ");
+  return (g?g+"\n\n":"")+body;
+}
+
+/* ---------- AI panel component ---------- */
+function makePanel(root,cfg){
+  const s=Object.assign({stance:cfg.stances[0].k,gist:cfg.stances[0].gist,tone:"Professional",form:3,len:"Balanced",lang:"Match original",variant:"Indian English",etq:"Neutral",dir:"Balanced",greet:"Auto",addr:"Auto",emoji:false,summary:true,attach:true,recipient:false},cfg.init||{});
+  const id=cfg.id;let hist=[];let pos=-1;let pending=0;
+  const opt=(arr,v)=>arr.map(o=>`<option${o===v?" selected":""}>${esc(o)}</option>`).join("");
+  root.innerHTML=`
+   <div class="aip-h"><span class="t"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 5.5L19 9l-5.2 1.6L12 16l-1.8-5.4L5 9l5.2-1.5z"/><path d="M19 15l.9 2.4 2.1.6-2.1.7L19 21l-.9-2.3-2.1-.7 2.1-.6z"/></svg>AI draft · review before use</span><span class="small">Choices here apply to this draft only</span></div>
+   <div class="sec">
+     <div class="sec-h"><h3>${cfg.whatTitle} <span class="newtag">New</span></h3><span class="small">${cfg.whatNote}</span></div>
+     <div class="ask">${cfg.ask}</div>
+     <div class="seg" role="group" aria-label="${cfg.whatTitle}">${cfg.stances.map(o=>`<button class="chip" data-st="${o.k}" aria-pressed="${o.k===s.stance}"><span class="ic">${o.ic}</span>${esc(o.label)}</button>`).join("")}</div>
+     <div class="gist"><textarea id="${id}-gist" rows="2" aria-label="${cfg.gistLabel}" placeholder="${cfg.gistPh}">${esc(s.gist)}</textarea><button class="btn ai" id="${id}-rw">Rewrite <span class="badge" id="${id}-badge"></span></button></div>
+     <p class="hint">${cfg.gistHint} <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> rewrites.</p>
+   </div>
+   ${cfg.forwardExtras?`<div class="sec"><div class="sec-h"><h3>Recipient &amp; content</h3><span class="small" id="${id}-rcpt">No recipient yet · greeting is "Hi,"</span></div>
+     <div class="row" style="padding:4px 0"><div><b>Add a 2-line summary</b><div class="d">Of the forwarded email, so the reader needn't scroll.</div></div><button class="sw" role="switch" aria-checked="true" data-k="summary" aria-label="Add a summary"></button></div>
+     <div class="row" style="padding:4px 0"><div><b>Mention the attachment</b><div class="d">Uses the file name only.</div></div><button class="sw" role="switch" aria-checked="true" data-k="attach" aria-label="Mention the attachment"></button></div></div>`:""}
+   <div class="sec">
+     <div class="sec-h"><h3>How it sounds</h3><span class="small">Tone and formality are separate</span></div>
+     <div class="seg" role="group" aria-label="Tone">${TONES.map(t=>`<button class="chip" data-tone="${t}" aria-pressed="${t===s.tone}">${t}</button>`).join("")}</div>
+     <div class="scale"><span class="small">Formality <span class="newtag">New</span></span><div class="rail" role="group" aria-label="Formality">${FORMS.map((f,i)=>`<button data-form="${i}" aria-pressed="${i===s.form}">${f}</button>`).join("")}</div><div class="ends"><span>Like a chat</span><span>Like a letter</span></div></div>
+     <div class="grid2"><label class="l">Length<select data-k="len">${opt(["Short","Balanced","Detailed"],s.len)}</select></label><label class="l">Language<select data-k="lang">${opt(LANGS,s.lang)}</select></label></div>
+   </div>
+   <details class="sec" ${cfg.cultureOpen?"open":""}>
+     <summary><h3>Culture &amp; etiquette <span class="newtag">New</span></h3><span class="small"><span id="${id}-csum"></span> <span class="caret">›</span></span></summary>
+     <div class="grid3">
+       <label class="l">English style<select data-k="variant">${opt(VARS,s.variant)}</select></label>
+       <label class="l">Business etiquette<select data-k="etq">${opt(ETQ,s.etq)}</select></label>
+       <label class="l">Directness<select data-k="dir">${opt(DIRS,s.dir)}</select></label>
+       <label class="l">Greeting<select data-k="greet">${opt(GREETS,s.greet)}</select></label>
+       <label class="l">Form of address<select data-k="addr">${opt(ADDRS,s.addr)}</select></label>
+       <label class="l">Emoji<select data-k="emoji"><option value="0">Never</option><option value="1">When casual</option></select></label>
+     </div>
+     <p class="hint">${cfg.cultureHint}</p>
+   </details>
+   <div class="draft">
+     <div class="draft-h"><div class="used" id="${id}-used"></div><div class="pager"><button id="${id}-prev" aria-label="Previous version">‹</button><span id="${id}-pos">Draft 1 of 1</span><button id="${id}-next" aria-label="Next version">›</button></div></div>
+     <div class="lang" id="${id}-lang" hidden></div>
+     <div class="dtext" id="${id}-text" aria-live="polite"></div>
+   </div>
+   <div class="acts"><div class="l2"><button class="btn primary" id="${id}-use">Use draft</button><button class="btn" id="${id}-rw2">Rewrite</button><button class="btn ghost" id="${id}-disc">Discard</button></div><button class="linkbtn" id="${id}-save">Save these choices as my defaults</button></div>`;
+  const q=sel=>root.querySelector(sel);
+  const textEl=q(`#${id}-text`),badge=q(`#${id}-badge`),gistEl=q(`#${id}-gist`);
+  function usedChips(){const v=hist[pos]?.s||s;const st=cfg.stances.find(o=>o.k===v.stance);return [st.label,v.tone,FORMS[v.form],v.len,v.etq==="Neutral"?null:v.etq+" etiquette",v.variant].filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join("")}
+  function show(){
+    const h=hist[pos];textEl.textContent=h?h.text:"";q(`#${id}-pos`).textContent=`Draft ${pos+1} of ${hist.length}`;
+    q(`#${id}-prev`).disabled=pos<=0;q(`#${id}-next`).disabled=pos>=hist.length-1;q(`#${id}-used`).innerHTML=usedChips();
+    const L=(h?h.s:s).lang;const le=q(`#${id}-lang`);
+    if(L!=="Match original"&&L!=="English"){le.hidden=false;le.textContent=`Preview shows English. The real draft is written in ${L}.`}else le.hidden=true;
+  }
+  function csum(){q(`#${id}-csum`).textContent=[s.variant,s.etq==="Neutral"?"neutral etiquette":s.etq,s.dir.toLowerCase()].join(" · ")}
+  function dirty(n){pending=n;badge.textContent=n;badge.classList.toggle("on",n>0)}
+  function write(){
+    textEl.classList.add("busy");
+    setTimeout(()=>{textEl.classList.remove("busy");const snap=JSON.parse(JSON.stringify(s));hist=hist.slice(0,pos+1);hist.push({s:snap,text:cfg.build(snap)});if(hist.length>5)hist.shift();pos=hist.length-1;dirty(0);show();if(cfg.onWrite)cfg.onWrite(s)},520);
+  }
+  root.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b||!root.contains(b))return;
+    if(b.dataset.st){const o=cfg.stances.find(x=>x.k===b.dataset.st);s.stance=o.k;if(o.k!=="custom")s.gist=o.gist;else{s.gist="";}gistEl.value=s.gist;root.querySelectorAll("[data-st]").forEach(c=>c.setAttribute("aria-pressed",c===b));if(o.k==="custom"){gistEl.focus();dirty(pending+1)}else write();return}
+    if(b.dataset.tone){s.tone=b.dataset.tone;root.querySelectorAll("[data-tone]").forEach(c=>c.setAttribute("aria-pressed",c===b));dirty(pending+1);return}
+    if(b.dataset.form){s.form=+b.dataset.form;root.querySelectorAll("[data-form]").forEach(c=>c.setAttribute("aria-pressed",c===b));dirty(pending+1);return}
+    if(b.classList.contains("sw")&&b.dataset.k){const v=b.getAttribute("aria-checked")!=="true";b.setAttribute("aria-checked",v);s[b.dataset.k]=v;dirty(pending+1);return}
+    if(b.id===`${id}-rw`||b.id===`${id}-rw2`){s.gist=gistEl.value;write();return}
+    if(b.id===`${id}-prev`&&pos>0){pos--;show();return}
+    if(b.id===`${id}-next`&&pos<hist.length-1){pos++;show();return}
+    if(b.id===`${id}-use`){cfg.editor.innerHTML=`<div class="ins">${esc(textEl.textContent)}</div>`;toast("Draft added to the editor. Edit freely; nothing is sent until you click Send.");return}
+    if(b.id===`${id}-disc`){cfg.editor.innerHTML=`<span class="ph">${cfg.ph}</span>`;toast("AI draft discarded. Your editor is as you left it.");return}
+    if(b.id===`${id}-save`){toast("Saved as defaults in Settings → AI writing (staged until Apply).");return}
+  });
+  root.addEventListener("change",e=>{const k=e.target.dataset.k;if(!k)return;s[k]=k==="emoji"?e.target.value==="1":e.target.value;csum();dirty(pending+1)});
+  gistEl.addEventListener("input",()=>{s.gist=gistEl.value;const m=cfg.stances.find(o=>o.k!=="custom"&&o.gist===gistEl.value);const k=m?m.k:"custom";s.stance=k;root.querySelectorAll("[data-st]").forEach(c=>c.setAttribute("aria-pressed",c.dataset.st===k));if(!pending)dirty(1)});
+  gistEl.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.ctrlKey){e.preventDefault();s.gist=gistEl.value;write()}});
+  csum();
+  hist=[{s:JSON.parse(JSON.stringify(s)),text:cfg.build(s)}];pos=0;show();
+  return {state:s,rewriteGreeting(){if(!hist.length)return;const h=hist[pos];h.s.recipient=s.recipient;h.text=cfg.build(h.s);show()}};
+}
+
+/* ---------- Screen 01 ---------- */
+const rEditor=$('#rEditor');
+makePanel($('#rPanel'),{id:"r",stances:STANCES,build:buildReply,editor:rEditor,ph:"Write a reply, or use the AI draft below…",cultureOpen:true,
+  whatTitle:"What the reply says",whatNote:"Magpie's suggestion · change it freely",
+  ask:"Maya asks: <b>can you finish the Q3 vendor report by Friday?</b>",
+  gistLabel:"What the reply should say, in a few words",gistPh:"e.g. No, I won't be able to do it this week",
+  gistHint:"Pick a chip or type your own answer, e.g. change \"Yes, I will do it\" to \"No, I will not do it\".",
+  cultureHint:"Auto copies the sender: Maya wrote \"Hi Krishna\", so Formal or lower greets her as \"Hi Maya\". Sign-off comes from your signature, so the draft never adds a second one."});
+function setMode(all){
+  $('#cTitle').textContent=(all?"Reply All":"Reply")+" / Primary";
+  $('#cTo').innerHTML=`<span class="rc">Maya &lt;maya@example.com&gt;</span>`+(all?`<span class="rc">Alex &lt;alex@example.com&gt;</span>`:"");
+  $('#cCc').innerHTML=all?`<span class="rc">Nina &lt;nina@example.com&gt;</span>`:"";
+  $('#cCcRow').hidden=!all;
+  $('#bReply').classList.toggle("primary",!all);$('#bReplyAll').classList.toggle("primary",all);
+}
+$('#bReply').onclick=()=>{setMode(false);toast("Reply: AI draft for Maya only.")};
+$('#bReplyAll').onclick=()=>{setMode(true);toast("Reply All: same draft, recipients Maya + Alex, Nina in Cc.")};
+setMode(false);
+
+/* ---------- Screen 02 ---------- */
+const fEditor=$('#fEditor');
+const fp=makePanel($('#fPanel'),{id:"f",stances:FWD,build:buildForward,editor:fEditor,ph:"Write a note, or use the AI draft below…",forwardExtras:true,cultureOpen:false,init:{tone:"Professional",form:2},
+  whatTitle:"Why you're forwarding",whatNote:"Pick one or describe it",
+  ask:"Forwarding Maya's request: <b>Q3 vendor report by Friday</b>, with 1 attachment",
+  gistLabel:"What the note should say, in a few words",gistPh:"e.g. Alex, please pull the numbers for this",
+  gistHint:"Type it as plainly as you like; Magpie turns it into the note.",
+  cultureHint:"Same options as Reply. Greeting uses the first recipient's name once you add one."});
+$('#fAdd').onclick=()=>{fp.state.recipient=true;$('#fTo').innerHTML=`<span class="rc">Alex &lt;alex@example.com&gt;</span>`;document.getElementById("f-rcpt").textContent="Alex added · only the greeting was updated";fp.rewriteGreeting();toast("Greeting updated to Alex. The rest of the note is unchanged.")};
+
+/* ---------- Screen 03 ---------- */
+const fillSel=(el,arr,v)=>{el.innerHTML=arr.map(o=>`<option${o===v?" selected":""}>${esc(o)}</option>`).join("")};
+const D={stance:"yes",gist:"",tone:"Professional",form:3,len:"Balanced",lang:"Match original",variant:"Indian English",etq:"Neutral",dir:"Balanced",greet:"Auto",addr:"Auto",emoji:false};
+fillSel($('#sTone'),TONES.concat("Custom"),D.tone);fillSel($('#sLang'),LANGS,D.lang);fillSel($('#sVar'),VARS,D.variant);fillSel($('#sEtq'),ETQ,D.etq);fillSel($('#sDir'),DIRS,D.dir);fillSel($('#sGreet'),GREETS,D.greet);fillSel($('#sAddr'),ADDRS,D.addr);
+$('#sForm').innerHTML=FORMS.map((f,i)=>`<button data-form="${i}" aria-pressed="${i===D.form}">${f}</button>`).join("");
+let changes=0;
+function sPrev(){$('#sPrev').textContent=buildReply(D);$('#sUsed').innerHTML=[D.tone,FORMS[D.form],D.len,D.etq==="Neutral"?null:D.etq+" etiquette",D.variant].filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join("")}
+function sDirty(){changes++;$('#sDirty').textContent=changes+" unapplied change"+(changes>1?"s":"");$('#sApply').disabled=false}
+$('#sForm').onclick=e=>{const b=e.target.closest("button");if(!b)return;D.form=+b.dataset.form;$('#sForm').querySelectorAll("button").forEach(c=>c.setAttribute("aria-pressed",c===b));sPrev();sDirty()};
+const map={sTone:"tone",sLen:"len",sLang:"lang",sVar:"variant",sEtq:"etq",sDir:"dir",sGreet:"greet",sAddr:"addr",sEmoji:"emoji"};
+Object.keys(map).forEach(k=>{$('#'+k).addEventListener("change",e=>{const v=e.target.value;D[map[k]]=k==="sEmoji"?v==="1":(k==="sTone"&&v==="Custom"?"Professional":v);sPrev();sDirty()})});
+$('#sPurpose').addEventListener("change",sDirty);
+document.querySelectorAll("#v-defaults .sw").forEach(b=>b.addEventListener("click",()=>{b.setAttribute("aria-checked",b.getAttribute("aria-checked")!=="true");sDirty()}));
+$('#sApply').onclick=()=>{changes=0;$('#sDirty').textContent="Applied";$('#sApply').disabled=true;toast("Applied. New drafts use these defaults.")};
+sPrev();
+
+/* ---------- routing ---------- */
+const views=["reply","forward","defaults","scope"];
+function route(){const h=(location.hash||"").slice(1);const v=views.includes(h)?h:"reply";
+  document.querySelectorAll("[data-view]").forEach(s=>s.hidden=s.dataset.view!==v);
+  document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",t.dataset.v===v));}
+window.addEventListener("hashchange",()=>{route();window.scrollTo(0,0)});route();
+})();
+</script>

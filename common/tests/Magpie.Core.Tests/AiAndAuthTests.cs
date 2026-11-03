@@ -57,6 +57,7 @@ public class AiToggleTests
     {
         var cloud = S(true, true, true, true, true);
         cloud.ReplyDrafts.Enabled = true; // FR1 adds a separately opted-in fifth feature.
+        cloud.ReplyDrafts.OnForward = true; // AW1 (11.0.0): Forward notes have their own switch too.
         foreach (var f in Enum.GetValues<AiFeature>())
         {
             Assert.Equal(AiAvailability.Ready, AiService.Availability(cloud, "key", f));
