@@ -71,18 +71,20 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 86 | "What the reply says": change the response type (Yes → No) before the AI writes | [AW1 / screen 01](designs/AW1-ai-writing.html) | Requested + design shown + approved 30 Oct 2026 · Built in 13.0.0 (Windows) — not yet tried on Windows with a real provider | [#114](https://github.com/krishnabhunia/Magpie-email-client/issues/114) |
 | 87 | AI writing: tone, formality and culture & etiquette options (+ remember per contact) | [AW1 / screens 01, 03](designs/AW1-ai-writing.html) | Requested + design shown + approved 30 Oct 2026 · Built in 13.0.0 (Windows) — not yet tried on Windows with a real provider | [#115](https://github.com/krishnabhunia/Magpie-email-client/issues/115) |
 | 88 | Separate Windows, macOS and Android CI pipelines, with release assembly independent of every platform build | (CI, Krishna 2 Nov 2026) | Approved 2 Nov 2026 — implementation in a separate PR, exact-revision artifacts and CI verification pending | [#120](https://github.com/krishnabhunia/Magpie-email-client/issues/120) |
-| 89 | Start-up screen (splash) while Magpie opens | [SP1](designs/SP1-splash.html) · [screens](https://claude.ai/artifact/4hchUo1ZADWhMG15bJXwVr) | Requested + designs shown + approved 3 Nov 2026 — **B** (Start-up steps) · Built in 14.0.0 (Windows) — not yet tried on Windows; Mac later | — (this session could not create issues) |
+| 89 | Start-up screen (splash) while Magpie opens | [SP1](designs/SP1-splash.html) + approved Signature A / startup steps C | **Approved A+C 3 Nov 2026** · Windows implementation proposed in PR ChatGPT-Magpie-Splash-Screen; prior B variant remains in draft PR #123 | [#124](https://github.com/krishnabhunia/Magpie-email-client/issues/124) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
-## #89 SP1 — Start-up screen (shown 3 Nov 2026, approved 3 Nov 2026: B)
+## #89 SP1 — Start-up screen (approved 3 Nov 2026: Signature A + steps C)
+
+**Latest approval (Krishna):** The dark, premium Signature Magpie bird/wordmark and indigo-to-cyan accent treatment from Design A, with Design C's real, step-by-step startup indicators. This replaces the earlier B visual choice for the new ChatGPT PR; keep B's existing startup lifecycle, settings and failure handling. Issue [#124](https://github.com/krishnabhunia/Magpie-email-client/issues/124).
 
 Krishna: *"I want a splash screen for Magpie email client. Pls show me the designs"* → three options (A Quiet mark, B Start-up steps, C Plume + What's new) → *"I like the B"*.
 Open questions left unanswered, so the recommended picks apply: default **Every time**; start-up errors shown **on the screen** instead of the message box; **Windows only** in this PR.
 
 | # | Behaviour | Where |
 |---|---|---|
-| 1 | Own STA thread + Dispatcher, started in `Program.Main` before the App object; built in code (no XAML, no app resources); Topmost, borderless, 560 px card + shadow; follows Light / Dark / Match Windows; centred on the main window's saved place | `windows/Magpie.App/Services/StartupSplash.cs` |
+| 1 | Own STA thread + Dispatcher, started in `Program.Main` before the App object; built in code (no XAML, no app resources); Topmost, borderless, 760 px navy/indigo branded card + shadow; follows Light / Dark / Match Windows; centred on the main window's saved place | `windows/Magpie.App/Services/StartupSplash.cs` |
 | 2 | Steps: checking the last update → opening your mail folder (`MailFolderStartup` + `MailEngine`) → loading settings, look and fonts (theme, typography, tray, `MainWindow` built) → starting N accounts (until the main window's first `ContentRendered`); times in ms; one `start-up …` line in magpie.log | `App.xaml.cs` `Next` / `OnFirstRender` → `Finish` |
 | 3 | At least 0.8 s on screen (`SplashPlan.MinVisible`), 160 ms fade; after 10 s "This is taking longer than usual" + Open log folder; Esc closes it once finished | `SplashPlan`, `SplashWindow` |
 | 4 | Failure: the running step turns red, message + Open log folder + Close (+ Go back to the previous version when `UpdateService.CanOfferRollback()`), replaces the message box; Alt+F4 = Close | `StartupSplash.TryReportFailure`, `UpdateService.OfferRollback(ex, confirmed)` |
