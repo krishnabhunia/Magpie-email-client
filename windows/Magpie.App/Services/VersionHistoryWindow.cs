@@ -167,7 +167,7 @@ public sealed class VersionHistoryWindow : Window
         var newestBeta = installable.FirstOrDefault(c => c.Prerelease)?.Release.Tag;
         var newestStable = installable.FirstOrDefault(c => !c.Prerelease)?.Release.Tag;
         var rows = visible.Select(c => new VersionRow(c,
-            betaRanks.TryGetValue(c.Release.Tag, out var rank) ? rank : null,
+            betaRanks.TryGetValue(c.Release.Tag, out var rank) ? (int?)rank : null,
             c.Release.Tag == (c.Prerelease ? newestBeta : newestStable))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
         Selection = null; _select.IsEnabled = false; _select.Content = "Choose a version";
