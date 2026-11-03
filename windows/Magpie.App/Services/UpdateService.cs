@@ -690,7 +690,6 @@ public sealed partial class UpdateService : ObservableObject
         AppServices.Current.ExitForUpdate();
     }
 
-    /// <summary>A startup failure restores the saved app and stages its matching data before any old engine restarts.</summary>
     /// <summary>Design SP1: true when a failed first start can go back to the version saved before this update.</summary>
     public static bool CanOfferRollback()
     {
@@ -703,6 +702,7 @@ public sealed partial class UpdateService : ObservableObject
         catch { return false; }
     }
 
+    /// <summary>A startup failure restores the saved app and stages its matching data before any old engine restarts.</summary>
     /// <param name="confirmed">The user already chose "Go back to the previous version" on the start-up screen (design SP1): don't ask again.</param>
     public static bool OfferRollback(Exception error, bool confirmed = false)
     {

@@ -28,6 +28,8 @@ public sealed class StartupSplash
 {
     public static StartupSplash? Current { get; private set; }
 
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(3);
+
     private readonly object _gate = new();
     private readonly SplashPrefs _prefs;
     private readonly string _version;
@@ -38,7 +40,10 @@ public sealed class StartupSplash
     private TimeSpan _stepStarted;
     private int _step;
     private int _accounts;
-    private bool _finished, _closed;
+    private int _suspended;
+    private bool _finished, _closeNow;
+    private volatile bool _closed;
+    private Thread? _thread;
     private Dispatcher? _ui;
     private SplashWindow? _win;
 
@@ -60,6 +65,7 @@ public sealed class StartupSplash
             var s = new StartupSplash(prefs, version, afterUpdate, restarting);
             var t = new Thread(s.Run) { IsBackground = true, Name = "Magpie start-up screen" };
             t.SetApartmentState(ApartmentState.STA);
+            s._thread = t;
             t.Start();
             Current = s;
         }
@@ -71,23 +77,38 @@ public sealed class StartupSplash
         try
         {
             _ui = Dispatcher.CurrentDispatcher;
-            _win = new SplashWindow(this, _dark);
-            _win.Place(_prefs);
-            _win.Show();
-            Render();
-            // Finish or Close may have come before this thread had its dispatcher.
-            if (IsFinished) _win.CloseAfter(SplashPlan.HoldBeforeClose(_clock.Elapsed), fade: true);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("start-up screen failed: " + ex.Message);
-            _win = null;
+            // Anything that goes wrong in the screen closes it; it is never allowed to reach start-up.
+            _ui.UnhandledException += (_, e) =>
+            {
+                Log.Warn("start-up screen failed: " + e.Exception.Message);
+                e.Handled = true;
+                _closed = true;
+                try { _win?.Close(); } catch { }
+                try { _ui.InvokeShutdown(); } catch { }
+            };
+            bool closeNow, finished, hidden;
+            lock (_gate) { closeNow = _closeNow; finished = _finished; hidden = _suspended > 0; }
+            if (!closeNow)
+            {
+                _win = new SplashWindow(this, _dark);
+                _win.Place(_prefs);
+                Render();
+                if (!hidden) _win.Show();
+                // Finish may have come before this thread had its dispatcher.
+                if (finished) _win.CloseAfter(SplashPlan.HoldBeforeClose(_clock.Elapsed), fade: true);
+            }
             _ready.Set();
-            return;
+            if (closeNow) return;
+            Dispatcher.Run();
         }
-        _ready.Set();
-        try { Dispatcher.Run(); }
-        catch (Exception ex) { Log.Warn("start-up screen stopped: " + ex.Message); }
+        catch (Exception ex) { Log.Warn("start-up screen failed: " + ex.Message); }
+        finally
+        {
+            // Whatever happened, every later call returns at once instead of waiting on a dead thread.
+            _closed = true;
+            _ready.Set();
+            try { Dispatcher.CurrentDispatcher.InvokeShutdown(); } catch { }
+        }
     }
 
     // ── Called by the main thread ──
@@ -137,17 +158,23 @@ public sealed class StartupSplash
     /// <summary>Closes at once (Magpie is closing, or the window starts hidden).</summary>
     public void Close()
     {
-        lock (_gate) _finished = true;
+        lock (_gate) { _finished = true; _closeNow = true; }
         if (Current == this) Current = null;
         Post(() => _win?.CloseAfter(TimeSpan.Zero, fade: false));
     }
 
-    /// <summary>Hides the screen while a start-up dialog asks something; shows it again when disposed.</summary>
+    /// <summary>
+    /// Hides the screen while a start-up dialog asks something; shows it again when the last one is disposed. Never
+    /// waits for the screen's thread: the count is also read when the window first appears.
+    /// </summary>
     public IDisposable Suspend()
     {
-        Invoke(() => _win?.Hide());
+        lock (_gate) _suspended++;
+        Post(() => { if (Suspended) _win?.Hide(); });
         return new Resume(this);
     }
+
+    private bool Suspended { get { lock (_gate) return _suspended > 0; } }
 
     private sealed class Resume(StartupSplash owner) : IDisposable
     {
@@ -156,36 +183,56 @@ public sealed class StartupSplash
         {
             if (_done) return;
             _done = true;
-            owner.Invoke(() => { if (!owner._closed) owner._win?.ShowAgain(); });
+            lock (owner._gate) owner._suspended = Math.Max(0, owner._suspended - 1);
+            owner.Post(() => { if (!owner.Suspended) owner._win?.ShowAgain(); });
         }
     }
 
     /// <summary>
     /// Start-up failed: the running step turns red and the screen shows <paramref name="message"/> with Open log folder,
-    /// Close and (after an update) Go back to the previous version. Blocks until the user picks one; null when there is
-    /// no screen to show it on (the caller shows its own message box).
+    /// Close and (after an update) Go back to the previous version. Waits for the user's choice; null when the screen
+    /// can't show it (the caller then shows its own message box, and the screen is gone).
     /// </summary>
     public SplashChoice? Fail(string message, bool canGoBack)
     {
-        if (!_ready.Wait(3000) || _win == null || _ui == null || _closed) return null;
-        lock (_gate) _finished = true;
+        lock (_gate) { _finished = true; _suspended = 0; }
         if (Current == this) Current = null;
+        if (!_ready.Wait(CallTimeout) || _closed || _ui == null || _win == null)
+        {
+            lock (_gate) _closeNow = true;
+            Post(() => _win?.CloseAfter(TimeSpan.Zero, fade: false));
+            return null;
+        }
         var answer = new TaskCompletionSource<SplashChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ui = _ui;
+        EventHandler stopped = (_, _) => answer.TrySetResult(SplashChoice.Close);
         try
         {
-            _ui.Invoke(() =>
+            ui.ShutdownStarted += stopped;
+            var shown = false;
+            ui.Invoke(() =>
             {
-                if (_win == null) { answer.TrySetResult(SplashChoice.Close); return; }
+                if (_win == null || _closed) return;
                 _win.ShowError(_step, message, canGoBack, c => answer.TrySetResult(c));
-            });
-            var choice = answer.Task.GetAwaiter().GetResult();
-            Invoke(() => _win?.CloseAfter(TimeSpan.Zero, fade: false));
+                shown = true;
+            }, DispatcherPriority.Send, CancellationToken.None, CallTimeout);
+            if (!shown) { Post(() => _win?.CloseAfter(TimeSpan.Zero, fade: false)); return null; }
+            // Never wait on a screen that has gone: the thread ending or the window closing answers Close.
+            while (!answer.Task.Wait(250))
+                if (_closed || _thread is { IsAlive: false }) answer.TrySetResult(SplashChoice.Close);
+            var choice = answer.Task.Result;
+            Post(() => _win?.CloseAfter(TimeSpan.Zero, fade: false));
             return choice;
         }
         catch (Exception ex)
         {
             Log.Warn("start-up screen could not show the error: " + ex.Message);
+            Post(() => _win?.CloseAfter(TimeSpan.Zero, fade: false));
             return null;
+        }
+        finally
+        {
+            try { ui.ShutdownStarted -= stopped; } catch { }
         }
     }
 
@@ -194,9 +241,12 @@ public sealed class StartupSplash
     {
         var s = Current;
         if (s == null) return false;
+        // The choice is waited for on this thread; a main window already up would look frozen beside it.
+        try { if (Application.Current?.MainWindow is { IsVisible: true } main) main.Hide(); } catch { }
         var choice = s.Fail(message, afterUpdate && UpdateService.CanOfferRollback());
         if (choice == null) return false;
-        if (choice == SplashChoice.GoBack && !UpdateService.OfferRollback(error, confirmed: true))
+        // OfferRollback explains its own failures; only a snapshot that vanished meanwhile needs a word here.
+        if (choice == SplashChoice.GoBack && !UpdateService.OfferRollback(error, confirmed: true) && !UpdateService.CanOfferRollback())
             MessageBox.Show(message + "\n\nDetails are in " + Log.FilePath, "Magpie", MessageBoxButton.OK, MessageBoxImage.Error);
         return true;
     }
@@ -211,16 +261,6 @@ public sealed class StartupSplash
         catch { }
     }
 
-    private void Invoke(Action a)
-    {
-        try
-        {
-            if (_closed || _ui == null || !_ready.Wait(3000)) return;
-            if (_ui.CheckAccess()) a(); else _ui.Invoke(a);
-        }
-        catch (Exception ex) { Log.Warn("start-up screen: " + ex.Message); }
-    }
-
     internal string Heading => _restarting ? "Restarting Magpie" : _afterUpdate ? "Getting the new version ready" : "Getting your mail ready";
     internal string VersionText => "Version " + _version + (_afterUpdate ? " · just updated" : "");
     internal IReadOnlyList<SplashAccount> Chips => _prefs.ShowAccounts ? _prefs.Accounts : Array.Empty<SplashAccount>();
@@ -231,8 +271,7 @@ public sealed class StartupSplash
         int step, accounts;
         TimeSpan?[] times;
         lock (_gate) { step = _step; accounts = _accounts; times = (TimeSpan?[])_times.Clone(); }
-        try { _win.ShowSteps(step, accounts, times); }
-        catch (Exception ex) { Log.Warn("start-up screen: " + ex.Message); }
+        _win.ShowSteps(step, accounts, times);
     }
 
     internal bool IsFinished { get { lock (_gate) return _finished; } }
@@ -280,6 +319,11 @@ internal sealed class SplashWindow : Window
         FontFamily = _ui;
         UseLayoutRounding = true;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        // Stop implicit-style lookups at this window: the app's resources belong to the main thread (and its theme swap).
+        Style = new Style(typeof(SplashWindow));
+        foreach (var t in new[] { typeof(Border), typeof(Grid), typeof(StackPanel), typeof(DockPanel), typeof(WrapPanel), typeof(TextBlock),
+                     typeof(Button), typeof(ContentPresenter), typeof(Viewbox), typeof(Canvas), typeof(Ellipse), typeof(Path), typeof(Rectangle) })
+            Resources.Add(t, new Style(t));
         Content = Build();
         Opacity = Animate ? 0 : 1;
         Loaded += (_, _) => { if (Animate) BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))); };
@@ -529,9 +573,11 @@ internal sealed class SplashWindow : Window
             _steps.Children[failed] = StepRow(StepState.Failed, text, "");
         }
         _error.Children.Clear();
-        var scroll = new ScrollViewer { MaxHeight = 110, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 2, 0, 12) };
-        scroll.Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 12.5, Foreground = B(_p.Text) };
-        _error.Children.Add(scroll);
+        _error.Children.Add(new TextBlock
+        {
+            Text = message, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxHeight = 120,
+            FontSize = 12.5, Foreground = B(_p.Text), Margin = new Thickness(0, 2, 0, 12),
+        });
         var buttons = new WrapPanel();
         if (canGoBack) buttons.Children.Add(Button("Go back to the previous version", primary: true, () => choose(SplashChoice.GoBack)));
         buttons.Children.Add(Button("Open log folder", primary: false, OpenLogFolder));

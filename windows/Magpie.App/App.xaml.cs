@@ -125,6 +125,8 @@ public partial class App : Application
         if (startHidden) StartupSplash.Current?.Close();
         else main.ContentRendered += OnFirstRender;
         if (!startHidden) main.Show();
+        // Backup in case the first render never reports: the screen is closed once start-up has gone quiet.
+        if (!startHidden) main.Dispatcher.BeginInvoke(() => OnFirstRender(main, EventArgs.Empty), DispatcherPriority.ApplicationIdle);
         // Design I1: the installer can close Magpie, update it and start it again (back in the tray if it was there).
         RestartRegistration.Update(inTray: !main.IsVisible);
         main.IsVisibleChanged += (_, _) => RestartRegistration.Update(inTray: !main.IsVisible);
