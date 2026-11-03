@@ -33,7 +33,8 @@ internal static partial class Program
         // Supply the catalogue directly: this is the real WPF chooser with no HTTP or installation side effects.
         VersionChoice[] choices =
         [
-            Choice("12.0.0-beta.2"), Choice("12.0.0"), Choice("13.0.0", available: false),
+            Choice("12.0.0-beta.2"), Choice("12.0.0-beta.3"), Choice("12.0.0-beta.4", compatible: false),
+            Choice("12.0.0"), Choice("13.0.0", available: false),
             Choice("10.0.0"), Choice("11.0.0-beta.4"), Choice("9.0.0", compatible: false), Choice("11.0.0"),
         ];
         var window = new VersionHistoryWindow(AppVersion.TryParse("11.0.0")!, choices) { Owner = owner };
@@ -44,6 +45,7 @@ internal static partial class Program
             {
                 var direction = (ComboBox)window.FindName("DirectionFilter");
                 var channel = (ComboBox)window.FindName("ChannelFilter");
+                var showAll = (CheckBox)window.FindName("ShowAllBuilds");
                 var versions = (ListBox)window.FindName("ReleaseList");
                 var summary = (TextBlock)window.FindName("ReleaseSummary");
                 var compatibility = (TextBlock)window.FindName("CompatibilityMessage");
@@ -56,12 +58,10 @@ internal static partial class Program
                     Assert(window.Selection == null, "Browsing a version does not accept or install it: " + scenario);
                 }
 
-                Assert(versions.Items.Count == 3, "All newer stable/beta releases are shown, including missing assets");
+                Assert(versions.Items.Count == 2 && showAll.IsChecked != true,
+                    "Normal update view has one newest compatible beta and one stable release");
                 NoSelection("opening");
-                versions.SelectedIndex = 0; // 13.0.0: newest, but its file is missing.
-                Assert(!select.IsEnabled && compatibility.Text.Contains("missing", StringComparison.OrdinalIgnoreCase),
-                    "A missing application remains visible with a blocked action and explanation");
-                versions.SelectedIndex = 1; // 12.0.0 stable.
+                versions.SelectedIndex = 0; // 12.0.0 stable.
                 Assert(select.IsEnabled && select.Content.ToString()!.Contains("v12.0.0", StringComparison.Ordinal),
                     "The action names the exact stable target");
                 Assert(summary.Text.Contains("preserves mail and drafts", StringComparison.Ordinal),
@@ -69,17 +69,33 @@ internal static partial class Program
                 Capture(window, Path.Combine(output, theme + "-version-manager-newer.png"));
 
                 channel.SelectedIndex = 1;
-                Assert(versions.Items.Count == 2, "Stable filter retains every newer stable release");
+                Assert(versions.Items.Count == 1, "Stable filter defaults to one compatible release");
                 NoSelection("stable filter");
                 channel.SelectedIndex = 2;
-                Assert(versions.Items.Count == 1, "Beta filter retains the exact beta release");
+                Assert(versions.Items.Count == 1, "Beta filter defaults to only the latest compatible beta");
                 NoSelection("beta filter");
                 versions.SelectedIndex = 0;
-                Assert(select.Content.ToString()!.Contains("v12.0.0-beta.2", StringComparison.Ordinal),
-                    "The beta suffix is retained in the action label");
+                Assert(select.Content.ToString()!.Contains("v12.0.0-beta.3", StringComparison.Ordinal),
+                    "An incompatible newer beta never hides the newest compatible one");
 
+                showAll.IsChecked = true;
+                Assert(versions.Items.Count == 3, "Show all retains every beta commit for exact-version selection");
+                NoSelection("show all beta builds");
+                versions.SelectedIndex = 0; // 12.0.0-beta.4 is incompatible.
+                Assert(!select.IsEnabled && compatibility.Text.Contains("cannot safely", StringComparison.OrdinalIgnoreCase),
+                    "Show all explains why the newest beta is blocked");
                 channel.SelectedIndex = 0;
+                Assert(versions.Items.Count == 5, "Show all includes missing assets and all stable and beta builds");
+                NoSelection("show all channels");
+                versions.SelectedIndex = 0; // 13.0.0 application is missing.
+                Assert(!select.IsEnabled && compatibility.Text.Contains("missing", StringComparison.OrdinalIgnoreCase),
+                    "Show all retains missing applications with blocked actions");
+                showAll.IsChecked = false;
+                Assert(versions.Items.Count == 2, "Hiding historical builds restores latest-per-channel defaults");
+                NoSelection("show all unchecked");
+
                 direction.SelectedIndex = 1;
+                Assert(!showAll.IsEnabled, "Rollback always displays the full history");
                 Assert(versions.Items.Count == 3, "Rollback shows older stable and beta versions");
                 NoSelection("rollback filter");
                 versions.SelectedIndex = 2; // 9.0.0 cannot read the current schema.
