@@ -54,6 +54,7 @@ internal static partial class Program
             owner.Show();
             var output = args.Length > 0 ? args[0] : Path.Combine(root, "captures");
             Directory.CreateDirectory(output);
+            CheckSplashWindow(output);
             var expectStartupFailure = args.Contains("--expect-startup-style-failure");
             foreach (var theme in new[] { "Light", "Dark" })
             {
