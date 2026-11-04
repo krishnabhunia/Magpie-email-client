@@ -7,6 +7,14 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 14.1.0 (4 Nov 2026)
+### Changed
+- **A confirm screen before every version change on Windows.** After you choose a version, Magpie shows where you are and where you are going (From → To), a short note when it matters, and the exact steps it will take: check that the version works with your mail, download it (or use the copy on this PC), save a recovery copy of the version you have now, install it, and pin it. **Pick a different version** takes you back to the list; nothing starts until you press **Update to v…** or **Roll back to v…**.
+- **The confirm screen says when a beta skips a newer stable.** "This skips the latest stable (v14.2.0)" — and going back to an older version reminds you that newer features will be missing until you update again.
+- **Updates and Version history & roll back are tabs** at the top of the version manager instead of a drop-down.
+- **"On this PC".** Versions whose copy Magpie already kept in its version backups are marked, and choosing one skips the download when the copy still matches the release's checksum (otherwise it is downloaded as before).
+- Windows only; the Mac app is unchanged.
+<!-- closes: #130 -->
 ## 14.0.0 (3 Nov 2026)
 ### New
 - **Start-up screen.** While Magpie opens you now see a card with the Magpie mark and version on the left and, on the right, the four things Magpie does before its window appears: checking the last update, opening your mail folder, loading settings, look and fonts, and starting your accounts. Each step ticks off with how long it took, your accounts show as small chips in their colours, and the card fades as soon as the window is ready (it stays at least 0.8 seconds so it never just flickers). It follows Light, Dark or Match Windows, and appears where the Magpie window will open.

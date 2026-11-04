@@ -334,17 +334,24 @@ public sealed partial class UpdateService : ObservableObject
     private async Task SelectAndInstallVersionAsync()
     {
         var paths = AppPaths.Default();
-        var picker = new VersionHistoryWindow(_client, Current, UpdateCompatibility.ReadProfile(paths), InstallKind)
-            { Owner = Application.Current.MainWindow };
-        if (picker.ShowDialog() != true || picker.Selection is not { } chosen) return;
+        // Version picker (design VP1, Q90): choose in the list, then confirm on the From → To screen; "Pick a different
+        // version" goes back to the list. Nothing is downloaded or installed before the confirm button.
+        var kept = KeptVersions.Versions(paths, InstallKind);
+        var rollbackTab = false;
+        ReleaseInfo chosen;
+        while (true)
+        {
+            var picker = new VersionHistoryWindow(_client, Current, UpdateCompatibility.ReadProfile(paths), InstallKind, kept, rollbackTab)
+                { Owner = Application.Current.MainWindow };
+            if (picker.ShowDialog() != true || picker.Selection is not { } selection || picker.SelectedChoice is not { } choice) return;
+            rollbackTab = picker.IsRollback;
+            var confirm = new VersionConfirmWindow(Current, choice, picker.Choices, picker.SelectedOnThisPc)
+                { Owner = Application.Current.MainWindow };
+            if (confirm.ShowDialog() == true) { chosen = selection; break; }
+            if (!confirm.PickAgain) return;
+        }
         var rollback = chosen.Version.CompareTo(Current) < 0;
-        var answer = MessageBox.Show(Application.Current.MainWindow,
-            $"{(rollback ? "Roll back" : "Update")} Magpie v{Current} to v{chosen.Version}{(picker.IsBeta ? " (Beta)" : "")}?\n\n" +
-            "Magpie will check compatibility and the download checksum, then save a paired application and local-data backup before installing. " +
-            "Restoring that backup later returns local data to the time it was saved.\n\n" +
-            $"Install exactly v{chosen.Version}?", "Confirm selected version", MessageBoxButton.YesNo,
-            MessageBoxImage.Question, MessageBoxResult.No);
-        if (answer != MessageBoxResult.Yes || !await AppServices.Current.CloseComposeWindowsAsync()) return;
+        if (!await AppServices.Current.CloseComposeWindowsAsync()) return;
         _cts?.Dispose(); _cts = new CancellationTokenSource();
         _historyId = UpdateHistory.Record(paths, Current.ToString(), chosen.Version.ToString(), rollback ? "Rollback" : "Update",
             UpdateHistory.Preparing, "Checking the selected release and saving a paired backup.");
@@ -534,6 +541,15 @@ public sealed partial class UpdateService : ObservableObject
         Detail = "You can keep working. The final application and data backup is made just before installation.";
         UpdateHistory.SetStatus(AppPaths.Default(), _historyId, UpdateHistory.Downloading, "Downloading the exact selected release.");
         var progress = new Progress<double>(p => { if (Math.Floor(p * 100) != Math.Floor(Progress * 100)) Progress = p; });
+        // "On this PC" (VP1): a kept copy goes where the checked download looks first; it is still checked against the
+        // release's SHA-256 and downloaded again when it does not match.
+        try
+        {
+            if (KeptVersions.Seed(KeptVersions.Find(AppPaths.Default(), selected.Version, InstallKind),
+                    Path.Combine(DownloadFolder, _client.Asset.LocalFileFor(selected.Version))))
+                Log.Info($"version change: using the copy of v{selected.Version} kept on this PC");
+        }
+        catch (Exception ex) { Log.Warn("could not use the kept copy, downloading instead: " + ex.Message); }
         var result = await _client.DownloadCheckedAsync(selected, DownloadFolder, progress, _cts.Token, _compatibility);
         _downloaded = result.Path; _downloadedSha = result.Sha256;
         Title = $"Magpie v{selected.Version} is ready";
