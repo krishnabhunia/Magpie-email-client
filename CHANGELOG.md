@@ -7,6 +7,13 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 14.2.0 (5 Nov 2026)
+### Changed
+- **Permanent three-digit beta versions on Windows, Mac and Android builds.** Each pull-request head gets one immutable `vX.Y.Z-beta001` to `beta999` reservation from GitHub, shared by independent platform pipelines. A rebuild of the same commit keeps its tag; a new commit gets the next number; the pipeline fails if a version's 999 allocations are exhausted.
+- **What's New in the Windows app.** The title bar now offers an information button for the currently installed version, and the version manager has a full-size implementation detail window for each selected release. The published release notes identify actual changes instead of a shifting beta rank; version selection, checksums and rollback are unchanged.
+- **Release note quality check.** Publish-time validation requires detailed changes for each version; new beta tags are reserved before platform workflows publish.
+<!-- closes: #140 -->
+
 ## 14.1.0 (4 Nov 2026)
 ### Changed
 - **A confirm screen before every version change on Windows.** After you choose a version, Magpie shows where you are and where you are going (From → To), a short note when it matters, and the exact steps it will take: check that the version works with your mail, download it (or use the copy on this PC), save a recovery copy of the version you have now, install it, and pin it. **Pick a different version** takes you back to the list; nothing starts until you press **Update to v…** or **Roll back to v…**.

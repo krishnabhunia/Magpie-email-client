@@ -18,7 +18,7 @@ permissions:
 
 # One release job at a time for pushes to main.
 concurrency:
-  group: magpie-build-${{ github.ref == 'refs/heads/main' && 'release' || github.ref }}
+  group: magpie-build-${{ github.ref == 'refs/heads/main' && 'release' || 'beta-serial' }}
   cancel-in-progress: false
 
 env:
@@ -45,6 +45,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python common/scripts/ci_platforms.py
+
+      - name: Reserve permanent beta tag before platform publishing
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python common/scripts/ci_version.py reserve
 
       # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While any PR from this
       # repository is open, its CI publishes a test version <version>-beta.<commit-time>.g<sha> (pre-release; tried through
@@ -241,6 +247,8 @@ jobs:
           # Release notes = this version's section of CHANGELOG.md (written as UTF-8 by the script)
           python common/scripts/release_prep.py notes $env:VERSION --out release-notes.md
           if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no section for $env:VERSION" }
+          python common/scripts/release_notes_check.py release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Release notes must include actual implementations" }
 
       - name: Publish GitHub Release
         if: steps.rel.outputs.needed == 'true'
@@ -288,6 +296,8 @@ jobs:
           }
           python common/scripts/release_prep.py notes $env:BASE --out release-notes.md --header $header
           if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for $env:BASE" }
+          python common/scripts/release_notes_check.py release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Beta release notes must include actual implementations" }
 
       - name: Publish test version
         if: needs.version.outputs.beta == 'true'
