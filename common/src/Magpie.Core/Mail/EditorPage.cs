@@ -246,7 +246,8 @@ function mention(name, address){
   if(!mentionAt || !mentionAt.node.parentNode) return false;
   var n=mentionAt.node, r=document.createRange(); r.setStart(n, mentionAt.start); r.setEnd(n, mentionAt.end);
   var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); ed.focus();
-  document.execCommand('insertHTML', false, '<a href="mailto:'+esc(address)+'">'+esc(name)+'</a>&nbsp;');
+  var a=document.createElement('a'); a.href='mailto:'+address; a.textContent=name; var holder=document.createElement('div'); holder.appendChild(a); holder.appendChild(document.createTextNode('\u00a0'));
+  document.execCommand('insertHTML', false, holder.innerHTML);
   mentionAt=null; mentionOpen=false; post({t:'dirty'}); return true;
 }
 // ── signature swap (D3) ──
@@ -310,7 +311,7 @@ document.addEventListener('selectionchange', function(){
   const s = window.getSelection();
   if (s.rangeCount && ed.contains(s.anchorNode)) { saved = s.getRangeAt(0).cloneRange(); post({t:'sel', text: s.toString()}); postLinkAt(); postState(); checkMention(); }
 });
-function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(p){ return '<p'+(typography?' style="'+esc(fontCss(typography.body)).replace(/"/g,'&quot;')+'"':'')+'>' + esc(p).replace(/\n/g,'<br>') + '</p>'; }).join(''); }
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }

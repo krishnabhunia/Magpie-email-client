@@ -167,13 +167,16 @@ public partial class ComposeViewModel
         Signatures.Add(new SignatureChoice("", "None", CurrentSignatureId.Length == 0));
     }
 
-    /// <summary>Puts this signature into the message in place of the current one ("" = none).</summary>
-    public async Task SelectSignatureAsync(string id)
+    /// <summary>Puts this signature into the message in place of the current one ("" = none). <paramref name="manual"/> = the user
+    /// picked it in Signature ▾, so it goes in even when the account's "add to new messages / replies" switch is off; an automatic
+    /// swap (From changed) respects those switches.</summary>
+    public async Task SelectSignatureAsync(string id, bool manual = true)
     {
         if (From == null || EditorCommand == null) return;
         var html = id.Length == 0 ? "" : Composer.SignatureHtmlFor(From, id, reply: IsReply || _draft.Mode == ComposeMode.Forward);
-        if (id.Length > 0 && html.Length == 0 && From.Signatures.Any(s => s.Id == id))
-            html = HtmlRenderer.SanitizeBody(From.Signatures.First(s => s.Id == id).Html, new Dictionary<string, string>(), allowRemote: true).html;   // the "add to replies" switch is off: the user asked for it anyway
+        if (manual && id.Length > 0 && html.Length == 0 && From.Signatures.Any(s => s.Id == id))
+            html = HtmlRenderer.SanitizeBody(From.Signatures.First(s => s.Id == id).Html, new Dictionary<string, string>(), allowRemote: true).html;   // the switch is off: the user asked for it anyway
+        if (!manual && id.Length > 0 && html.Length == 0) id = "";   // the account doesn't add a signature to this kind of message
         try { await EditorCommand("signature", html); }
         catch (Exception ex) { Log.Warn("signature swap: " + ex.Message); return; }
         CurrentSignatureId = id;
@@ -190,7 +193,7 @@ public partial class ComposeViewModel
         {
             if (string.IsNullOrWhiteSpace(ReplyTo) || ReplyTo == oldValue?.ReplyTo) ReplyTo = newValue.ReplyTo;
             if (!string.IsNullOrWhiteSpace(ReplyTo)) ShowReplyTo = true;
-            _ = SelectSignatureAsync(CurrentSignatureId.Length == 0 && oldValue?.Signatures.Count > 0 ? "" : def);
+            _ = SelectSignatureAsync(CurrentSignatureId.Length == 0 && oldValue?.Signatures.Count > 0 ? "" : def, manual: false);
         }
         RefreshAttachmentSummary();
         MarkEdited();
@@ -285,9 +288,16 @@ public partial class ComposeViewModel
     /// <summary>D9: the message as a .eml file.</summary>
     public async Task<bool> SaveToFileAsync(string path)
     {
-        var d = await BuildDraftAsync(validate: false);
-        if (d == null || From == null) return false;
-        await File.WriteAllBytesAsync(path, Composer.ToEml(d, From));
+        // Same turn-taking as Keep and Send: an autosave building the message shares the attachment streams.
+        await _saveGate.WaitAsync();
+        try
+        {
+            var d = await BuildDraftAsync(validate: false);
+            if (d == null || From == null) return false;
+            var bytes = Composer.ToEml(d, From);
+            await File.WriteAllBytesAsync(path, bytes);
+        }
+        finally { _saveGate.Release(); }
         Status = "✓ Saved to file";
         return true;
     }
