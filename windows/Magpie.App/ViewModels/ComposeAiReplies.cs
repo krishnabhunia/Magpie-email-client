@@ -274,6 +274,7 @@ public partial class ComposeViewModel
 
     partial void OnFromChanged(Magpie.Core.Models.Account? value)
     {
+        OnPropertyChanged(nameof(AttachmentSummary));
         if (!_constructed) return;
         InvalidateReplyContext();
         InvalidateLegacyAi();

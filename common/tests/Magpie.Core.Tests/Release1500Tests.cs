@@ -103,7 +103,7 @@ public class Release1500Tests
         var restored = System.Text.Json.JsonSerializer.Deserialize<List<Magpie.Core.Settings.QuickTemplate>>(
             System.Text.Json.JsonSerializer.Serialize(templates));
         Assert.Equal("Client update", restored!.Single().Name);
-        Assert.Equal("Here is the latest status.", restored.Single().Body);
+        Assert.Equal("Here is the latest status.", restored!.Single().Body);
     }
 
     [Fact]

@@ -139,7 +139,6 @@ public partial class ComposeViewModel : ObservableObject
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
     public string ProviderLabel => _e.Ai.ProviderLabel;
 
-    partial void OnFromChanged(Account? value) { OnPropertyChanged(nameof(AttachmentSummary)); MarkEdited(); }
 
     public ComposeViewModel(Draft draft, string? prefillText)
     {
