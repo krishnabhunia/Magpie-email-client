@@ -13,9 +13,11 @@
 - **Attachments you can find.** Attach is visible at the top and bottom of the editor, with a Studio drop area, file-type icons, safe Open actions for common document/picture types, and Remove all.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
+- **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.
 ### Fixed
 - **Attachments cannot silently disappear from outgoing mail.** Missing files are detected before queueing and again while building the message. Duplicate file paths are ignored and the composer reports estimated encoded attachment size.
 - **Safer sending.** Magpie warns about duplicate recipients, absent attachments mentioned in the message, and empty messages. A duplicated email address gets only one copy of the message.
+- **Delivery options persist in drafts.** Reply-To, priority and read-receipt requests are restored when reopening a locally saved or server-stored MIME draft.
 
 ## 14.0.0 (3 Nov 2026)
 ### New

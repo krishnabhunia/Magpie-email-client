@@ -150,6 +150,7 @@ public partial class ComposeWindow : Window
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
         Loaded += async (_, _) => await InitEditorAsync();
+        Loaded += (_, _) => RefreshAllRecipientChips();
         Closing += OnClosing;
         Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
         Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
@@ -529,6 +530,7 @@ public partial class ComposeWindow : Window
     private void OnAddressLostFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         if (!SuggestList.IsKeyboardFocusWithin && !SuggestPopup.IsMouseOver) SuggestPopup.IsOpen = false;
+        if (!SuggestPopup.IsOpen && sender is TextBox box) RefreshRecipientChips(box);
     }
 
     private void AcceptSuggestion()

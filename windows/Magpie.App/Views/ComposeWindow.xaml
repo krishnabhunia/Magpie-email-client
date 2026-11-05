@@ -83,16 +83,28 @@
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Cc / Bcc" FontSize="12" Margin="10,0,0,0" Command="{Binding ShowCcCommand}"
                                 Visibility="{Binding ShowCcBcc, Converter={StaticResource InvBoolToVis}}" />
-                        <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas"
-                                 TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                        <StackPanel>
+                            <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" />
+                            <Button x:Name="ToEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit recipients" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas"
+                                     TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                        </StackPanel>
                     </DockPanel>
 
                     <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                             Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
+                        <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" />
+                        <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                        <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}"
+                                 TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    </StackPanel>
                     <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                             Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
+                        <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" />
+                        <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                        <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}"
+                                 TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    </StackPanel>
 
                     <TextBlock Grid.Row="4" Text="Subject" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                     <TextBox Grid.Row="4" Grid.Column="1" svc:Typography.Role="composeSubject" Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" />

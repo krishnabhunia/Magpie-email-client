@@ -57,4 +57,21 @@ public class Release1500Tests
         Assert.Equal("high", msg.Headers["Importance"]);
         Assert.Equal(account.Email, msg.Headers["Disposition-Notification-To"]);
     }
+
+    [Fact]
+    public void Delivery_options_survive_mime_draft_round_trip()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft
+        {
+            To = "client@example.com", ReplyTo = "replies@example.com", Priority = "Low",
+            RequestReadReceipt = true, Html = "<p>Report attached separately.</p>",
+        };
+        var message = Composer.Build(draft, account);
+        var restored = Composer.FromMime(message, account.Id, "thread");
+
+        Assert.Equal(draft.ReplyTo, restored.ReplyTo);
+        Assert.Equal(draft.Priority, restored.Priority);
+        Assert.True(restored.RequestReadReceipt);
+    }
 }

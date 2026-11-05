@@ -267,12 +267,12 @@ public static class Composer
         if (!string.IsNullOrWhiteSpace(d.InReplyTo)) msg.InReplyTo = d.InReplyTo.Trim().Trim('<', '>');
         foreach (var r in Threading.ParseReferences(d.References)) msg.References.Add(r);
         msg.Headers.Add("X-Mailer", "Magpie 1.0");
-        if (d.Priority.Equals("High", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(d.Priority, "High", StringComparison.OrdinalIgnoreCase))
         {
             msg.Headers.Add("X-Priority", "1 (Highest)");
             msg.Headers.Add("Importance", "high");
         }
-        else if (d.Priority.Equals("Low", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(d.Priority, "Low", StringComparison.OrdinalIgnoreCase))
         {
             msg.Headers.Add("X-Priority", "5 (Lowest)");
             msg.Headers.Add("Importance", "low");
@@ -417,6 +417,10 @@ public static class Composer
             Cc = FormatList(msg.Cc),
             Bcc = FormatList(msg.Bcc),
             Subject = msg.Subject ?? "",
+            ReplyTo = FormatList(msg.ReplyTo),
+            Priority = string.Equals(msg.Headers["Importance"], "high", StringComparison.OrdinalIgnoreCase) ? "High"
+                : string.Equals(msg.Headers["Importance"], "low", StringComparison.OrdinalIgnoreCase) ? "Low" : "Normal",
+            RequestReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
             InReplyTo = string.IsNullOrEmpty(msg.InReplyTo) ? "" : "<" + msg.InReplyTo + ">",
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,
