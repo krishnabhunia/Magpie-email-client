@@ -51,6 +51,7 @@ html.dark .magpie-quote a{color:#14606E}
 const ed = document.getElementById('ed');
 let saved = null;
 let selectedImage = null;
+let selectedTableCell = null;
 let rewrite = null;
 let typography = null;
 const protectedFonts = new WeakMap();
@@ -177,6 +178,47 @@ function resizeSelectedImage(percent){
   selectedImage.style.width=percent+'%';
   selectedImage.style.height='auto';
   selectedImage.style.maxWidth='100%';
+  post({t:'dirty'});return true;
+}
+function insertTableGrid(rows,cols){
+  if(!Number.isInteger(rows)||!Number.isInteger(cols)||rows<1||cols<1||rows>6||cols>6) return false;
+  const cells='<td style="border:1px solid #B8C0C8;padding:5px"><br></td>'.repeat(cols);
+  fmt('insertHTML','<table style="border-collapse:collapse"><tbody>'+('<tr>'+cells+'</tr>').repeat(rows)+'</tbody></table><p><br></p>');
+  return true;
+}
+ed.addEventListener('contextmenu',function(e){
+  const cell=e.target?.closest?.('td,th');
+  if(!cell||!ed.contains(cell)) return;
+  e.preventDefault();selectedTableCell=cell;post({t:'tableMenu'});
+});
+function editTable(action){
+  const cell=selectedTableCell;
+  if(!cell||!ed.contains(cell)) return false;
+  const row=cell.parentElement,table=cell.closest('table');
+  if(!row||!table||table.querySelector('[rowspan],[colspan]')) return false;
+  const rows=Array.from(table.rows),rowIndex=rows.indexOf(row),column=Array.from(row.cells).indexOf(cell);
+  if(rowIndex<0||column<0) return false;
+  if(action==='deleteTable') table.remove();
+  else if(action==='insertRowBefore'||action==='insertRowAfter'){
+    const created=row.cloneNode(false);
+    for(let i=0;i<row.cells.length;i++){const td=document.createElement('td');td.setAttribute('style','border:1px solid #B8C0C8;padding:5px');td.appendChild(document.createElement('br'));created.appendChild(td);}
+    row.parentNode.insertBefore(created,action==='insertRowBefore'?row:row.nextSibling);
+    selectedTableCell=created.cells[Math.min(column,created.cells.length-1)];
+  }
+  else if(action==='deleteRow'){
+    if(rows.length===1)table.remove();else row.remove();
+  }
+  else if(action==='insertColumnBefore'||action==='insertColumnAfter'){
+    for(const tr of rows){
+      const td=document.createElement('td');td.setAttribute('style','border:1px solid #B8C0C8;padding:5px');td.appendChild(document.createElement('br'));
+      const at=column+(action==='insertColumnAfter'?1:0);tr.insertBefore(td,tr.cells[at]||null);
+    }
+  }
+  else if(action==='deleteColumn'){
+    if(row.cells.length===1)table.remove();
+    else for(const tr of rows){if(tr.cells[column])tr.cells[column].remove();}
+  }
+  else return false;
   post({t:'dirty'});return true;
 }
 function currentWritingBlock(){

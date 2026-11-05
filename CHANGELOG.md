@@ -24,6 +24,7 @@
 - **Keyboard shortcut help.** Press Ctrl+/ in the editor or choose More → Keyboard shortcuts to see the available compose commands without leaving your draft.
 - **Find and replace message text.** Ctrl+F finds the next match and Ctrl+H adds Replace and Replace all. Case matching is optional; both the rich editor and plain-text fallback support the search panel.
 - **Fold quoted messages while replying.** Original reply/forward text starts collapsed and can be expanded with one click, including in Focus mode. Folding affects only the editor display; the full quote remains in the sent or saved HTML.
+- **Table picker and editing menu.** Insert a table from a 6-by-6 grid; right-click a table cell to add or remove rows or columns, or delete the table. Complex merged-cell tables are protected from these structural edits.
 - **Remember the compose-window size and position.** Reopening New message restores your last dimensions and monitor location when still on screen, otherwise starts near Magpie's main window.
 - **Account-aware attachment guidance.** Compose now compares estimated encoded size with a Gmail 25 MB / Microsoft 20 MB advisory threshold or an editable 1–100 MB value for custom IMAP/SMTP accounts; the warning does not claim to know the server's actual limit.
 - **Attach recent files.** The top and bottom Recent menus show up to 12 files you previously attached from this computer. The history is local-only, excludes missing files and is never synced with account settings.

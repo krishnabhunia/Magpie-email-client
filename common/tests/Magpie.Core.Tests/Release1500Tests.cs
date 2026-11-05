@@ -57,6 +57,9 @@ public class Release1500Tests
         Assert.Contains("post({t:'replace'})", EditorPage.Html);
         Assert.Contains("function toggleQuoteFold()", EditorPage.Html);
         Assert.Contains("ed.classList.toggle('quote-folded'", EditorPage.Html);
+        Assert.Contains("function insertTableGrid(rows,cols)", EditorPage.Html);
+        Assert.Contains("function editTable(action)", EditorPage.Html);
+        Assert.Contains("post({t:'tableMenu'})", EditorPage.Html);
     }
 
     [Fact]

@@ -413,11 +413,59 @@ public partial class ComposeWindow
         await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('fontSize', '{step}')");
     }
 
-    private async void OnInsertTable(object sender, RoutedEventArgs e)
+    private void OnInsertTable(object sender, RoutedEventArgs e)
     {
         if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
-        const string html = "<table border=\"1\" cellpadding=\"5\" style=\"border-collapse:collapse\"><tbody><tr><td>Item</td><td>Status</td></tr><tr><td><br></td><td><br></td></tr></tbody></table><p><br></p>";
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('insertHTML', {JsonSerializer.Serialize(html)})");
+        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
+        var label = new TextBlock { Text = "Choose table size (up to 6 × 6)", Margin = new Thickness(8, 4) };
+        menu.Items.Add(new MenuItem { Header = label, IsEnabled = false });
+        var grid = new UniformGrid { Columns = 6, Rows = 6, Margin = new Thickness(6) };
+        for (var rows = 1; rows <= 6; rows++)
+        for (var cols = 1; cols <= 6; cols++)
+        {
+            var rowCount = rows;
+            var columnCount = cols;
+            var square = new Button
+            {
+                Content = "▦", Width = 30, Height = 28, MinHeight = 28,
+                ToolTip = $"{rowCount} rows × {columnCount} columns",
+                Margin = new Thickness(1), Padding = new Thickness(0),
+            };
+            square.SetResourceReference(Control.BackgroundProperty, "Brush.Card.Background");
+            square.MouseEnter += (_, _) => label.Text = $"{rowCount} rows × {columnCount} columns";
+            square.Click += async (_, _) =>
+            {
+                menu.IsOpen = false;
+                await Editor.CoreWebView2.ExecuteScriptAsync($"insertTableGrid({rowCount},{columnCount})");
+            };
+            grid.Children.Add(square);
+        }
+        menu.Items.Add(new MenuItem { Header = grid, StaysOpenOnClick = true });
+        menu.IsOpen = true;
+    }
+
+    private void ShowTableContextMenu()
+    {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        var menu = new ContextMenu { PlacementTarget = Editor, Placement = PlacementMode.MousePoint };
+        foreach (var (label, command) in new[]
+                 {
+                     ("Insert row above", "insertRowBefore"), ("Insert row below", "insertRowAfter"),
+                     ("Delete row", "deleteRow"), ("Insert column to left", "insertColumnBefore"),
+                     ("Insert column to right", "insertColumnAfter"), ("Delete column", "deleteColumn"),
+                     ("Delete table", "deleteTable"),
+                 })
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += async (_, _) =>
+            {
+                var result = await Editor.CoreWebView2.ExecuteScriptAsync($"editTable({JsonSerializer.Serialize(command)})");
+                if (result != "true")
+                    Ui.Error("Edit table", "Choose a regular table cell (without merged rows or columns) and try again.", this);
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
     }
 
     private async void OnInsertImage(object sender, RoutedEventArgs e)
