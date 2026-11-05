@@ -235,8 +235,7 @@ public partial class ComposeWindow : Window
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
-        var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
-        _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
+        _plainProtectedTail = ProtectedTail(_vm.InitialHtml);
         PlainEditor.TextChanged += OnPlainChanged;
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
@@ -311,6 +310,13 @@ public partial class ComposeWindow : Window
                 await Editor.CoreWebView2.ExecuteScriptAsync(EditorPage.TypographyScript(AppServices.Engine.Config.Typography, _preserveDraftFormatting));
         }
         catch (Exception ex) { Log.Warn("editor typography: " + ex.Message); }
+    }
+
+    /// <summary>The signature + quoted part of <paramref name="html"/> as plain text (the plain editor never lets AI drafts or templates touch it).</summary>
+    private static string ProtectedTail(string html)
+    {
+        var protectedStart = Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
+        return protectedStart.Success ? MimeText.HtmlToText(html[protectedStart.Index..]).TrimStart() : "";
     }
 
     private string PlainNewText()
@@ -594,7 +600,11 @@ public partial class ComposeWindow : Window
 
     private void OnAddressLostFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (!SuggestList.IsKeyboardFocusWithin && !SuggestPopup.IsMouseOver) CloseSuggestions();
+        if (SuggestList.IsKeyboardFocusWithin || SuggestPopup.IsMouseOver) return;   // picking a suggestion: the pick replaces the typed text
+        var wasOpen = SuggestPopup.IsOpen;
+        CloseSuggestions();
+        // The box skipped its own commit while the list was open; the focus went elsewhere, so commit now.
+        if (wasOpen && sender is TextBox input) BoxOf(input)?.CommitInput();
     }
 
     /// <summary>Design CW1 (A1): the picked person becomes a chip in the field the user was typing in.</summary>

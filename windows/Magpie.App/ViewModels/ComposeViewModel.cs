@@ -435,7 +435,7 @@ public partial class ComposeViewModel : ObservableObject
                 if (when != null) vm.ShowScheduled(id, sendAt, Subject);
                 else vm.ShowUndo(id, undo, Subject);
                 // Design CW1 (D6): Send & Archive — the conversation is archived once the undo window has passed, unless Undo was clicked.
-                if (ArchiveAfterSend is { } arc && when == null) vm.ArchiveAfterUndo(id, undo, arc.AccountId, arc.ThreadKey);
+                if (ArchiveAfterSend is { } arc && when == null) vm.ArchiveAfterUndo(id, undo, arc.AccountId, arc.ThreadKey, vm.ArchiveFoldersFor(arc.AccountId));
             }
             CloseRequested?.Invoke();
         }

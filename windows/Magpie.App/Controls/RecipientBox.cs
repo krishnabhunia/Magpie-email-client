@@ -63,7 +63,8 @@ public sealed class RecipientBox : Border
         Input.SetResourceReference(TextBox.ForegroundProperty, "Brush.Text.Primary");
         Input.TextChanged += (_, _) => { if (!_updating) { CommitSeparated(); PushText(); } };
         Input.PreviewKeyDown += OnInputKey;
-        Input.LostKeyboardFocus += (_, _) => { if (!_updating) CommitInput(); };
+        // Leaving the field commits what was typed — unless the focus went to the suggestion list (the pick replaces the typed text).
+        Input.LostKeyboardFocus += (_, _) => { if (!_updating && !SuggestionsOpen) CommitInput(); };
         _placeholder = new TextBlock { IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
         _placeholder.SetResourceReference(TextBlock.ForegroundProperty, "Brush.Text.Tertiary");
         var grid = new Grid();
