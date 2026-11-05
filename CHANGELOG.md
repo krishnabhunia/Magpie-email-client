@@ -29,6 +29,7 @@
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, paste without formatting, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.
+- **Move recipients between To, Cc and Bcc.** Drag a reviewed recipient chip onto another address field; Cc/Bcc appear during the drag, names are preserved, duplicates are avoided, and invalid addresses elsewhere are never silently dropped.
 - **Choose from Contacts.** Use the new picker next to To, Cc or Bcc to search saved and recent contacts, select several people at once, or add an entire saved contact group; duplicates are skipped.
 - **Paste attachments.** Copy files from File Explorer and attach them from Studio, or save and attach a clipboard screenshot; the screenshot location is chosen by you so it remains available for reopening drafts.
 - **Rename and rearrange attachments.** Edit an outgoing filename without changing the file stored on your PC; move any file earlier or later. The chosen names and order survive saving a draft and reopening it.

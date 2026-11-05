@@ -82,6 +82,30 @@ public static partial class ComposeSafety
         return (visible.FirstOrDefault()?.ToString() ?? "", "", string.Join(", ", privateRecipients.Select(a => a.ToString())));
     }
 
+    /// <summary>Move one address between recipient rows without losing display names or invalid input.</summary>
+    public static (string To, string Cc, string Bcc, bool Moved) MoveRecipientBetweenFields(
+        string to, string cc, string bcc, string address, string source, string destination)
+    {
+        if (source == destination || source is not ("to" or "cc" or "bcc")
+            || destination is not ("to" or "cc" or "bcc") || string.IsNullOrWhiteSpace(address)
+            || Composer.InvalidAddresses(to).Count > 0 || Composer.InvalidAddresses(cc).Count > 0
+            || Composer.InvalidAddresses(bcc).Count > 0)
+            return (to, cc, bcc, false);
+
+        var fields = new Dictionary<string, List<MimeKit.MailboxAddress>>(StringComparer.Ordinal)
+        {
+            ["to"] = Composer.ParseAddresses(to).Mailboxes.ToList(),
+            ["cc"] = Composer.ParseAddresses(cc).Mailboxes.ToList(),
+            ["bcc"] = Composer.ParseAddresses(bcc).Mailboxes.ToList(),
+        };
+        var current = fields[source].FirstOrDefault(item => item.Address.Equals(address, StringComparison.OrdinalIgnoreCase));
+        if (current == null) return (to, cc, bcc, false);
+        fields[source].RemoveAll(item => item.Address.Equals(address, StringComparison.OrdinalIgnoreCase));
+        if (!fields[destination].Any(item => item.Address.Equals(address, StringComparison.OrdinalIgnoreCase)))
+            fields[destination].Add(current);
+        return (Composer.FormatList(fields["to"]), Composer.FormatList(fields["cc"]), Composer.FormatList(fields["bcc"]), true);
+    }
+
     /// <summary>Recipients outside the From account's domain; used only when the sender opts into a warning.</summary>
     public static IReadOnlyList<string> ExternalRecipients(string senderAddress, string to, string cc, string bcc)
     {

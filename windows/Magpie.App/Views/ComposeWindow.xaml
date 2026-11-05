@@ -84,34 +84,34 @@
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Cc / Bcc" FontSize="12" Margin="10,0,0,0" Command="{Binding ShowCcCommand}"
                                 Visibility="{Binding ShowCcBcc, Converter={StaticResource InvBoolToVis}}" />
                         <StackPanel>
-                            <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" />
+                            <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                                 <Button x:Name="ToEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit recipients" Visibility="Collapsed" Click="OnEditRecipients" />
                                 <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="to" Click="OnPickContacts" Margin="8,0,0,0" ToolTip="Select one or more people or a saved contact group" />
                             </StackPanel>
-                        <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas" AutomationProperties.Name="To recipients" AutomationProperties.HelpText="Type recipient addresses separated by commas"
+                        <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas" AutomationProperties.Name="To recipients" AutomationProperties.HelpText="Type recipient addresses separated by commas" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
                                      TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                         </StackPanel>
                     </DockPanel>
 
                     <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
                     <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
-                        <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" />
+                        <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" Visibility="Collapsed" Click="OnEditRecipients" />
                             <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="cc" Click="OnPickContacts" Margin="8,0,0,0" />
                         </StackPanel>
-                        <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Cc recipients"
+                        <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Cc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </StackPanel>
                     <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
                     <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
-                        <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" />
+                        <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" Visibility="Collapsed" Click="OnEditRecipients" />
                             <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="bcc" Click="OnPickContacts" Margin="8,0,0,0" />
                         </StackPanel>
-                        <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Bcc recipients"
+                        <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Bcc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </StackPanel>
 

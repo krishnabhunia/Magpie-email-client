@@ -99,6 +99,35 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Dragging_a_recipient_between_fields_preserves_name_and_does_not_duplicate()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("Ananya <a@example.com>, b@example.com", "manager@example.com",
+            "private@example.com", "a@example.com", "to", "bcc");
+        Assert.True(result.Moved);
+        Assert.Equal("b@example.com", Composer.ParseAddresses(result.To).Mailboxes.Single().Address);
+        Assert.Equal("manager@example.com", Composer.ParseAddresses(result.Cc).Mailboxes.Single().Address);
+        Assert.Contains(Composer.ParseAddresses(result.Bcc).Mailboxes, mailbox => mailbox.Address == "a@example.com" && mailbox.Name == "Ananya");
+
+        var repeated = ComposeSafety.MoveRecipientBetweenFields(result.To, result.Cc, result.Bcc,
+            "manager@example.com", "cc", "bcc");
+        Assert.True(repeated.Moved);
+        var duplicate = ComposeSafety.MoveRecipientBetweenFields(repeated.To, repeated.Cc, repeated.Bcc,
+            "a@example.com", "bcc", "to");
+        Assert.True(duplicate.Moved);
+        Assert.Single(Composer.ParseAddresses(duplicate.To).Mailboxes, m => m.Address == "a@example.com");
+    }
+
+    [Fact]
+    public void Dragging_recipients_never_discards_invalid_address_text()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("valid@example.com", "not-an-address", "",
+            "valid@example.com", "to", "bcc");
+        Assert.False(result.Moved);
+        Assert.Equal("not-an-address", result.Cc);
+        Assert.Equal("valid@example.com", result.To);
+    }
+
+    [Fact]
     public void Saved_quick_templates_remain_available_after_settings_serialization()
     {
         var templates = new List<Magpie.Core.Settings.QuickTemplate>

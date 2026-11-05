@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Magpie.Core.Mail;
 using Magpie.App.Services;
 using MimeKit;
@@ -12,6 +13,64 @@ namespace Magpie.App.Views;
 /// </summary>
 public partial class ComposeWindow
 {
+    private const string ComposeRecipientDragFormat = "Magpie.Compose.RecipientChip";
+    private readonly Guid _recipientDragOwner = Guid.NewGuid();
+    private Point? _recipientDragStart;
+    private sealed record RecipientChipDrag(Guid Owner, string Source, string Address);
+
+    private string? RecipientField(object sender) =>
+        ReferenceEquals(sender, ToBox) || ReferenceEquals(sender, ToChipPanel) ? "to" :
+        ReferenceEquals(sender, CcBox) || ReferenceEquals(sender, CcChipPanel) ? "cc" :
+        ReferenceEquals(sender, BccBox) || ReferenceEquals(sender, BccChipPanel) ? "bcc" : null;
+
+    private void OnRecipientChipDragStart(object sender, MouseButtonEventArgs e)
+    {
+        _recipientDragStart = e.GetPosition(this);
+    }
+
+    private void OnRecipientChipDragMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _recipientDragStart is not { } origin
+            || sender is not Border { Tag: RecipientChipDrag chip }) return;
+        var current = e.GetPosition(this);
+        if (Math.Abs(current.X - origin.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(current.Y - origin.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        _recipientDragStart = null;
+        _vm.ShowCcBcc = true; // Make both drop targets visible before dragging.
+        var data = new DataObject(ComposeRecipientDragFormat, chip);
+        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Move);
+    }
+
+    private void OnRecipientDragOver(object sender, DragEventArgs e)
+    {
+        var target = RecipientField(sender);
+        var chip = e.Data.GetDataPresent(ComposeRecipientDragFormat)
+            ? e.Data.GetData(ComposeRecipientDragFormat) as RecipientChipDrag : null;
+        e.Effects = chip is { Owner: var owner } && owner == _recipientDragOwner && target != null && target != chip.Source
+            ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnRecipientDrop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        var target = RecipientField(sender);
+        if (target == null || !e.Data.GetDataPresent(ComposeRecipientDragFormat)
+            || e.Data.GetData(ComposeRecipientDragFormat) is not RecipientChipDrag chip
+            || chip.Owner != _recipientDragOwner || chip.Source == target) return;
+        var result = ComposeSafety.MoveRecipientBetweenFields(_vm.To, _vm.Cc, _vm.Bcc,
+            chip.Address, chip.Source, target);
+        if (!result.Moved)
+        {
+            Ui.Error("Move recipient", "Check the recipient fields for invalid addresses, then try again.", this);
+            return;
+        }
+        _vm.To = result.To;
+        _vm.Cc = result.Cc;
+        _vm.Bcc = result.Bcc;
+        RefreshAllRecipientChips();
+    }
+
     private void RefreshAllRecipientChips()
     {
         RefreshRecipientChips(ToBox);
@@ -54,7 +113,11 @@ public partial class ComposeWindow
                 CornerRadius = new CornerRadius(13),
                 Padding = new Thickness(8, 3, 4, 3),
                 Margin = new Thickness(0, 0, 5, 4),
+                Tag = new RecipientChipDrag(_recipientDragOwner, ReferenceEquals(box, ToBox) ? "to" : ReferenceEquals(box, CcBox) ? "cc" : "bcc", address),
+                ToolTip = "Drag to To, Cc or Bcc · " + address,
             };
+            border.PreviewMouseLeftButtonDown += OnRecipientChipDragStart;
+            border.PreviewMouseMove += OnRecipientChipDragMove;
             border.SetResourceReference(Border.BackgroundProperty, "Brush.Badge.Local.Background");
             var line = new StackPanel { Orientation = Orientation.Horizontal };
             var label = new TextBlock
