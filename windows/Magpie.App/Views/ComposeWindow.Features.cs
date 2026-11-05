@@ -579,9 +579,10 @@ public partial class ComposeWindow
     private void ShowMentions(JsonElement root)
     {
         var q = root.TryGetProperty("q", out var qv) ? qv.GetString() ?? "" : "";
-        if (q.Length < 2) { MentionPopup.IsOpen = false; return; }
+        if (q.Length < 2) { MentionPopup.IsOpen = false; Script("setMentionOpen(false)"); return; }
         var hits = AppServices.Engine.Contacts.Suggest(q);
-        if (hits.Count == 0) { MentionPopup.IsOpen = false; return; }
+        if (hits.Count == 0) { MentionPopup.IsOpen = false; Script("setMentionOpen(false)"); return; }
+        Script("setMentionOpen(true)");
         MentionList.ItemsSource = hits;
         MentionList.SelectedIndex = 0;
         MentionPopup.HorizontalOffset = root.GetProperty("x").GetDouble();
@@ -593,7 +594,7 @@ public partial class ComposeWindow
 
     private void AcceptMention()
     {
-        if (MentionList.SelectedItem is not ContactSuggestion c) { MentionPopup.IsOpen = false; return; }
+        if (MentionList.SelectedItem is not ContactSuggestion c) { MentionPopup.IsOpen = false; Script("setMentionOpen(false)"); return; }
         MentionPopup.IsOpen = false;
         Script($"mention({JsonSerializer.Serialize(c.Label)}, {JsonSerializer.Serialize(c.Address)})");
         if (_vm.AddMention(c.Name, c.Address)) _vm.Status = $"{c.Label} added to To";
@@ -727,7 +728,7 @@ public partial class ComposeWindow
         var (id, _) = ComposeChoiceDialog.Ask(this, "Discard this message?", "It is removed from Drafts and from this PC. This cannot be undone.",
             new[] { new ComposeChoiceDialog.Choice("Keep editing", "keep", Cancel: true), new ComposeChoiceDialog.Choice("Discard", "discard", Danger: true) });
         if (id != "discard") return;
-        if (await _vm.DiscardAsync()) { _forceClose = true; Close(); }
+        if (await _vm.DiscardForeverAsync()) { _forceClose = true; Close(); }
     }
 
     /// <summary>B16: rich text ↔ plain text. The plain editor is the same one used when WebView2 is missing.</summary>
@@ -750,7 +751,7 @@ public partial class ComposeWindow
             Editor.Visibility = Visibility.Collapsed;
             PlainEditor.Visibility = Visibility.Visible;
             PlainEditor.Text = MimeText.HtmlToText(html);
-            _plainProtectedTail = "";
+            _plainProtectedTail = ProtectedTail(html);   // the signature and quote stay protected in the plain editor too
             PlainEditor.TextChanged -= OnPlainChanged;
             PlainEditor.TextChanged += OnPlainChanged;
             await ApplyEditorTypographyAsync();
@@ -895,7 +896,7 @@ public partial class ComposeWindow
             case "mentiondown": if (MentionPopup.IsOpen) MentionList.SelectedIndex = Math.Min(MentionList.Items.Count - 1, MentionList.SelectedIndex + 1); break;
             case "mentionup": if (MentionPopup.IsOpen) MentionList.SelectedIndex = Math.Max(0, MentionList.SelectedIndex - 1); break;
             case "escape":
-                if (MentionPopup.IsOpen) MentionPopup.IsOpen = false;
+                if (MentionPopup.IsOpen) { MentionPopup.IsOpen = false; Script("setMentionOpen(false)"); }
                 else if (LinkBubble.IsOpen || PictureBubble.IsOpen) { LinkBubble.IsOpen = false; PictureBubble.IsOpen = false; }
                 else if (_vm.AiPanelOpen) _vm.AiPanelOpen = false;
                 else Close();

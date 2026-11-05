@@ -105,6 +105,8 @@ public partial class EditableAccount : ObservableObject
         get => SelectedSignature?.Html ?? _signatureHtml;
         set
         {
+            // An account whose signature was cleared has no entries: the first edit (editor, Gmail import, default) creates one.
+            if (SelectedSignature == null && !string.IsNullOrWhiteSpace(value)) AddSignature();
             if (SelectedSignature != null) SelectedSignature.Html = value ?? "";
             else _signatureHtml = value ?? "";
             OnPropertyChanged(nameof(SignatureHtml));

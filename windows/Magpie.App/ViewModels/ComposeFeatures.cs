@@ -144,7 +144,7 @@ public partial class ComposeViewModel
             var ext = type.Split('/')[1].Split('+')[0];
             var dir = Path.Combine(_e.Paths.MailRoot, "attachments-pasted");
             Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, "picture-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "." + ext);
+            var path = Path.Combine(dir, "picture-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6] + "." + ext);
             File.WriteAllBytes(path, Convert.FromBase64String(dataUri[(comma + 1)..]));
             Attachments.Add(new AttachmentItem { Path = path });
             MarkEdited();
@@ -241,7 +241,8 @@ public partial class ComposeViewModel
 
     public bool CanSendAndArchive => (IsReply || _draft.Mode == ComposeMode.Forward) && !string.IsNullOrEmpty(_draft.ThreadKey);
 
-    /// <summary>The thread to archive once the undo window has passed (set for Send &amp; Archive).</summary>
+    /// <summary>The thread to archive once the undo window has passed (set for Send &amp; Archive). The folders to archive from are
+    /// decided when Send is pressed (the view the user replied from), not when the timer fires.</summary>
     public (string AccountId, string ThreadKey)? ArchiveAfterSend { get; private set; }
 
     public Task SendAndArchiveAsync()
@@ -249,6 +250,36 @@ public partial class ComposeViewModel
         if (!CanSendAndArchive) return SendAsync(null, null);
         ArchiveAfterSend = (_draft.AccountId, _draft.ThreadKey);
         return SendAsync(null, null);
+    }
+
+    /// <summary>
+    /// D7: the footer's Discard — unlike closing without saving, this removes the message everywhere: the copy on this PC
+    /// and the server draft it was opened from. Nothing is put back. False if that failed (the window stays open).
+    /// </summary>
+    public async Task<bool> DiscardForeverAsync()
+    {
+        await SettleAutosaveAsync(stop: true);
+        await _saveGate.WaitAsync();
+        try
+        {
+            if (_queued) return true;
+            ReleaseClaim();
+            foreach (var id in new[] { _draft.LocalDraftId, _openedFrom?.Id }.Where(x => x != null).Select(x => x!.Value).Distinct())
+                _e.DeleteLocalDraft(id);
+            _draft.LocalDraftId = null;
+            _openedFrom = null;
+            if (_draft.SourceDraftRow is { } row) { _e.DeleteDraft(row); _draft.SourceDraftRow = null; }
+            Dirty = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("discard", ex);
+            Ui.Error("Discard", "Magpie couldn't remove this draft, so the window stays open:\n\n" + ex.Message);
+            Reopen();
+            return false;
+        }
+        finally { _saveGate.Release(); }
     }
 
     /// <summary>D9: the message as a .eml file.</summary>
