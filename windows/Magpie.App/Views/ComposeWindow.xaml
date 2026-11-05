@@ -85,7 +85,10 @@
                                 Visibility="{Binding ShowCcBcc, Converter={StaticResource InvBoolToVis}}" />
                         <StackPanel>
                             <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" />
-                            <Button x:Name="ToEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit recipients" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button x:Name="ToEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit recipients" Visibility="Collapsed" Click="OnEditRecipients" />
+                                <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="to" Click="OnPickContacts" Margin="8,0,0,0" ToolTip="Select one or more people or a saved contact group" />
+                            </StackPanel>
                             <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas"
                                      TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                         </StackPanel>
@@ -94,14 +97,20 @@
                     <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
                     <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
                         <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" />
-                        <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="cc" Click="OnPickContacts" Margin="8,0,0,0" />
+                        </StackPanel>
                         <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </StackPanel>
                     <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
                     <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
                         <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" />
-                        <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnEditRecipients" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="bcc" Click="OnPickContacts" Margin="8,0,0,0" />
+                        </StackPanel>
                         <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </StackPanel>

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using Magpie.Core.Mail;
+using Magpie.App.Services;
+using MimeKit;
 
 namespace Magpie.App.Views;
 
@@ -98,5 +100,35 @@ public partial class ComposeWindow
         box.Visibility = Visibility.Visible;
         box.Focus();
         box.CaretIndex = box.Text.Length;
+    }
+
+    private void OnPickContacts(object sender, RoutedEventArgs e)
+    {
+        var box = (sender as FrameworkElement)?.Tag switch
+        {
+            "to" => ToBox,
+            "cc" => CcBox,
+            "bcc" => BccBox,
+            _ => null,
+        };
+        if (box == null) return;
+        var picked = ComposeContactPicker.Pick(this);
+        if (picked.Count == 0) return;
+        var seen = Composer.ParseAddresses(box.Text).Mailboxes.Select(mailbox => mailbox.Address)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var valid = new List<string>();
+        var invalid = 0;
+        foreach (var contact in picked)
+        {
+            if (Composer.InvalidAddresses(contact.Email).Count > 0) { invalid++; continue; }
+            if (!seen.Add(contact.Email)) continue;
+            valid.Add(new MailboxAddress(contact.Name, contact.Email).ToString());
+        }
+        if (invalid > 0)
+            Ui.Error("Contacts", $"{invalid} contact address(es) are invalid and were not added.", this);
+        if (valid.Count == 0) return;
+        var existingText = box.Text.Trim().TrimEnd(',', ';');
+        box.Text = existingText.Length == 0 ? string.Join(", ", valid) : existingText + ", " + string.Join(", ", valid);
+        RefreshRecipientChips(box);
     }
 }

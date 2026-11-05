@@ -1,4 +1,5 @@
 using Magpie.Core.Mail;
+using Magpie.Core.Contacts;
 using Magpie.Core.Models;
 using MimeKit;
 
@@ -139,5 +140,22 @@ public class Release1500Tests
             if (File.Exists(first)) File.Delete(first);
             if (File.Exists(second)) File.Delete(second);
         }
+    }
+
+    [Fact]
+    public void Contact_picker_groups_include_only_group_members()
+    {
+        var saved = new List<SavedContact>
+        {
+            new() { Id = 1, Name = "Ananya", Emails = new() { "ananya@example.com" }, Groups = new() { "Finance" } },
+            new() { Id = 2, Name = "Meera", Emails = new() { "meera@example.com" }, Groups = new() { "Finance", "Project" } },
+            new() { Id = 3, Name = "Rahul", Emails = new() { "rahul@example.com" }, Groups = new() { "Project" } },
+        };
+        var people = new List<(string Address, string Name, int Count, DateTimeOffset Last, bool Sent)>();
+        var entries = ContactSuggest.Entries(saved, people);
+        var groups = ContactSuggest.Groups(entries);
+
+        Assert.Equal(new[] { "Finance", "Project" }, groups.Select(group => group.Group));
+        Assert.Equal(new[] { "Ananya", "Meera" }, groups.Single(group => group.Group == "Finance").Members.Select(member => member.Name));
     }
 }
