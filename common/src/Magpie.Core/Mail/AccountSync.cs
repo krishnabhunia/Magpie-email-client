@@ -107,6 +107,7 @@ public sealed class AccountSync : IDisposable
     {
         "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted", "X-Mailer", "Feedback-ID", "X-Campaign",
         "X-CampaignID", "X-Mailgun-Tag", "X-MC-User", "X-SG-EID", Settings.AccountsCopy.Header,
+        "X-Priority", "Importance", "X-MSMail-Priority",
     };
 
     public Account Account { get; private set; }
@@ -834,7 +835,8 @@ public sealed class AccountSync : IDisposable
             Preview = MimeText.Preview(s.PreviewText ?? ""),
             Date = date,
             SortDate = date,
-            Flags = s.Flags is { } fl ? Merge(MFlags.None, fl) : MFlags.None,
+            Flags = (s.Flags is { } fl ? Merge(MFlags.None, fl) : MFlags.None)
+                    | (Composer.IsHighPriority(H("X-Priority"), H("Importance"), H("X-MSMail-Priority")) ? MFlags.HighPriority : MFlags.None),
             HasAttachments = s.Attachments?.Any() == true,
             Size = s.Size ?? 0,
             Category = category,

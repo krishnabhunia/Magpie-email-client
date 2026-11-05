@@ -3,7 +3,8 @@ namespace Magpie.Core.Models;
 public enum FolderRole { Other = 0, Inbox = 1, Sent = 2, Drafts = 3, Trash = 4, Junk = 5, Archive = 6, All = 7, Flagged = 8, Important = 9 }
 
 [Flags]
-public enum MessageFlags { None = 0, Seen = 1, Flagged = 2, Answered = 4, Draft = 8, Deleted = 16 }
+/// <summary>IMAP flags, plus <see cref="HighPriority"/> (design CW1, D1): the sender marked the email High / urgent — kept across flag updates.</summary>
+public enum MessageFlags { None = 0, Seen = 1, Flagged = 2, Answered = 4, Draft = 8, Deleted = 16, HighPriority = 32 }
 
 /// <summary>Spark-style smart inbox buckets.</summary>
 public enum Category { People = 0, Notifications = 1, Newsletters = 2 }
