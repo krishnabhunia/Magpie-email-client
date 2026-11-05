@@ -116,6 +116,7 @@
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
+                    <Button Style="{StaticResource Button.TitleBar}" Content="&#xE946;" Click="OnWhatsNew" ToolTip="What's New — full implementation details for the installed release" AutomationProperties.Name="What's New" />
                     <!-- Only a newer GitHub release shows this action; Settings keeps manual update checking available. -->
                     <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
                         <Grid.Style>
