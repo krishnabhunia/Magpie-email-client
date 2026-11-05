@@ -1,0 +1,570 @@
+<title>Magpie Compose Window</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: Magpie design-board language (SP1 / AW1 / FR1) — header + tabs, one framed board per screen; the compose window is one reusable mock (.cw) with its own light/dark tokens. */
+:root{
+  --bg:#ecebe6; --board:#f7f6f2; --panel:#ffffff; --line:#dcd8cf; --line2:#e8e5de;
+  --text:#20272c; --muted:#626972; --faint:#8a9097;
+  --teal:#14606e; --teal-ink:#ffffff; --tealsoft:#e6eff0;
+  --purple:#4b3f86; --purplesoft:#f1eef9; --purpleline:#d9d2ef;
+  --warn:#87541d; --warnbg:#fff3dc; --success:#256745; --successbg:#e5f2ea; --error:#a4313d; --errorbg:#fbe9e7;
+  --chrome:#13181c; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(20,30,40,.06),0 8px 24px rgba(20,30,40,.06);
+  /* Magpie's own app colours (Light.xaml / Dark.xaml) — what the window will really use */
+  --l-bg:#ffffff; --l-side:#f7f6f2; --l-text:#23282e; --l-muted:#5a6068; --l-faint:#9aa0a6; --l-line:#dcd8cf; --l-accent:#14606e; --l-accent-ink:#fff; --l-soft:#dfe9e9; --l-ai:#4b3f86; --l-aisoft:#f1eef9; --l-danger:#b3261e; --l-dangersoft:#fbe9e7; --l-warn:#87541d; --l-warnsoft:#fff3dc; --l-chip:#eef0ee; --l-title:#14181c; --l-title-ink:#f1efe9;
+  --d-bg:#1e2428; --d-side:#171c20; --d-text:#e4e8ea; --d-muted:#a2abb2; --d-faint:#6f7780; --d-line:#323a40; --d-accent:#4fa6b5; --d-accent-ink:#08191c; --d-soft:#1d3338; --d-ai:#b3a6ee; --d-aisoft:#262340; --d-danger:#f08a94; --d-dangersoft:#3a1f22; --d-warn:#e7b26b; --d-warnsoft:#33281a; --d-chip:#2a3136; --d-title:#0b0e10; --d-title-ink:#e9ecee;
+  --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --f-ui:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94; --errorbg:#3a1f22;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111518; --board:#171c20; --panel:#1e2428; --line:#323a40; --line2:#2a3136;
+  --text:#e4e8ea; --muted:#a2abb2; --faint:#7d868d;
+  --teal:#4fa6b5; --teal-ink:#08191c; --tealsoft:#1d3338;
+  --purple:#b3a6ee; --purplesoft:#262340; --purpleline:#3b3566;
+  --warn:#e7b26b; --warnbg:#33281a; --success:#7fcf9d; --successbg:#1c3226; --error:#f08a94; --errorbg:#3a1f22;
+  --chrome:#0b0e10; --chrome-ink:#e9ecee; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--f-ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px;margin:0}
+.wrap{max-width:1280px;margin:0 auto;display:grid;gap:14px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+h1,h2,h3,h4{text-wrap:balance;margin:0}
+h1{font:600 24px/1.2 var(--f-display)} h2{font:600 22px/1.25 var(--f-display)} h3{font:600 15px/1.3 var(--f-ui)} h4{font:600 13px/1.3 var(--f-ui)}
+p{margin:0}
+code{font:12px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-top:6px}
+.mark{width:28px;height:28px;border-radius:7px;background:var(--chrome);color:#fff;display:grid;place-items:center;font:600 15px var(--f-display)}
+.stamp{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--board);white-space:nowrap}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:var(--board);padding:9px 14px;border-radius:4px;cursor:pointer;display:flex;gap:9px;align-items:center;color:var(--text)}
+.tab small{font:500 11px var(--f-mono);color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--teal);color:var(--teal-ink);border-color:var(--teal)}
+.tab[aria-selected="true"] small{color:inherit;opacity:.8}
+.win{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--board);box-shadow:var(--shadow)}
+.chrome{background:var(--chrome);color:var(--chrome-ink);display:flex;justify-content:space-between;align-items:center;padding:9px 16px;font-size:12.5px;gap:10px}
+.chrome .ap{font:600 16px var(--f-display)} .chrome .ap small{font:400 11px var(--f-ui);opacity:.7;margin-left:8px}
+.screen{padding:22px 26px 26px;display:grid;gap:18px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.head p{margin-top:6px;color:var(--muted);max-width:78ch}
+.qtag{font:500 11px var(--f-mono);background:var(--purplesoft);color:var(--purple);padding:4px 8px;border-radius:4px;white-space:nowrap}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;border-right:1px solid var(--line);background:transparent;padding:6px 12px;cursor:pointer;font-size:12.5px}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--teal);color:var(--teal-ink);font-weight:600}
+.small{font-size:12px;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+.notes{padding:14px 16px;display:grid;gap:12px}
+.notes ul{margin:4px 0 0;padding-left:18px} .notes li{margin:2px 0}
+.pc h3{display:flex;align-items:center;gap:8px}
+.pc.good h3::before,.pc.bad h3::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--success)} .pc.bad h3::before{background:var(--warn)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:start}
+.spec{padding:14px 16px;display:grid;gap:8px}
+.spec .id{font:500 11px var(--f-mono);color:var(--purple);background:var(--purplesoft);padding:2px 6px;border-radius:3px;margin-right:6px}
+.spec p{color:var(--muted);font-size:13px}
+.pill{display:inline-block;font:500 11px var(--f-mono);padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.in{background:var(--successbg);color:var(--success);border-color:transparent} .pill.out{background:var(--warnbg);color:var(--warn);border-color:transparent} .pill.part{background:var(--purplesoft);color:var(--purple);border-color:transparent}
+table{border-collapse:collapse;width:100%;font-size:13px} th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line2);vertical-align:top} th{font-weight:600;color:var(--muted);font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+.tablewrap{overflow-x:auto}
+kbd{font:11.5px var(--f-mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;background:var(--panel)}
+
+/* ─────────── The compose window mock (.cw) ─────────── */
+.cw{--w-bg:var(--l-bg);--w-side:var(--l-side);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-faint:var(--l-faint);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink);--w-soft:var(--l-soft);--w-ai:var(--l-ai);--w-aisoft:var(--l-aisoft);--w-danger:var(--l-danger);--w-dangersoft:var(--l-dangersoft);--w-warn:var(--l-warn);--w-warnsoft:var(--l-warnsoft);--w-chip:var(--l-chip);--w-title:var(--l-title);--w-title-ink:var(--l-title-ink);
+  background:var(--w-bg);color:var(--w-text);border:1px solid var(--w-line);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;min-width:0}
+.cw.dark{--w-bg:var(--d-bg);--w-side:var(--d-side);--w-text:var(--d-text);--w-muted:var(--d-muted);--w-faint:var(--d-faint);--w-line:var(--d-line);--w-accent:var(--d-accent);--w-accent-ink:var(--d-accent-ink);--w-soft:var(--d-soft);--w-ai:var(--d-ai);--w-aisoft:var(--d-aisoft);--w-danger:var(--d-danger);--w-dangersoft:var(--d-dangersoft);--w-warn:var(--d-warn);--w-warnsoft:var(--d-warnsoft);--w-chip:var(--d-chip);--w-title:var(--d-title);--w-title-ink:var(--d-title-ink)}
+.cw-title{background:var(--w-title);color:var(--w-title-ink);display:flex;align-items:center;justify-content:space-between;padding:0 0 0 14px;height:38px;font-size:11.5px}
+.cw-title b{font:600 14px var(--f-display);margin-right:12px} .cw-title span{opacity:.75}
+.cw-title .wc{display:flex} .cw-title .wc i{display:grid;place-items:center;width:44px;height:38px;font-style:normal;font-size:11px;opacity:.85}
+.cw-hdr{display:grid;grid-template-columns:62px 1fr;gap:6px 0;padding:12px 18px 8px;align-items:center}
+.cw-hdr label{color:var(--w-muted);font-size:12px}
+.fld{border:1px solid var(--w-line);border-radius:6px;min-height:32px;padding:3px 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--w-bg)}
+.fld.focus{border-color:var(--w-accent);box-shadow:0 0 0 2px var(--w-soft)}
+.fld .ph{color:var(--w-faint)}
+.fld .links{margin-left:auto;display:flex;gap:12px;color:var(--w-accent);font-size:12px;white-space:nowrap}
+.fld .links .on{color:var(--w-faint);text-decoration:line-through}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--w-chip);border:1px solid transparent;border-radius:999px;padding:2px 4px 2px 3px;font-size:12.5px;max-width:100%}
+.chip .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:600 10px var(--f-ui);color:#fff}
+.chip .x{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;color:var(--w-muted)}
+.chip.bad{background:var(--w-dangersoft);border-color:var(--w-danger);color:var(--w-danger)} .chip.bad .av{background:var(--w-danger);font-weight:700}
+.chip.ext{border-color:var(--w-line)}
+.chip.drag{box-shadow:0 6px 16px rgba(0,0,0,.18);transform:rotate(-2deg);border-color:var(--w-accent)}
+.cw-tb{display:flex;align-items:center;gap:2px;padding:4px 12px;border-top:1px solid var(--w-line);border-bottom:1px solid var(--w-line);flex-wrap:wrap}
+.tbb{min-width:28px;height:28px;border-radius:4px;display:inline-grid;place-items:center;padding:0 5px;font-size:13px;color:var(--w-text);border:1px solid transparent}
+.tbb.on{background:var(--w-soft);border-color:var(--w-accent)} .tbb.dis{opacity:.4}
+.tbb svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tbd{height:28px;border:1px solid var(--w-line);border-radius:4px;display:inline-flex;align-items:center;gap:8px;padding:0 8px;font-size:12.5px;white-space:nowrap} .tbd::after{content:"▾";font-size:10px;color:var(--w-muted)}
+.sep{width:1px;height:18px;background:var(--w-line);margin:0 5px}
+.swatch{width:14px;height:4px;border-radius:1px;display:block;margin-top:-2px}
+.cw-ed{padding:14px 20px 26px;min-height:200px;line-height:1.6;font-size:14px}
+.cw-ed p{margin:0 0 .6em} .cw-ed .sig{color:var(--w-muted);margin-top:14px} .cw-ed .sig b{color:var(--w-text)}
+.cw-ed .caret{display:inline-block;width:1px;height:16px;background:var(--w-text);vertical-align:-3px;margin-left:1px}
+.cw-ed .sel{background:var(--w-soft);outline:1px solid var(--w-accent)}
+.cw-ed table{width:auto;font-size:13.5px} .cw-ed td,.cw-ed th{border:1px solid var(--w-line);padding:4px 10px;text-transform:none;letter-spacing:0;color:inherit}
+.quotefold{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--w-line);border-radius:999px;padding:2px 10px;color:var(--w-muted);font-size:12px;margin-top:8px}
+.quotefold b{letter-spacing:2px}
+.cw-att{padding:6px 16px 4px;display:grid;gap:8px}
+.attrow{display:flex;gap:8px;flex-wrap:wrap}
+.att{display:flex;align-items:center;gap:8px;border:1px solid var(--w-line);border-radius:6px;padding:5px 6px 5px 6px;min-width:0;background:var(--w-bg)}
+.att .ic{width:30px;height:30px;border-radius:5px;display:grid;place-items:center;font:600 9.5px var(--f-mono);color:#fff;flex-shrink:0}
+.att .thumb{width:30px;height:30px;border-radius:5px;background:linear-gradient(135deg,#9fc3c8,#14606e 60%,#4b3f86);flex-shrink:0}
+.att .nm{font-size:12.5px;line-height:1.2} .att .sz{font-size:11px;color:var(--w-muted)}
+.att .x{width:18px;height:18px;display:grid;place-items:center;font-size:10px;color:var(--w-muted);margin-left:2px}
+.sizebar{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--w-muted)}
+.sizebar .bar{flex:1;max-width:220px;height:4px;border-radius:2px;background:var(--w-line);overflow:hidden} .sizebar .bar b{display:block;height:100%;background:var(--w-accent);width:62%}
+.sizebar.over .bar b{background:var(--w-danger)} .sizebar.over{color:var(--w-danger)}
+.cw-foot{border-top:1px solid var(--w-line);padding:10px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn-p{background:var(--w-accent);color:var(--w-accent-ink);border-radius:6px;height:32px;display:inline-flex;align-items:center;font-weight:600;overflow:hidden}
+.btn-p span{padding:0 18px} .btn-p i{font-style:normal;border-left:1px solid rgba(255,255,255,.3);padding:0 8px;font-size:10px;height:100%;display:grid;place-items:center}
+.btn-s{border:1px solid var(--w-line);border-radius:6px;height:32px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn-s svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.btn-s.dd::after{content:"▾";font-size:10px;color:var(--w-muted)}
+.btn-g{height:32px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;color:var(--w-muted);white-space:nowrap} .btn-g svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6}
+.cw-foot .right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--w-muted);font-size:11.5px;white-space:nowrap}
+.cw-foot .right .danger{color:var(--w-danger);display:inline-flex;align-items:center;gap:5px} .cw-foot .right .danger svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6}
+.prio{display:inline-flex;align-items:center;gap:4px;color:var(--w-danger);font-weight:600;font-size:11.5px}
+.ai-rail{border-left:1px solid var(--w-line);background:var(--w-aisoft);width:46px;display:grid;justify-items:center;padding-top:14px;gap:18px;color:var(--w-ai)}
+.ai-rail span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10.5px;font-weight:600}
+.cw-grid{display:grid;grid-template-columns:1fr auto}
+.cw-grid>div:first-child{min-width:0}
+
+/* popovers shown exploded */
+.pop{background:var(--w-bg);color:var(--w-text);border:1px solid var(--w-line);border-radius:8px;box-shadow:0 8px 28px rgba(20,30,40,.16);padding:8px;font-size:12.5px;min-width:0}
+.light{--w-bg:var(--l-bg);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-faint:var(--l-faint);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink);--w-soft:var(--l-soft);--w-chip:var(--l-chip);--w-danger:var(--l-danger);--w-dangersoft:var(--l-dangersoft);--w-warn:var(--l-warn);--w-warnsoft:var(--l-warnsoft);--w-ai:var(--l-ai);--w-aisoft:var(--l-aisoft);--w-side:var(--l-side)}
+.menu{display:grid} .menu .mi{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:4px;white-space:nowrap} .menu .mi.on{background:var(--w-soft)} .menu .mi .k{margin-left:auto;color:var(--w-muted);font:11px var(--f-mono)} .menu .mi .ck{width:14px;display:inline-block;text-align:center} .menu .mi .sub{margin-left:auto;color:var(--w-muted)} .menu hr{border:0;border-top:1px solid var(--w-line);margin:5px 0} .menu .mh{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--w-muted);padding:6px 10px 2px}
+.pal{display:grid;grid-template-columns:repeat(10,18px);gap:4px;padding:4px} .pal i{width:18px;height:18px;border-radius:3px;border:1px solid rgba(0,0,0,.08)} .pal i.on{outline:2px solid var(--w-accent);outline-offset:1px}
+.tgrid{display:grid;grid-template-columns:repeat(8,18px);gap:3px;padding:4px} .tgrid i{width:18px;height:18px;border:1px solid var(--w-line);border-radius:2px;background:var(--w-side)} .tgrid i.on{background:var(--w-soft);border-color:var(--w-accent)}
+.emo{display:grid;gap:6px} .emo .srch{border:1px solid var(--w-line);border-radius:5px;padding:5px 8px;color:var(--w-faint)} .emo .cats{display:flex;gap:6px;font-size:14px;padding:0 2px} .emo .cats span{opacity:.6} .emo .cats span.on{opacity:1;border-bottom:2px solid var(--w-accent)} .emo .row{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;font-size:17px;text-align:center} .emo .row span{padding:3px 0}
+.dlg{background:var(--w-bg);color:var(--w-text);border:1px solid var(--w-line);border-radius:10px;box-shadow:0 12px 36px rgba(20,30,40,.2);padding:18px 20px;display:grid;gap:12px;max-width:460px;font-size:13px}
+.dlg h4{font-size:15px} .dlg p{color:var(--w-muted)} .dlg .acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.dlg .lab{display:flex;gap:8px;align-items:center;color:var(--w-muted);font-size:12.5px}
+.inp{border:1px solid var(--w-line);border-radius:5px;padding:6px 9px;color:var(--w-text);background:var(--w-bg)} .inp.ph{color:var(--w-faint)}
+.findbar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--w-line);background:var(--w-side);flex-wrap:wrap;font-size:12.5px}
+.findbar .inp{min-width:160px;flex:1}
+.ab{display:grid;grid-template-columns:1fr 150px;gap:0;border:1px solid var(--w-line);border-radius:10px;overflow:hidden;background:var(--w-bg);color:var(--w-text);box-shadow:0 12px 36px rgba(20,30,40,.2);font-size:12.5px}
+.ab .l{padding:12px;display:grid;gap:8px;border-right:1px solid var(--w-line);min-width:0} .ab .r{padding:12px;display:grid;gap:8px;align-content:start}
+.ab .tabs2{display:flex;gap:12px;color:var(--w-muted)} .ab .tabs2 b{color:var(--w-text);border-bottom:2px solid var(--w-accent);padding-bottom:2px}
+.ab .row{display:flex;align-items:center;gap:9px;padding:4px 2px} .ab .row .cb{width:14px;height:14px;border:1px solid var(--w-line);border-radius:3px;display:grid;place-items:center;font-size:9px} .ab .row .cb.on{background:var(--w-accent);color:var(--w-accent-ink);border-color:var(--w-accent)}
+.ab .row small{color:var(--w-muted)} .ab .sec{font-size:10.5px;letter-spacing:.1em;color:var(--w-muted);text-transform:uppercase;padding-top:4px}
+.ab .r .btn-s{justify-content:center}
+.ab .r .tgt{color:var(--w-muted);font-size:11.5px;line-height:1.5}
+.hover{border:1px solid var(--w-line);border-radius:8px;padding:10px 12px;display:grid;gap:4px;box-shadow:0 8px 24px rgba(20,30,40,.14);background:var(--w-bg);color:var(--w-text);font-size:12.5px;max-width:300px}
+.hover .nm{font-weight:600} .hover .ad{color:var(--w-muted)} .hover .acts{display:flex;gap:10px;color:var(--w-accent);margin-top:4px;flex-wrap:wrap}
+.note{border-left:3px solid var(--w-warn);background:var(--w-warnsoft);color:var(--w-warn);padding:6px 10px;border-radius:0 6px 6px 0;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.note.ok{border-color:var(--w-accent);background:var(--w-soft);color:var(--w-text)}
+.lnkbub{display:inline-flex;gap:12px;border:1px solid var(--w-line);border-radius:6px;padding:5px 10px;font-size:12px;box-shadow:0 6px 18px rgba(20,30,40,.14);background:var(--w-bg);color:var(--w-text)} .lnkbub a{color:var(--w-accent)} .lnkbub span{color:var(--w-accent)}
+.ctx{min-width:200px}
+.figcap{font-size:12px;color:var(--muted);margin-top:6px}
+.fig{display:grid;gap:6px;min-width:0}
+.plan li{margin:3px 0}
+.sr{position:absolute;left:-9999px}
+@media (max-width:720px){.cw-hdr{grid-template-columns:48px 1fr}.cw-grid{grid-template-columns:1fr}.ai-rail{display:none}.ab{grid-template-columns:1fr}.ab .l{border-right:0;border-bottom:1px solid var(--w-line)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-att" viewBox="0 0 16 16"><path d="M10.5 4.5 5.6 9.4a1.8 1.8 0 0 0 2.5 2.5l5.3-5.3a3.2 3.2 0 0 0-4.5-4.5L3.3 7.7a4.5 4.5 0 0 0 6.4 6.4l4.1-4.1"/></symbol>
+    <symbol id="i-img" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="7" r="1.2"/><path d="m3 12 3.5-3.5 2.5 2.5 2-2L14 12"/></symbol>
+    <symbol id="i-tbl" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 7h12M2 10h12M6 3v10M10 3v10"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.5 9.5 9.5 6.5M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/></symbol>
+    <symbol id="i-emo" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M5.5 9.5a3 3 0 0 0 5 0"/><circle cx="6" cy="6.5" r=".6" fill="currentColor"/><circle cx="10" cy="6.5" r=".6" fill="currentColor"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 16 16"><path d="M3.5 6.5h6a3 3 0 0 1 0 6H6M3.5 6.5 6 4M3.5 6.5 6 9"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 16 16"><path d="M12.5 6.5h-6a3 3 0 0 0 0 6H10M12.5 6.5 10 4m2.5 2.5L10 9"/></symbol>
+    <symbol id="i-al" viewBox="0 0 16 16"><path d="M2 4h12M2 7h8M2 10h12M2 13h8"/></symbol>
+    <symbol id="i-ul" viewBox="0 0 16 16"><path d="M6 4h8M6 8h8M6 12h8"/><circle cx="3" cy="4" r=".9" fill="currentColor"/><circle cx="3" cy="8" r=".9" fill="currentColor"/><circle cx="3" cy="12" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-ol" viewBox="0 0 16 16"><path d="M6 4h8M6 8h8M6 12h8M2.3 3.2 3.2 2.6V5.4M2.2 7.4c.8-.6 1.8-.1 1.5.6L2.2 9.6h1.9M2.2 10.9h1.4a.7.7 0 0 1 0 1.4h-.6m.6 0a.7.7 0 0 1 0 1.4H2.2"/></symbol>
+    <symbol id="i-in" viewBox="0 0 16 16"><path d="M2 3h12M7 6.5h7M7 9.5h7M2 13h12M2 6.5 4.5 8 2 9.5"/></symbol>
+    <symbol id="i-out" viewBox="0 0 16 16"><path d="M2 3h12M7 6.5h7M7 9.5h7M2 13h12M4.5 6.5 2 8l2.5 1.5"/></symbol>
+    <symbol id="i-hr" viewBox="0 0 16 16"><path d="M2 8h12"/><path d="M4 4h8M4 12h8" opacity=".4"/></symbol>
+    <symbol id="i-q" viewBox="0 0 16 16"><path d="M3 3v10M6 5h8M6 8h8M6 11h6"/></symbol>
+    <symbol id="i-clr" viewBox="0 0 16 16"><path d="M4 12.5h8M9.5 3 5.2 10.2M9.5 3h-5l-1.7 3M9.5 3l2.7 2"/></symbol>
+    <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="12.5" cy="8" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-sig" viewBox="0 0 16 16"><path d="M2 12.5c2.5 0 3.5-7 5.5-7s0 6 2 6 1.5-3.5 3-3.5 1 2.5 1.5 2.5M2 14h12"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v1.6M8 12.4V14M2 8h1.6M12.4 8H14M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/></symbol>
+    <symbol id="i-book" viewBox="0 0 16 16"><path d="M2.5 3.5h4.5a1.5 1.5 0 0 1 1 .5 1.5 1.5 0 0 1 1-.5h4.5v9H9a1 1 0 0 0-1 .5 1 1 0 0 0-1-.5H2.5z"/><path d="M8 4v9"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 16 16"><path d="M8 2v6M4 8h8l-1.5-3h-5zM8 8v6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Design board · CW1 · approved</div>
+      <div class="brand"><div class="mark">M</div><h1>Magpie / Compose window</h1></div>
+    </div>
+    <span class="stamp">Approved 5 Nov 2026 (features A1–E6 and this design) · built in Magpie 15.0.0 · Q90</span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Design screens">
+    <button class="tab" role="tab" aria-selected="true" data-go="window">1 · The window <small>CW1·1</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="people">2 · Recipients <small>A1–A6</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="toolbar">3 · Toolbar <small>B1–B16</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="files">4 · Attachments <small>C1–C5</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="options">5 · Message options <small>D1–D9</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="editing">6 · Editing comfort <small>E1–E6</small></button>
+    <button class="tab" role="tab" aria-selected="false" data-go="plan">PR plan <small>Q90 · 15.0.0</small></button>
+  </nav>
+
+  <!-- ═══════════ 1 · THE WINDOW ═══════════ -->
+  <section class="win" data-view="window">
+    <div class="chrome"><span class="ap">Screen 1<small>The whole compose window</small></span><span>CW1·1</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Everything in one window, nothing moved that you already know</h2><p>Same layout as today (header → toolbar → editor → attachments → footer, AI rail on the right). New: recipient chips with separate Cc / Bcc / Reply-To links, a full formatting toolbar that folds into <b>More ▾</b> when the window is narrow, attachment cards with a size bar, and a footer with Send ▾, Attach ▾, Signature, Options, word count and Discard. Shown here as a reply with one attachment and High priority set.</p></div><span class="qtag">Q90 · CW1</span></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Theme"><button aria-pressed="true" data-theme-for="main" data-t="light">Light</button><button aria-pressed="false" data-theme-for="main" data-t="dark">Dark</button></div>
+        <span class="small">Default size stays 980 × 720; everything below is at that width. Mac compose is untouched this round.</span>
+      </div>
+
+      <div class="cw" id="cw-main">
+        <div class="cw-title"><div><b>Magpie</b><span>Re: Q3 vendor review — final numbers</span></div><div class="wc"><i>—</i><i>▢</i><i>✕</i></div></div>
+        <div class="cw-grid">
+          <div>
+            <div class="cw-hdr">
+              <label>From</label><div class="fld"><span>Krishna Bhunia &lt;kri.subsc@gmail.com&gt;</span><span class="links"><span>▾</span></span></div>
+              <label>To</label><div class="fld focus"><span class="chip"><i class="av" style="background:#14606e">AM</i>Anita Mehra<i class="x">✕</i></span><span class="chip ext"><i class="av" style="background:#4b3f86">RS</i>Rahul Sen<i class="x">✕</i></span><span class="caret"></span><span class="links"><span>Cc</span><span class="on">Bcc</span><span>Reply-To</span></span></div>
+              <label>Bcc</label><div class="fld"><span class="chip"><i class="av" style="background:#87541d">KB</i>me<i class="x">✕</i></span><span class="ph">Name or address</span></div>
+              <label>Subject</label><div class="fld"><span style="font-weight:500">Re: Q3 vendor review — final numbers</span><span class="links"><span class="prio">❗ High</span></span></div>
+            </div>
+            <div class="cw-tb">
+              <span class="tbb" title="Undo"><svg><use href="#i-undo"/></svg></span><span class="tbb dis" title="Redo"><svg><use href="#i-redo"/></svg></span><span class="sep"></span>
+              <span class="tbd">Normal text</span><span class="tbd">Calibri</span><span class="tbd">12</span><span class="sep"></span>
+              <span class="tbb on"><b>B</b></span><span class="tbb"><i>I</i></span><span class="tbb"><u>U</u></span><span class="tbb"><s>S</s></span><span class="sep"></span>
+              <span class="tbb" title="Text colour"><span style="display:grid;gap:1px;justify-items:center"><b style="font-size:12px;line-height:1">A</b><i class="swatch" style="background:#b3261e"></i></span></span>
+              <span class="tbb" title="Highlight"><span style="display:grid;gap:1px;justify-items:center"><b style="font-size:12px;line-height:1;background:#fff3a0;color:#23282e;padding:0 2px">A</b><i class="swatch" style="background:#f2d64b"></i></span></span><span class="sep"></span>
+              <span class="tbb" title="Align ▾"><svg><use href="#i-al"/></svg></span>
+              <span class="tbb" title="Bulleted list"><svg><use href="#i-ul"/></svg></span><span class="tbb" title="Numbered list"><svg><use href="#i-ol"/></svg></span>
+              <span class="tbb" title="Outdent"><svg><use href="#i-out"/></svg></span><span class="tbb" title="Indent"><svg><use href="#i-in"/></svg></span><span class="sep"></span>
+              <span class="tbb" title="Quote"><svg><use href="#i-q"/></svg></span><span class="tbb" title="Horizontal line"><svg><use href="#i-hr"/></svg></span>
+              <span class="tbb" title="Table"><svg><use href="#i-tbl"/></svg></span><span class="tbb" title="Picture"><svg><use href="#i-img"/></svg></span><span class="tbb" title="Emoji"><svg><use href="#i-emo"/></svg></span><span class="tbb" title="Link"><svg><use href="#i-link"/></svg></span><span class="sep"></span>
+              <span class="tbb" title="Clear formatting"><svg><use href="#i-clr"/></svg></span><span class="tbb" title="More"><svg><use href="#i-more"/></svg></span>
+            </div>
+            <div class="cw-ed">
+              <p>Hi Anita, Rahul,</p>
+              <p>Final numbers are in the attached sheet. <b>Two vendors changed</b> since last week:</p>
+              <table><tr><th>Vendor</th><th>Q3 spend</th><th>Change</th></tr><tr><td>Northwind</td><td>₹ 4.2 L</td><td style="color:#b3261e">+12 %</td></tr><tr><td>Contoso</td><td>₹ 2.8 L</td><td>−3 %</td></tr></table>
+              <p style="margin-top:.6em">Can we close this by Friday? <span class="caret"></span></p>
+              <div class="sig">Thanks and Regards,<br><b>Krishna Bhunia</b><br>+91 98xxx xxxxx</div>
+              <div class="quotefold"><b>···</b> Show quoted text · Anita Mehra, 4 Nov 11:02</div>
+            </div>
+            <div class="cw-att">
+              <div class="attrow">
+                <div class="att"><i class="ic" style="background:#1d6f42">XLS</i><div><div class="nm">Q3-vendor-review.xlsx</div><div class="sz">1.8 MB</div></div><i class="x">✕</i></div>
+                <div class="att"><i class="thumb"></i><div><div class="nm">chart-q3.png</div><div class="sz">640 KB · also in the message</div></div><i class="x">✕</i></div>
+              </div>
+              <div class="sizebar"><span>2 files · 2.4 MB of 25 MB (Gmail)</span><div class="bar"><b style="width:10%"></b></div></div>
+            </div>
+            <div class="cw-foot">
+              <span class="btn-p"><span>Send</span><i>▾</i></span>
+              <span class="btn-s">Send later</span>
+              <span class="btn-s dd"><svg><use href="#i-att"/></svg>Attach</span>
+              <span class="btn-g">Templates ▾</span>
+              <span class="btn-g" title="Signature"><svg><use href="#i-sig"/></svg>Signature ▾</span>
+              <span class="btn-g" title="Options"><svg><use href="#i-gear"/></svg>Options ▾</span>
+              <span class="right"><span>38 words</span><span>Saved on this PC · 11:42</span><span class="danger"><svg><use href="#i-trash"/></svg>Discard</span></span>
+            </div>
+          </div>
+          <div class="ai-rail">✦<span>Assistant</span></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card notes">
+          <div class="pc good"><h3>What stays exactly as today</h3><ul><li>Field order, 62 px label column, dark title bar, AI rail and AI panels, Send later menu, Templates menu, Save draft (now <kbd>Ctrl</kbd>+<kbd>S</kbd> and inside Options), autosave status line</li><li>WebView2 editor page (<code>EditorPage.cs</code>) — the toolbar talks to it with the same <code>fmt()</code> bridge; plain-text fallback editor keeps working with the toolbar greyed</li><li>Pasted screenshots still go in as inline pictures (<code>cid:</code>)</li></ul></div>
+          <div class="pc bad"><h3>What moves</h3><ul><li>"Cc / Bcc" link becomes three links: <b>Cc</b> · <b>Bcc</b> · <b>Reply-To</b> (each opens its own row; an opened one is struck through)</li><li><b>Save draft</b> leaves the footer (Ctrl+S, Options ▾, and the autosave still save) to make room — tell me if you want it back</li><li>The 7 old toolbar buttons keep their places inside the new groups</li></ul></div>
+        </div>
+        <div class="card notes">
+          <h3>Footer, left to right</h3>
+          <div class="tablewrap"><table>
+            <tr><th>Control</th><th>What it does</th></tr>
+            <tr><td><b>Send ▾</b></td><td>Send (Ctrl+Enter). Arrow: <b>Send &amp; Archive</b> (replies only, D6)</td></tr>
+            <tr><td>Send later</td><td>Unchanged (presets, pick time, remind if nobody replies)</td></tr>
+            <tr><td>Attach ▾</td><td>Click = file dialog. Arrow: Recent files (last 10), Insert picture… (C5, B9)</td></tr>
+            <tr><td>Templates ▾</td><td>Templates + <b>Quick replies</b> section + "Save this message as a template…" (D4, D5)</td></tr>
+            <tr><td>Signature ▾</td><td>Pick any signature of the From account · None · Edit signatures… (D3)</td></tr>
+            <tr><td>Options ▾</td><td>Priority · Read receipt · Plain text · Save draft · Save to file (.eml) · Shortcuts (D1, D2, B16, D9, E4)</td></tr>
+            <tr><td>Right side</td><td>Word count of your new text (D8) · autosave status · <b>Discard</b> (D7)</td></tr>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 2 · RECIPIENTS ═══════════ -->
+  <section class="win" data-view="people" hidden>
+    <div class="chrome"><span class="ap">Screen 2<small>Recipients</small></span><span>A1 – A6</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Addresses become chips you can read, check and move</h2><p>Typing still works the way it does now (name or address, comma or semicolon, suggestions pop up). The moment an address is complete it turns into a chip: initials in the sender's colour, the name, ✕. Hover shows the full address card; click the chip to edit it as text; Backspace removes the last one; pasting a list splits it. Invalid entries stay visible in red instead of failing at Send.</p></div><span class="qtag">A1 · A2 · A3 · A4 · A5 · A6</span></div>
+
+      <div class="cw" id="cw-people" style="max-width:900px">
+        <div class="cw-hdr" style="padding-bottom:12px">
+          <label>From</label><div class="fld"><span>Krishna Bhunia &lt;kri.subsc@gmail.com&gt;</span><span class="links"><span>▾</span></span></div>
+          <label>To</label><div class="fld focus"><span class="chip"><i class="av" style="background:#14606e">AM</i>Anita Mehra<i class="x">✕</i></span><span class="chip bad" title="Doesn't look like an email address"><i class="av">!</i>rahul.sen@contoso<i class="x">✕</i></span><span class="chip ext"><i class="av" style="background:#256745">PT</i>Priya T.<i class="x">✕</i></span><span>sun</span><span class="caret"></span><span class="links"><span class="on">Cc</span><span class="on">Bcc</span><span class="on">Reply-To</span><span title="Address book"><svg style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;vertical-align:-3px"><use href="#i-book"/></svg></span></span></div>
+          <label>Cc</label><div class="fld"><span class="chip drag"><i class="av" style="background:#4b3f86">RS</i>Rahul Sen<i class="x">✕</i></span><span class="ph">drop here to move to Cc</span></div>
+          <label>Bcc</label><div class="fld"><span class="ph">Name or address</span></div>
+          <label>Reply-To</label><div class="fld"><span class="chip"><i class="av" style="background:#87541d">KB</i>krishna@work.example<i class="x">✕</i></span></div>
+          <label>Subject</label><div class="fld"><span class="ph">Subject</span></div>
+          <div></div><div class="note">⚠ 23 people will see each other's addresses. <span style="text-decoration:underline">Move them to Bcc</span></div>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="fig"><div class="pop light" style="max-width:320px;padding:0;border:0;box-shadow:none;background:transparent"><div class="hover"><div class="nm">Anita Mehra</div><div class="ad">anita.mehra@northwind.example</div><div class="ad">Saved contact · you wrote to her 14 times</div><div class="acts"><span>Move to Cc</span><span>Move to Bcc</span><span>Open contact</span><span>Copy address</span></div></div></div><div class="figcap"><b>A1 · Hover card</b> on a chip — the same card as the reading pane's address card (HM1 E-card), plus Move to Cc / Bcc.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:320px"><div class="menu">
+          <div class="mi"><span class="chip" style="pointer-events:none"><i class="av" style="background:#14606e">AM</i>Anita Mehra</span><span class="k">↵</span></div>
+          <div class="mi on"><span>Anita M. (work) · <small style="color:var(--w-muted)">a.mehra@contoso.example</small></span><span class="k">Recent</span></div>
+          <div class="mi"><span>Anitha Rao · <small style="color:var(--w-muted)">anitha@…</small></span></div>
+          <hr><div class="mi" style="color:var(--w-accent)">Open address book…</div></div></div><div class="figcap"><b>Suggestions</b> unchanged (B4 ranking); last line opens the picker (A4).</div></div>
+        <div class="fig"><div class="pop light" style="max-width:320px"><div class="menu">
+          <div class="mh">While typing</div>
+          <div class="mi">Same address twice → merged, one chip, short toast "Already added"</div>
+          <div class="mi">Paste "a@x, b@y; c@z" → 3 chips</div>
+          <div class="mi"><kbd>Backspace</kbd> on empty field → last chip becomes text again</div>
+          <div class="mi"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>B</kbd> → open Cc / Bcc</div>
+        </div></div><div class="figcap"><b>A6 · Keyboard &amp; duplicates.</b> More than 20 visible recipients → the yellow note above (one click moves them to Bcc).</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="fig"><div class="ab light">
+          <div class="l">
+            <div class="inp ph">Search name, email, company</div>
+            <div class="tabs2"><b>All 212</b><span>Frequent</span><span>Groups</span></div>
+            <div class="sec">A</div>
+            <div class="row"><span class="cb on">✓</span><span class="chip" style="pointer-events:none"><i class="av" style="background:#14606e">AM</i>Anita Mehra</span><small>anita.mehra@northwind.example</small></div>
+            <div class="row"><span class="cb"></span><span class="chip" style="pointer-events:none"><i class="av" style="background:#8a6d00">AR</i>Anitha Rao</span><small>anitha@rao.example</small></div>
+            <div class="sec">Groups</div>
+            <div class="row"><span class="cb on">✓</span><span class="chip" style="pointer-events:none"><i class="av" style="background:#4b3f86">▦</i>Vendor review (6)</span><small>adds 6 people</small></div>
+            <div class="row"><span class="cb"></span><span class="chip" style="pointer-events:none"><i class="av" style="background:#4b3f86">▦</i>Family (4)</span></div>
+          </div>
+          <div class="r">
+            <div class="tgt">7 selected</div>
+            <span class="btn-s">To →</span><span class="btn-s">Cc →</span><span class="btn-s">Bcc →</span>
+            <div class="tgt" style="margin-top:6px">To: Anita Mehra + 6<br>Cc: —<br>Bcc: —</div>
+            <span class="btn-s" style="margin-top:auto;background:var(--w-accent);color:var(--w-accent-ink);border-color:var(--w-accent)">Done</span>
+          </div>
+        </div><div class="figcap"><b>A4 · Address book picker</b> (📖 at the end of the To row, or "Open address book…" in the suggestions). Uses the Contacts page's data: All / Frequent / Groups; a Google contact group adds its members.</div></div>
+        <div class="card notes">
+          <div class="pc"><h3>A5 · Reply-To</h3><ul><li>Hidden until the link is clicked; one address, chip like the others</li><li>Goes out as the <code>Reply-To</code> header (<code>Composer.Build</code>)</li><li>Remembered per From account as an optional default: Settings → Accounts → "Replies go to"</li></ul></div>
+          <div class="pc"><h3>A3 · Drag between rows</h3><ul><li>Drag a chip onto To / Cc / Bcc; the target row highlights, the chip tilts while dragging (above)</li><li>Dropping on a closed Bcc row opens it</li></ul></div>
+          <div class="pc"><h3>Under the hood</h3><ul><li>New WPF control <code>RecipientBox</code> (chips + inline TextBox); the ViewModel still exposes <code>To / Cc / Bcc</code> as the same comma-separated strings, so drafts, autosave and AI code need no change</li><li>Validity = <code>Composer.InvalidAddresses</code>, already there</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 3 · TOOLBAR ═══════════ -->
+  <section class="win" data-view="toolbar" hidden>
+    <div class="chrome"><span class="ap">Screen 3<small>Formatting toolbar</small></span><span>B1 – B16</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>One row, grouped, folds into More ▾ when narrow</h2><p>Order: Undo · Redo │ Paragraph style · Font · Size │ B · I · U · S │ Text colour · Highlight │ Align ▾ · Bullets · Numbers · Outdent · Indent │ Quote · Line · Table · Picture · Emoji · Link │ Clear · More ▾. Below 760 px the right-most groups move into More ▾ one by one. Settings → Appearance → Compose toolbar lets you hide or reorder buttons (same drag list as the main toolbar).</p></div><span class="qtag">B1 – B16</span></div>
+
+      <div class="cw" id="cw-tb" style="max-width:900px">
+        <div class="cw-tb" style="border-top:0">
+          <span class="tbb"><svg><use href="#i-undo"/></svg></span><span class="tbb dis"><svg><use href="#i-redo"/></svg></span><span class="sep"></span>
+          <span class="tbd">Heading 2</span><span class="tbd">Georgia</span><span class="tbd">14</span><span class="sep"></span>
+          <span class="tbb"><b>B</b></span><span class="tbb on"><i>I</i></span><span class="tbb"><u>U</u></span><span class="tbb"><s>S</s></span><span class="sep"></span>
+          <span class="tbb"><span style="display:grid;gap:1px;justify-items:center"><b style="font-size:12px;line-height:1">A</b><i class="swatch" style="background:#14606e"></i></span></span>
+          <span class="tbb"><span style="display:grid;gap:1px;justify-items:center"><b style="font-size:12px;line-height:1;background:#fff3a0;color:#23282e;padding:0 2px">A</b><i class="swatch" style="background:#f2d64b"></i></span></span><span class="sep"></span>
+          <span class="tbb"><svg><use href="#i-al"/></svg></span><span class="tbb"><svg><use href="#i-ul"/></svg></span><span class="tbb"><svg><use href="#i-ol"/></svg></span><span class="tbb"><svg><use href="#i-out"/></svg></span><span class="tbb"><svg><use href="#i-in"/></svg></span><span class="sep"></span>
+          <span class="tbb"><svg><use href="#i-q"/></svg></span><span class="tbb"><svg><use href="#i-hr"/></svg></span><span class="tbb"><svg><use href="#i-tbl"/></svg></span><span class="tbb"><svg><use href="#i-img"/></svg></span><span class="tbb"><svg><use href="#i-emo"/></svg></span><span class="tbb"><svg><use href="#i-link"/></svg></span><span class="sep"></span>
+          <span class="tbb"><svg><use href="#i-clr"/></svg></span><span class="tbb on"><svg><use href="#i-more"/></svg></span>
+        </div>
+        <div class="cw-ed" style="min-height:0;padding-bottom:14px">
+          <p style="font:600 20px Georgia,serif;margin-bottom:.3em">Agenda for Friday</p>
+          <p>Please <a style="color:var(--w-accent)">add your items</a> here. <span class="sel">Northwind pricing</span> is first.</p>
+          <div class="lnkbub"><a>https://sheets.example/agenda</a><span>Edit</span><span>Remove</span></div>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="fig"><div class="pop light" style="max-width:260px"><div class="menu"><div class="mi on">Normal text<span class="k">Ctrl+Alt+0</span></div><div class="mi" style="font:600 20px var(--f-display)">Heading 1<span class="k" style="font:11px var(--f-mono)">Ctrl+Alt+1</span></div><div class="mi" style="font:600 17px var(--f-display)">Heading 2<span class="k" style="font:11px var(--f-mono)">Ctrl+Alt+2</span></div><div class="mi" style="font:600 15px var(--f-ui)">Heading 3<span class="k" style="font:11px var(--f-mono)">Ctrl+Alt+3</span></div><div class="mi" style="font-family:var(--f-mono)">Code<span class="k">Ctrl+Alt+C</span></div></div></div><div class="figcap"><b>B12 · Paragraph style.</b> Code = monospace block with a faint background that survives in the sent email (inline styles, no classes).</div></div>
+        <div class="fig"><div class="pop light" style="max-width:260px"><div class="menu"><div class="mh">Fonts</div><div class="mi" style="font-family:Arial">Arial</div><div class="mi on" style="font-family:Calibri,Carlito,sans-serif">Calibri <span class="k">default</span></div><div class="mi" style="font-family:Georgia,serif">Georgia</div><div class="mi" style="font-family:'IBM Plex Sans'">IBM Plex Sans</div><div class="mi" style="font-family:'Segoe UI'">Segoe UI</div><div class="mi" style="font-family:'Times New Roman',serif">Times New Roman</div><div class="mi" style="font-family:Verdana">Verdana</div><div class="mi" style="font-family:Consolas,monospace">Consolas</div><hr><div class="mi" style="color:var(--w-muted)">Default comes from Settings → Fonts</div></div></div><div class="figcap"><b>B1 · Font &amp; size.</b> Size list 9 · 10 · 11 · 12 · 14 · 16 · 18 · 20 · 24 · 28 · 36 pt. Applies to the selection; with nothing selected, to what you type next. The default is still your FR1 compose font.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:260px"><div class="mh" style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--w-muted);padding:4px 6px">Text colour</div><div class="pal"><i style="background:#000"></i><i style="background:#434343"></i><i style="background:#666"></i><i style="background:#999"></i><i style="background:#b7b7b7"></i><i style="background:#ccc"></i><i style="background:#d9d9d9"></i><i style="background:#efefef"></i><i style="background:#f3f3f3"></i><i style="background:#fff"></i><i style="background:#980000"></i><i style="background:#b3261e" class="on"></i><i style="background:#ff9900"></i><i style="background:#ffff00"></i><i style="background:#00ff00"></i><i style="background:#00ffff"></i><i style="background:#4a86e8"></i><i style="background:#0000ff"></i><i style="background:#9900ff"></i><i style="background:#ff00ff"></i><i style="background:#e6b8af"></i><i style="background:#f4cccc"></i><i style="background:#fce5cd"></i><i style="background:#fff2cc"></i><i style="background:#d9ead3"></i><i style="background:#d0e0e3"></i><i style="background:#c9daf8"></i><i style="background:#cfe2f3"></i><i style="background:#d9d2e9"></i><i style="background:#ead1dc"></i><i style="background:#14606e"></i><i style="background:#4b3f86"></i><i style="background:#256745"></i><i style="background:#87541d"></i><i style="background:#a4313d"></i><i style="background:#1a3e8c"></i><i style="background:#0f766e"></i><i style="background:#8b4513"></i><i style="background:#6a1b9a"></i><i style="background:#1b5e20"></i></div><div class="menu"><hr><div class="mi">Automatic (no colour)</div><div class="mi">Custom…<span class="k">#RRGGBB</span></div></div></div><div class="figcap"><b>B2 · Text colour / Highlight.</b> Same palette for both; last row = Magpie's own colours. The swatch under the A shows the last colour used; clicking the A applies it, the small arrow opens the palette.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:220px"><div class="mh" style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--w-muted);padding:4px 6px">Insert table · 3 × 2</div><div class="tgrid"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="figcap"><b>B8 · Table.</b> Hover the grid, click = insert (up to 8 × 6, header row bold). Right-click inside a table: Insert row above / below · Insert column left / right · Delete row · Delete column · Delete table.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:300px"><div class="emo"><div class="srch">Search emoji</div><div class="cats"><span class="on">🕘</span><span>😀</span><span>👍</span><span>🐦</span><span>🍵</span><span>⚽</span><span>🚗</span><span>💡</span><span>♥</span></div><div class="mh" style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--w-muted)">Recent</div><div class="row"><span>👍</span><span>🙏</span><span>😊</span><span>✅</span><span>🎉</span><span>📎</span><span>☕</span><span>🙂</span><span>👋</span></div><div class="mh" style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--w-muted)">Smileys</div><div class="row"><span>😀</span><span>😃</span><span>😄</span><span>😁</span><span>😆</span><span>😅</span><span>🤣</span><span>😂</span><span>🙂</span></div><div class="row"><span>😉</span><span>😊</span><span>😇</span><span>🥰</span><span>😍</span><span>😘</span><span>😋</span><span>😎</span><span>🤔</span></div></div></div><div class="figcap"><b>B10 · Emoji.</b> Searchable by name, 8 groups, Recent row (last 18, saved in settings). Typing <code>:</code>+2 letters in the body also suggests (<code>:th</code> → 👍 🙏).</div></div>
+        <div class="fig"><div class="pop light" style="max-width:260px"><div class="menu"><div class="mh">More</div><div class="mi">Align left<span class="k">Ctrl+Shift+L</span></div><div class="mi on">Align centre<span class="k">Ctrl+Shift+E</span></div><div class="mi">Align right<span class="k">Ctrl+Shift+R</span></div><div class="mi">Justify<span class="k">Ctrl+Shift+J</span></div><hr><div class="mi">Superscript<span class="k">Ctrl+.</span></div><div class="mi">Subscript<span class="k">Ctrl+,</span></div><hr><div class="mi">Paste as plain text<span class="k">Ctrl+Shift+V</span></div><div class="mi">Plain text message…</div></div></div><div class="figcap"><b>B4 · B13 · B15 · B16.</b> Align ▾ is this menu's top half; More ▾ holds alignment too when the window is narrow, plus Super/Subscript and the plain-text switch.</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="fig"><div class="dlg light" style="--w-bg:var(--l-bg);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink)"><h4>Switch this message to plain text?</h4><p>Bold, colours, lists, tables and pictures are removed. Attached files stay. Your signature is kept as text. You can switch back, but the formatting does not come back.</p><div class="acts"><span class="btn-s">Keep rich text</span><span class="btn-s" style="background:var(--w-accent);color:var(--w-accent-ink);border-color:var(--w-accent)">Switch to plain text</span></div></div><div class="figcap"><b>B16 · Plain text.</b> In plain-text mode the toolbar shows only Undo · Redo · Link · "Rich text" and the message is sent as <code>text/plain</code> only.</div></div>
+        <div class="card notes">
+          <div class="pc"><h3>B9 · Picture</h3><ul><li>File dialog (png, jpg, gif, webp, bmp) → inline picture at the cursor, stored as <code>cid:</code> like pasted ones; over 2 MB it is scaled to 1600 px (asks first)</li><li>Click a picture: small bubble Small · Medium · Original · Attach as file instead · Remove</li></ul></div>
+          <div class="pc"><h3>B14 · Links</h3><ul><li>Cursor on a link → bubble: the address · Edit · Remove (above in the mock)</li><li>Pasting a URL on selected text makes it a link; a bare URL becomes a link on Space</li></ul></div>
+          <div class="pc"><h3>B11 · Undo / Redo</h3><ul><li>Buttons call the editor's own history (Ctrl+Z / Ctrl+Y already work); Redo greys out when there is nothing to redo</li></ul></div>
+          <div class="pc"><h3>Everything above is one editor page</h3><ul><li>All commands go through <code>fmt()</code> in <code>EditorPage.cs</code> (execCommand + small helpers for table, picture size, link bubble). The Mac app shares that file, so it gets the commands for free but no toolbar yet.</li></ul></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 4 · ATTACHMENTS ═══════════ -->
+  <section class="win" data-view="files" hidden>
+    <div class="chrome"><span class="ap">Screen 4<small>Attachments</small></span><span>C1 – C5</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Cards that show what you attached, how big it is, and whether it will go through</h2><p>Each file is a card: type icon (or a thumbnail for pictures), name, size, ✕. Click a card to open the file; right-click for Open · Show in folder · Rename for sending · Remove. The size bar sums everything against the From account's limit and turns red when over it.</p></div><span class="qtag">C1 – C5</span></div>
+
+      <div class="cw" id="cw-files" style="max-width:900px">
+        <div class="cw-att" style="padding-top:12px">
+          <div class="attrow">
+            <div class="att"><i class="ic" style="background:#b3261e">PDF</i><div><div class="nm">Vendor-contract-2026.pdf</div><div class="sz">4.1 MB</div></div><i class="x">✕</i></div>
+            <div class="att"><i class="ic" style="background:#1d6f42">XLS</i><div><div class="nm">Q3-vendor-review.xlsx</div><div class="sz">1.8 MB</div></div><i class="x">✕</i></div>
+            <div class="att"><i class="ic" style="background:#2b579a">DOC</i><div><div class="nm">Minutes-4-Nov.docx</div><div class="sz">212 KB</div></div><i class="x">✕</i></div>
+            <div class="att"><i class="thumb"></i><div><div class="nm">site-photo-01.jpg</div><div class="sz">6.4 MB</div></div><i class="x">✕</i></div>
+            <div class="att"><i class="ic" style="background:#5a6068">ZIP</i><div><div class="nm">drawings.zip</div><div class="sz">9.7 MB</div></div><i class="x">✕</i></div>
+            <div class="att" style="border-style:dashed;color:var(--w-muted)"><i class="ic" style="background:transparent;color:var(--w-muted);border:1px dashed var(--w-line)">+</i><div class="nm">Drop files here</div></div>
+          </div>
+          <div class="sizebar over"><span>5 files · 22.4 MB of 20 MB (Outlook) — remove 2.4 MB or send a link</span><div class="bar"><b style="width:100%"></b></div></div>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="fig"><div class="pop light" style="max-width:300px"><div class="menu"><div class="mi"><svg style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6"><use href="#i-att"/></svg>Attach files…<span class="k">Ctrl+Shift+O</span></div><div class="mi"><svg style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6"><use href="#i-img"/></svg>Insert picture in the message…</div><hr><div class="mh">Recent</div><div class="mi">Q3-vendor-review.xlsx<span class="k">today</span></div><div class="mi">Minutes-4-Nov.docx<span class="k">yesterday</span></div><div class="mi">site-photo-01.jpg<span class="k">2 Nov</span></div><div class="mi">Invoice-0932.pdf<span class="k">30 Oct</span></div><div class="mi" style="color:var(--w-muted)">… 6 more</div></div></div><div class="figcap"><b>C5 · Attach ▾.</b> Recent = the last 10 files you attached from this PC (paths only, in settings.json); a file that no longer exists is greyed.</div></div>
+        <div class="fig"><div class="dlg" style="--w-bg:var(--l-bg);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink)"><h4>Did you mean to attach a file?</h4><p>Your message says "attached" but there is no attachment.</p><div class="acts"><span class="btn-s">Send anyway</span><span class="btn-s" style="background:var(--w-accent);color:var(--w-accent-ink);border-color:var(--w-accent)">Add a file</span></div></div><div class="figcap"><b>C3 · Forgot-attachment check</b> runs at Send when the new text (not the quote) contains attach / attached / attachment / enclosed / see the file / PFA and there is no attachment. Off switch in Settings → General.</div></div>
+        <div class="fig"><div class="dlg" style="--w-bg:var(--l-bg);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink)"><h4>You pasted a picture</h4><p>Put it in the message where the cursor is, or attach it as a file?</p><div class="lab"><span class="cb" style="width:14px;height:14px;border:1px solid var(--w-line);border-radius:3px;display:inline-block"></span>Always do this</div><div class="acts"><span class="btn-s">Attach as file</span><span class="btn-s" style="background:var(--w-accent);color:var(--w-accent-ink);border-color:var(--w-accent)">Put in message</span></div></div><div class="figcap"><b>C4 · Paste.</b> A file copied in Explorer and pasted (Ctrl+V) attaches at once. A copied picture asks once; "Always do this" is a setting you can change later.</div></div>
+      </div>
+
+      <div class="card notes">
+        <h3>C2 · Size limits per account</h3>
+        <div class="tablewrap"><table><tr><th>Account type</th><th>Limit used</th><th>Note</th></tr><tr><td>Gmail</td><td>25 MB</td><td>Google's limit for attachments</td></tr><tr><td>Outlook.com / Microsoft 365</td><td>20 MB</td><td>Microsoft's default; changeable per account</td></tr><tr><td>IMAP / SMTP</td><td>25 MB default</td><td>Settings → Accounts → "Attachment limit" (5 – 150 MB), because each server differs</td></tr></table></div>
+        <p class="small" style="margin-top:8px">The bar counts attached files plus inline pictures. Over the limit, Send asks once ("Send anyway?"); the old 25 MB per-file warning goes away since the bar covers it. Cloud links (C6) stay out of this PR as agreed — queued as Q91.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 5 · OPTIONS ═══════════ -->
+  <section class="win" data-view="options" hidden>
+    <div class="chrome"><span class="ap">Screen 5<small>Message options</small></span><span>D1 – D9</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Three footer menus hold everything that is about the message, not the text</h2><p>Send ▾, Templates ▾, Signature ▾ and Options ▾ are the only new footer menus. Each is one click away; nothing is hidden deeper than one level.</p></div><span class="qtag">D1 – D9</span></div>
+
+      <div class="grid3">
+        <div class="fig"><div class="pop light" style="max-width:280px"><div class="menu"><div class="mh">Options</div><div class="mi">Priority<span class="sub">Normal ▸</span></div><div class="mi"><span class="ck">☐</span>Request a read receipt</div><div class="mi"><span class="ck">☐</span>Plain text message</div><hr><div class="mi">Save draft<span class="k">Ctrl+S</span></div><div class="mi">Save to file (.eml)…</div><hr><div class="mi">Keyboard shortcuts<span class="k">Ctrl+/</span></div></div></div><div class="figcap"><b>Options ▾</b> (D1, D2, B16, D9, E4). Priority submenu: ❗ High · Normal · ↓ Low.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:280px"><div class="menu"><div class="mh">Signature · kri.subsc@gmail.com</div><div class="mi on"><span class="ck">●</span>Personal <span class="k">default</span></div><div class="mi"><span class="ck">○</span>Short (name only)</div><div class="mi"><span class="ck">○</span>None</div><hr><div class="mi" style="color:var(--w-accent)">Edit signatures…</div></div></div><div class="figcap"><b>D3 · Signature ▾.</b> Signatures per account can now be several (B6 editor gets a list with "+ New" and a default tick). Picking one swaps the <code>.magpie-signature</code> block in place; changing From swaps to that account's default.</div></div>
+        <div class="fig"><div class="pop light" style="max-width:280px"><div class="menu"><div class="mh">Templates</div><div class="mi">Follow-up after meeting</div><div class="mi">Invoice reminder</div><div class="mh">Quick replies</div><div class="mi">Thanks!</div><div class="mi">Got it, will do.</div><div class="mi">Sounds good to me.</div><hr><div class="mi">Save this message as a template…</div><div class="mi" style="color:var(--w-accent)">Manage templates…</div></div></div><div class="figcap"><b>D4 · D5 · Templates ▾.</b> Quick replies insert at the cursor. "Save as template" asks for a name and stores subject + body (without the signature and quote).</div></div>
+        <div class="fig"><div class="pop light" style="max-width:280px"><div class="menu"><div class="mi"><b>Send</b><span class="k">Ctrl+Enter</span></div><div class="mi">Send &amp; Archive<span class="k">Ctrl+Alt+Enter</span></div><div class="mi" style="color:var(--w-muted)">Send later ▸ <span class="k">(same as the button)</span></div></div></div><div class="figcap"><b>D6 · Send ▾.</b> Send &amp; Archive only appears on replies and forwards: the conversation is archived after the undo window closes (so Undo brings it back too).</div></div>
+        <div class="fig"><div class="dlg" style="--w-bg:var(--l-bg);--w-text:var(--l-text);--w-muted:var(--l-muted);--w-line:var(--l-line);--w-accent:var(--l-accent);--w-accent-ink:var(--l-accent-ink);--w-danger:var(--l-danger)"><h4>Discard this message?</h4><p>It is removed from Drafts and from this PC. This cannot be undone.</p><div class="acts"><span class="btn-s">Keep editing</span><span class="btn-s" style="background:var(--w-danger);color:#fff;border-color:var(--w-danger)">Discard</span></div></div><div class="figcap"><b>D7 · Discard.</b> The footer's 🗑 Discard; the existing close-dialog (Keep / Discard / Cancel) stays for the ✕ button.</div></div>
+        <div class="card notes">
+          <div class="pc"><h3>D1 · Priority, in the sent email</h3><ul><li>High → <code>X-Priority: 1</code>, <code>Importance: High</code>, <code>X-MSMail-Priority: High</code>; Low → 5 / Low; Normal → no headers</li><li>Shown as ❗ High / ↓ Low on the Subject row (screen 1) and as a ❗ in the message list for received mail that carries it</li></ul></div>
+          <div class="pc"><h3>D2 · Read receipt</h3><ul><li><code>Disposition-Notification-To: &lt;From&gt;</code>; the recipient's app decides whether to answer. Receipts arrive as normal emails.</li><li>Settings → General → "Always ask for a read receipt" (off)</li></ul></div>
+          <div class="pc"><h3>D8 · D9</h3><ul><li>Word count = your new text only (<code>getNewText()</code>), updated as you type; click it to see characters too</li><li>Save to file writes the same MIME that Send would build (<code>Composer.Build</code>) as <code>.eml</code></li></ul></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 6 · EDITING COMFORT ═══════════ -->
+  <section class="win" data-view="editing" hidden>
+    <div class="chrome"><span class="ap">Screen 6<small>Editing comfort</small></span><span>E1 – E6</span></div>
+    <div class="screen">
+      <div class="head"><div><h2>Find &amp; replace, folded quotes, @mentions, spelling, shortcuts, remembered size</h2><p>Small things that make a long reply bearable.</p></div><span class="qtag">E1 – E6</span></div>
+
+      <div class="cw" id="cw-edit" style="max-width:900px">
+        <div class="findbar"><span>Find</span><span class="inp">Northwind</span><span>Replace</span><span class="inp ph">Northwind Traders</span><span class="small" style="color:var(--w-muted)">2 of 3</span><span class="tbb" title="Match case"><b style="font-size:11px">Aa</b></span><span class="tbb">▲</span><span class="tbb">▼</span><span class="btn-s" style="height:26px">Replace</span><span class="btn-s" style="height:26px">All</span><span class="tbb">✕</span></div>
+        <div class="cw-ed" style="min-height:0">
+          <p>Hi Anita,</p>
+          <p>Thanks — <span class="sel">Northwind</span> confirmed the new rate. I have asked <span style="color:var(--w-accent);border-bottom:1px dotted var(--w-accent)">@Rahul Sen</span> to check the contract wording.</p>
+          <div class="pop light" style="display:inline-block;max-width:280px;margin:2px 0 8px 40px"><div class="menu"><div class="mi on"><span class="chip" style="pointer-events:none"><i class="av" style="background:#4b3f86">RS</i>Rahul Sen</span><span class="k">adds to To</span></div><div class="mi"><span class="chip" style="pointer-events:none"><i class="av" style="background:#8a6d00">RK</i>Rahul K.</span></div></div></div>
+          <p>Regards<span class="caret"></span></p>
+          <div class="quotefold"><b>···</b> Show quoted text · Anita Mehra, 4 Nov 11:02</div>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="card spec"><div><span class="id">E1</span><b>Find &amp; replace</b></div><p><kbd>Ctrl</kbd>+<kbd>F</kbd> opens the bar with Find only; <kbd>Ctrl</kbd>+<kbd>H</kbd> with Replace. Matches are highlighted in the editor; Enter = next, Shift+Enter = previous; Esc closes. Searches your new text, the quote and the signature.</p></div>
+        <div class="card spec"><div><span class="id">E2</span><b>Collapsible quoted text</b></div><p>In replies the quoted message folds to one pill with the sender and date. Click to expand and edit; it folds again only if you fold it. Forwards start expanded. Setting: Settings → General → "Fold quoted text in replies" (on).</p></div>
+        <div class="card spec"><div><span class="id">E6</span><b>@mention</b></div><p>Type <code>@</code> + 2 letters → the same suggestions as the To field. Picking one inserts the name as a link to the address and adds the person to To if not already there (toast "Rahul Sen added to To · Undo").</p></div>
+        <div class="card spec"><div><span class="id">E3</span><b>Spelling</b> <span class="pill part">partly</span></div><p>Right-click a red-underlined word: suggestions · Add to dictionary · Ignore (WebView2's own menu, restyled). Languages = the ones in Windows → Time &amp; language; Settings → General gets "Check spelling" on/off and a link to that Windows page. <b>Not possible:</b> a per-message language picker — WebView2 has no API for it. Say if you want this item dropped.</p></div>
+        <div class="card spec"><div><span class="id">E4</span><b>Shortcut sheet</b></div><p><kbd>Ctrl</kbd>+<kbd>/</kbd> or Options → Keyboard shortcuts opens a two-column sheet over the window (full list on the right). Esc closes.</p></div>
+        <div class="card spec"><div><span class="id">E5</span><b>Remembered window</b></div><p>Size, position and whether the AI panel was open are saved on close (<code>WindowPlacement.Compose</code>); a window that would open off-screen is pulled back.</p></div>
+      </div>
+
+      <div class="card notes">
+        <h3>E4 · All compose shortcuts</h3>
+        <div class="tablewrap"><table>
+          <tr><th>Message</th><th></th><th>Text</th><th></th></tr>
+          <tr><td>Send</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Bold · Italic · Underline</td><td><kbd>Ctrl</kbd>+<kbd>B</kbd> / <kbd>I</kbd> / <kbd>U</kbd></td></tr>
+          <tr><td>Send &amp; Archive</td><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd></td><td>Strikethrough</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td></tr>
+          <tr><td>Save draft</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Bulleted · Numbered list</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>8</kbd> / <kbd>7</kbd></td></tr>
+          <tr><td>Attach files</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></td><td>Indent · Outdent</td><td><kbd>Ctrl</kbd>+<kbd>]</kbd> / <kbd>[</kbd></td></tr>
+          <tr><td>Open Cc · Bcc</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>B</kbd></td><td>Align left · centre · right · justify</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> / <kbd>E</kbd> / <kbd>R</kbd> / <kbd>J</kbd></td></tr>
+          <tr><td>Assistant panel</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd></td><td>Link · Remove link</td><td><kbd>Ctrl</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td></tr>
+          <tr><td>Find · Replace</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd> / <kbd>H</kbd></td><td>Paragraph styles</td><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>0</kbd>…<kbd>3</kbd>, <kbd>C</kbd></td></tr>
+          <tr><td>Shortcut sheet</td><td><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Clear formatting</td><td><kbd>Ctrl</kbd>+<kbd>\</kbd></td></tr>
+          <tr><td>Close</td><td><kbd>Esc</kbd></td><td>Paste as plain text</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd></td></tr>
+        </table></div>
+        <p class="small" style="margin-top:8px">Ctrl+Shift+Enter stays "Send now" in the main window's Undo toast, so compose uses Ctrl+Alt+Enter for Send &amp; Archive.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ PR PLAN ═══════════ -->
+  <section class="win" data-view="plan" hidden>
+    <div class="chrome"><span class="ap">PR plan<small>what ghpr will do after your approval</small></span><span>Q90 · 15.0.0</span></div>
+    <div class="screen">
+      <div class="grid2">
+        <div class="card notes">
+          <h3>PR</h3>
+          <div class="tablewrap"><table>
+            <tr><td>Title</td><td><code>Claude : Feature: full compose window — recipients, toolbar, attachments, options (CW1, Q90) — 15.0.0</code></td></tr>
+            <tr><td>Version</td><td>15.0.0 (x: features added, big UI change) via <code>release_prep.py apply</code></td></tr>
+            <tr><td>Issues</td><td>Q90 (this PR, Closes). New queue items for the agreed Out list: Q91 cloud links (C6) · Q92 S/MIME &amp; PGP (D10) · Q93 delivery receipts (D11)</td></tr>
+            <tr><td>Branch</td><td><code>claude/compose-cw1</code>, draft PR first → Ready for review after CI</td></tr>
+            <tr><td>Docs</td><td><code>docs/designs/CW1-compose.html</code> (this page) · new <code>docs/COMPOSE.md</code> · CHANGELOG · CLAUDE.md "Where things are" row · ROADMAP queue rows</td></tr>
+          </table></div>
+        </div>
+        <div class="card notes">
+          <h3>Files</h3>
+          <ul class="plan small" style="font-size:12.5px">
+            <li><code>Views/ComposeWindow.xaml(.cs)</code> — header rows, toolbar, footer menus, find bar, drop targets</li>
+            <li><b>New</b> <code>Controls/RecipientBox.cs</code>, <code>Views/AddressBookDialog</code>, <code>Views/ColourPopup</code>, <code>Views/TableGridPopup</code>, <code>Views/EmojiPicker</code>, <code>Views/ShortcutSheet</code>, <code>Views/SaveTemplateDialog</code></li>
+            <li><code>ViewModels/ComposeViewModel.cs</code> — ReplyTo, Priority, ReadReceipt, PlainText, SignatureId, WordCount, size limit, forgot-attachment check, recent files</li>
+            <li><code>Core/Mail/EditorPage.cs</code> — new <code>fmt</code> commands, table helpers, picture resize, link bubble, find/replace, quote fold, @mention hook, plain-text export</li>
+            <li><code>Core/Mail/Composer.cs</code> — Reply-To, priority and receipt headers, plain-text build, inline picture from file, .eml export</li>
+            <li><code>Core/Settings/AppSettings.cs</code> — <code>ComposeSettings</code> (toolbar order, fold quote, forgot check, paste choice, spelling, recent attachments, emoji recent), <code>Account.Signatures</code> list + <code>AttachmentLimitMb</code> + <code>ReplyTo</code>; <code>Normalise()</code> migrates the single signature</li>
+            <li><code>Core/Mail/Threading.cs</code> / list row — ❗ for received High priority</li>
+            <li>Settings: Appearance → Compose toolbar list; General → compose switches; Accounts → attachment limit, Replies go to; Signatures → several per account</li>
+            <li>Tests: <code>Release15Tests.cs</code> — headers, address split/dedupe, forgot-attachment words, word count, size limits, signature migration, toolbar order Normalise</li>
+          </ul>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card notes">
+          <div class="pc bad"><h3>What I cannot verify in the cloud</h3><ul><li>Running the Windows app (WebView2 behaviour of execCommand for tables/colours, drag-and-drop of chips, the spelling context menu) — I will build, test, XAML-check and check-refs, and list these as "not tried on Windows" when marking Ready</li><li>Outlook's real attachment limit for your tenant</li></ul></div>
+        </div>
+        <div class="card notes">
+          <div class="pc"><h3>Doubts for you (defaults in bold if you say nothing)</h3><ul><li>Save draft button out of the footer — <b>yes, Ctrl+S + Options + autosave</b></li><li>E3 per-message spelling language impossible in WebView2 — <b>keep the rest of E3</b></li><li>Mac compose — <b>untouched; shared editor commands only</b></li><li>Send &amp; Archive shortcut <b>Ctrl+Alt+Enter</b></li></ul></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const views=[...document.querySelectorAll('[data-view]')], tabs=[...document.querySelectorAll('[data-go]')];
+  const ids=views.map(v=>v.dataset.view);
+  function show(id){ if(!ids.includes(id)) id='window';
+    views.forEach(v=>v.hidden=v.dataset.view!==id);
+    tabs.forEach(t=>t.setAttribute('aria-selected',t.dataset.go===id)); }
+  tabs.forEach(t=>t.addEventListener('click',()=>{ location.hash=t.dataset.go; }));
+  addEventListener('hashchange',()=>show(location.hash.slice(1)));
+  show(location.hash.slice(1));
+  document.querySelectorAll('[data-theme-for]').forEach(b=>b.addEventListener('click',()=>{
+    const dark=b.dataset.t==='dark';
+    document.querySelectorAll('.cw').forEach(w=>w.classList.toggle('dark',dark));
+    document.querySelectorAll('[data-theme-for]').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  }));
+})();
+</script>
