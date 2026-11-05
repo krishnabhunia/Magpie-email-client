@@ -14,6 +14,7 @@
 - **Preview attached files.** Picture thumbnails appear beside attachments, and Preview opens images, PDFs and common text files inside Magpie without launching their usual apps.
 - **Compress pictures before sending.** Save a resized JPEG or PNG copy and attach it, with an option for quality versus smaller file size. The original picture is never overwritten; animated GIFs are left unchanged.
 - **Edit and remove links.** Insert a new web or email link, change a link at the cursor without losing its visible text, or remove it while keeping the words. Unsafe link schemes are rejected.
+- **Resize inline pictures.** Click a picture in the message and choose 25%, 50%, 75% or 100% of the message width; the setting stays with the formatted email.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, paste without formatting, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.

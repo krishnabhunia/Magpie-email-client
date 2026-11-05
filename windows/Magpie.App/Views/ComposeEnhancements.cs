@@ -317,6 +317,23 @@ public partial class ComposeWindow
         catch (Exception ex) { Ui.Error("Insert picture", ex.Message, this); }
     }
 
+    private void OnResizeInlineImage(object sender, RoutedEventArgs e)
+    {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
+        foreach (var width in new[] { 25, 50, 75, 100 })
+        {
+            var item = new MenuItem { Header = $"{width}% of message width" };
+            item.Click += async (_, _) =>
+            {
+                var changed = await Editor.CoreWebView2.ExecuteScriptAsync($"resizeSelectedImage({width})");
+                if (changed != "true") Ui.Error("Resize picture", "Click a picture in the message first, then choose its size.", this);
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
     private void OnInsertEmoji(object sender, RoutedEventArgs e)
     {
         if (_plain || !_editorReady) return;

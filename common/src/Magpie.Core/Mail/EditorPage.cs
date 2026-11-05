@@ -47,6 +47,7 @@ html.dark .magpie-quote a{color:#14606E}
 <script>
 const ed = document.getElementById('ed');
 let saved = null;
+let selectedImage = null;
 let rewrite = null;
 let typography = null;
 const protectedFonts = new WeakMap();
@@ -157,6 +158,16 @@ function removeSelectedLink(){
   const parent=existing.parentNode;
   while(existing.firstChild) parent.insertBefore(existing.firstChild,existing);
   parent.removeChild(existing);
+  post({t:'dirty'});return true;
+}
+ed.addEventListener('click', function(e){
+  if(e.target instanceof HTMLImageElement && ed.contains(e.target)) selectedImage=e.target;
+});
+function resizeSelectedImage(percent){
+  if(!selectedImage || !ed.contains(selectedImage) || ![25,50,75,100].includes(percent)) return false;
+  selectedImage.style.width=percent+'%';
+  selectedImage.style.height='auto';
+  selectedImage.style.maxWidth='100%';
   post({t:'dirty'});return true;
 }
 document.addEventListener('selectionchange', function(){

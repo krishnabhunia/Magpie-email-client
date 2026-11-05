@@ -41,6 +41,15 @@ public class Release1500Tests
         Assert.Equal(expected, ComposeSafety.ValidComposeLink(link));
 
     [Fact]
+    public void Shared_editor_includes_safe_link_edit_and_image_resize_commands()
+    {
+        Assert.Contains("function setSelectedLink(url)", EditorPage.Html);
+        Assert.Contains("function removeSelectedLink()", EditorPage.Html);
+        Assert.Contains("function resizeSelectedImage(percent)", EditorPage.Html);
+        Assert.Contains("[25,50,75,100].includes(percent)", EditorPage.Html);
+    }
+
+    [Fact]
     public void Duplicate_recipients_are_detected_across_all_fields()
     {
         var repeated = ComposeSafety.DuplicateRecipients("Ananya <A@Example.com>, b@example.com", "a@example.com", "B@EXAMPLE.COM, hidden@example.com");
