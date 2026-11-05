@@ -20,6 +20,17 @@ public class Release1500Tests
         Assert.Equal(type, ComposeSafety.AttachmentPreviewKind(file));
 
     [Theory]
+    [InlineData("report.pdf", "application/pdf", "pdf")]
+    [InlineData("photo.jpg", "image/jpeg", "image")]
+    [InlineData("notes.txt", "text/plain", "text")]
+    [InlineData("data.json", "application/json", "text")]
+    [InlineData("photo.jpg", "application/x-msdownload", "none")]
+    [InlineData("archive.zip", "application/zip", "none")]
+    [InlineData("report.pdf", "text/html", "none")]
+    public void Forwarded_preview_requires_approved_type_and_filename(string file, string mime, string expected) =>
+        Assert.Equal(expected, ComposeSafety.ForwardedAttachmentPreviewKind(file, mime));
+
+    [Theory]
     [InlineData("photo.jpg", true)]
     [InlineData("photo.PNG", true)]
     [InlineData("scan.bmp", true)]

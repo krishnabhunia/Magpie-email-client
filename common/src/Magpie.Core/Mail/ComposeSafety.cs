@@ -28,6 +28,24 @@ public static partial class ComposeSafety
         _ => "none",
     };
 
+    /// <summary>Only preview forwarded MIME parts when both their name and declared content type are supported.</summary>
+    public static string ForwardedAttachmentPreviewKind(string? filename, string? mimeType)
+    {
+        var extension = Path.GetExtension(filename ?? "").ToLowerInvariant();
+        var type = (mimeType ?? "").ToLowerInvariant();
+        return (extension, type) switch
+        {
+            (".png", "image/png") or (".jpg" or ".jpeg", "image/jpeg")
+                or (".gif", "image/gif") or (".bmp", "image/bmp") => "image",
+            (".pdf", "application/pdf") => "pdf",
+            (".txt" or ".log", "text/plain") or (".csv", "text/csv" or "text/plain")
+                or (".md", "text/markdown" or "text/plain")
+                or (".json", "application/json" or "text/plain")
+                or (".xml", "application/xml" or "text/xml" or "text/plain") => "text",
+            _ => "none",
+        };
+    }
+
     /// <summary>Animated GIFs are excluded because re-encoding a frame would discard animation.</summary>
     public static bool CanCompressImage(string? filename) => Path.GetExtension(filename ?? "").ToLowerInvariant()
         is ".png" or ".jpg" or ".jpeg" or ".bmp";

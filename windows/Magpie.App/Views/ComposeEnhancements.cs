@@ -11,6 +11,7 @@ using Magpie.Core;
 using Magpie.App.Services;
 using Magpie.App.ViewModels;
 using Magpie.Core.Mail;
+using MimeKit;
 
 namespace Magpie.App.Views;
 
@@ -277,7 +278,7 @@ public partial class ComposeWindow
         if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment) return;
         if (attachment.Carried)
         {
-            Ui.Error("Preview attachment", "This forwarded attachment is stored inside the email. Save it as a file to preview it on this computer.", this);
+            PreviewForwardedAttachment(attachment);
             return;
         }
         if (!File.Exists(attachment.Path))
@@ -304,6 +305,71 @@ public partial class ComposeWindow
         catch (Exception ex) { Ui.Error("Preview attachment", ex.Message, this); }
     }
 
+    private void PreviewForwardedAttachment(AttachmentItem attachment)
+    {
+        if (attachment.Part is not MimePart { Content: { } content } part)
+        {
+            Ui.Error("Preview attachment", "This forwarded item cannot be previewed. Only individual picture, PDF and text attachments are supported.", this);
+            return;
+        }
+        var kind = ComposeSafety.ForwardedAttachmentPreviewKind(attachment.Name, part.ContentType.MimeType);
+        if (kind == "none")
+        {
+            Ui.Error("Preview attachment", "This forwarded file format is not supported for in-app preview.", this);
+            return;
+        }
+        var maximumBytes = kind == "text" ? 2 * 1024 * 1024 : kind == "image" ? 12 * 1024 * 1024 : 25 * 1024 * 1024;
+        try
+        {
+            using var decoded = new MemoryStream();
+            content.DecodeTo(decoded);
+            if (decoded.Length > maximumBytes)
+            {
+                Ui.Error("Preview attachment", "This forwarded file is too large to preview safely inside Magpie.", this);
+                return;
+            }
+            decoded.Position = 0;
+            if (kind == "text")
+            {
+                using var reader = new StreamReader(decoded, detectEncodingFromByteOrderMarks: true);
+                var text = reader.ReadToEnd();
+                if (text.Length > 200_000)
+                    text = text[..200_000] + "\n\n[Preview stops after 200,000 characters.]";
+                ShowTextAttachmentPreview(attachment.Name, text);
+                return;
+            }
+
+            // Isolate the forwarded content in a new, unique directory so WebView2
+            // cannot browse other temporary files. Delete only this exact copy on close.
+            var directory = Path.Combine(Path.GetTempPath(), "magpie-compose-preview-" + Guid.NewGuid().ToString("N"));
+            var path = Path.Combine(directory, "attachment" + Path.GetExtension(attachment.Name).ToLowerInvariant());
+            try
+            {
+                Directory.CreateDirectory(directory);
+                using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    decoded.CopyTo(file);
+                PreviewWindow.Show(this, path, attachment.Name,
+                    onClosed: () => DeleteTemporaryPreview(path, directory), allowExternalOpen: false);
+            }
+            catch
+            {
+                DeleteTemporaryPreview(path, directory);
+                throw;
+            }
+        }
+        catch (Exception ex) { Ui.Error("Preview attachment", ex.Message, this); }
+    }
+
+    private static void DeleteTemporaryPreview(string path, string directory)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            if (Directory.Exists(directory)) Directory.Delete(directory);
+        }
+        catch (Exception ex) { Log.Warn("clean forwarded preview: " + ex.Message); }
+    }
+
     private void ShowTextAttachmentPreview(AttachmentItem attachment)
     {
         const int maximumCharacters = 200_000;
@@ -315,9 +381,14 @@ public partial class ComposeWindow
         var content = new string(text, 0, Math.Min(length, maximumCharacters));
         if (truncated) content += "\n\n[Preview stops after 200,000 characters. Open the original file to read more.]";
 
+        ShowTextAttachmentPreview(attachment.Name, content);
+    }
+
+    private void ShowTextAttachmentPreview(string name, string content)
+    {
         var preview = new Window
         {
-            Title = attachment.Name + " — Magpie preview",
+            Title = name + " — Magpie preview",
             Width = 860, Height = 640, MinWidth = 420, MinHeight = 300,
             Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new TextBox
