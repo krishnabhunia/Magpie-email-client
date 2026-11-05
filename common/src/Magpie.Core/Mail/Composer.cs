@@ -325,8 +325,8 @@ public static class Composer
             if (!addedPaths.Add(path)) return;
             if (!File.Exists(path)) throw new FileNotFoundException("An attached file is missing. Choose it again before sending.", path);
             var attachment = builder.Attachments.Add(path);
-            if (d.AttachmentNames.TryGetValue(path, out var alias) && ComposeSafety.ValidAttachmentName(alias))
-                attachment.FileName = alias;
+            if (attachment is MimePart mime && d.AttachmentNames.TryGetValue(path, out var alias)
+                && ComposeSafety.ValidAttachmentName(alias)) mime.FileName = alias;
         }
         void AddPart(int index)
         {
