@@ -8,6 +8,17 @@ namespace Magpie.Core.Tests;
 /// <summary>CW1: recipient safety, attachments and delivery options for the compose redesign.</summary>
 public class Release1500Tests
 {
+    [Theory]
+    [InlineData("photo.JPG", "image")]
+    [InlineData("receipt.pdf", "pdf")]
+    [InlineData("notes.md", "text")]
+    [InlineData("transaction.csv", "text")]
+    [InlineData("document.docx", "none")]
+    [InlineData("dangerous.exe", "none")]
+    [InlineData("evil.pdf.exe", "none")]
+    public void Compose_preview_only_accepts_known_safe_types(string file, string type) =>
+        Assert.Equal(type, ComposeSafety.AttachmentPreviewKind(file));
+
     [Fact]
     public void Duplicate_recipients_are_detected_across_all_fields()
     {

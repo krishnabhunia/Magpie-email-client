@@ -11,6 +11,7 @@
 ### New
 - **Compose in three ways.** Keep the balanced email editor, select Focus for writing with fewer distractions, or open Studio for attachment details, a pre-send review and message options. Switching modes keeps the draft intact.
 - **Attachments you can find.** Attach is visible at the top and bottom of the editor, with a Studio drop area, file-type icons, safe Open actions for common document/picture types, and Remove all.
+- **Preview attached files.** Picture thumbnails appear beside attachments, and Preview opens images, PDFs and common text files inside Magpie without launching their usual apps.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, paste without formatting, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.

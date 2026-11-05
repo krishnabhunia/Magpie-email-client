@@ -5,6 +5,15 @@ namespace Magpie.Core.Mail;
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
+    /// <summary>Only formats the composer can inspect safely without launching another application.</summary>
+    public static string AttachmentPreviewKind(string? filename) => Path.GetExtension(filename ?? "").ToLowerInvariant() switch
+    {
+        ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" => "image",
+        ".pdf" => "pdf",
+        ".txt" or ".csv" or ".md" or ".log" or ".json" or ".xml" => "text",
+        _ => "none",
+    };
+
     /// <summary>Prevent ambiguous paths/control characters in the outgoing attachment filename.</summary>
     public static bool ValidAttachmentName(string? name) =>
         !string.IsNullOrWhiteSpace(name) && name.Length <= 160 && name is not ("." or "..")

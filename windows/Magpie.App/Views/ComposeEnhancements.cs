@@ -121,6 +121,67 @@ public partial class ComposeWindow
         catch (Exception ex) { Ui.Error("Open attachment", ex.Message, this); }
     }
 
+    private void OnPreviewAttachment(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment) return;
+        if (attachment.Carried)
+        {
+            Ui.Error("Preview attachment", "This forwarded attachment is stored inside the email. Save it as a file to preview it on this computer.", this);
+            return;
+        }
+        if (!File.Exists(attachment.Path))
+        {
+            Ui.Error("Preview attachment", "The attached file has moved or been deleted. Attach it again to preview it.", this);
+            return;
+        }
+        try
+        {
+            switch (ComposeSafety.AttachmentPreviewKind(attachment.Path))
+            {
+                case "image":
+                case "pdf":
+                    PreviewWindow.Show(this, attachment.Path, attachment.Name);
+                    break;
+                case "text":
+                    ShowTextAttachmentPreview(attachment);
+                    break;
+                default:
+                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs and text files. Use Open for other document formats.", this);
+                    break;
+            }
+        }
+        catch (Exception ex) { Ui.Error("Preview attachment", ex.Message, this); }
+    }
+
+    private void ShowTextAttachmentPreview(AttachmentItem attachment)
+    {
+        const int maximumCharacters = 200_000;
+        using var stream = new FileStream(attachment.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+        var text = new char[maximumCharacters + 1];
+        var length = reader.ReadBlock(text, 0, text.Length);
+        var truncated = length > maximumCharacters;
+        var content = new string(text, 0, Math.Min(length, maximumCharacters));
+        if (truncated) content += "\n\n[Preview stops after 200,000 characters. Open the original file to read more.]";
+
+        var preview = new Window
+        {
+            Title = attachment.Name + " — Magpie preview",
+            Width = 860, Height = 640, MinWidth = 420, MinHeight = 300,
+            Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new TextBox
+            {
+                Text = content, IsReadOnly = true, AcceptsReturn = true,
+                TextWrapping = TextWrapping.NoWrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                FontSize = 13, Padding = new Thickness(18),
+            },
+        };
+        preview.Show();
+    }
+
     private async void OnFontChoice(object sender, SelectionChangedEventArgs e)
     {
         if (_plain || !_editorReady || Editor.CoreWebView2 == null || FontFamilyChoice.SelectedItem is not ComboBoxItem item) return;

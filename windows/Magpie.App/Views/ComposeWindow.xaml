@@ -195,8 +195,10 @@
                         <DataTemplate DataType="{x:Type vm:AttachmentItem}">
                             <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="6" Padding="10,4,4,4" Margin="0,0,8,6">
                                 <StackPanel Orientation="Horizontal">
+                                    <Image Source="{Binding Thumbnail}" Visibility="{Binding ThumbnailVisibility}" Width="38" Height="38" Stretch="UniformToFill" Margin="0,0,7,0" ToolTip="Image thumbnail" />
                                     <TextBlock Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                     <TextBlock Text="{Binding Display}" FontSize="12" VerticalAlignment="Center" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Preview" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnPreviewAttachment" ToolTip="Preview images, PDFs and text inside Magpie" />
                                     <Button Style="{StaticResource Button.Ghost}" Content="Open" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnOpenAttachment" ToolTip="Open this file with its usual app" />
                                     <Button Style="{StaticResource Button.Ghost}" Content="Rename" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnRenameAttachment" ToolTip="Change the filename the recipient sees, not the local file" />
                                     <Button Style="{StaticResource Button.Icon}" Content="↑" Width="22" Height="22" MinHeight="22" Margin="3,0,0,0" ToolTip="Move attachment earlier"

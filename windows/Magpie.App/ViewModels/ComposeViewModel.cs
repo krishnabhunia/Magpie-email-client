@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Magpie.App.Services;
@@ -36,6 +39,35 @@ public sealed class AttachmentItem : ObservableObject
     /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
     public MimeKit.MimeEntity? Part { get; init; }
     public string Display => Carried ? Name : $"{Name}  ·  {Size}";
+    private ImageSource? _thumbnail;
+    private bool _thumbnailLoaded;
+    /// <summary>A small, decoded picture. Never loads the original full-size bitmap into the UI.</summary>
+    public ImageSource? Thumbnail
+    {
+        get
+        {
+            if (_thumbnailLoaded) return _thumbnail;
+            _thumbnailLoaded = true;
+            if (Carried || ComposeSafety.AttachmentPreviewKind(Path) != "image") return null;
+            try
+            {
+                var file = new FileInfo(Path);
+                if (!file.Exists || file.Length > 32 * 1024 * 1024) return null;
+                using var stream = file.OpenRead();
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.StreamSource = stream;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.DecodePixelWidth = 64;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                _thumbnail = bitmap;
+            }
+            catch (Exception) { /* Missing or invalid pictures retain their file-type icon. */ }
+            return _thumbnail;
+        }
+    }
+    public Visibility ThumbnailVisibility => Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
