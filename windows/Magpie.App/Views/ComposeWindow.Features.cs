@@ -758,6 +758,9 @@ public partial class ComposeWindow
             _plainProtectedHtml = ProtectedHtml(html);   // … and come back as HTML when switching to rich text again
             PlainEditor.TextChanged -= OnPlainChanged;
             PlainEditor.TextChanged += OnPlainChanged;
+            PlainEditor.SelectionChanged -= OnPlainSelection;
+            PlainEditor.SelectionChanged += OnPlainSelection;
+            _vm.SelectedText = "";
             await ApplyEditorTypographyAsync();
             PlainEditor.Focus();
         }
@@ -793,6 +796,8 @@ public partial class ComposeWindow
         var m = System.Text.RegularExpressions.Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return m.Success ? html[m.Index..] : "";
     }
+
+    private void OnPlainSelection(object sender, RoutedEventArgs e) => _vm.SelectedText = PlainEditor.SelectedText;
 
     private void OnPlainChanged(object sender, TextChangedEventArgs e) { _vm.MarkEdited(); _vm.UpdateStats(PlainEditor.Text); }
 

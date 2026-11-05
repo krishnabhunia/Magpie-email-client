@@ -309,5 +309,9 @@ public class Release1500Tests
         }
         Assert.Contains("(e.ctrlKey || e.metaKey) && e.key === 'Enter'", EditorPage.ForMac);
         Assert.Contains("styleWithCSS", EditorPage.Html);
+        // An @mention link is built with DOM APIs and esc() escapes quotes, so a quoted-local-part address can't smuggle an attribute.
+        Assert.Contains("replace(/\"/g,'&quot;')", EditorPage.Html);
+        Assert.Contains("a.href='mailto:'+address; a.textContent=name;", EditorPage.Html);
+        Assert.DoesNotContain("'<a href=\"mailto:'+esc(address)", EditorPage.Html);
     }
 }
