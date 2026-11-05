@@ -208,15 +208,81 @@ ed.addEventListener('contextmenu',function(e){
   if(!cell||!ed.contains(cell)) return;
   e.preventDefault();selectedTableCell=cell;post({t:'tableMenu'});
 });
+function tableGrid(table){
+  // Use the visual grid, not tr.cells indexes: merged cells occupy more than one slot.
+  const rows=Array.from(table.rows),grid=rows.map(function(){return [];});
+  const positions=new Map();
+  if(rows.length>100) return null;
+  for(let r=0;r<rows.length;r++){
+    let column=0;
+    for(const cell of rows[r].cells){
+      while(grid[r][column]) column++;
+      const height=cell.rowSpan,width=cell.colSpan;
+      if(height<1||width<1||height>20||width>20||r+height>rows.length||column+width>100) return null;
+      positions.set(cell,{row:r,col:column,height:height,width:width});
+      for(let y=r;y<r+height;y++) for(let x=column;x<column+width;x++){
+        if(grid[y][x]) return null;
+        grid[y][x]=cell;
+      }
+      column+=width;
+    }
+  }
+  const columns=grid[0]?.length||0;
+  if(!columns||grid.some(function(row){
+    if(row.length!==columns) return true;
+    for(let column=0;column<columns;column++) if(!row[column]) return true;
+    return false;
+  })) return null;
+  return {rows:rows,grid:grid,positions:positions};
+}
+function appendMergedCellContent(destination,source){
+  if(source.textContent.trim()||source.querySelector('img,table,hr')){
+    if(destination.textContent.trim()||destination.querySelector('img,table,hr')) destination.appendChild(document.createElement('br'));
+    while(source.firstChild) destination.appendChild(source.firstChild);
+  }
+}
+function editMergedTableCell(action,cell,table){
+  const layout=tableGrid(table),at=layout?.positions.get(cell);
+  if(!at) return false;
+  if(action==='mergeRight'||action==='mergeDown'){
+    const horizontal=action==='mergeRight';
+    const targetRow=at.row+(horizontal?0:at.height),targetCol=at.col+(horizontal?at.width:0);
+    const adjacent=layout.grid[targetRow]?.[targetCol],next=layout.positions.get(adjacent);
+    // Both cells must form one rectangle and stay in the same table section.
+    if(!next||cell.parentElement.parentElement!==adjacent.parentElement.parentElement) return false;
+    if(horizontal ? (next.row!==at.row||next.height!==at.height||next.col!==targetCol)
+                  : (next.col!==at.col||next.width!==at.width||next.row!==targetRow)) return false;
+    appendMergedCellContent(cell,adjacent);
+    adjacent.remove();
+    if(horizontal) cell.colSpan=at.width+next.width;else cell.rowSpan=at.height+next.height;
+  }else if(action==='splitCell'){
+    if(at.width===1&&at.height===1) return false;
+    // Restore every covered grid position. Existing content stays in the top-left cell.
+    cell.removeAttribute('rowspan');cell.removeAttribute('colspan');
+    for(let y=at.row;y<at.row+at.height;y++) for(let x=at.col;x<at.col+at.width;x++){
+      if(y===at.row&&x===at.col) continue;
+      const tr=layout.rows[y],newCell=document.createElement(cell.tagName.toLowerCase());
+      newCell.setAttribute('style',cell.getAttribute('style')||'border:1px solid #B8C0C8;padding:5px');
+      newCell.appendChild(document.createElement('br'));
+      const before=Array.from(tr.cells).find(function(existing){return layout.positions.get(existing)?.col>x;});
+      tr.insertBefore(newCell,before||null);
+    }
+  }else return false;
+  post({t:'dirty'});return true;
+}
 function editTable(action){
   const cell=selectedTableCell;
   if(!cell||!ed.contains(cell)) return false;
   const row=cell.parentElement,table=cell.closest('table');
-  if(!row||!table||table.querySelector('[rowspan],[colspan]')) return false;
+  if(!row||!table) return false;
+  if(action==='deleteTable'){table.remove();post({t:'dirty'});return true;}
+  if(['mergeRight','mergeDown','splitCell'].includes(action)) return editMergedTableCell(action,cell,table);
+  // Row/column insert/delete needs a rectangular table. Reject those operations
+  // when spans exist; the user can split a cell first without losing its content.
+  if(table.querySelector('[rowspan],[colspan]')) return false;
   const rows=Array.from(table.rows),rowIndex=rows.indexOf(row),column=Array.from(row.cells).indexOf(cell);
   if(rowIndex<0||column<0) return false;
-  if(action==='deleteTable') table.remove();
-  else if(action==='insertRowBefore'||action==='insertRowAfter'){
+  if(action==='insertRowBefore'||action==='insertRowAfter'){
     const created=row.cloneNode(false);
     for(let i=0;i<row.cells.length;i++){const td=document.createElement('td');td.setAttribute('style','border:1px solid #B8C0C8;padding:5px');td.appendChild(document.createElement('br'));created.appendChild(td);}
     row.parentNode.insertBefore(created,action==='insertRowBefore'?row:row.nextSibling);

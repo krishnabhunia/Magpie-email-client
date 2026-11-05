@@ -110,6 +110,29 @@ internal static partial class Program
             await Script("ed.firstElementChild.style.fontWeight='700'");
             await Script(EditorPage.TypographyScript(new TypographySettings(), false));
             Assert(await Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Settings refresh preserves newly typed bold formatting");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeRight')") == "true"
+                && await Script("ed.querySelector('tr').cells[0].colSpan") == "2"
+                && await Script("ed.querySelector('tr').cells.length") == "1",
+                "Table merge-right combines cells without removing other rows");
+            Assert(await Script("editTable('mergeDown')") == "false",
+                "Table merge-down refuses a non-rectangular selection");
+            Assert(await Script("editTable('splitCell')") == "true"
+                && await Script("ed.querySelector('tr').cells.length") == "2"
+                && await Script("ed.querySelector('tr').textContent.includes('AB')") == "true",
+                "Split restores columns and preserves merged content");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("ed.querySelector('td').rowSpan") == "2",
+                "Table merge-down combines vertically adjacent cells");
+            Assert(await Script("editTable('insertColumnBefore')") == "false",
+                "Row and column edits refuse a table with active spans");
+            Assert(await Script("editTable('splitCell')") == "true"
+                && await Script("ed.querySelectorAll('tr')[1].cells.length") == "2",
+                "Split restores row-spanned cells without deleting neighbors");
+            Assert(await Script("editTable('deleteTable')") == "true"
+                && await Script("ed.querySelector('table')===null") == "true",
+                "Delete-table remains available even for table cells previously merged");
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }

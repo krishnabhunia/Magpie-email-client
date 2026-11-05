@@ -620,7 +620,8 @@ public partial class ComposeWindow
                      ("Insert row above", "insertRowBefore"), ("Insert row below", "insertRowAfter"),
                      ("Delete row", "deleteRow"), ("Insert column to left", "insertColumnBefore"),
                      ("Insert column to right", "insertColumnAfter"), ("Delete column", "deleteColumn"),
-                     ("Delete table", "deleteTable"),
+                     ("Merge with cell to right", "mergeRight"), ("Merge with cell below", "mergeDown"),
+                     ("Split merged cell", "splitCell"), ("Delete table", "deleteTable"),
                  })
         {
             var item = new MenuItem { Header = label };
@@ -628,7 +629,7 @@ public partial class ComposeWindow
             {
                 var result = await Editor.CoreWebView2.ExecuteScriptAsync($"editTable({JsonSerializer.Serialize(command)})");
                 if (result != "true")
-                    Ui.Error("Edit table", "Choose a regular table cell (without merged rows or columns) and try again.", this);
+                    Ui.Error("Edit table", "That operation is not available for this cell. To change rows or columns in a merged table, split its merged cells first.", this);
             };
             menu.Items.Add(item);
         }
