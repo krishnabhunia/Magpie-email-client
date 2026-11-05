@@ -39,6 +39,16 @@ public sealed class Account
     public string Signature { get; set; } = "";
     /// <summary>Rich signature (design B6): HTML from the signature editor; pictures are data: URIs, sent embedded (cid).</summary>
     public string SignatureHtml { get; set; } = "";
+    /// <summary>Design CW1 (D3): every signature of this account; the compose window's Signature ▾ menu lists them.
+    /// <see cref="SignatureHtml"/> always mirrors the default one, so older versions and the accounts copy keep working.</summary>
+    public List<SignatureDef> Signatures { get; set; } = new();
+    /// <summary>Id of the signature put into new messages and replies (the first one when empty or unknown).</summary>
+    public string DefaultSignatureId { get; set; } = "";
+    /// <summary>Design CW1 (A5): "Replies go to" — put in the Reply-To row of every new message from this account ("" = none).</summary>
+    public string ReplyTo { get; set; } = "";
+    /// <summary>Design CW1 (C2): attachment limit shown in the compose window, MB. 0 = the usual limit for the kind of account
+    /// (Gmail 25, Outlook 20, IMAP 25).</summary>
+    public int AttachmentLimitMb { get; set; }
     /// <summary>Add the signature to new messages.</summary>
     public bool SignatureOnNew { get; set; } = true;
     /// <summary>Add the signature to replies and forwards (above the quoted text).</summary>
@@ -55,5 +65,56 @@ public sealed class Account
 
     [JsonIgnore] public string Label => string.IsNullOrWhiteSpace(DisplayName) ? Email : $"{DisplayName} <{Email}>";
 
-    public Account Clone() => (Account)MemberwiseClone();
+    /// <summary>The signature new messages start with: <see cref="DefaultSignatureId"/>, else the first one, else null.</summary>
+    [JsonIgnore] public SignatureDef? DefaultSignature =>
+        (Signatures ?? new()).FirstOrDefault(s => s.Id == DefaultSignatureId) ?? (Signatures ?? new()).FirstOrDefault();
+
+    /// <summary>
+    /// Old settings (one <see cref="SignatureHtml"/>) become the first signature; ids are filled in; the default id is checked;
+    /// and <see cref="SignatureHtml"/> / <see cref="Signature"/> mirror the default signature for older versions.
+    /// </summary>
+    public void NormaliseSignatures()
+    {
+        Signatures = (Signatures ?? new()).Where(s => s != null).ToList();
+        foreach (var s in Signatures)
+        {
+            if (string.IsNullOrWhiteSpace(s.Id)) s.Id = SignatureDef.NewId();
+            s.Name = (s.Name ?? "").Trim();
+            s.Html ??= "";
+        }
+        Signatures = Signatures.DistinctBy(s => s.Id).ToList();
+        for (var i = 0; i < Signatures.Count; i++)
+            if (Signatures[i].Name.Length == 0) Signatures[i].Name = i == 0 ? "Signature" : "Signature " + (i + 1);
+        SignatureHtml ??= "";
+        if (Signatures.Count == 0 && !string.IsNullOrWhiteSpace(SignatureHtml))
+            Signatures.Add(new SignatureDef { Name = "Signature", Html = SignatureHtml });
+        if (Signatures.Count > 0 && Signatures.All(s => s.Id != DefaultSignatureId)) DefaultSignatureId = Signatures[0].Id;
+        if (Signatures.Count == 0) DefaultSignatureId = "";
+        var def = DefaultSignature;
+        if (def != null && def.Html != SignatureHtml)
+        {
+            SignatureHtml = def.Html;
+            Signature = Mail.MimeText.HtmlToText(def.Html).Trim();
+        }
+        ReplyTo ??= "";
+        AttachmentLimitMb = AttachmentLimitMb <= 0 ? 0 : Math.Clamp(AttachmentLimitMb, 1, 150);
+    }
+
+    public Account Clone()
+    {
+        var a = (Account)MemberwiseClone();
+        a.Signatures = (Signatures ?? new()).Select(s => s.Clone()).ToList();
+        return a;
+    }
+}
+
+/// <summary>One signature of an account (design CW1, D3).</summary>
+public sealed class SignatureDef
+{
+    public static string NewId() => Guid.NewGuid().ToString("N")[..8];
+    public string Id { get; set; } = NewId();
+    public string Name { get; set; } = "";
+    /// <summary>HTML from the signature editor; pictures are data: URIs, sent embedded (cid).</summary>
+    public string Html { get; set; } = "";
+    public SignatureDef Clone() => new() { Id = Id, Name = Name, Html = Html };
 }
