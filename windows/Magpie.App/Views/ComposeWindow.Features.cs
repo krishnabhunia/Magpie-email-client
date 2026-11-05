@@ -370,16 +370,19 @@ public partial class ComposeWindow
         InsertPictureFile(dlg.FileName);
     }
 
-    private void InsertPictureFile(string path)
+    /// <summary>True when the picture went into the message (false: declined, unreadable, or no rich editor).</summary>
+    private bool InsertPictureFile(string path)
     {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return false;
         try
         {
             var size = new FileInfo(path).Length;
-            if (size > 2 * 1024 * 1024 && !Ui.Confirm("Big picture", $"{Path.GetFileName(path)} is {HtmlRenderer.FormatSize(size)}. Put it in the message anyway? (Attaching it as a file keeps the email smaller for people on phones.)", this)) return;
+            if (size > 2 * 1024 * 1024 && !Ui.Confirm("Big picture", $"{Path.GetFileName(path)} is {HtmlRenderer.FormatSize(size)}. Put it in the message anyway? (Attaching it as a file keeps the email smaller for people on phones.)", this)) return false;
             Script($"insertPicture({JsonSerializer.Serialize(Composer.PictureHtml(path))})");
             _ = RefreshSizeAsync();
+            return true;
         }
-        catch (Exception ex) { Ui.Error("Picture", ex.Message, this); }
+        catch (Exception ex) { Ui.Error("Picture", ex.Message, this); return false; }
     }
 
     private async Task RefreshSizeAsync()
@@ -680,7 +683,7 @@ public partial class ComposeWindow
         var receipt = new MenuItem { Header = "Request a read receipt", IsCheckable = true, IsChecked = _vm.ReadReceipt, ToolTip = "Asks the other person's mail app to tell you when the email was opened. Their app decides whether to answer." };
         receipt.Click += (_, _) => _vm.ToggleReadReceiptCommand.Execute(null);
         menu.Items.Add(receipt);
-        var plain = new MenuItem { Header = "Plain text message", IsCheckable = true, IsChecked = _vm.PlainText };
+        var plain = new MenuItem { Header = "Plain text message", IsCheckable = true, IsChecked = _vm.PlainText, IsEnabled = !_noWebView, ToolTip = _noWebView ? "The rich-text editor isn't available on this PC" : null };
         plain.Click += (_, _) => _ = SwitchPlainTextAsync(!_vm.PlainText);
         menu.Items.Add(plain);
         menu.Items.Add(new Separator());
@@ -752,6 +755,7 @@ public partial class ComposeWindow
             PlainEditor.Visibility = Visibility.Visible;
             PlainEditor.Text = MimeText.HtmlToText(html);
             _plainProtectedTail = ProtectedTail(html);   // the signature and quote stay protected in the plain editor too
+            _plainProtectedHtml = ProtectedHtml(html);   // … and come back as HTML when switching to rich text again
             PlainEditor.TextChanged -= OnPlainChanged;
             PlainEditor.TextChanged += OnPlainChanged;
             await ApplyEditorTypographyAsync();
@@ -759,19 +763,35 @@ public partial class ComposeWindow
         }
         else
         {
-            var text = PlainEditor.Text;
+            if (_noWebView || Editor.CoreWebView2 == null)
+            {
+                Ui.Error("Rich text", "The rich-text editor (WebView2) isn't available on this PC, so this message stays plain text.", this);
+                return;
+            }
+            // The new text becomes paragraphs; the signature and quoted email come back as the HTML they were (not as text).
+            var newText = PlainNewText();
+            var html = ComposeViewModel.TextToParagraphs(newText)
+                       + (_plainProtectedTail.Length > 0 && PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal) ? _plainProtectedHtml : "");
             _vm.PlainText = false;
             _plain = false;
+            _plainProtectedTail = "";
+            _plainProtectedHtml = "";
             PlainEditor.Visibility = Visibility.Collapsed;
             Editor.Visibility = Visibility.Visible;
-            if (_editorReady && Editor.CoreWebView2 != null)
-            {
-                await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(ComposeViewModel.TextToParagraphs(text))})");
-                await ApplyEditorTypographyAsync();
-            }
+            await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(html)})");
+            await ApplyEditorTypographyAsync();
             Editor.Focus();
         }
         _vm.MarkEdited();
+    }
+
+    private string _plainProtectedHtml = "";
+
+    /// <summary>The signature + quote part of <paramref name="html"/> as HTML (what <see cref="ProtectedTail"/> is the text of).</summary>
+    private static string ProtectedHtml(string html)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? html[m.Index..] : "";
     }
 
     private void OnPlainChanged(object sender, TextChangedEventArgs e) { _vm.MarkEdited(); _vm.UpdateStats(PlainEditor.Text); }
@@ -793,7 +813,7 @@ public partial class ComposeWindow
         {
             var open = new MenuItem { Header = "Open" }; open.Click += (_, _) => Ui.OpenExternal(a.Path); menu.Items.Add(open);
             var folder = new MenuItem { Header = "Show in folder" }; folder.Click += (_, _) => { try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + a.Path + "\""); } catch { } }; menu.Items.Add(folder);
-            if (a.IsPicture) { var inline = new MenuItem { Header = "Put in the message instead", IsEnabled = !_plain }; inline.Click += (_, _) => { InsertPictureFile(a.Path); _vm.RemoveAttachmentCommand.Execute(a); }; menu.Items.Add(inline); }
+            if (a.IsPicture) { var inline = new MenuItem { Header = "Put in the message instead", IsEnabled = !_plain }; inline.Click += (_, _) => { if (InsertPictureFile(a.Path)) _vm.RemoveAttachmentCommand.Execute(a); }; menu.Items.Add(inline); }
             menu.Items.Add(new Separator());
         }
         var remove = new MenuItem { Header = "Remove" }; remove.Click += (_, _) => _vm.RemoveAttachmentCommand.Execute(a); menu.Items.Add(remove);

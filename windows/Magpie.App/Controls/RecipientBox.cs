@@ -133,11 +133,14 @@ public sealed class RecipientBox : Border
     private static int LastSeparator(string t)
     {
         var quoted = false;
+        var escaped = false;
         var last = -1;
         for (var i = 0; i < t.Length; i++)
         {
-            if (t[i] == '"') quoted = !quoted;
+            // Same rules as Composer.AddressPieces: a \" inside a quoted name is not a quote, and separators inside quotes don't split.
+            if (t[i] == '"' && !escaped) quoted = !quoted;
             else if (!quoted && t[i] is ',' or ';' or '\n') last = i;
+            escaped = t[i] == '\\' && !escaped;
         }
         return last;
     }

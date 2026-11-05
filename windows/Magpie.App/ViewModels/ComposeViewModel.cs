@@ -444,7 +444,11 @@ public partial class ComposeViewModel : ObservableObject
             Log.Error("queue send", ex);
             Ui.Error("Send", ex.Message);
         }
-        finally { Sending = false; }
+        finally
+        {
+            Sending = false;
+            if (!_queued) ArchiveAfterSend = null;   // design CW1 (D6): a cancelled Send & Archive doesn't turn the next Send into one
+        }
     }
 
     /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
