@@ -163,12 +163,19 @@ public partial class ComposeWindow
         var missing = ComposeSafety.MissingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path));
         var duplicates = ComposeSafety.DuplicateRecipients(_vm.To, _vm.Cc, _vm.Bcc);
         var encoded = ComposeSafety.EncodedSizeOfExistingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path), "");
+        var words = ComposeSafety.WordCount(body);
         var notes = new List<string>
         {
             "Recipients: " + Composer.ParseAddresses(_vm.To + "," + _vm.Cc + "," + _vm.Bcc).Mailboxes.Count(),
             "Attachments: " + _vm.Attachments.Count + ", approximately " + HtmlRenderer.FormatSize(encoded) + " encoded (plus any forwarded files)",
+            $"New writing: {words} words · approximately {ComposeSafety.EstimatedReadingMinutes(words)} minute(s) to read",
             "Priority: " + _vm.Priority,
         };
+        if (_vm.WarnExternalRecipients && _vm.From != null)
+        {
+            var external = ComposeSafety.ExternalRecipients(_vm.From.Email, _vm.To, _vm.Cc, _vm.Bcc);
+            if (external.Count > 0) notes.Add("EXTERNAL: " + string.Join(", ", external));
+        }
         if (missing.Count > 0) notes.Add("MISSING: " + string.Join(", ", missing.Select(Path.GetFileName)));
         if (duplicates.Count > 0) notes.Add("DUPLICATES: " + string.Join(", ", duplicates));
         if (ComposeSafety.MentionsAttachment(body) && _vm.Attachments.Count == 0) notes.Add("Possibly forgotten attachment");

@@ -349,6 +349,7 @@
                                     <StackPanel HorizontalAlignment="Center"><TextBlock Text="📎 Drop files here" TextAlignment="Center" FontWeight="SemiBold" /><TextBlock Text="Or use the Attach button" TextAlignment="Center" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" /></StackPanel>
                                 </Border>
                                 <Button Style="{StaticResource Button.Primary}" Content="Browse files…" Click="OnAttach" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Paste files or screenshot…" Click="OnPasteAttachments" Margin="0,7,0,0" ToolTip="Attach files copied from File Explorer, or save and attach a screenshot from the clipboard" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Remove all attachments" Click="OnClearAttachments" Margin="0,7,0,0" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Insert picture…" Click="OnInsertImage" Margin="0,7,0,0" />
                                 <TextBlock Text="Drop files into this window, or use Attach. Missing files and large messages are checked before Send." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,15,0,0" />
@@ -370,6 +371,7 @@
                                 <TextBlock Text="Reply-To (optional)" FontWeight="SemiBold" />
                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
                                 <CheckBox Content="Request read receipt" IsChecked="{Binding RequestReadReceipt, Mode=TwoWay}" />
+                                <CheckBox Content="Warn before sending outside my email domain" IsChecked="{Binding WarnExternalRecipients, Mode=TwoWay}" Margin="0,9,0,0" ToolTip="Optional for this compose session; useful for work or confidential emails" />
                                 <TextBlock Text="Receipts depend on recipients' mail apps and are not guaranteed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Send later…" Click="OnSendLater" Margin="0,14,0,0" />
                             </StackPanel>

@@ -56,6 +56,7 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _priority = "Normal";
     [ObservableProperty] private string _replyTo = "";
     [ObservableProperty] private bool _requestReadReceipt;
+    [ObservableProperty] private bool _warnExternalRecipients;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
     [ObservableProperty] private bool _sending;
@@ -427,6 +428,13 @@ public partial class ComposeViewModel : ObservableObject
             var repeated = ComposeSafety.DuplicateRecipients(To, Cc, Bcc);
             if (repeated.Count > 0 && !Ui.Confirm("Duplicate recipients",
                     "These addresses appear more than once. Magpie will send only one copy to each:\n\n" + string.Join("\n", repeated) + "\n\nContinue?")) return;
+            if (WarnExternalRecipients && From != null)
+            {
+                var external = ComposeSafety.ExternalRecipients(From.Email, To, Cc, Bcc);
+                if (external.Count > 0 && !Ui.Confirm("External recipients",
+                        "These addresses are outside the sending account's email domain:\n\n"
+                        + string.Join("\n", external) + "\n\nReview carefully before sending. Continue?")) return;
+            }
             var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
             if (ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Did you forget an attachment?", "Your message refers to an attachment, but no files are attached. Send anyway?")) return;

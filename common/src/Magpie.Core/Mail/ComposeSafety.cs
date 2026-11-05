@@ -23,6 +23,26 @@ public static partial class ComposeSafety
         return repeated.Order(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    /// <summary>Recipients outside the From account's domain; used only when the sender opts into a warning.</summary>
+    public static IReadOnlyList<string> ExternalRecipients(string senderAddress, string to, string cc, string bcc)
+    {
+        var separator = senderAddress?.LastIndexOf('@') ?? -1;
+        if (separator < 0) return Array.Empty<string>();
+        var senderDomain = senderAddress![(separator + 1)..];
+        return Composer.ParseAddresses(to).Mailboxes
+            .Concat(Composer.ParseAddresses(cc).Mailboxes)
+            .Concat(Composer.ParseAddresses(bcc).Mailboxes)
+            .Select(recipient => recipient.Address)
+            .Where(address => !address.EndsWith("@" + senderDomain, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public static int WordCount(string text) => Regex.Matches(text ?? "", @"\b[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*\b").Count;
+
+    public static int EstimatedReadingMinutes(int words) => Math.Max(1, (Math.Max(0, words) + 199) / 200);
+
     /// <summary>Does the newly written text mention an attachment? Quotes/signatures should be removed by the editor.</summary>
     public static bool MentionsAttachment(string newText) => AttachmentWords().IsMatch(newText ?? "");
 

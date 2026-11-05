@@ -14,6 +14,8 @@
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.
+- **Paste attachments.** Copy files from File Explorer and attach them from Studio, or save and attach a clipboard screenshot; the screenshot location is chosen by you so it remains available for reopening drafts.
+- **Optional external-address warning and reading estimate.** Studio can warn before sending outside the From account's email domain; the safety review also shows the new message's word count and approximate reading time.
 ### Fixed
 - **Attachments cannot silently disappear from outgoing mail.** Missing files are detected before queueing and again while building the message. Duplicate file paths are ignored and the composer reports estimated encoded attachment size.
 - **Safer sending.** Magpie warns about duplicate recipients, absent attachments mentioned in the message, and empty messages. A duplicated email address gets only one copy of the message.

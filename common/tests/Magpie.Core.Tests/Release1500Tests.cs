@@ -74,4 +74,19 @@ public class Release1500Tests
         Assert.Equal(draft.Priority, restored.Priority);
         Assert.True(restored.RequestReadReceipt);
     }
+
+    [Fact]
+    public void External_recipient_check_uses_sender_domain_and_deduplicates()
+    {
+        var external = ComposeSafety.ExternalRecipients("me@work.example", "one@work.example, customer@outside.example",
+            "CUSTOMER@OUTSIDE.EXAMPLE", "private@another.example");
+        Assert.Equal(new[] { "customer@outside.example", "private@another.example" }, external, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Word_count_and_reading_estimate_are_available_for_review()
+    {
+        Assert.Equal(6, ComposeSafety.WordCount("Hello Krishna, I've attached two files."));
+        Assert.Equal(2, ComposeSafety.EstimatedReadingMinutes(205));
+    }
 }
