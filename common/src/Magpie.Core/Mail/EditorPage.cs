@@ -358,6 +358,8 @@ function cmd(mode, text){
 ed.addEventListener('input', function(){ post({t:'dirty'}); postStats(); });
 document.addEventListener('keydown', function(e){
   var k=e.key, K=k.length===1?k.toUpperCase():k;
+  if(mentionAt && (k==='Enter' || k==='Tab')){ e.preventDefault(); post({t:'key', k:'mentionpick'}); return; }
+  if(mentionAt && (k==='ArrowDown' || k==='ArrowUp')){ e.preventDefault(); post({t:'key', k:k==='ArrowDown'?'mentiondown':'mentionup'}); return; }
   if (e.ctrlKey && e.key === 'Enter' && e.altKey) { e.preventDefault(); post({t:'key', k:'sendarchive'}); }
   else if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); post({t:'send'}); }
   else if (e.ctrlKey && e.shiftKey && K === 'K') { e.preventDefault(); unlinkAt(); }

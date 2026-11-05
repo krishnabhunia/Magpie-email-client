@@ -27,7 +27,7 @@ public partial class SettingsViewModel
         _changeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _changeTimer.Tick += (_, _) => { _changeTimer.Stop(); HasChanges = Snapshot() != _baseline; };
         PropertyChanged += (_, e) => { if (e.PropertyName != null && !_quiet.Contains(e.PropertyName)) NoteChange(); };
-        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, AiConnections, QuickReplyList, RuleList })
+        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, ComposeToolbarRows, AiConnections, QuickReplyList, RuleList })
             Track(list);
         _baseline = Snapshot();
         HasChanges = false;
@@ -55,6 +55,7 @@ public partial class SettingsViewModel
     {
         if (item is INotifyPropertyChanged n) n.PropertyChanged += (_, _) => NoteChange();
         if (item is EditableRule r) { Track(r.Conditions); Track(r.Actions); }
+        if (item is EditableAccount a) Track(a.Signatures);   // design CW1: several signatures per account
     }
 
     /// <summary>The settings as Apply would save them now, as text (plus the things that aren't in settings.json).</summary>
@@ -109,6 +110,7 @@ public partial class SettingsViewModel
             Splash = Splash, SplashAccounts = SplashAccounts,
         };
         c.Appearance.Normalise();
+        c.Compose = ComposeToSave(c.Compose);
         c.Updates.AutoUpdate = AutoUpdate;
         c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
         c.Updates.IncludePrerelease = IncludePrerelease;

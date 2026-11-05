@@ -225,6 +225,8 @@ public sealed partial class ThreadItem : ObservableObject
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
     public bool HasAttachments => Row.HasAttachments;
+    /// <summary>Design CW1 (D1): the sender marked the latest email High / urgent.</summary>
+    public bool IsHighPriority => Row.Latest.Flags.HasFlag(MessageFlags.HighPriority);
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
     /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>
     public long? LocalDraftId { get; init; }
@@ -1389,11 +1391,29 @@ public partial class MainViewModel : ObservableObject
         toast.EditAction();
     }
 
+    /// <summary>Outbox ids taken back with Undo (design CW1 D6: Send &amp; Archive then leaves the conversation alone).</summary>
+    private readonly HashSet<long> _recalled = new();
+
+    /// <summary>Design CW1 (D6): archives the conversation once the undo window has passed, unless the send was undone.</summary>
+    public void ArchiveAfterUndo(long outboxId, int undoSeconds, string accountId, string threadKey)
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(0, undoSeconds) + 1) };
+        timer.Tick += async (_, _) =>
+        {
+            timer.Stop();
+            if (_recalled.Remove(outboxId)) return;
+            try { await _e.ArchiveAsync(accountId, threadKey, ActionFoldersFor(accountId)); }
+            catch (Exception ex) { Log.Warn("send & archive: " + ex.Message); }
+        };
+        timer.Start();
+    }
+
     [RelayCommand]
     private void UndoSend(UndoToast? toast)
     {
         toast ??= Toasts.LastOrDefault(t => !t.Done);
         if (toast == null) return;
+        _recalled.Add(toast.OutboxId);
         Toasts.Remove(toast);
         RefreshToasts();
         if (toast.UndoAction != null)
@@ -1432,6 +1452,7 @@ public partial class MainViewModel : ObservableObject
     {
         var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
         if (toast?.UndoAction != null) { UndoSend(toast); return; }   // e.g. an invite answer: its own undo
+        _recalled.Add(outboxId);
         if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
         var d = _e.Recall(outboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
