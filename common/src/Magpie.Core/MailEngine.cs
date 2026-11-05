@@ -1437,8 +1437,10 @@ public sealed class MailEngine : IDisposable
     /// Queues a message. <paramref name="sendAt"/> = now + undo window for a normal send, or a later time
     /// for "send later". Returns the outbox id (used for Undo / Cancel).
     /// </summary>
-    public long QueueSend(Draft d, DateTimeOffset sendAt, DateTimeOffset? remindIfNoReply)
+    public long QueueSend(Draft d, DateTimeOffset sendAt, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
+        if (archiveAfterSend && d.Mode is not (ComposeMode.Reply or ComposeMode.ReplyAll))
+            throw new InvalidOperationException("Send & Archive is available only when replying to a conversation.");
         using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account to send from.");
         var msg = Composer.Build(d, account);
@@ -1453,6 +1455,7 @@ public sealed class MailEngine : IDisposable
             MessageId = Threading.NormalizeId(msg.MessageId),
             ThreadKey = threadKey,
             RemindAt = remindIfNoReply,
+            ArchiveAfterSend = archiveAfterSend,
         };
         Store.AddOutbox(item);
         DropStaleLocalCopies(msg.MessageId, d.LocalDraftId);
@@ -1658,6 +1661,7 @@ public sealed class MailEngine : IDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
         ct = linked.Token;
         ct.ThrowIfCancellationRequested();
+        await ProcessPostSendArchivesAsync(ct);
         var now = DateTimeOffset.Now;
         foreach (var item in Store.GetOutbox().Where(o => o.SendAt <= now))
         {
@@ -1690,6 +1694,7 @@ public sealed class MailEngine : IDisposable
                     catch (Exception ex) { Log.Warn("could not remove the sent message's draft: " + ex.Message); }
                 }
                 Sent?.Invoke(item);
+                await ProcessPostSendArchivesAsync(ct);
                 SyncNow(item.AccountId);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested && !accepted)
@@ -1717,6 +1722,27 @@ public sealed class MailEngine : IDisposable
                 }
             }
             OutboxChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Only after SMTP accepts the reply. Retries across restart; Undo or failed sends cannot archive anything.</summary>
+    private async Task ProcessPostSendArchivesAsync(CancellationToken ct)
+    {
+        foreach (var (outboxId, accountId, threadKey) in Store.PendingPostSendArchives())
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var inbox = Store.GetFolders(accountId).Where(f => f.Role == FolderRole.Inbox)
+                    .Select(f => f.Id).ToHashSet();
+                var fromFolders = Store.GetThreadCopies(accountId, threadKey)
+                    .Where(row => inbox.Contains(row.FolderId)).Select(row => row.FolderId).Distinct().ToArray();
+                if (fromFolders.Length > 0)
+                    await ArchiveAsync(accountId, threadKey, fromFolders, ct);
+                Store.FinishPostSendArchive(outboxId);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { Log.Warn("Send & Archive postponed for reply " + outboxId + ": " + ex.Message); }
         }
     }
 

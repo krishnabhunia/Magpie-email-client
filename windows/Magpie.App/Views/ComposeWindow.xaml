@@ -245,6 +245,10 @@
                         <TextBlock DockPanel.Dock="Right" Text="{Binding Status}" ToolTip="{Binding Status}" MaxWidth="180" TextTrimming="CharacterEllipsis" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
                         <WrapPanel Orientation="Horizontal">
                             <Button Style="{StaticResource Button.Primary}" Content="Send" Padding="22,6" Click="OnSend" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}" ToolTip="Send (Ctrl+Enter)" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="Send &amp; Archive" Margin="8,0,0,0" FontWeight="Normal"
+                                    Click="OnSendAndArchive" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}"
+                                    Visibility="{Binding IsReply, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="Send this reply; after delivery succeeds, archive the original Inbox conversation. Undo Send leaves it in the Inbox." />
                             <Button Style="{StaticResource Button.Secondary}" Content="Send later" Margin="8,0,0,0" FontWeight="Normal" Click="OnSendLater" />
                             <Button Style="{StaticResource Button.Secondary}" Margin="8,0,0,0" FontWeight="Normal" Click="OnAttach">
                                 <StackPanel Orientation="Horizontal">

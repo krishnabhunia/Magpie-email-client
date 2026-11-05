@@ -454,6 +454,8 @@ public partial class ComposeWindow : Window
 
     private async void OnSend(object sender, RoutedEventArgs e) => await _vm.SendAsync(null, null);
 
+    private async void OnSendAndArchive(object sender, RoutedEventArgs e) => await _vm.SendAsync(null, null, archiveAfterSend: true);
+
     private void OnSendLater(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };

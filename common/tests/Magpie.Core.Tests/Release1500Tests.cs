@@ -60,6 +60,60 @@ public class Release1500Tests
     }
 
     [Fact]
+    public async Task Send_and_archive_moves_inbox_thread_only_after_successful_smtp_acceptance()
+    {
+        using var dir = new TempDir();
+        var accepted = 0;
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => { accepted++; return Task.CompletedTask; });
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        var original = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-1") }));
+        var draft = new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = original.ThreadKey,
+            To = "recipient@test.local", Subject = "Re: Hello", Html = "<p>Reply</p>" };
+
+        var outboxId = engine.QueueSend(draft, DateTimeOffset.Now.AddHours(1), null, archiveAfterSend: true);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+        Assert.NotNull(engine.Recall(outboxId));
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
+
+        engine.QueueSend(draft, DateTimeOffset.Now.AddSeconds(-1), null, archiveAfterSend: true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(1, accepted);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-1"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+    }
+
+    [Fact]
+    public async Task Send_and_archive_keeps_inbox_on_failed_delivery_and_retries_pending_archive_after_restart()
+    {
+        using var dir = new TempDir();
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => throw new IOException("SMTP unavailable"));
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-2") });
+        var queued = engine.QueueSend(new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = "thread-2",
+            To = "recipient@test.local", Subject = "Reply", Html = "<p>Reply</p>" }, DateTimeOffset.Now.AddSeconds(-1), null, true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(OutboxStatus.Failed, engine.Store.GetOutbox().Single(o => o.Id == queued).Status);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-2")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+
+        // Simulate a successful delivery recorded before a crash, with only the post-send action left.
+        engine.Store.SetOutboxResult(queued, OutboxStatus.Sent);
+        Assert.Single(engine.Store.PendingPostSendArchives());
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-2"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+    }
+
+    [Fact]
     public void Quick_templates_expand_only_known_variables_with_current_compose_context()
     {
         var sender = new Account { DisplayName = "Krishna Bhunia", Email = "krishna@example.com" };

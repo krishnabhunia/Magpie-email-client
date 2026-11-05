@@ -149,6 +149,8 @@ public sealed class OutboxItem
     public string ToText { get; set; } = "";
     public string MessageId { get; set; } = "";
     public string ThreadKey { get; set; } = "";
+    /// <summary>Reply-only request: archive the Inbox conversation after successful SMTP acceptance, never during Undo Send.</summary>
+    public bool ArchiveAfterSend { get; set; }
     /// <summary>"Remind me if nobody replies by" — set when scheduling.</summary>
     public DateTimeOffset? RemindAt { get; set; }
     public DateTimeOffset Created { get; set; }

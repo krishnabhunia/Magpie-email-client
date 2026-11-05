@@ -45,6 +45,7 @@ public sealed partial class MailStore
             Pooling = true,
         }.ToString();
         Migrate();
+        EnsurePostSendArchiveSchema();
         EnsureProductivitySchema();
         EnsureSavedContactsSchema();   // design B4
     }
@@ -1016,10 +1017,23 @@ public sealed partial class MailStore
 
     // ───────────────────────── outbox ─────────────────────────
 
+    /// <summary>Separate durable queue keeps the optional post-send action across restart without modifying the mail schema version.</summary>
+    private void EnsurePostSendArchiveSchema()
+    {
+        using var c = Open();
+        Exec(c, """
+            CREATE TABLE IF NOT EXISTS post_send_archives(
+              outbox_id INTEGER PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE,
+              account_id TEXT NOT NULL, thread_key TEXT NOT NULL);
+            """);
+    }
+
     public long AddOutbox(OutboxItem o)
     {
         using var c = Open();
+        using var tx = c.BeginTransaction();
         using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created)
             VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c) RETURNING id
@@ -1034,7 +1048,38 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$ra", (object?)o.RemindAt?.ToUnixTimeMilliseconds() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         o.Id = Convert.ToInt64(cmd.ExecuteScalar());
+        if (o.ArchiveAfterSend)
+        {
+            using var archive = c.CreateCommand();
+            archive.Transaction = tx;
+            archive.CommandText = "INSERT INTO post_send_archives(outbox_id,account_id,thread_key) VALUES($id,$a,$t)";
+            archive.Parameters.AddWithValue("$id", o.Id);
+            archive.Parameters.AddWithValue("$a", o.AccountId);
+            archive.Parameters.AddWithValue("$t", o.ThreadKey);
+            archive.ExecuteNonQuery();
+        }
+        tx.Commit();
         return o.Id;
+    }
+
+    public List<(long OutboxId, string AccountId, string ThreadKey)> PendingPostSendArchives()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT p.outbox_id,p.account_id,p.thread_key FROM post_send_archives p
+            JOIN outbox o ON o.id=p.outbox_id WHERE o.status=3 ORDER BY p.outbox_id
+            """;
+        var items = new List<(long, string, string)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) items.Add((r.GetInt64(0), r.GetString(1), r.GetString(2)));
+        return items;
+    }
+
+    public void FinishPostSendArchive(long outboxId)
+    {
+        using var c = Open();
+        Exec(c, "DELETE FROM post_send_archives WHERE outbox_id=$id", ("$id", outboxId));
     }
 
     /// <param name="withMime">false = leave the message itself out (status bar, counts: cheap to read often).</param>

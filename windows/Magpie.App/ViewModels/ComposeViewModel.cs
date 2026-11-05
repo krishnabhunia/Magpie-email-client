@@ -517,7 +517,7 @@ public partial class ComposeViewModel : ObservableObject
     }
 
     /// <summary>Queues the message; <paramref name="when"/> null = now (after the undo window).</summary>
-    public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply)
+    public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
         if (Sending || _queued) return;
@@ -598,7 +598,7 @@ public partial class ComposeViewModel : ObservableObject
                 if (d == null) return;
                 undo = _e.Config.UndoSendSeconds;
                 sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
-                id = _e.QueueSend(d, sendAt, remindIfNoReply);
+                id = _e.QueueSend(d, sendAt, remindIfNoReply, archiveAfterSend);
                 _queued = true;
                 if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
                 if (d.LocalDraftId is { } localId) { ReleaseClaim(); _e.DeleteLocalDraft(localId); d.LocalDraftId = null; }
