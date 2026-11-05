@@ -720,6 +720,9 @@
                                                     </Border>
                                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0"
                                                                Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" ToolTip="Has attachments" />
+                                                    <!-- Design CW1 (D1): the sender marked it High priority -->
+                                                    <TextBlock Text="!" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource Brush.Danger}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                               Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}" ToolTip="Marked High priority by the sender" />
                                                     <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent.Text}" Margin="6,0,0,0"
                                                                Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" ToolTip="Pinned" />
                                                 </StackPanel>
