@@ -23,6 +23,8 @@ public partial class ComposeWindow : Window
     private bool _forceClose;
     private TextBox? _suggestTarget;
     private readonly bool _foldQuote;
+    /// <summary>WebView2 couldn't start: the plain editor is the only editor (design CW1: the plain-text switch stays off).</summary>
+    private bool _noWebView;
     private readonly bool _preserveDraftFormatting;
     private readonly Action _settingsChanged;
     private string _plainProtectedTail = "";
@@ -232,6 +234,7 @@ public partial class ComposeWindow : Window
     private void UsePlainEditor()
     {
         _plain = true;
+        _noWebView = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
