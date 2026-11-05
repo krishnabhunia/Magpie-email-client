@@ -7,6 +7,16 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 15.0.0 (5 Nov 2026)
+### New
+- **A full compose window.** Recipients become chips (initials, name, ✕) the moment an address is complete; an address that doesn't look right stays in red so you can fix it instead of Send failing. Point at a chip for a card with the full address, Move to Cc / Bcc, Open contact, Copy address. Drag a chip between To, Cc and Bcc. **Cc**, **Bcc** and **Reply-To** are separate links, and the 📖 button opens the address book (All / Frequent / Groups, tick people, send them to To, Cc or Bcc). The same address twice is merged; more than 20 visible people shows a note with **Move them to Bcc**.
+- **A formatting toolbar.** Undo · Redo │ Paragraph style (Normal, Heading 1–3, Code) · Font · Size │ Bold · Italic · Underline · Strikethrough │ Text colour · Highlight │ Alignment · Bulleted · Numbered · Outdent · Indent │ Quote · Horizontal line · Table (hover a grid; right-click a table to add or delete rows and columns) · Picture · Emoji (searchable, with a Recent row) · Link (a bubble on a link: open, edit, remove) │ Clear formatting. When the window is narrow the right-most buttons fold into **More ▾**, which also holds Superscript, Subscript, Paste as plain text and the plain-text switch. Settings → Appearance → **New message toolbar** chooses the buttons and their order.
+- **Attachments you can see.** Each file is a card with its type, name and size; click to open, right-click for Open, Show in folder, Remove (and "Put in the message instead" for a picture). A bar shows the total against the account's limit (Gmail 25 MB, Outlook 20 MB, IMAP 25 MB or your own number in Settings → Accounts) and turns red when over. **Attach ▾** lists the last 10 files you attached and inserts a picture into the message. Pasting a file attaches it; pasting a picture asks "In the message or as a file?" (remember your choice). If the text says "attached" and there is no file, Magpie asks before sending.
+- **Message options.** **Send ▾** has **Send & Archive** for replies (archived once the undo window has passed; Undo keeps it). **Options ▾**: Priority High / Normal / Low (the usual headers; High shows a ! on the subject row and in the message list for received mail), Request a read receipt, Plain text message, Save draft (Ctrl+S), Save to file (.eml), Keyboard shortcuts. **Signature ▾** switches between the account's signatures or none; Settings → Signatures & replies now keeps several signatures per account with a default. **Templates ▾** also lists your quick replies and can save the message as a template. A word count and a **Discard** button sit in the footer.
+- **Editing comfort.** Find & replace (Ctrl+F / Ctrl+H), the quoted email folded to one line in replies (click to show), **@Name** in the text suggests people and adds the one you pick to To, right-click a misspelt word for suggestions (Settings → General → Writing emails switches spelling on or off), a shortcut sheet (Ctrl+/), and the window remembers its size and place.
+- Windows only; the Mac compose window is unchanged.
+<!-- closes: #132 -->
+
 ## 14.2.0 (5 Nov 2026)
 ### Changed
 - **Permanent three-digit beta versions on Windows, Mac and Android builds.** Each pull-request head gets one immutable `vX.Y.Z-beta001` to `beta999` reservation from GitHub, shared by independent platform pipelines. A rebuild of the same commit keeps its tag; a new commit gets the next number; the pipeline fails if a version's 999 allocations are exhausted.
@@ -22,6 +32,7 @@
 - **"On this PC".** Versions whose copy Magpie already kept in its version backups are marked, and choosing one skips the download when the copy still matches the release's checksum (otherwise it is downloaded as before).
 - Windows only; the Mac app is unchanged.
 <!-- closes: #130 -->
+
 ## 14.0.0 (3 Nov 2026)
 ### New
 - **Start-up screen.** While Magpie opens you now see a card with the Magpie mark and version on the left and, on the right, the four things Magpie does before its window appears: checking the last update, opening your mail folder, loading settings, look and fonts, and starting your accounts. Each step ticks off with how long it took, your accounts show as small chips in their colours, and the card fades as soon as the window is ready (it stays at least 0.8 seconds so it never just flickers). It follows Light, Dark or Match Windows, and appears where the Magpie window will open.
