@@ -526,6 +526,35 @@ public partial class ComposeViewModel : ObservableObject
                 Ui.Error("Missing attachment", "These files moved or were deleted. Remove them or attach them again:\n\n" + string.Join("\n", missingFiles));
                 return;
             }
+            var visibleCount = ComposeSafety.VisibleRecipientCount(To, Cc);
+            if (visibleCount > 20)
+            {
+                var invalid = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc))
+                    .Concat(Composer.InvalidAddresses(Bcc)).ToArray();
+                if (invalid.Length > 0)
+                {
+                    Ui.Error("Check recipients", "Correct these addresses before rearranging recipients:\n\n" + string.Join("\n", invalid));
+                    return;
+                }
+                var choice = MessageBox.Show(Ui.ActiveWindow!,
+                    $"This message has {visibleCount} visible recipients in To and Cc. They can see each other's addresses.\n\n"
+                    + "Yes — Move all except the first recipient to Bcc, then review before sending.\n"
+                    + "No — Keep recipients visible and continue sending.\n"
+                    + "Cancel — Return to the message.",
+                    "Large recipient list", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (choice == MessageBoxResult.Cancel) return;
+                if (choice == MessageBoxResult.Yes)
+                {
+                    var rearranged = ComposeSafety.MoveVisibleRecipientsToBcc(To, Cc, Bcc);
+                    To = rearranged.To;
+                    Cc = rearranged.Cc;
+                    Bcc = rearranged.Bcc;
+                    ShowCcBcc = true;
+                    MessageBox.Show(Ui.ActiveWindow!, "Recipients were moved to Bcc. Check the To and Bcc fields, then press Send again when ready.",
+                        "Recipients moved", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+            }
             var repeated = ComposeSafety.DuplicateRecipients(To, Cc, Bcc);
             if (repeated.Count > 0 && !Ui.Confirm("Duplicate recipients",
                     "These addresses appear more than once. Magpie will send only one copy to each:\n\n" + string.Join("\n", repeated) + "\n\nContinue?")) return;

@@ -47,6 +47,27 @@ public static partial class ComposeSafety
         return repeated.Order(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    /// <summary>Addresses visible to other recipients, excluding duplicates and private Bcc recipients.</summary>
+    public static int VisibleRecipientCount(string to, string cc) =>
+        Composer.ParseAddresses(to).Mailboxes.Concat(Composer.ParseAddresses(cc).Mailboxes)
+            .Select(address => address.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+    /// <summary>
+    /// Keep the first visible address in To, and move the others to Bcc.
+    /// Call only after validating all three input fields; invalid addresses must never be silently discarded.
+    /// </summary>
+    public static (string To, string Cc, string Bcc) MoveVisibleRecipientsToBcc(string to, string cc, string bcc)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visible = Composer.ParseAddresses(to).Mailboxes.Concat(Composer.ParseAddresses(cc).Mailboxes)
+            .Where(address => seen.Add(address.Address)).ToList();
+        var privateSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (visible.Count > 0) privateSeen.Add(visible[0].Address);
+        var privateRecipients = visible.Skip(1).Concat(Composer.ParseAddresses(bcc).Mailboxes)
+            .Where(address => privateSeen.Add(address.Address)).ToArray();
+        return (visible.FirstOrDefault()?.ToString() ?? "", "", string.Join(", ", privateRecipients.Select(a => a.ToString())));
+    }
+
     /// <summary>Recipients outside the From account's domain; used only when the sender opts into a warning.</summary>
     public static IReadOnlyList<string> ExternalRecipients(string senderAddress, string to, string cc, string bcc)
     {

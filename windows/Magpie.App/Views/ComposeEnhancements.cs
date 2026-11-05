@@ -417,6 +417,8 @@ public partial class ComposeWindow
         var notes = new List<string>
         {
             "Recipients: " + Composer.ParseAddresses(_vm.To + "," + _vm.Cc + "," + _vm.Bcc).Mailboxes.Count(),
+            "Visible To/Cc addresses: " + ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc)
+                + (ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc) > 20 ? " (consider Bcc for privacy)" : ""),
             "Attachments: " + _vm.Attachments.Count + ", approximately " + HtmlRenderer.FormatSize(encoded) + " encoded (plus any forwarded files)",
             $"New writing: {words} words · approximately {ComposeSafety.EstimatedReadingMinutes(words)} minute(s) to read",
             "Priority: " + _vm.Priority,

@@ -72,6 +72,26 @@ public class Release1500Tests
         Assert.Equal(new[] { "A@Example.com", "b@example.com" }, repeated, StringComparer.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Moving_large_visible_recipient_list_to_bcc_keeps_all_people_private()
+    {
+        var to = string.Join(", ", Enumerable.Range(1, 21).Select(i => $"person{i}@example.com"));
+        const string cc = "person22@example.com";
+        const string bcc = "private@example.com, PERSON2@example.com";
+        Assert.Equal(22, ComposeSafety.VisibleRecipientCount(to, cc));
+
+        var rearranged = ComposeSafety.MoveVisibleRecipientsToBcc(to, cc, bcc);
+        var recipients = Composer.ParseAddresses(rearranged.To).Mailboxes
+            .Concat(Composer.ParseAddresses(rearranged.Cc).Mailboxes)
+            .Concat(Composer.ParseAddresses(rearranged.Bcc).Mailboxes).ToArray();
+        Assert.Single(Composer.ParseAddresses(rearranged.To).Mailboxes);
+        Assert.Empty(Composer.ParseAddresses(rearranged.Cc).Mailboxes);
+        Assert.Equal(23, recipients.Length);
+        Assert.Equal(23, recipients.Select(address => address.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Contains(recipients, address => address.Address == "private@example.com");
+        Assert.Contains(recipients, address => address.Address == "person22@example.com");
+    }
+
     [Theory]
     [InlineData("Please find the attached report", true)]
     [InlineData("See the attachment", true)]
