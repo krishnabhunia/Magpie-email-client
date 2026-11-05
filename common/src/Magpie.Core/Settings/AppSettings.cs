@@ -396,6 +396,91 @@ public sealed class RowActionsSettings
     public RowActionsSettings Clone() => new() { Mode = Mode, Ids = Ids.ToList(), ConfirmDeleteOver = ConfirmDeleteOver, BulkUndoSeconds = BulkUndoSeconds };
 }
 
+/// <summary>Design CW1 (C4): what happens when a picture is pasted into a message.</summary>
+public enum PastePictureChoice { Ask = 0, InMessage = 1, AttachFile = 2 }
+
+/// <summary>Design CW1: the compose window — toolbar order, the small switches, recent files and emoji, window size.</summary>
+public sealed class ComposeSettings
+{
+    /// <summary>Every toolbar button in default order (design CW1 screen 3). Groups are separated by "|" entries, which are not buttons.</summary>
+    public static readonly string[] ToolbarIds =
+    {
+        "undo", "redo", "|", "style", "font", "size", "|", "bold", "italic", "underline", "strike", "|", "colour", "highlight", "|",
+        "align", "bullets", "numbers", "outdent", "indent", "|", "quote", "line", "table", "picture", "emoji", "link", "|", "clear",
+    };
+    public static string NameOf(string id) => id switch
+    {
+        "undo" => "Undo", "redo" => "Redo", "style" => "Paragraph style", "font" => "Font", "size" => "Text size", "bold" => "Bold", "italic" => "Italic",
+        "underline" => "Underline", "strike" => "Strikethrough", "colour" => "Text colour", "highlight" => "Highlight", "align" => "Alignment",
+        "bullets" => "Bulleted list", "numbers" => "Numbered list", "outdent" => "Outdent", "indent" => "Indent", "quote" => "Quote", "line" => "Horizontal line",
+        "table" => "Table", "picture" => "Picture", "emoji" => "Emoji", "link" => "Link", "clear" => "Clear formatting", _ => id,
+    };
+    public static bool IsButton(string id) => id != "|";
+
+    /// <summary>Buttons in the order shown; hidden ones stay in the list with Visible = false.</summary>
+    public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+    /// <summary>Red underline for misspelt words in the editor (E3).</summary>
+    public bool CheckSpelling { get; set; } = true;
+    /// <summary>Replies start with the quoted message folded to one line (E2).</summary>
+    public bool FoldQuote { get; set; } = true;
+    /// <summary>Ask before sending a message that mentions an attachment but has none (C3).</summary>
+    public bool AttachmentCheck { get; set; } = true;
+    /// <summary>Ask for a read receipt on every message unless switched off in the Options menu (D2).</summary>
+    public bool AlwaysReadReceipt { get; set; }
+    public PastePictureChoice PastePicture { get; set; } = PastePictureChoice.Ask;
+    /// <summary>Paths of the last files attached from this PC, newest first (C5).</summary>
+    public List<string> RecentAttachments { get; set; } = new();
+    /// <summary>The last emoji used, newest first (B10).</summary>
+    public List<string> RecentEmoji { get; set; } = new();
+    /// <summary>Size and place of the last compose window (E5); NaN = not yet.</summary>
+    public double Left { get; set; } = double.NaN;
+    public double Top { get; set; } = double.NaN;
+    public double Width { get; set; } = 980;
+    public double Height { get; set; } = 720;
+    public bool Maximized { get; set; }
+
+    public const int MaxRecentAttachments = 10, MaxRecentEmoji = 18;
+
+    public static List<ToolbarButton> DefaultToolbar() => ToolbarIds.Where(IsButton).Select(id => new ToolbarButton { Id = id, Visible = true }).ToList();
+
+    public void Normalise()
+    {
+        Toolbar ??= DefaultToolbar();
+        var seen = new HashSet<string>();
+        Toolbar = Toolbar.Where(b => b != null && IsButton(b.Id) && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
+        foreach (var id in ToolbarIds.Where(IsButton))
+            if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = true });
+        RecentAttachments = (RecentAttachments ?? new()).Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxRecentAttachments).ToList();
+        RecentEmoji = (RecentEmoji ?? new()).Where(e => !string.IsNullOrWhiteSpace(e)).Distinct().Take(MaxRecentEmoji).ToList();
+        if (!Enum.IsDefined(PastePicture)) PastePicture = PastePictureChoice.Ask;
+        if (double.IsNaN(Width) || Width < 640) Width = 980;
+        if (double.IsNaN(Height) || Height < 460) Height = 720;
+    }
+
+    /// <summary>Puts <paramref name="path"/> first in the recent list (C5).</summary>
+    public void NoteAttachment(string path)
+    {
+        RecentAttachments.RemoveAll(p => p.Equals(path, StringComparison.OrdinalIgnoreCase));
+        RecentAttachments.Insert(0, path);
+        if (RecentAttachments.Count > MaxRecentAttachments) RecentAttachments.RemoveRange(MaxRecentAttachments, RecentAttachments.Count - MaxRecentAttachments);
+    }
+
+    /// <summary>Puts <paramref name="emoji"/> first in the recent row (B10).</summary>
+    public void NoteEmoji(string emoji)
+    {
+        RecentEmoji.Remove(emoji);
+        RecentEmoji.Insert(0, emoji);
+        if (RecentEmoji.Count > MaxRecentEmoji) RecentEmoji.RemoveRange(MaxRecentEmoji, RecentEmoji.Count - MaxRecentEmoji);
+    }
+
+    public ComposeSettings Clone() => new()
+    {
+        Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+        CheckSpelling = CheckSpelling, FoldQuote = FoldQuote, AttachmentCheck = AttachmentCheck, AlwaysReadReceipt = AlwaysReadReceipt, PastePicture = PastePicture,
+        RecentAttachments = RecentAttachments.ToList(), RecentEmoji = RecentEmoji.ToList(), Left = Left, Top = Top, Width = Width, Height = Height, Maximized = Maximized,
+    };
+}
+
 /// <summary>Gatekeeper (design B7, off by default).</summary>
 public sealed class GatekeeperSettings
 {
@@ -479,6 +564,8 @@ public sealed class AppSettings
     public List<Mail.MailRule> Rules { get; set; } = new();
     /// <summary>Design SY1: a locked copy of the accounts (and settings) in the home mailbox, for Magpie on other PCs.</summary>
     public AccountsCopySettings AccountsCopy { get; set; } = new();
+    /// <summary>Design CW1: the compose window's toolbar, switches, recent files and size.</summary>
+    public ComposeSettings Compose { get; set; } = new();
 
     [JsonIgnore]
     public static readonly JsonSerializerOptions Json = new()
@@ -547,7 +634,10 @@ public sealed class SettingsStore
             a.SignatureHtml ??= "";
             // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
             if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
+            // 15.0.0 (design CW1): several signatures per account; the old single one becomes the first.
+            a.NormaliseSignatures();
         }
+        (s.Compose ??= new()).Normalise();
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         s.Sidebar ??= new();
