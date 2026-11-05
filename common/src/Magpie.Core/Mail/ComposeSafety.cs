@@ -18,6 +18,9 @@ public static partial class ComposeSafety
     public static bool CanCompressImage(string? filename) => Path.GetExtension(filename ?? "").ToLowerInvariant()
         is ".png" or ".jpg" or ".jpeg" or ".bmp";
 
+    public static bool ValidComposeLink(string? url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.Scheme is "https" or "http" or "mailto";
+
     /// <summary>Prevent ambiguous paths/control characters in the outgoing attachment filename.</summary>
     public static bool ValidAttachmentName(string? name) =>
         !string.IsNullOrWhiteSpace(name) && name.Length <= 160 && name is not ("." or "..")

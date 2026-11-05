@@ -355,10 +355,19 @@ public partial class ComposeWindow : Window
     private async void OnLink(object sender, RoutedEventArgs e)
     {
         if (_plain || !_editorReady) return;
-        var url = TextPromptDialog.Ask(this, "Insert link", "Web address", "https://");
+        var current = "";
+        try { current = JsonSerializer.Deserialize<string>(await Editor.CoreWebView2.ExecuteScriptAsync("selectedLinkUrl()")) ?? ""; }
+        catch (Exception) { /* A new selection can still create a link. */ }
+        var url = TextPromptDialog.Ask(this, current.Length > 0 ? "Edit link" : "Insert link", "Web address", current.Length > 0 ? current : "https://");
         if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "mailto")) { Ui.Error("Insert link", "That doesn't look like a web address.", this); return; }
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('createLink', {JsonSerializer.Serialize(u.ToString())})");
+        if (!ComposeSafety.ValidComposeLink(url)) { Ui.Error("Insert link", "Use an http, https or mailto address.", this); return; }
+        await Editor.CoreWebView2.ExecuteScriptAsync($"setSelectedLink({JsonSerializer.Serialize(url)})");
+    }
+
+    private async void OnRemoveLink(object sender, RoutedEventArgs e)
+    {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        await Editor.CoreWebView2.ExecuteScriptAsync("removeSelectedLink()");
     }
 
     // ───────────────────────── send / schedule / draft ─────────────────────────

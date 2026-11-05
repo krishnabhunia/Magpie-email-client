@@ -29,6 +29,17 @@ public class Release1500Tests
     public void Only_static_picture_formats_can_be_compressed(string file, bool expected) =>
         Assert.Equal(expected, ComposeSafety.CanCompressImage(file));
 
+    [Theory]
+    [InlineData("https://example.com", true)]
+    [InlineData("http://example.com/page", true)]
+    [InlineData("mailto:hello@example.com", true)]
+    [InlineData("javascript:alert(1)", false)]
+    [InlineData("file:///C:/secret.txt", false)]
+    [InlineData("data:text/html,hello", false)]
+    [InlineData("not a link", false)]
+    public void Compose_link_editor_rejects_unsafe_schemes(string link, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidComposeLink(link));
+
     [Fact]
     public void Duplicate_recipients_are_detected_across_all_fields()
     {
