@@ -45,6 +45,9 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _bcc = "";
     [ObservableProperty] private bool _showCcBcc;
     [ObservableProperty] private string _subject = "";
+    [ObservableProperty] private string _priority = "Normal";
+    [ObservableProperty] private string _replyTo = "";
+    [ObservableProperty] private bool _requestReadReceipt;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
     [ObservableProperty] private bool _sending;
@@ -68,6 +71,19 @@ public partial class ComposeViewModel : ObservableObject
     /// <summary>Id of this message's copy on this PC, once autosaved.</summary>
     public long? LocalDraftId => _draft.LocalDraftId;
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
+    public string AttachmentSummary
+    {
+        get
+        {
+            var files = Attachments.Where(a => !a.Carried).ToArray();
+            var count = Attachments.Count;
+            if (count == 0) return "No files attached";
+            var size = files.Length > 0 ? ComposeSafety.EncodedSizeOfExistingFiles(files.Select(a => a.Path), "") : 0;
+            return $"{count} file{(count == 1 ? "" : "s")}"
+                   + (files.Length > 0 ? $" · about {HtmlRenderer.FormatSize(size)} encoded" : "")
+                   + (Attachments.Any(a => a.Carried) ? " + forwarded content" : "");
+        }
+    }
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
     public string ProviderLabel => _e.Ai.ProviderLabel;
 
@@ -81,6 +97,9 @@ public partial class ComposeViewModel : ObservableObject
         Bcc = draft.Bcc;
         ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
         Subject = draft.Subject;
+        Priority = draft.Priority;
+        ReplyTo = draft.ReplyTo;
+        RequestReadReceipt = draft.RequestReadReceipt;
         foreach (var p in draft.AttachmentPaths) Attachments.Add(new AttachmentItem { Path = p });
         foreach (var part in draft.CarriedParts)
             Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "forwarded message", Carried = true, Part = part });
@@ -305,6 +324,9 @@ public partial class ComposeViewModel : ObservableObject
     partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
     partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
     partial void OnBccChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnPriorityChanged(string value) => MarkEdited();
+    partial void OnReplyToChanged(string value) => MarkEdited();
+    partial void OnRequestReadReceiptChanged(bool value) => MarkEdited();
 
     public void RefreshAi()
     {
@@ -327,12 +349,14 @@ public partial class ComposeViewModel : ObservableObject
     {
         foreach (var p in paths.Where(File.Exists))
         {
+            if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
             var fi = new FileInfo(p);
             if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
                 continue;
             Attachments.Add(new AttachmentItem { Path = p });
             MarkEdited();
         }
+        OnPropertyChanged(nameof(AttachmentSummary));
     }
 
     [RelayCommand]
@@ -342,6 +366,7 @@ public partial class ComposeViewModel : ObservableObject
         Attachments.Remove(a);
         if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
         MarkEdited();
+        OnPropertyChanged(nameof(AttachmentSummary));
         if (a.Carried) InvalidateReplyContext();   // a forward note may name this file
     }
 
@@ -350,7 +375,8 @@ public partial class ComposeViewModel : ObservableObject
         if (From == null) { if (validate) Ui.Error("Send", "Add an account first."); return null; }
         if (validate)
         {
-            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
+            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc))
+                .Concat(Composer.InvalidAddresses(ReplyTo)).ToList();
             if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
         }
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
@@ -360,6 +386,9 @@ public partial class ComposeViewModel : ObservableObject
         _draft.Cc = Cc;
         _draft.Bcc = Bcc;
         _draft.Subject = Subject;
+        _draft.Priority = Priority;
+        _draft.ReplyTo = ReplyTo;
+        _draft.RequestReadReceipt = RequestReadReceipt;
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
         return _draft;
@@ -381,6 +410,23 @@ public partial class ComposeViewModel : ObservableObject
                 return;
             }
             if (string.IsNullOrWhiteSpace(Subject) && !Ui.Confirm("No subject", "Send this message without a subject?")) return;
+            var missingFiles = ComposeSafety.MissingFiles(Attachments.Where(a => !a.Carried).Select(a => a.Path));
+            if (missingFiles.Count > 0)
+            {
+                Ui.Error("Missing attachment", "These files moved or were deleted. Remove them or attach them again:\n\n" + string.Join("\n", missingFiles));
+                return;
+            }
+            var repeated = ComposeSafety.DuplicateRecipients(To, Cc, Bcc);
+            if (repeated.Count > 0 && !Ui.Confirm("Duplicate recipients",
+                    "These addresses appear more than once. Magpie will send only one copy to each:\n\n" + string.Join("\n", repeated) + "\n\nContinue?")) return;
+            var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
+            if (ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
+                !Ui.Confirm("Did you forget an attachment?", "Your message refers to an attachment, but no files are attached. Send anyway?")) return;
+            if (string.IsNullOrWhiteSpace(newText) && Attachments.Count == 0 &&
+                !Ui.Confirm("Empty message", "The message has no new text or attachments. Send anyway?")) return;
+            var encoded = ComposeSafety.EncodedSizeOfExistingFiles(Attachments.Where(a => !a.Carried).Select(a => a.Path), "");
+            if (encoded > 25_000_000 && !Ui.Confirm("Large message",
+                    $"The attached files may take about {HtmlRenderer.FormatSize(encoded)} after email encoding. Your mail provider may reject this size. Send anyway?")) return;
             // Wait for an autosave that is building the message (it shares attachment streams with this build).
             await _saveGate.WaitAsync();
             Draft? d;

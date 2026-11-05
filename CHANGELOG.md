@@ -7,6 +7,15 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 15.0.0 (5 Nov 2026)
+### New
+- **Compose in three ways.** Keep the balanced email editor, select Focus for writing with fewer distractions, or open Studio for attachment details, a pre-send review and message options. Switching modes keeps the draft intact.
+- **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
+- **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
+### Fixed
+- **Attachments cannot silently disappear from outgoing mail.** Missing files are detected before queueing and again while building the message. Duplicate file paths are ignored and the composer reports estimated encoded attachment size.
+- **Safer sending.** Magpie warns about duplicate recipients, absent attachments mentioned in the message, and empty messages. A duplicated email address gets only one copy of the message.
+
 ## 14.0.0 (3 Nov 2026)
 ### New
 - **Start-up screen.** While Magpie opens you now see a card with the Magpie mark and version on the left and, on the right, the four things Magpie does before its window appears: checking the last update, opening your mail folder, loading settings, look and fonts, and starting your accounts. Each step ticks off with how long it took, your accounts show as small chips in their colours, and the card fades as soon as the window is ready (it stays at least 0.8 seconds so it never just flickers). It follows Light, Dark or Match Windows, and appears where the Magpie window will open.

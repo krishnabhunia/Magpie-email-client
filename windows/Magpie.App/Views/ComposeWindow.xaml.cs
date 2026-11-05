@@ -346,7 +346,8 @@ public partial class ComposeWindow : Window
     private async void OnFormat(object sender, RoutedEventArgs e)
     {
         if (_plain || !_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)})");
+        var value = command switch { "foreColor" => "#14606e", "hiliteColor" => "#fff0a6", _ => null };
+        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, {JsonSerializer.Serialize(value)})");
     }
 
     private async void OnLink(object sender, RoutedEventArgs e)

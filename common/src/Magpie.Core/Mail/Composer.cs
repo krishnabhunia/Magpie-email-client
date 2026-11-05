@@ -18,7 +18,12 @@ public sealed class Draft
     public string To { get; set; } = "";
     public string Cc { get; set; } = "";
     public string Bcc { get; set; } = "";
+    /// <summary>Optional address for replies to this message (not the sender account).</summary>
+    public string ReplyTo { get; set; } = "";
     public string Subject { get; set; } = "";
+    /// <summary>Normal, High or Low. Kept as text for compatible draft JSON.</summary>
+    public string Priority { get; set; } = "Normal";
+    public bool RequestReadReceipt { get; set; }
     /// <summary>HTML of the editor (new text + quoted original).</summary>
     public string Html { get; set; } = "";
     /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
@@ -243,9 +248,17 @@ public static class Composer
     {
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress(account.DisplayName, account.Email));
-        msg.To.AddRange(ParseAddresses(d.To));
-        msg.Cc.AddRange(ParseAddresses(d.Cc));
-        msg.Bcc.AddRange(ParseAddresses(d.Bcc));
+        // A recipient entered in two fields must get only one copy. The first (To, then Cc,
+        // then Bcc) wins, and Bcc-only addresses are never promoted into a visible field.
+        var seenRecipients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in ParseAddresses(d.To).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.To.Add(address);
+        foreach (var address in ParseAddresses(d.Cc).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.Cc.Add(address);
+        foreach (var address in ParseAddresses(d.Bcc).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.Bcc.Add(address);
+        if (!string.IsNullOrWhiteSpace(d.ReplyTo))
+            msg.ReplyTo.AddRange(ParseAddresses(d.ReplyTo));
         msg.Subject = d.Subject ?? "";
         msg.Date = DateTimeOffset.Now;
         var domain = account.Email.Contains('@') ? account.Email.Split('@')[1] : "magpie.local";
@@ -254,6 +267,18 @@ public static class Composer
         if (!string.IsNullOrWhiteSpace(d.InReplyTo)) msg.InReplyTo = d.InReplyTo.Trim().Trim('<', '>');
         foreach (var r in Threading.ParseReferences(d.References)) msg.References.Add(r);
         msg.Headers.Add("X-Mailer", "Magpie 1.0");
+        if (d.Priority.Equals("High", StringComparison.OrdinalIgnoreCase))
+        {
+            msg.Headers.Add("X-Priority", "1 (Highest)");
+            msg.Headers.Add("Importance", "high");
+        }
+        else if (d.Priority.Equals("Low", StringComparison.OrdinalIgnoreCase))
+        {
+            msg.Headers.Add("X-Priority", "5 (Lowest)");
+            msg.Headers.Add("Importance", "low");
+        }
+        if (d.RequestReadReceipt)
+            msg.Headers.Add("Disposition-Notification-To", account.Email);
 
         var builder = new BodyBuilder();
         // Pasted pictures arrive as data: URIs, which many mail apps block — send them as inline attachments.
@@ -280,7 +305,13 @@ public static class Composer
         }
         builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
         builder.TextBody = MimeText.HtmlToText(d.Html);
-        foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);
+        // Never silently omit a file that was present in the compose window but moved or
+        // disappeared before Send. The user must be able to fix the attachment first.
+        foreach (var path in d.AttachmentPaths)
+        {
+            if (!File.Exists(path)) throw new FileNotFoundException("An attached file is missing. Choose it again before sending.", path);
+            builder.Attachments.Add(path);
+        }
         foreach (var part in d.CarriedParts) builder.Attachments.Add(part);
         msg.Body = builder.ToMessageBody();
         return msg;

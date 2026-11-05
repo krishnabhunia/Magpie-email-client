@@ -38,6 +38,8 @@
                 <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="Magpie" svc:Typography.Role="appTitle" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource Brush.TitleBar.Text}" />
                     <TextBlock Text="{Binding WindowTitle}" FontSize="11.5" Foreground="{DynamicResource Brush.TitleBar.Muted}" Margin="12,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="600" />
+                    <Button x:Name="FocusModeButton" Style="{StaticResource Button.Ghost}" Content="Focus" Margin="16,0,0,0" Padding="9,3" ToolTip="Hide extra controls while writing" Click="OnToggleFocus" WindowChrome.IsHitTestVisibleInChrome="True" />
+                    <Button x:Name="StudioModeButton" Style="{StaticResource Button.Ghost}" Content="Studio" Margin="4,0,0,0" Padding="9,3" ToolTip="Open attachments, review and delivery options" Click="OnToggleStudio" WindowChrome.IsHitTestVisibleInChrome="True" />
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -45,6 +47,7 @@
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -119,17 +122,36 @@
                 </Grid>
 
                 <!-- Formatting -->
-                <Border Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
-                    <StackPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
+                <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
+                    <WrapPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
+                        <ComboBox x:Name="FontFamilyChoice" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
+                            <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
+                        </ComboBox>
+                        <ComboBox x:Name="FontSizeChoice" Width="60" Margin="0,0,6,0" SelectionChanged="OnFontSizeChoice" ToolTip="Font size">
+                            <ComboBoxItem Content="12" /><ComboBoxItem Content="14" /><ComboBoxItem Content="16" /><ComboBoxItem Content="18" IsSelected="True" /><ComboBoxItem Content="20" /><ComboBoxItem Content="24" /><ComboBoxItem Content="32" />
+                        </ComboBox>
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DD;" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DB;" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8DC;" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)" />
+                        <Button Style="{StaticResource Button.Icon}" Content="S̶" Tag="strikeThrough" Click="OnFormat" ToolTip="Strikethrough" />
+                        <Button Style="{StaticResource Button.Icon}" Content="A" Tag="foreColor" Click="OnFormat" ToolTip="Text colour" />
+                        <Button Style="{StaticResource Button.Icon}" Content="▣" Tag="hiliteColor" Click="OnFormat" ToolTip="Highlight selection" />
                         <Border Width="1" Margin="6,8" Background="{DynamicResource Brush.Divider}" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE8FD;" Tag="insertUnorderedList" Click="OnFormat" ToolTip="Bulleted list" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE9D5;" Tag="insertOrderedList" Click="OnFormat" ToolTip="Numbered list" />
+                        <Button Style="{StaticResource Button.Icon}" Content="≡" Tag="justifyLeft" Click="OnFormat" ToolTip="Align left" />
+                        <Button Style="{StaticResource Button.Icon}" Content="☷" Tag="justifyCenter" Click="OnFormat" ToolTip="Align centre" />
+                        <Button Style="{StaticResource Button.Icon}" Content="⇥" Tag="indent" Click="OnFormat" ToolTip="Increase indent" />
+                        <Button Style="{StaticResource Button.Icon}" Content="⇤" Tag="outdent" Click="OnFormat" ToolTip="Decrease indent" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE71B;" Click="OnLink" ToolTip="Insert link (Ctrl+K)" />
+                        <Button Style="{StaticResource Button.Icon}" Content="▦" Click="OnInsertTable" ToolTip="Insert a table" />
+                        <Button Style="{StaticResource Button.Icon}" Content="▧" Click="OnInsertImage" ToolTip="Insert an inline image" />
+                        <Button Style="{StaticResource Button.Icon}" Content="☺" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
+                        <Button Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
+                        <Button Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="More ▾" Click="OnMoreFormat" ToolTip="Heading, quote, superscript and more" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
-                    </StackPanel>
+                    </WrapPanel>
                 </Border>
 
                 <!-- Editor -->
@@ -160,6 +182,7 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <TextBlock Grid.Row="4" Text="{Binding AttachmentSummary}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,5" IsHitTestVisible="False" />
 
                 <!-- Footer -->
                 <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,10">
@@ -293,6 +316,47 @@
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- Hybrid design A+B+C: the optional Studio panel keeps the existing AI panel intact. -->
+            <Border x:Name="StudioPanel" Grid.Column="2" Width="310" Visibility="Collapsed" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="1,0,0,0">
+                <DockPanel Margin="14,12,14,12">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="×" Click="OnToggleStudio" ToolTip="Close Studio" />
+                        <TextBlock Text="COMPOSE STUDIO" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TabControl>
+                        <TabItem Header="Files">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Attachments" FontWeight="SemiBold" FontSize="14" />
+                                <TextBlock Text="{Binding AttachmentSummary}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,6,0,12" />
+                                <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Click="OnAttach" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Insert picture…" Click="OnInsertImage" Margin="0,7,0,0" />
+                                <TextBlock Text="Drop files into this window, or use Attach. Missing files and large messages are checked before Send." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,15,0,0" />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Review">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Review before sending" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Text="Checks: valid recipients, duplicates, missing or forgotten attachments, message size, empty subject and empty body." TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,12" />
+                                <Button Style="{StaticResource Button.Primary}" Content="Run safety review" Click="OnReview" />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Options">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Message priority" FontWeight="SemiBold" />
+                                <ComboBox SelectedValuePath="Content" SelectedValue="{Binding Priority, Mode=TwoWay}" Margin="0,6,0,14">
+                                    <ComboBoxItem Content="Normal" /><ComboBoxItem Content="High" /><ComboBoxItem Content="Low" />
+                                </ComboBox>
+                                <TextBlock Text="Reply-To (optional)" FontWeight="SemiBold" />
+                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                                <CheckBox Content="Request read receipt" IsChecked="{Binding RequestReadReceipt, Mode=TwoWay}" />
+                                <TextBlock Text="Receipts depend on recipients' mail apps and are not guaranteed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Send later…" Click="OnSendLater" Margin="0,14,0,0" />
+                            </StackPanel>
+                        </TabItem>
+                    </TabControl>
                 </DockPanel>
             </Border>
         </Grid>
