@@ -192,6 +192,26 @@ public class Release1500Tests
         Assert.Contains("function setEditorSpellcheck(enabled)", EditorPage.Html);
         Assert.Contains("function setParagraphStyle(style)", EditorPage.Html);
         Assert.Contains("['p','h1','h2','h3','pre'].includes(style)", EditorPage.Html);
+        Assert.Contains("function setEditorPlainText(enabled,notify)", EditorPage.Html);
+        Assert.Contains("ed.contentEditable='plaintext-only'", EditorPage.Html);
+    }
+
+    [Fact]
+    public void Plain_text_draft_sends_only_text_plain_and_remains_plain_after_reopening()
+    {
+        var account = new Account { Email = "sender@example.com" };
+        var draft = new Draft
+        {
+            To = "recipient@example.com", Subject = "Plain text", IsPlainText = true,
+            Html = "<p>Hello <b>there</b></p><p>Next line</p>",
+        };
+        var outgoing = Composer.Build(draft, account);
+        Assert.Null(outgoing.HtmlBody);
+        Assert.Contains("Hello there", outgoing.TextBody);
+        Assert.Contains("Next line", outgoing.TextBody);
+        var reopened = Composer.FromMime(outgoing, "account-one", "");
+        Assert.True(reopened.IsPlainText);
+        Assert.Contains("Hello", reopened.Html);
     }
 
     [Fact]

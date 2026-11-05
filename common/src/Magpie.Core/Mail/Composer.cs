@@ -33,6 +33,8 @@ public sealed class Draft
     public bool RequestReadReceipt { get; set; }
     /// <summary>HTML of the editor (new text + quoted original).</summary>
     public string Html { get; set; } = "";
+    /// <summary>Send as text/plain only. Formatting is removed explicitly by the composer UI.</summary>
+    public bool IsPlainText { get; set; }
     /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
     public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
@@ -293,7 +295,7 @@ public static class Composer
 
         var builder = new BodyBuilder();
         // Pasted pictures arrive as data: URIs, which many mail apps block — send them as inline attachments.
-        var inner = DataImage.Replace(d.Html, m =>
+        var inner = d.IsPlainText ? d.Html : DataImage.Replace(d.Html, m =>
         {
             try
             {
@@ -314,7 +316,7 @@ public static class Composer
             msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
             return msg;
         }
-        builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
+        if (!d.IsPlainText) builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
         builder.TextBody = MimeText.HtmlToText(d.Html);
         // Preserve the visible order even when local files and forwarded MIME parts
         // are interleaved. Older drafts without an order retain paths-then-parts.
@@ -454,6 +456,7 @@ public static class Composer
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,
             MessageId = msg.MessageId ?? "",
+            IsPlainText = msg.HtmlBody == null,
         };
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");

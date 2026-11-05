@@ -120,6 +120,12 @@ public partial class ComposeViewModel : ObservableObject
     public string InitialHtml { get; }
     /// <summary>Id of this message's copy on this PC, once autosaved.</summary>
     public long? LocalDraftId => _draft.LocalDraftId;
+    /// <summary>Controls text/plain-only MIME serialization, including local and server draft saves.</summary>
+    public bool IsPlainText
+    {
+        get => _draft.IsPlainText;
+        set => _draft.IsPlainText = value;
+    }
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public string AttachmentSummary
     {

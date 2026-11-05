@@ -1,6 +1,7 @@
 """Versioning regressions for independent platform workflows."""
 
 import unittest
+import urllib.error
 
 from ci_version import from_event, reserve
 from unittest.mock import patch
@@ -63,6 +64,15 @@ class IndependentCiVersionTests(unittest.TestCase):
         with patch("ci_version.github_refs", return_value=refs):
             with self.assertRaisesRegex(ValueError, "exhausted"):
                 reserve("11.0.0", event(), REPO, "token")
+
+    def test_parallel_reservations_retry_an_atomic_tag_collision(self):
+        first = [{"ref": "refs/tags/v11.0.0-beta001", "object": {"sha": SHA_B}}]
+        second = first + [{"ref": "refs/tags/v11.0.0-beta002", "object": {"sha": SHA_B}}]
+        collision = urllib.error.HTTPError("https://api.github.com", 422, "already exists", {}, None)
+        with patch("ci_version.github_refs", side_effect=[first, second]), \
+             patch("ci_version.github_api", side_effect=[collision, None]) as api:
+            self.assertEqual(reserve("11.0.0", event(), REPO, "token"), "11.0.0-beta003")
+            self.assertEqual(api.call_count, 2)
 
 
 if __name__ == "__main__":

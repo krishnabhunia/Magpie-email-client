@@ -263,6 +263,7 @@ public partial class ComposeWindow : Window
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
+        UpdatePlainTextControls();
         _ = ApplyEditorTypographyAsync();
         _ = _vm.ReplyEditorReadyAsync();
     }
@@ -278,9 +279,12 @@ public partial class ComposeWindow : Window
                 case "ready":
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
+                    if (_vm.IsPlainText)
+                        await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
                     QuoteToggleButton.Visibility = _vm.InitialHtml.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
                         ? Visibility.Visible : Visibility.Collapsed;
                     _editorReady = true;
+                    UpdatePlainTextControls();
                     await ApplyEditorTypographyAsync();
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
                     if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
@@ -395,6 +399,7 @@ public partial class ComposeWindow : Window
     private async void OnFormat(object sender, RoutedEventArgs e)
     {
         if (_plain || !_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
+        if (_vm.IsPlainText && command is not ("undo" or "redo")) return;
         var value = command switch { "foreColor" => "#14606e", "hiliteColor" => "#fff0a6", _ => null };
         await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, {JsonSerializer.Serialize(value)})");
     }

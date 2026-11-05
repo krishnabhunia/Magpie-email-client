@@ -81,6 +81,56 @@ public partial class ComposeWindow
         menu.Items.Add(spelling);
     }
 
+    private void UpdatePlainTextControls()
+    {
+        foreach (var control in FormattingItems.Children.OfType<Control>())
+        {
+            var tag = (control as Button)?.Tag as string;
+            control.IsEnabled = !_vm.IsPlainText || tag is "plainAllowed" or "undo" or "redo";
+        }
+        if (_vm.IsPlainText) QuoteToggleButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void AddPlainTextToggle(ContextMenu menu)
+    {
+        var plain = new MenuItem
+        {
+            Header = "Send as plain text (no HTML alternative)",
+            IsCheckable = true,
+            IsChecked = _vm.IsPlainText,
+        };
+        plain.Click += async (_, _) =>
+        {
+            var enabled = plain.IsChecked;
+            if (enabled == _vm.IsPlainText) return;
+            if (enabled && !_plain && MessageBox.Show(this,
+                    "Switching to plain text removes rich formatting, tables, hyperlinks and inline pictures from the message. Regular file attachments remain. Switching back will not restore the removed formatting.\n\nContinue?",
+                    "Send as plain text", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                plain.IsChecked = false;
+                return;
+            }
+            if (!_plain && Editor.CoreWebView2 != null)
+            {
+                try
+                {
+                    var converted = await Editor.CoreWebView2.ExecuteScriptAsync($"setEditorPlainText({(enabled ? "true" : "false")})");
+                    if (converted != "true") throw new InvalidOperationException("The editor did not switch modes.");
+                }
+                catch (Exception ex)
+                {
+                    Ui.Error("Plain text", ex.Message, this);
+                    plain.IsChecked = !enabled;
+                    return;
+                }
+            }
+            _vm.IsPlainText = enabled;
+            UpdatePlainTextControls();
+            _vm.MarkEdited();
+        };
+        menu.Items.Add(plain);
+    }
+
     private void OnToggleFocus(object sender, RoutedEventArgs e)
     {
         _focusMode = !_focusMode;
@@ -696,7 +746,9 @@ public partial class ComposeWindow
     {
         if (!_editorReady) return;
         var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
-        if (_plain)
+        AddPlainTextToggle(menu);
+        menu.Items.Add(new Separator());
+        if (_plain || _vm.IsPlainText)
         {
             AddSpellcheckToggle(menu);
             menu.IsOpen = true;

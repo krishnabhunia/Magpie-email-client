@@ -142,6 +142,18 @@ internal static partial class Program
                 "Real editor applies a semantic code block");
             Assert(await Script("setParagraphStyle('script')") == "false",
                 "Paragraph style rejects unsupported HTML tags");
+            await Script("setHtml('<p><b>Bold opening</b></p><div class=\"magpie-quote\">Full original quote</div>')");
+            Assert(await Script("setEditorPlainText(true)") == "true"
+                && await Script("ed.contentEditable") == "\"plaintext-only\""
+                && await Script("ed.querySelector('b')===null") == "true",
+                "Plain-text switch removes rich formatting from the editor");
+            var plainHtml = JsonSerializer.Deserialize<string>(await Script("getHtml()"))!;
+            Assert(plainHtml.Contains("Bold opening") && plainHtml.Contains("Full original quote"),
+                "Plain-text conversion retains author text and any previously folded original quote");
+            Assert(await Script("setEditorPlainText(false)") == "true"
+                && await Script("ed.contentEditable") == "\"true\""
+                && await Script("ed.querySelector('p')!==null") == "true",
+                "Plain-text switch can return to rich editing without restoring removed formatting");
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }

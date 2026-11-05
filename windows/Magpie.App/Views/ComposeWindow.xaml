@@ -144,9 +144,9 @@
 
                 <!-- Formatting -->
                 <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
-                    <WrapPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
-                        <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Click="OnAttach" Margin="0,0,8,0" ToolTip="Attach one or more files (also available below Send)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Recent ▾" Click="OnAttachRecent" Margin="0,0,8,0" ToolTip="Choose from files recently attached on this computer" />
+                    <WrapPanel x:Name="FormattingItems" Orientation="Horizontal" svc:Typography.Role="editorToolbar">
+                        <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Tag="plainAllowed" Click="OnAttach" Margin="0,0,8,0" ToolTip="Attach one or more files (also available below Send)" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Recent ▾" Tag="plainAllowed" Click="OnAttachRecent" Margin="0,0,8,0" ToolTip="Choose from files recently attached on this computer" />
                         <ComboBox x:Name="FontFamilyChoice" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
                             <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
                         </ComboBox>
@@ -171,11 +171,11 @@
                         <Button Style="{StaticResource Button.Icon}" Content="▦" Click="OnInsertTable" ToolTip="Insert a table" />
                         <Button Style="{StaticResource Button.Icon}" Content="▧" Click="OnInsertImage" ToolTip="Insert an inline image" />
                         <Button Style="{StaticResource Button.Icon}" Content="↔" Click="OnResizeInlineImage" ToolTip="Resize a picture after clicking it in the message" />
-                        <Button Style="{StaticResource Button.Icon}" Content="☺" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
+                        <Button Style="{StaticResource Button.Icon}" Content="☺" Tag="plainAllowed" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
                         <Button Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
                         <Button Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Find" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="More ▾" Click="OnMoreFormat" ToolTip="Heading, quote, superscript and more" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Find" Tag="plainAllowed" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="More ▾" Tag="plainAllowed" Click="OnMoreFormat" ToolTip="Paragraph styles, plain-text mode, spelling and more" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
                     </WrapPanel>
                 </Border>

@@ -29,6 +29,7 @@ body{font:14px/1.6 'IBM Plex Sans','Segoe UI',system-ui,sans-serif;color:#23282E
 #ed p{margin:0 0 .6em}
 #ed pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#F1F3F5;border:1px solid #DCE2E7;border-radius:5px;padding:8px 10px;font:13px/1.5 Consolas,monospace}
 #ed:empty:before{content:attr(data-ph);color:#9AA0A6}
+#ed.magpie-plain-text{white-space:pre-wrap;font-family:Consolas,monospace}
 blockquote{margin:0 0 0 .8ex;border-left:2px solid #DCD8CF;padding-left:1ex;color:#5A6068}
 .magpie-quote{color:#5A6068}
 .magpie-signature{color:#5A6068}
@@ -54,6 +55,7 @@ const ed = document.getElementById('ed');
 let saved = null;
 let selectedImage = null;
 let selectedTableCell = null;
+let isPlainText = false;
 let rewrite = null;
 let typography = null;
 const protectedFonts = new WeakMap();
@@ -108,6 +110,7 @@ function setTypography(body, signature, quote, preserveExisting){
 }
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
 function setHtml(h){
+  isPlainText=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
   // Fold only in the editor's view. getHtml() still serializes the full quote.
   ed.classList.toggle('quote-folded',!!ed.querySelector('.magpie-quote'));
@@ -120,6 +123,13 @@ function setHtml(h){
   ed.focus();
 }
 function getHtml(){
+  if(isPlainText){
+    // Encode the plain editor's visible text as HTML for draft compatibility.
+    // Composer sends only text/plain for drafts with IsPlainText=true.
+    return ed.innerText.replace(/\r\n/g,'\n').split('\n').map(function(line){
+      const p=document.createElement('p');p.textContent=line;return p.outerHTML;
+    }).join('');
+  }
   if(!typography) return ed.innerHTML;
   // Stamp a detached copy, preserving body/signature/quote boundaries and existing rich formatting.
   const copy=ed.cloneNode(true), originals=Array.from(ed.querySelectorAll('*')), copies=Array.from(copy.querySelectorAll('*'));
@@ -153,6 +163,29 @@ function setEditorSpellcheck(enabled){
   ed.spellcheck=!!enabled;
   ed.querySelectorAll('[spellcheck]').forEach(function(node){node.spellcheck=!!enabled;});
   return ed.spellcheck;
+}
+function setEditorPlainText(enabled,notify){
+  const next=!!enabled;
+  if(next===isPlainText) return true;
+  // Unfold quotes before conversion: the text-only email must retain the entire thread.
+  ed.classList.remove('quote-folded');
+  const visibleText=ed.innerText;
+  if(next){
+    ed.textContent=visibleText;
+    ed.contentEditable='plaintext-only';
+    ed.classList.add('magpie-plain-text');
+  }else{
+    ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
+    ed.replaceChildren(...visibleText.replace(/\r\n/g,'\n').split('\n').map(function(line){
+      const p=document.createElement('p');p.textContent=line;return p;
+    }));
+  }
+  isPlainText=next;selectedTableCell=null;selectedImage=null;
+  const caret=document.createRange();caret.selectNodeContents(ed);caret.collapse(false);
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(caret);
+  saved=caret.cloneRange();ed.focus();
+  if(notify!==false)post({t:'dirty'});
+  return true;
 }
 function toggleQuoteFold(){
   if(!ed.querySelector('.magpie-quote')) return false;
