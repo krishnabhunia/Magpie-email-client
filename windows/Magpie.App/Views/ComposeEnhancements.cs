@@ -364,6 +364,33 @@ public partial class ComposeWindow
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
+        var languageMenu = new MenuItem { Header = "Writing language (current paragraph)" };
+        foreach (var (label, language) in new[]
+                 {
+                     ("English", "en"), ("Hindi", "hi"), ("Bengali", "bn"),
+                     ("Chinese", "zh-CN"), ("Arabic", "ar"),
+                 })
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += async (_, _) =>
+            {
+                var applied = await Editor.CoreWebView2.ExecuteScriptAsync($"setWritingLanguage({JsonSerializer.Serialize(language)})");
+                if (applied != "true") Ui.Error("Writing language", "Place the cursor inside a paragraph first.", this);
+            };
+            languageMenu.Items.Add(item);
+        }
+        menu.Items.Add(languageMenu);
+        foreach (var (label, direction) in new[] { ("Left-to-right paragraph", "ltr"), ("Right-to-left paragraph", "rtl") })
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += async (_, _) =>
+            {
+                var applied = await Editor.CoreWebView2.ExecuteScriptAsync($"setWritingDirection({JsonSerializer.Serialize(direction)})");
+                if (applied != "true") Ui.Error("Text direction", "Place the cursor inside a paragraph first.", this);
+            };
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new Separator());
         var pastePlain = new MenuItem { Header = "Paste without formatting" };
         pastePlain.Click += async (_, _) =>
         {

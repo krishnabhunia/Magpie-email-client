@@ -170,6 +170,24 @@ function resizeSelectedImage(percent){
   selectedImage.style.maxWidth='100%';
   post({t:'dirty'});return true;
 }
+function currentWritingBlock(){
+  const node=saved?.startContainer || window.getSelection()?.anchorNode;
+  const element=node?.nodeType===Node.ELEMENT_NODE ? node : node?.parentElement;
+  const block=element?.closest('p,li,div,blockquote');
+  return block && block !== ed && ed.contains(block) ? block : null;
+}
+function setWritingDirection(direction){
+  if(!['ltr','rtl'].includes(direction)) return false;
+  const block=currentWritingBlock();if(!block) return false;
+  block.setAttribute('dir',direction);
+  post({t:'dirty'});return true;
+}
+function setWritingLanguage(language){
+  if(!['en','hi','bn','zh-CN','ar'].includes(language)) return false;
+  const block=currentWritingBlock();if(!block) return false;
+  block.setAttribute('lang',language);block.setAttribute('spellcheck','true');
+  post({t:'dirty'});return true;
+}
 document.addEventListener('selectionchange', function(){
   const s = window.getSelection();
   if (s.rangeCount && ed.contains(s.anchorNode)) { saved = s.getRangeAt(0).cloneRange(); post({t:'sel', text: s.toString()}); }

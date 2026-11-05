@@ -47,6 +47,8 @@ public class Release1500Tests
         Assert.Contains("function removeSelectedLink()", EditorPage.Html);
         Assert.Contains("function resizeSelectedImage(percent)", EditorPage.Html);
         Assert.Contains("[25,50,75,100].includes(percent)", EditorPage.Html);
+        Assert.Contains("function setWritingDirection(direction)", EditorPage.Html);
+        Assert.Contains("function setWritingLanguage(language)", EditorPage.Html);
     }
 
     [Fact]
