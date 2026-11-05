@@ -106,6 +106,20 @@ public class Release1500Tests
         Assert.Equal("Here is the latest status.", restored.Single().Body);
     }
 
+    [Fact]
+    public void Compose_window_placement_defaults_and_invalid_sizes_are_safe()
+    {
+        var placement = new Magpie.Core.Settings.ComposeWindowPlacement
+        {
+            HasSavedPlacement = true, Left = double.NaN, Top = 20,
+            Width = double.PositiveInfinity, Height = 30,
+        };
+        placement.Normalise();
+        Assert.False(placement.HasSavedPlacement);
+        Assert.Equal(980, placement.Width);
+        Assert.Equal(460, placement.Height);
+    }
+
     [Theory]
     [InlineData("Please find the attached report", true)]
     [InlineData("See the attachment", true)]

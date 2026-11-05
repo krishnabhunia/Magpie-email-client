@@ -152,7 +152,7 @@ public partial class ComposeWindow : Window
         Loaded += async (_, _) => await InitEditorAsync();
         Loaded += (_, _) => RefreshAllRecipientChips();
         Closing += OnClosing;
-        Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
+        Closed += (_, _) => { SaveComposePlacement(); _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
         Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
         ThemeManager.Changed += OnThemeChanged;
         _vm.PropertyChanged += (_, a) =>
@@ -176,13 +176,49 @@ public partial class ComposeWindow : Window
             else if (e.Key == Key.Oem2 && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowComposeShortcuts(); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
-        if (Application.Current.MainWindow is { IsVisible: true } main)
+        RestoreComposePlacement();
+    }
+
+    private void RestoreComposePlacement()
+    {
+        var placement = AppServices.Engine.Config.ComposeWindow;
+        Width = placement.Width;
+        Height = placement.Height;
+        if (placement.HasSavedPlacement && placement.Left > SystemParameters.VirtualScreenLeft - 50
+            && placement.Top > SystemParameters.VirtualScreenTop - 50
+            && placement.Left < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 100
+            && placement.Top < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 100)
+        {
+            Left = placement.Left;
+            Top = placement.Top;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+        }
+        else if (Application.Current.MainWindow is { IsVisible: true } main)
         {
             Left = main.Left + 80;
             Top = main.Top + 60;
             WindowStartupLocation = WindowStartupLocation.Manual;
         }
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        if (placement.Maximized) WindowState = WindowState.Maximized;
+    }
+
+    private void SaveComposePlacement()
+    {
+        try
+        {
+            var placement = AppServices.Engine.Config.ComposeWindow;
+            var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+            if (bounds.Width < MinWidth || bounds.Height < MinHeight) return;
+            placement.Left = bounds.Left;
+            placement.Top = bounds.Top;
+            placement.Width = bounds.Width;
+            placement.Height = bounds.Height;
+            placement.Maximized = WindowState == WindowState.Maximized;
+            placement.HasSavedPlacement = true;
+            AppServices.Engine.Settings.Save(notify: false);
+        }
+        catch (Exception ex) { Log.Warn("save compose placement: " + ex.Message); }
     }
 
     private async Task InitEditorAsync()

@@ -336,6 +336,24 @@ public sealed class WindowPlacement
         dragged < SidebarMin ? (SidebarDefault, true) : (Math.Clamp(dragged, SidebarMin, SidebarMax), false);
 }
 
+/// <summary>Last compose-window dimensions and monitor position, independent of the inbox window.</summary>
+public sealed class ComposeWindowPlacement
+{
+    public bool HasSavedPlacement { get; set; }
+    public double Left { get; set; }
+    public double Top { get; set; }
+    public double Width { get; set; } = 980;
+    public double Height { get; set; } = 720;
+    public bool Maximized { get; set; }
+
+    public void Normalise()
+    {
+        Width = double.IsFinite(Width) ? Math.Clamp(Width, 640, 4000) : 980;
+        Height = double.IsFinite(Height) ? Math.Clamp(Height, 460, 3000) : 720;
+        if (!double.IsFinite(Left) || !double.IsFinite(Top)) HasSavedPlacement = false;
+    }
+}
+
 /// <summary>Folder details on hover (design H2).</summary>
 public sealed class FolderHoverSettings
 {
@@ -465,6 +483,7 @@ public sealed class AppSettings
 
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
+    public ComposeWindowPlacement ComposeWindow { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
     public TypographySettings Typography { get; set; } = new();
@@ -550,6 +569,7 @@ public sealed class SettingsStore
         }
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
+        (s.ComposeWindow ??= new()).Normalise();
         s.Sidebar ??= new();
         s.Sidebar.Normalise();
         s.Appearance ??= new();
