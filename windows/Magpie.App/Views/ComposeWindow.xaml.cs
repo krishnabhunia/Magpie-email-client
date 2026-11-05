@@ -173,7 +173,10 @@ public partial class ComposeWindow : Window
                 if (_vm.GenerateReplyDraftCommand.CanExecute(null)) _ = _vm.GenerateReplyDraftCommand.ExecuteAsync(null);
             }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
+            else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(false); }
+            else if (e.Key == Key.H && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(true); }
             else if (e.Key == Key.Oem2 && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowComposeShortcuts(); }
+            else if (e.Key == Key.Escape && FindReplacePanel.Visibility == Visibility.Visible) { e.Handled = true; HideFindReplace(); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
         RestoreComposePlacement();
@@ -285,6 +288,8 @@ public partial class ComposeWindow : Window
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
+                case "find": ShowFindReplace(false); break;
+                case "replace": ShowFindReplace(true); break;
                 case "shortcuts": ShowComposeShortcuts(); break;
             }
         }
@@ -413,6 +418,7 @@ public partial class ComposeWindow : Window
         MessageBox.Show(this,
             "Ctrl+Enter — Send (or rewrite when the AI panel is focused)\n"
             + "Ctrl+K — Insert or edit a link\n"
+            + "Ctrl+F — Find text in this message\nCtrl+H — Find and replace\n"
             + "Ctrl+B — Bold\nCtrl+I — Italic\nCtrl+U — Underline\n"
             + "Ctrl+Z — Undo\nCtrl+Y — Redo\n"
             + "Ctrl+Shift+A — Open AI assistant when available\n"

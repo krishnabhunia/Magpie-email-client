@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Magpie.Core;
@@ -75,6 +77,113 @@ public partial class ComposeWindow
         StudioPanel.Visibility = Visibility.Collapsed;
         StudioModeButton.Content = "Studio";
         _studioRestoreAiPanel = false;
+    }
+
+    private void ShowFindReplace(bool replace)
+    {
+        FindReplacePanel.Visibility = Visibility.Visible;
+        if (replace) ReplaceControls.Visibility = Visibility.Visible;
+        FindReplaceStatus.Text = "";
+        FindTextBox.Focus();
+        FindTextBox.SelectAll();
+    }
+
+    private void HideFindReplace()
+    {
+        FindReplacePanel.Visibility = Visibility.Collapsed;
+        if (_plain) PlainEditor.Focus(); else Editor.Focus();
+    }
+
+    private void OnFind(object sender, RoutedEventArgs e) => ShowFindReplace(false);
+
+    private void OnCloseFind(object sender, RoutedEventArgs e) => HideFindReplace();
+
+    private void OnFindTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (FindReplaceStatus != null) FindReplaceStatus.Text = "";
+    }
+
+    private async void OnFindInputKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        await FindNextAsync();
+    }
+
+    private async void OnFindNext(object sender, RoutedEventArgs e) => await FindNextAsync();
+
+    private async Task FindNextAsync()
+    {
+        var query = FindTextBox.Text;
+        if (string.IsNullOrEmpty(query)) { FindReplaceStatus.Text = "Enter text to find"; return; }
+        if (query.Length > 200) { FindReplaceStatus.Text = "Find text must be 200 characters or fewer"; return; }
+        var comparison = FindMatchCase.IsChecked == true ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (_plain)
+        {
+            var text = PlainEditor.Text;
+            var start = PlainEditor.SelectionStart + PlainEditor.SelectionLength;
+            var at = text.IndexOf(query, Math.Min(start, text.Length), comparison);
+            if (at < 0) at = text.IndexOf(query, comparison);
+            if (at < 0) { FindReplaceStatus.Text = "No matches"; return; }
+            var count = 0;
+            for (var pos = 0; (pos = text.IndexOf(query, pos, comparison)) >= 0; pos += query.Length) count++;
+            var number = 1;
+            for (var pos = 0; (pos = text.IndexOf(query, pos, comparison)) >= 0 && pos < at; pos += query.Length) number++;
+            PlainEditor.Focus();
+            PlainEditor.Select(at, query.Length);
+            FindReplaceStatus.Text = $"Match {number} of {count}";
+            return;
+        }
+        if (!_editorReady || Editor.CoreWebView2 == null) { FindReplaceStatus.Text = "Editor is loading"; return; }
+        var result = await Editor.CoreWebView2.ExecuteScriptAsync($"findInEditor({JsonSerializer.Serialize(query)}, {(comparison == StringComparison.Ordinal ? "true" : "false")})");
+        using var doc = JsonDocument.Parse(result);
+        var countRich = doc.RootElement.GetProperty("count").GetInt32();
+        var index = doc.RootElement.GetProperty("index").GetInt32();
+        FindReplaceStatus.Text = countRich < 0 ? "Too many matches; narrow your search" : countRich == 0 ? "No matches" : $"Match {index} of {countRich}";
+    }
+
+    private async void OnReplaceOne(object sender, RoutedEventArgs e)
+    {
+        var query = FindTextBox.Text;
+        if (string.IsNullOrEmpty(query)) return;
+        var matchCase = FindMatchCase.IsChecked == true;
+        if (_plain)
+        {
+            if (!string.Equals(PlainEditor.SelectedText, query, matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+            {
+                await FindNextAsync();
+                return;
+            }
+            PlainEditor.SelectedText = ReplaceTextBox.Text;
+        }
+        else if (_editorReady && Editor.CoreWebView2 != null)
+        {
+            var result = await Editor.CoreWebView2.ExecuteScriptAsync($"replaceFoundText({JsonSerializer.Serialize(query)}, {JsonSerializer.Serialize(ReplaceTextBox.Text)}, {(matchCase ? "true" : "false")})");
+            if (result != "true") { await FindNextAsync(); return; }
+        }
+        await FindNextAsync();
+    }
+
+    private async void OnReplaceAll(object sender, RoutedEventArgs e)
+    {
+        var query = FindTextBox.Text;
+        if (string.IsNullOrEmpty(query)) { FindReplaceStatus.Text = "Enter text to replace"; return; }
+        if (query.Length > 200) { FindReplaceStatus.Text = "Find text must be 200 characters or fewer"; return; }
+        var matchCase = FindMatchCase.IsChecked == true;
+        if (_plain)
+        {
+            var regex = new Regex(Regex.Escape(query), matchCase ? RegexOptions.None : RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(500));
+            var count = regex.Matches(PlainEditor.Text).Count;
+            if (count > 2000) { FindReplaceStatus.Text = "Too many matches; narrow your search"; return; }
+            if (count > 0) PlainEditor.Text = regex.Replace(PlainEditor.Text, _ => ReplaceTextBox.Text);
+            FindReplaceStatus.Text = $"Replaced {count} match(es)";
+        }
+        else if (_editorReady && Editor.CoreWebView2 != null)
+        {
+            var result = await Editor.CoreWebView2.ExecuteScriptAsync($"replaceAllInEditor({JsonSerializer.Serialize(query)}, {JsonSerializer.Serialize(ReplaceTextBox.Text)}, {(matchCase ? "true" : "false")})");
+            var count = int.TryParse(result, out var parsed) ? parsed : -1;
+            FindReplaceStatus.Text = count < 0 ? "Too many matches; narrow your search" : $"Replaced {count} match(es)";
+        }
     }
 
     private void OnClearAttachments(object sender, RoutedEventArgs e)
@@ -417,6 +526,12 @@ public partial class ComposeWindow
             catch (Exception ex) { Ui.Error("Paste text", ex.Message, this); }
         };
         menu.Items.Add(pastePlain);
+        var find = new MenuItem { Header = "Find text (Ctrl+F)" };
+        find.Click += (_, _) => ShowFindReplace(false);
+        menu.Items.Add(find);
+        var replace = new MenuItem { Header = "Find and replace (Ctrl+H)" };
+        replace.Click += (_, _) => ShowFindReplace(true);
+        menu.Items.Add(replace);
         var shortcuts = new MenuItem { Header = "Keyboard shortcuts (Ctrl+/)" };
         shortcuts.Click += (_, _) => ShowComposeShortcuts();
         menu.Items.Add(shortcuts);

@@ -188,6 +188,62 @@ function setWritingLanguage(language){
   block.setAttribute('lang',language);block.setAttribute('spellcheck','true');
   post({t:'dirty'});return true;
 }
+function editorMatches(query, matchCase){
+  if(typeof query!=='string' || !query.length || query.length>200) return [];
+  const needle=matchCase?query:query.toLocaleLowerCase(),matches=[];
+  const walker=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);
+  while(walker.nextNode()){
+    const node=walker.currentNode;
+    if(!node.nodeValue || node.parentElement?.closest('[contenteditable="false"]')) continue;
+    const text=matchCase?node.nodeValue:node.nodeValue.toLocaleLowerCase();
+    for(let at=0;(at=text.indexOf(needle,at))>=0;at+=needle.length){
+      const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+needle.length);
+      matches.push(range);
+      if(matches.length>2000) return null;
+    }
+  }
+  return matches;
+}
+function selectEditorRange(range){
+  ed.focus();const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+  saved=range.cloneRange();
+  const el=range.startContainer.parentElement;
+  if(el) el.scrollIntoView({block:'nearest'});
+}
+function findInEditor(query,matchCase){
+  const matches=editorMatches(query,matchCase);
+  if(!matches) return {count:-1,index:0};
+  if(!matches.length) return {count:0,index:0};
+  // Search from the end of the current selection, wrapping back to the first hit.
+  const index=matches.findIndex(function(range){
+    return !saved || range.compareBoundaryPoints(Range.START_TO_END,saved)>=0;
+  });
+  const selected=index>=0?index:0;
+  selectEditorRange(matches[selected]);
+  return {count:matches.length,index:selected+1};
+}
+function replaceFoundText(query,replacement,matchCase){
+  if(!saved || saved.collapsed || typeof replacement!=='string') return false;
+  const selected=saved.toString();
+  if(matchCase?selected!==query:selected.toLocaleLowerCase()!==query.toLocaleLowerCase()) return false;
+  if(!ed.contains(saved.commonAncestorContainer)) return false;
+  ed.focus();restore();
+  if(!document.execCommand('insertText',false,replacement)) return false;
+  post({t:'dirty'});return true;
+}
+function replaceAllInEditor(query,replacement,matchCase){
+  if(typeof replacement!=='string') return 0;
+  const matches=editorMatches(query,matchCase);
+  if(!matches) return -1;
+  // Work backwards so ranges before the edited position remain stable.
+  let changed=0;
+  for(let i=matches.length-1;i>=0;i--){
+    selectEditorRange(matches[i]);
+    if(document.execCommand('insertText',false,replacement)) changed++;
+  }
+  if(changed) post({t:'dirty'});
+  return changed;
+}
 document.addEventListener('selectionchange', function(){
   const s = window.getSelection();
   if (s.rangeCount && ed.contains(s.anchorNode)) { saved = s.getRangeAt(0).cloneRange(); post({t:'sel', text: s.toString()}); }
@@ -242,6 +298,8 @@ ed.addEventListener('input', function(){ post({t:'dirty'}); });
 document.addEventListener('keydown', function(e){
   if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); post({t:'send'}); }
   else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); post({t:'link'}); }
+  else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); post({t:'find'}); }
+  else if (e.ctrlKey && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); post({t:'replace'}); }
   else if (e.ctrlKey && e.key === '/') { e.preventDefault(); post({t:'shortcuts'}); }
 });
 document.addEventListener('dragover', function(e){ e.preventDefault(); });

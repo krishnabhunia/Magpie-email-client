@@ -50,6 +50,11 @@ public class Release1500Tests
         Assert.Contains("function setWritingDirection(direction)", EditorPage.Html);
         Assert.Contains("function setWritingLanguage(language)", EditorPage.Html);
         Assert.Contains("post({t:'shortcuts'})", EditorPage.Html);
+        Assert.Contains("function findInEditor(query,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceFoundText(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceAllInEditor(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("post({t:'find'})", EditorPage.Html);
+        Assert.Contains("post({t:'replace'})", EditorPage.Html);
     }
 
     [Fact]

@@ -174,6 +174,7 @@
                         <Button Style="{StaticResource Button.Icon}" Content="☺" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
                         <Button Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
                         <Button Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Find" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
                         <Button Style="{StaticResource Button.Secondary}" Content="More ▾" Click="OnMoreFormat" ToolTip="Heading, quote, superscript and more" />
                         <Button Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
                     </WrapPanel>
@@ -181,8 +182,27 @@
 
                 <!-- Editor -->
                 <Grid Grid.Row="2">
-                    <wv2:WebView2 x:Name="Editor" DefaultBackgroundColor="White" AutomationProperties.Name="Rich-text email message editor" />
-                    <TextBox x:Name="PlainEditor" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12" AutomationProperties.Name="Plain-text email message editor"
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Border x:Name="FindReplacePanel" Grid.Row="0" Visibility="Collapsed" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="16,7">
+                        <StackPanel>
+                            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Find" FontSize="12" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBox x:Name="FindTextBox" Width="200" MinHeight="28" TextChanged="OnFindTextChanged" KeyDown="OnFindInputKeyDown" AutomationProperties.Name="Text to find" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Next" Click="OnFindNext" Margin="6,0,0,0" ToolTip="Find next match" />
+                                <CheckBox x:Name="FindMatchCase" Content="Match case" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <TextBlock x:Name="FindReplaceStatus" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="✕" Click="OnCloseFind" Margin="10,0,0,0" ToolTip="Close find and replace" AutomationProperties.Name="Close find" />
+                            </WrapPanel>
+                            <WrapPanel x:Name="ReplaceControls" Visibility="Collapsed" Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock Text="With" FontSize="12" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBox x:Name="ReplaceTextBox" Width="200" MinHeight="28" AutomationProperties.Name="Replacement text" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Replace" Click="OnReplaceOne" Margin="6,0,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Replace all" Click="OnReplaceAll" Margin="6,0,0,0" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                    <wv2:WebView2 x:Name="Editor" Grid.Row="1" DefaultBackgroundColor="White" AutomationProperties.Name="Rich-text email message editor" />
+                    <TextBox x:Name="PlainEditor" Grid.Row="1" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12" AutomationProperties.Name="Plain-text email message editor"
                              VerticalScrollBarVisibility="Auto" FontFamily="Arial" FontSize="18" />
                 </Grid>
 
