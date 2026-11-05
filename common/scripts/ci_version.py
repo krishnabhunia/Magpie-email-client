@@ -1,15 +1,10 @@
-"""A shared, reproducible release version for independent GitHub Actions runs.
+"""Shared permanent three-digit beta tags for independent platform pipelines."""
 
-All platforms receive the same PR event and head commit, although each workflow
-has its own run number. Use the signed head commit's time and a short SHA suffix
-instead of a platform-specific GitHub Actions run number.
-"""
-
-import datetime as dt
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -21,7 +16,7 @@ VERSION = re.compile(r"\d+\.\d+\.\d+\Z")
 SHA = re.compile(r"[0-9a-fA-F]{40}\Z")
 
 
-def from_event(base: str, event: dict, repository: str, commit_date) -> str:
+def from_event(base: str, event: dict, repository: str, refs: list[dict]) -> str:
     if not VERSION.fullmatch(base):
         raise ValueError(f"Invalid stable version: {base}")
     pr = event.get("pull_request")
@@ -30,25 +25,59 @@ def from_event(base: str, event: dict, repository: str, commit_date) -> str:
     oid = pr.get("head", {}).get("sha", "")
     if not SHA.fullmatch(oid):
         raise ValueError("The pull request head is not a Git commit SHA-1")
-    stamp = dt.datetime.fromisoformat(commit_date(oid).replace("Z", "+00:00"))
-    if stamp.tzinfo is None:
-        raise ValueError("The commit date must include its UTC offset")
-    seconds = int(stamp.timestamp())
-    if seconds < 0:
-        raise ValueError("The commit date precedes the Unix epoch")
-    return f"{base}-beta.{seconds}.g{oid[:8].lower()}"
+    matches = [int(match[1]) for item in refs
+               if (match := re.fullmatch(rf"refs/tags/v{re.escape(base)}-beta([0-9]{{3}})", item.get("ref", "")))
+               and item.get("object", {}).get("sha", "").lower() == oid.lower()]
+    if not matches:
+        raise ValueError("No reserved beta tag yet for PR head")
+    return f"{base}-beta{min(matches):03d}"
 
 
-def github_commit_date(repository: str, oid: str, token: str) -> str:
+def github_api(repository: str, path: str, token: str, data: dict | None = None):
     if not token:
-        raise ValueError("GitHub's read token is needed for PR version metadata")
+        raise ValueError("GitHub token is needed for beta tag metadata")
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/commits/{oid}",
+        f"https://api.github.com/repos/{repository}/{path}",
+        data=json.dumps(data).encode() if data is not None else None,
         headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Magpie-CI"},
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Magpie-CI",
+                 "Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)["commit"]["committer"]["date"]
+        return json.load(response)
+
+
+def github_refs(repository: str, base: str, token: str) -> list[dict]:
+    refs = []
+    for page in range(1, 12):
+        batch = github_api(repository, f"git/matching-refs/tags/v{base}-beta?per_page=100&page={page}", token)
+        if not isinstance(batch, list):
+            raise ValueError("Unexpected beta tag metadata")
+        refs.extend(batch)
+        if len(batch) < 100:
+            return refs
+    raise ValueError("Too many beta tags to enumerate")
+
+
+def reserve(base: str, event: dict, repository: str, token: str) -> str:
+    pr = event.get("pull_request", {})
+    head = pr.get("head", {}).get("sha", "")
+    refs = github_refs(repository, base, token)
+    try:
+        return from_event(base, event, repository, refs)
+    except ValueError as error:
+        if "No reserved beta tag" not in str(error):
+            raise
+    numbers = [int(match[1]) for item in refs
+               if (match := re.fullmatch(rf"refs/tags/v{re.escape(base)}-beta([0-9]{{3}})", item.get("ref", "")))]
+    if 0 in numbers:
+        raise ValueError("beta000 is not a valid release")
+    serial = max(numbers, default=0) + 1
+    if serial > 999:
+        raise ValueError("beta999 exhausted; advance the stable version")
+    tag = f"v{base}-beta{serial:03d}"
+    github_api(repository, "git/refs", token, {"ref": f"refs/tags/{tag}", "sha": head})
+    return tag[1:]
 
 
 def main() -> int:
@@ -59,8 +88,25 @@ def main() -> int:
     with open(event_path, encoding="utf-8") as source:
         event = json.load(source)
     repository = os.environ["GITHUB_REPOSITORY"]
-    full = from_event(base or "", event, repository,
-                      lambda oid: github_commit_date(repository, oid, os.environ.get("GH_TOKEN", "")))
+    token = os.environ.get("GH_TOKEN", "")
+    if len(sys.argv) == 2 and sys.argv[1] == "reserve":
+        full = reserve(base, event, repository, token)
+    elif len(sys.argv) == 1 and isinstance(event.get("pull_request"), dict) and event["pull_request"].get("head", {}).get("repo", {}).get("full_name", "").casefold() == repository.casefold():
+        # Platform workflows can start before the central version job.
+        for _ in range(90):
+            try:
+                full = from_event(base, event, repository, github_refs(repository, base, token))
+                break
+            except ValueError as error:
+                if "No reserved beta tag" not in str(error):
+                    raise
+            time.sleep(5)
+        else:
+            raise ValueError("Timed out waiting for the central beta reservation")
+    elif len(sys.argv) == 1:
+        full = base
+    else:
+        raise ValueError("Usage: ci_version.py [reserve]")
     print(full)
     return 0
 

@@ -22,6 +22,7 @@ public sealed class VersionHistoryWindow : Window
     private readonly ListBox _versions = new() { MinHeight = 140, Margin = new Thickness(0, 14, 0, 10) };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Button _details = new() { Content = "ⓘ View full implementation details", IsEnabled = false, MinWidth = 205, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBlock _compatibility = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly Button _select = new() { Content = "Choose a version", IsEnabled = false, MinWidth = 190 };
     private IReadOnlyList<VersionChoice> _choices;
@@ -83,6 +84,12 @@ public sealed class VersionHistoryWindow : Window
             DialogResult = true;
         };
         actions.Children.Add(_select); actions.Children.Add(cancel);
+        actions.Children.Insert(0, _details);
+        _details.Click += (_, _) =>
+        {
+            if (_versions.SelectedItem is VersionRow row)
+                new ReleaseNotesWindow(row.Choice.Release, _current.ToString()) { Owner = this }.ShowDialog();
+        };
         DockPanel.SetDock(actions, Dock.Bottom); root.Children.Add(actions);
 
         var header = new StackPanel();
@@ -170,23 +177,17 @@ public sealed class VersionHistoryWindow : Window
             ? matching.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
                 .GroupBy(c => c.Prerelease).Select(g => g.First()).OrderByDescending(c => c.Release.Version)
             : matching.AsEnumerable();
-        // Friendly beta numbers are display ranks, newest installable build first in each X.Y.Z series.
-        // They never replace the immutable release tags used for download, checksums and rollback.
         var installable = _choices.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
             .OrderByDescending(c => c.Release.Version)
             .GroupBy(c => c.Release.Version.ToString()).Select(g => g.First()).ToList();
-        var betaRanks = installable.Where(c => c.Prerelease)
-            .GroupBy(c => (c.Release.Version.Major, c.Release.Version.Minor, c.Release.Version.Patch))
-            .SelectMany(g => g.Select((choice, index) => new { choice.Release.Tag, Rank = index + 1 }))
-            .ToDictionary(x => x.Tag, x => x.Rank);
         var newestBeta = installable.FirstOrDefault(c => c.Prerelease)?.Release.Tag;
         var newestStable = installable.FirstOrDefault(c => !c.Prerelease)?.Release.Tag;
         var rows = visible.Select(c => new VersionRow(c,
-            betaRanks.TryGetValue(c.Release.Tag, out var rank) ? (int?)rank : null,
             c.Release.Tag == (c.Prerelease ? newestBeta : newestStable),
             _kept.Contains(c.Release.Version.ToString()))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
         Selection = null; SelectedChoice = null; _select.IsEnabled = false; _select.Content = "Choose a version";
+        _details.IsEnabled = false;
         _summary.Text = ""; _compatibility.Text = "";
         _message.Text = rows.Count == 0
             ? (!IsRollback && _showAllBuilds.IsChecked != true
@@ -202,27 +203,26 @@ public sealed class VersionHistoryWindow : Window
         if (_versions.SelectedItem is not VersionRow row) { _select.IsEnabled = false; return; }
         var choice = row.Choice;
         _select.IsEnabled = choice.Compatibility.CanInstall;
+        _details.IsEnabled = true;
         _select.Content = IsRollback ? $"Roll back to v{choice.Release.Version}" : $"Install v{choice.Release.Version}";
         _compatibility.Text = choice.Compatibility.Reason;
         _summary.Text = string.IsNullOrWhiteSpace(choice.Release.Notes) ? "No release notes were published."
             : choice.Release.Notes.Replace("\r", "").Replace("**", "");
     }
 
-    private sealed record VersionRow(VersionChoice Choice, int? BetaRank, bool Latest, bool OnThisPc = false)
+    private sealed record VersionRow(VersionChoice Choice, bool Latest, bool OnThisPc = false)
     {
         public string Label
         {
             get
             {
                 var version = Choice.Release.Version;
-                var friendly = Choice.Prerelease && BetaRank is { } rank
-                    ? $"v{version.Major}.{version.Minor}.{version.Patch}-beta {rank}"
-                    : $"v{version}";
+                var friendly = $"v{version}";
                 var newest = Latest ? "  (LATEST)" : "";
                 var published = Choice.Release.Published is { } date
                     ? $"  ·  {date.ToLocalTime():dd MMM yyyy, h:mm tt} (local)" : "";
-                // Keep the full tag visible so a shifting display rank never changes an exact selection.
-                var exact = Choice.Prerelease && BetaRank is not null
+                // Display the permanent tag; never renumber betas by list position.
+                var exact = Choice.Prerelease
                     ? $"\nExact tag: {Choice.Release.Tag}" : "";
                 var availability = (Choice.Release.AssetAvailable
                     ? "Application and checksum available" : "Application or checksum missing")

@@ -808,6 +808,7 @@ public partial class MainWindow : Window
     // ───────────────────────── accounts / settings ─────────────────────────
 
     private void OnSettings(object sender, RoutedEventArgs e) => SettingsWindow.Open(null);
+    private async void OnWhatsNew(object sender, RoutedEventArgs e) => await Magpie.App.Services.ReleaseNotesWindow.ShowInstalledAsync(this);
     private void OnVersionClick(object sender, RoutedEventArgs e) => SettingsWindow.Open("About");
     private void OnAddAccount(object sender, RoutedEventArgs e) => AddAccountWindow.ShowAdd(this);
 
