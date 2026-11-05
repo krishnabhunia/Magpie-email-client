@@ -134,6 +134,18 @@ function getNewText(){
   copy.querySelectorAll('p,div,li').forEach(function(n){n.appendChild(document.createTextNode('\n'));});
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
 }
+function replaceSignatureBlock(blockHtml){
+  // Replace only the signature, leaving the author's text and the quoted conversation untouched.
+  const host=document.createElement('div');host.innerHTML=blockHtml||'';
+  const next=host.querySelector('.magpie-signature');
+  const old=ed.querySelector('.magpie-signature');
+  if(next){
+    if(old) old.replaceWith(next);
+    else { const quote=ed.querySelector('.magpie-quote'); if(quote) quote.before(next); else ed.appendChild(next); }
+    if(typography?.signature) applyProtectedFont(next,typography.signature);
+  } else if(old) old.remove();
+  post({t:'dirty'});return true;
+}
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
 function setEditorSpellcheck(enabled){
   ed.spellcheck=!!enabled;

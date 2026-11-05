@@ -24,6 +24,45 @@ public partial class ComposeWindow
     private bool _studioRestoreAiPanel;
     private bool _spellcheckEnabled = true;
 
+    private void OnSignatures(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Top };
+        var account = _vm.From;
+        if (account != null)
+        {
+            var defaultItem = new MenuItem { Header = "Default signature", IsEnabled = !_plain && _editorReady };
+            defaultItem.Click += async (_, _) => await SetComposeSignatureAsync(
+                Composer.SignatureHtml(account, reply: _vm.IsReply || _vm.IsForward));
+            menu.Items.Add(defaultItem);
+            foreach (var variant in account.SignatureVariants ?? new())
+            {
+                if (string.IsNullOrWhiteSpace(variant.Name)) continue;
+                var item = new MenuItem { Header = variant.Name, IsEnabled = !_plain && _editorReady };
+                var html = variant.Html;
+                item.Click += async (_, _) => await SetComposeSignatureAsync(
+                    Composer.SignatureHtml(new Magpie.Core.Models.Account { SignatureHtml = html }, reply: false));
+                menu.Items.Add(item);
+            }
+            menu.Items.Add(new Separator());
+            var remove = new MenuItem { Header = "No signature", IsEnabled = !_plain && _editorReady };
+            remove.Click += async (_, _) => await SetComposeSignatureAsync("");
+            menu.Items.Add(remove);
+        }
+        else menu.Items.Add(new MenuItem { Header = "Add an account first", IsEnabled = false });
+        menu.Items.Add(new Separator());
+        var settings = new MenuItem { Header = "Manage signatures…" };
+        settings.Click += (_, _) => SettingsWindow.Open("Signatures");
+        menu.Items.Add(settings);
+        menu.IsOpen = true;
+    }
+
+    private async Task SetComposeSignatureAsync(string html)
+    {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        await Editor.CoreWebView2.ExecuteScriptAsync($"replaceSignatureBlock({JsonSerializer.Serialize(html)})");
+        _vm.MarkEdited();
+    }
+
     private void AddSpellcheckToggle(ContextMenu menu)
     {
         var spelling = new MenuItem

@@ -59,6 +59,30 @@ public partial class SettingsViewModel
         if (SignatureAccount != null) SignatureAccount.SignatureHtml = html;
     }
 
+    [RelayCommand]
+    private void AddNamedSignature()
+    {
+        if (SignatureAccount is not { } account) return;
+        if (account.SignatureVariants.Count >= 20)
+        {
+            SignatureStatus = "You can save up to 20 additional signatures per account.";
+            return;
+        }
+        var number = 1;
+        string name;
+        do { name = $"Signature {number++}"; }
+        while (account.SignatureVariants.Any(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
+        account.SignatureVariants.Add(new EditableNamedSignature { Name = name });
+        SignatureStatus = "Signature added. Edit its name and content, then press Apply.";
+    }
+
+    [RelayCommand]
+    private void RemoveNamedSignature(EditableNamedSignature? item)
+    {
+        if (item != null && SignatureAccount?.SignatureVariants.Remove(item) == true)
+            SignatureStatus = "Signature removed. Press Apply to save the change.";
+    }
+
     [RelayCommand] private void AddQuickReply() => QuickReplyList.Add(new EditableQuickReply { Text = "" });
     [RelayCommand] private void RemoveQuickReply(EditableQuickReply? q) { if (q != null) QuickReplyList.Remove(q); }
 

@@ -27,6 +27,7 @@ public partial class EditableAccount : ObservableObject
         _company = a.Company;
         _signature = a.Signature;
         _signatureHtml = a.SignatureHtml;
+        foreach (var variant in a.SignatureVariants ?? new()) SignatureVariants.Add(new EditableNamedSignature { Name = variant.Name, Html = variant.Html });
         _signatureOnNew = a.SignatureOnNew;
         _signatureOnReplies = a.SignatureOnReplies;
         _color = a.Color;
@@ -56,6 +57,7 @@ public partial class EditableAccount : ObservableObject
     /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain), nameof(HasSignaturePicture), nameof(HasSignature))] private string _signatureHtml;
     public bool HasSignature => !string.IsNullOrWhiteSpace(SignatureHtml);
+    public ObservableCollection<EditableNamedSignature> SignatureVariants { get; } = new();
     public bool HasSignaturePicture => SignatureHtml.Contains("<img", StringComparison.OrdinalIgnoreCase);
     /// <summary>Accounts signed in with Google can copy the signature set in Gmail.</summary>
     public bool CanImportGmailSignature => Original.Kind == AccountKind.Gmail && Original.Auth == AuthMethod.OAuth2;
@@ -85,6 +87,8 @@ public partial class EditableAccount : ObservableObject
         a.JobTitle = JobTitle.Trim();
         a.Company = Company.Trim();
         a.SignatureHtml = SignatureHtml.Trim();
+        a.SignatureVariants = SignatureVariants.Where(s => !string.IsNullOrWhiteSpace(s.Name))
+            .Select(s => new NamedSignature { Name = s.Name.Trim(), Html = s.Html }).ToList();
         // The old plain-text field mirrors the rich one, so it never brings back a signature that was cleared.
         if (a.SignatureHtml != Original.SignatureHtml) a.Signature = MimeText.HtmlToText(a.SignatureHtml).Trim();
         a.SignatureOnNew = SignatureOnNew;
@@ -98,6 +102,8 @@ public partial class EditableAccount : ObservableObject
     }
 
     public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+                           || !SignatureVariants.Select(s => (s.Name.Trim(), s.Html))
+                               .SequenceEqual((Original.SignatureVariants ?? new()).Select(s => (s.Name, s.Html)))
                            || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
                            || Enabled != Original.Enabled || SyncDays != Original.SyncDays
@@ -122,6 +128,13 @@ public partial class EditableTemplate : ObservableObject
     /// <summary>Collapsed card (design CL1); a new template starts open.</summary>
     [ObservableProperty] private bool _isExpanded;
     public string Title => string.IsNullOrWhiteSpace(Name) ? "New template" : Name.Trim();
+}
+
+public partial class EditableNamedSignature : ObservableObject
+{
+    [ObservableProperty] private string _name = "New signature";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Preview))] private string _html = "";
+    public string Preview => string.IsNullOrWhiteSpace(Html) ? "No content yet" : MimeText.HtmlToText(Html).Trim();
 }
 
 public sealed record Choice<T>(T Value, string Label);
@@ -947,6 +960,16 @@ public partial class SettingsViewModel : ObservableObject
     private bool SaveCore()
     {
         if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return false;
+        foreach (var account in Accounts)
+        {
+            if (account.SignatureVariants.Any(s => s.Name.Trim().Length is 0 or > 100)
+                || account.SignatureVariants.GroupBy(s => s.Name.Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+            {
+                Page = "Signatures";
+                Ui.Error("Named signatures", $"Give each signature in {account.Email} a unique name of 1–100 characters.");
+                return false;
+            }
+        }
         if (HasTypographyErrors)
         {
             Page = "Fonts";

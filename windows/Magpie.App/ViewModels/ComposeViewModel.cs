@@ -649,7 +649,8 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
-    public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert", t.Body);
+    public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert",
+        ComposeSafety.ExpandQuickTemplate(t.Body, From, To, Subject, DateTimeOffset.Now));
 
     // ───────────────────────── AI: write a draft (C2/C3) ─────────────────────────
 

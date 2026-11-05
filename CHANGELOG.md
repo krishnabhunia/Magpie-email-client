@@ -13,6 +13,8 @@
 - **Attachments you can find.** Attach is visible at the top and bottom of the editor, with a Studio drop area, file-type icons, safe Open actions for common document/picture types, and Remove all.
 - **Preview attached files.** Picture thumbnails appear beside attachments, and Preview opens images, PDFs and common text files inside Magpie without launching their usual apps.
 - **Preview forwarded attachments.** Forwarded pictures, PDFs and text attachments can also open inside Magpie when the file type is supported. Temporary picture/PDF copies are isolated and removed after closing the preview.
+- **Personalise saved quick templates.** Insert {{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}} or {{time}} in a template. Magpie fills supported variables from the current compose window when inserted, leaving missing values visible.
+- **Choose from multiple signatures.** Add and edit up to 20 named rich signatures per account in Settings, then replace the signature in a message without changing the message text or quoted replies. The existing automatic signature stays as the default.
 - **Compress pictures before sending.** Save a resized JPEG or PNG copy and attach it, with an option for quality versus smaller file size. The original picture is never overwritten; animated GIFs are left unchanged.
 - **Edit and remove links.** Insert a new web or email link, change a link at the cursor without losing its visible text, or remove it while keeping the words. Unsafe link schemes are rejected.
 - **Resize inline pictures.** Click a picture in the message and choose 25%, 50%, 75% or 100% of the message width; the setting stays with the formatted email.

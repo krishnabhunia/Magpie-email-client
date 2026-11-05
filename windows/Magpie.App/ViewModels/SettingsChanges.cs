@@ -55,6 +55,7 @@ public partial class SettingsViewModel
     {
         if (item is INotifyPropertyChanged n) n.PropertyChanged += (_, _) => NoteChange();
         if (item is EditableRule r) { Track(r.Conditions); Track(r.Actions); }
+        if (item is EditableAccount a) Track(a.SignatureVariants);
     }
 
     /// <summary>The settings as Apply would save them now, as text (plus the things that aren't in settings.json).</summary>

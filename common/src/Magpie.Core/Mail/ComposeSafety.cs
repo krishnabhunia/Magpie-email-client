@@ -6,6 +6,37 @@ namespace Magpie.Core.Mail;
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
+    /// <summary>Supported quick-template placeholders. Unavailable values remain visible for the author to fill.</summary>
+    public const string QuickTemplateVariableHelp =
+        "{{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}}, {{time}}";
+
+    [GeneratedRegex(@"\{\{(first_name|last_name|full_name|recipient_email|sender_name|sender_email|subject|date|time)\}\}",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex QuickTemplateVariables();
+
+    /// <summary>Expands only known placeholders as plain text; unrecognised and missing fields are left untouched.</summary>
+    public static string ExpandQuickTemplate(string text, Account? sender, string to, string subject, DateTimeOffset now)
+    {
+        var recipient = Composer.ParseAddresses(to).Mailboxes.FirstOrDefault();
+        var recipientName = recipient?.Name.Trim() ?? "";
+        var parts = recipientName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["first_name"] = parts.FirstOrDefault() ?? "",
+            ["last_name"] = parts.Length > 1 ? parts[^1] : "",
+            ["full_name"] = recipientName,
+            ["recipient_email"] = recipient?.Address ?? "",
+            ["sender_name"] = sender?.DisplayName ?? "",
+            ["sender_email"] = sender?.Email ?? "",
+            ["subject"] = subject,
+            ["date"] = now.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            ["time"] = now.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+        };
+        return QuickTemplateVariables().Replace(text, match =>
+            values.TryGetValue(match.Groups[1].Value, out var value) && !string.IsNullOrWhiteSpace(value)
+                ? value : match.Value);
+    }
+
     /// <summary>Newest attachments first, no duplicates, with a short local-history limit.</summary>
     public static IReadOnlyList<string> RecentAttachmentPaths(IEnumerable<string> newest, IEnumerable<string> previous, int maximum = 12) =>
         newest.Concat(previous).Where(path => !string.IsNullOrWhiteSpace(path))

@@ -8,6 +8,43 @@ namespace Magpie.Core.Tests;
 /// <summary>CW1: recipient safety, attachments and delivery options for the compose redesign.</summary>
 public class Release1500Tests
 {
+    [Fact]
+    public void Quick_templates_expand_only_known_variables_with_current_compose_context()
+    {
+        var sender = new Account { DisplayName = "Krishna Bhunia", Email = "krishna@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate(
+            "Hi {{first_name}} {{last_name}} / {{full_name}} ({{recipient_email}}), from {{sender_name}} {{sender_email}}; {{subject}} on {{date}} at {{time}}. {{custom}}",
+            sender, "Ananya Roy <ananya@example.com>", "Project update", new DateTimeOffset(2026, 11, 5, 14, 25, 0, TimeSpan.FromHours(5.5)));
+        Assert.Contains("Hi Ananya Roy / Ananya Roy (ananya@example.com)", expanded);
+        Assert.Contains("from Krishna Bhunia krishna@example.com; Project update", expanded);
+        Assert.Contains("05 Nov 2026 at 14:25", expanded);
+        Assert.EndsWith("{{custom}}", expanded);
+    }
+
+    [Fact]
+    public void Quick_templates_leave_missing_recipient_name_visible_and_never_expand_recursively()
+    {
+        var sender = new Account { DisplayName = "{{sender_email}}", Email = "me@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate("{{FIRST_NAME}} {{recipient_email}} {{sender_name}}", sender,
+            "unknown@example.com", "", DateTimeOffset.Now);
+        Assert.Equal("{{FIRST_NAME}} unknown@example.com {{sender_email}}", expanded);
+    }
+
+    [Fact]
+    public void Accounts_clone_named_signatures_independently_and_old_default_remains()
+    {
+        var original = new Account
+        {
+            SignatureHtml = "<p>Best wishes</p>",
+            SignatureVariants = new List<NamedSignature> { new() { Name = "Formal", Html = "<p>Regards</p>" } },
+        };
+        var copy = original.Clone();
+        copy.SignatureVariants[0].Name = "Casual";
+        Assert.Equal("Formal", original.SignatureVariants[0].Name);
+        Assert.Contains("Best wishes", Composer.SignatureHtml(original, reply: false));
+        Assert.Contains("replaceSignatureBlock(blockHtml)", EditorPage.Html);
+    }
+
     [Theory]
     [InlineData("photo.JPG", "image")]
     [InlineData("receipt.pdf", "pdf")]

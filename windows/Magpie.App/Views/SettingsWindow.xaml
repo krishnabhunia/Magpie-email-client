@@ -1110,6 +1110,29 @@
                                     </StackPanel>
                                     <CheckBox Content="Add to new messages" IsChecked="{Binding SignatureAccount.SignatureOnNew, Mode=TwoWay}" Margin="0,12,0,4" />
                                     <CheckBox Content="Add to replies and forwards (above the quoted text)" IsChecked="{Binding SignatureAccount.SignatureOnReplies, Mode=TwoWay}" />
+                                    <TextBlock Text="ADDITIONAL SIGNATURES" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,8" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                               Text="Save multiple rich signatures for this account, then choose one from the compose window. The signature above stays the automatic default." />
+                                    <ItemsControl ItemsSource="{Binding SignatureAccount.SignatureVariants}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableNamedSignature}">
+                                                <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                                                    <StackPanel>
+                                                        <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,5"
+                                                                 AutomationProperties.Name="Additional signature name" />
+                                                        <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="65" />
+                                                        <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                                            <Button Style="{StaticResource Button.Secondary}" Content="Edit rich signature…" Tag="{Binding}" Click="OnEditNamedSignature" />
+                                                            <Button Style="{StaticResource Button.Ghost}" Content="Remove" Margin="8,0,0,0"
+                                                                    Command="{Binding DataContext.RemoveNamedSignatureCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Secondary}" Content="+ Add another signature" Margin="0,4,0,0" HorizontalAlignment="Left"
+                                            Command="{Binding AddNamedSignatureCommand}" />
                                     <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
                                                Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Changes apply when you press Save." />
                                 </StackPanel>
@@ -1139,7 +1162,9 @@
 
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
                         <TextBlock svc:Typography.Role="settingsTitle" Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
-                        <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+                        <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,8" />
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,14"
+                                   Text="Variables: {{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}}, {{time}}. Recipient names require a named To address; unavailable values remain as placeholders." />
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditableTemplate}">
