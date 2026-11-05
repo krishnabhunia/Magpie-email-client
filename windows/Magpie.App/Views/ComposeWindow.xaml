@@ -146,6 +146,7 @@
                 <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
                     <WrapPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
                         <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Click="OnAttach" Margin="0,0,8,0" ToolTip="Attach one or more files (also available below Send)" />
+                        <Button Style="{StaticResource Button.Secondary}" Content="Recent ▾" Click="OnAttachRecent" Margin="0,0,8,0" ToolTip="Choose from files recently attached on this computer" />
                         <ComboBox x:Name="FontFamilyChoice" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
                             <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
                         </ComboBox>
@@ -230,6 +231,7 @@
                                     <TextBlock Text="Attach" />
                                 </StackPanel>
                             </Button>
+                            <Button Style="{StaticResource Button.Ghost}" Content="Recent ▾" Margin="3,0,0,0" Click="OnAttachRecent" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Templates" Margin="8,0,0,0" Click="OnTemplates" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Save draft" Margin="2,0,0,0" Click="OnSaveDraft" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Save .eml" Margin="4,0,0,0" Click="OnSaveEml" ToolTip="Save a local copy of this message with attachments without sending" />

@@ -85,6 +85,19 @@ public partial class ComposeWindow
             _vm.RemoveAttachmentCommand.Execute(attachment);
     }
 
+    private void OnAttachRecent(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
+        foreach (var path in RecentComposeFiles.Read())
+        {
+            var item = new MenuItem { Header = Path.GetFileName(path), ToolTip = path };
+            item.Click += (_, _) => _vm.AddAttachments(new[] { path });
+            menu.Items.Add(item);
+        }
+        if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { Header = "No recent files on this PC", IsEnabled = false });
+        menu.IsOpen = true;
+    }
+
     private void OnRenameAttachment(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment) return;

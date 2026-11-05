@@ -6,6 +6,11 @@ namespace Magpie.Core.Mail;
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
+    /// <summary>Newest attachments first, no duplicates, with a short local-history limit.</summary>
+    public static IReadOnlyList<string> RecentAttachmentPaths(IEnumerable<string> newest, IEnumerable<string> previous, int maximum = 12) =>
+        newest.Concat(previous).Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Clamp(maximum, 0, 40)).ToArray();
+
     /// <summary>UI guidance only; actual server limits depend on the provider and mailbox policy.</summary>
     public static long SuggestedOutgoingLimitBytes(Account? account) => account?.Kind switch
     {

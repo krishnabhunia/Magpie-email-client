@@ -132,6 +132,14 @@ public class Release1500Tests
         Assert.Equal(expectedBytes, ComposeSafety.SuggestedOutgoingLimitBytes(account));
     }
 
+    [Fact]
+    public void Recent_attachment_history_deduplicates_and_keeps_newest_files_first()
+    {
+        var paths = ComposeSafety.RecentAttachmentPaths(new[] { "C:/new.pdf", "C:/OLD.pdf" },
+            new[] { "c:/old.pdf", "C:/older.docx", "C:/third.txt" }, maximum: 3);
+        Assert.Equal(new[] { "C:/new.pdf", "C:/OLD.pdf", "C:/older.docx" }, paths);
+    }
+
     [Theory]
     [InlineData("Please find the attached report", true)]
     [InlineData("See the attachment", true)]

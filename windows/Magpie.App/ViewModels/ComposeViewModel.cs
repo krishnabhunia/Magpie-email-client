@@ -422,6 +422,7 @@ public partial class ComposeViewModel : ObservableObject
 
     public void AddAttachments(IEnumerable<string> paths)
     {
+        var added = new List<string>();
         foreach (var p in paths.Where(File.Exists))
         {
             if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
@@ -429,8 +430,10 @@ public partial class ComposeViewModel : ObservableObject
             if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
                 continue;
             Attachments.Add(new AttachmentItem { Path = p });
+            added.Add(p);
             MarkEdited();
         }
+        if (added.Count > 0) RecentComposeFiles.Remember(added);
         OnPropertyChanged(nameof(AttachmentSummary));
     }
 

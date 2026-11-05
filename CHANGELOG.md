@@ -24,6 +24,7 @@
 - **Keyboard shortcut help.** Press Ctrl+/ in the editor or choose More → Keyboard shortcuts to see the available compose commands without leaving your draft.
 - **Remember the compose-window size and position.** Reopening New message restores your last dimensions and monitor location when still on screen, otherwise starts near Magpie's main window.
 - **Account-aware attachment guidance.** Compose now compares estimated encoded size with a Gmail 25 MB / Microsoft 20 MB advisory threshold or an editable 1–100 MB value for custom IMAP/SMTP accounts; the warning does not claim to know the server's actual limit.
+- **Attach recent files.** The top and bottom Recent menus show up to 12 files you previously attached from this computer. The history is local-only, excludes missing files and is never synced with account settings.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, paste without formatting, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.
