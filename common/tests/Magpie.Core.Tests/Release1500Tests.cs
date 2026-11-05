@@ -53,6 +53,8 @@ public class Release1500Tests
     [InlineData("notes.md", "text")]
     [InlineData("transaction.csv", "text")]
     [InlineData("notes.docx", "office")]
+    [InlineData("budget.xlsx", "office")]
+    [InlineData("deck.pptx", "office")]
     [InlineData("document.docx", "none")]
     [InlineData("dangerous.exe", "none")]
     [InlineData("evil.pdf.exe", "none")]
@@ -68,6 +70,9 @@ public class Release1500Tests
     [InlineData("archive.zip", "application/zip", "none")]
     [InlineData("report.pdf", "text/html", "none")]
     [InlineData("contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "office")]
+    [InlineData("budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "none")]
     [InlineData("contract.docx", "application/zip", "none")]
     public void Forwarded_preview_requires_approved_type_and_filename(string file, string mime, string expected) =>
         Assert.Equal(expected, ComposeSafety.ForwardedAttachmentPreviewKind(file, mime));
@@ -93,14 +98,47 @@ public class Release1500Tests
         Assert.ThrowsAny<XmlException>(() => OfficeTextPreview.ReadWordDocument(stream));
     }
 
-    private static MemoryStream WordPackage(string documentXml)
+    [Fact]
+    public void PowerPoint_preview_extracts_slide_text_in_numeric_order()
+    {
+        const string slideNamespace = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        using var stream = OfficePackage(
+            ("ppt/slides/slide10.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Ten</a:t></a:p></a:slide>"),
+            ("ppt/slides/slide2.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Two</a:t></a:p></a:slide>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "deck.pptx");
+        Assert.True(preview.IndexOf("[Slide 2]", StringComparison.Ordinal) < preview.IndexOf("[Slide 10]", StringComparison.Ordinal));
+        Assert.Contains("Two", preview);
+        Assert.Contains("Ten", preview);
+    }
+
+    [Fact]
+    public void Excel_preview_extracts_shared_and_inline_strings_without_formulas()
+    {
+        const string sheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        using var stream = OfficePackage(
+            ("xl/sharedStrings.xml", $"<sst xmlns=\"{sheetNamespace}\"><si><t>Transaction</t></si></sst>"),
+            ("xl/worksheets/sheet1.xml", $"<worksheet xmlns=\"{sheetNamespace}\"><sheetData><row r=\"1\">" +
+                "<c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\"><v>125</v></c>" +
+                "<c r=\"C1\" t=\"inlineStr\"><is><t>Pending</t></is></c></row></sheetData></worksheet>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "budget.xlsx");
+        Assert.Contains("A1: Transaction", preview);
+        Assert.Contains("B1: 125", preview);
+        Assert.Contains("C1: Pending", preview);
+    }
+
+    private static MemoryStream WordPackage(string documentXml) => OfficePackage(("word/document.xml", documentXml));
+
+    private static MemoryStream OfficePackage(params (string Path, string Xml)[] entries)
     {
         var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var entry = archive.CreateEntry("word/document.xml");
-            using var output = new StreamWriter(entry.Open());
-            output.Write(documentXml);
+            foreach (var (path, xml) in entries)
+            {
+                var entry = archive.CreateEntry(path);
+                using var output = new StreamWriter(entry.Open());
+                output.Write(xml);
+            }
         }
         stream.Position = 0;
         return stream;

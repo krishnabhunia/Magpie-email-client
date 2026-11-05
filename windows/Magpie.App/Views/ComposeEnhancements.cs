@@ -338,10 +338,10 @@ public partial class ComposeWindow
                     break;
                 case "office":
                     using (var input = new FileStream(attachment.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadWordDocument(input));
+                        ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadDocument(input, attachment.Name));
                     break;
                 default:
-                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs, text and Word (.docx) files. Use Open for other document formats.", this);
+                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs, text, Word, Excel and PowerPoint files. Use Open for other formats.", this);
                     break;
             }
         }
@@ -352,7 +352,7 @@ public partial class ComposeWindow
     {
         if (attachment.Part is not MimePart { Content: { } content } part)
         {
-            Ui.Error("Preview attachment", "This forwarded item cannot be previewed. Only individual picture, PDF, text and Word attachments are supported.", this);
+            Ui.Error("Preview attachment", "This forwarded item cannot be previewed. Only individual picture, PDF, text and Office attachments are supported.", this);
             return;
         }
         var kind = ComposeSafety.ForwardedAttachmentPreviewKind(attachment.Name, part.ContentType.MimeType);
@@ -375,7 +375,7 @@ public partial class ComposeWindow
             decoded.Position = 0;
             if (kind == "office")
             {
-                ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadWordDocument(decoded));
+                ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadDocument(decoded, attachment.Name));
                 return;
             }
             if (kind == "text")
