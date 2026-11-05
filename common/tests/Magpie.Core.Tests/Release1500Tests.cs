@@ -35,7 +35,9 @@ public class Release1500Tests
         var added = ComposeSafety.AddMentionRecipient("first@example.com", "", "", "Ananya Roy", "ananya@example.com");
         Assert.True(added.Added);
         Assert.Contains("first@example.com", added.To);
-        Assert.Contains("Ananya Roy <ananya@example.com>", added.To);
+        var recipient = Composer.ParseAddresses(added.To).Mailboxes.Last();
+        Assert.Equal("Ananya Roy", recipient.Name);
+        Assert.Equal("ananya@example.com", recipient.Address);
     }
 
     [Theory]
