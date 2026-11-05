@@ -704,7 +704,6 @@ public partial class ComposeWindow
         }
         foreach (var (label, command, value) in new (string, string, string?)[]
                  {
-                     ("Heading 1", "formatBlock", "h1"), ("Heading 2", "formatBlock", "h2"),
                      ("Block quote", "formatBlock", "blockquote"), ("Horizontal line", "insertHorizontalRule", null),
                      ("Superscript", "superscript", null), ("Subscript", "subscript", null),
                      ("Align right", "justifyRight", null), ("Justify", "justifyFull", null),
@@ -715,6 +714,22 @@ public partial class ComposeWindow
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
+        var paragraphStyle = new MenuItem { Header = "Paragraph style" };
+        foreach (var (label, style) in new[]
+                 {
+                     ("Normal paragraph", "p"), ("Heading 1", "h1"), ("Heading 2", "h2"),
+                     ("Heading 3", "h3"), ("Code block", "pre"),
+                 })
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += async (_, _) =>
+            {
+                var changed = await Editor.CoreWebView2.ExecuteScriptAsync($"setParagraphStyle({JsonSerializer.Serialize(style)})");
+                if (changed != "true") Ui.Error("Paragraph style", "Select a paragraph in the message and try again.", this);
+            };
+            paragraphStyle.Items.Add(item);
+        }
+        menu.Items.Add(paragraphStyle);
         var languageMenu = new MenuItem { Header = "Writing language (current paragraph)" };
         foreach (var (label, language) in new[]
                  {

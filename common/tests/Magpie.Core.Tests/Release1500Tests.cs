@@ -190,6 +190,8 @@ public class Release1500Tests
         Assert.Contains("action==='splitCell'", EditorPage.Html);
         Assert.Contains("post({t:'tableMenu'})", EditorPage.Html);
         Assert.Contains("function setEditorSpellcheck(enabled)", EditorPage.Html);
+        Assert.Contains("function setParagraphStyle(style)", EditorPage.Html);
+        Assert.Contains("['p','h1','h2','h3','pre'].includes(style)", EditorPage.Html);
     }
 
     [Fact]

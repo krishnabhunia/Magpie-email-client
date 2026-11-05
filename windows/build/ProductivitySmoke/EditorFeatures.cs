@@ -133,6 +133,15 @@ internal static partial class Program
             Assert(await Script("editTable('deleteTable')") == "true"
                 && await Script("ed.querySelector('table')===null") == "true",
                 "Delete-table remains available even for table cells previously merged");
+            await Script("setHtml('<p>Example source code</p>')");
+            Assert(await Script("setParagraphStyle('h3')") == "true"
+                && await Script("ed.querySelector('h3')!==null") == "true",
+                "Real editor applies Heading 3 to the current paragraph");
+            Assert(await Script("setParagraphStyle('pre')") == "true"
+                && await Script("ed.querySelector('pre')!==null") == "true",
+                "Real editor applies a semantic code block");
+            Assert(await Script("setParagraphStyle('script')") == "false",
+                "Paragraph style rejects unsupported HTML tags");
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }

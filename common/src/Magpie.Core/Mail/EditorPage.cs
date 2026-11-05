@@ -27,6 +27,7 @@ html,body{margin:0;padding:0;background:#fff;height:100%}
 body{font:14px/1.6 'IBM Plex Sans','Segoe UI',system-ui,sans-serif;color:#23282E}
 #ed{min-height:100%;padding:14px 20px 40px;outline:none;box-sizing:border-box;word-wrap:break-word;overflow-wrap:anywhere}
 #ed p{margin:0 0 .6em}
+#ed pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#F1F3F5;border:1px solid #DCE2E7;border-radius:5px;padding:8px 10px;font:13px/1.5 Consolas,monospace}
 #ed:empty:before{content:attr(data-ph);color:#9AA0A6}
 blockquote{margin:0 0 0 .8ex;border-left:2px solid #DCD8CF;padding-left:1ex;color:#5A6068}
 .magpie-quote{color:#5A6068}
@@ -38,6 +39,7 @@ html.dark body{color:#D9D6D0}
 html.dark #ed:empty:before{color:#6F7780}
 html.dark blockquote{border-left-color:#2C3238;color:#9AA1A8}
 html.dark .magpie-signature{color:#9AA1A8}
+html.dark #ed pre{background:#232B32;border-color:#39434B;color:#E0E4E8}
 html.dark a{color:#6CC3CF}
 html.dark .magpie-quote{background:#fff;color:#23282E;border-radius:8px;padding:8px 12px}
 html.dark .magpie-quote blockquote{border-left-color:#DCD8CF;color:#5A6068}
@@ -158,6 +160,23 @@ function toggleQuoteFold(){
 }
 function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
 function fmt(c, v){ ed.focus(); restore(); document.execCommand(c, false, v === undefined ? null : v); post({t:'dirty'}); }
+function setParagraphStyle(style){
+  if(!['p','h1','h2','h3','pre'].includes(style)) return false;
+  ed.focus();restore();
+  if(!document.execCommand('formatBlock',false,style)) return false;
+  if(style==='pre'){
+    const node=window.getSelection()?.anchorNode;
+    const element=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;
+    const block=element?.closest('pre');
+    if(block&&ed.contains(block)){
+      // Keep code formatting when the HTML is sent to clients without editor CSS.
+      block.style.whiteSpace='pre-wrap';block.style.overflowWrap='anywhere';
+      block.style.fontFamily='Consolas, monospace';block.style.padding='8px 10px';
+      block.style.border='1px solid #DCE2E7';block.style.borderRadius='5px';
+    }
+  }
+  post({t:'dirty'});return true;
+}
 function linkAtCaret(){
   const node=saved?.startContainer || window.getSelection()?.anchorNode;
   const element=node?.nodeType===Node.ELEMENT_NODE ? node : node?.parentElement;
