@@ -124,6 +124,7 @@
                 <!-- Formatting -->
                 <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
                     <WrapPanel Orientation="Horizontal" svc:Typography.Role="editorToolbar">
+                        <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Click="OnAttach" Margin="0,0,8,0" ToolTip="Attach one or more files (also available below Send)" />
                         <ComboBox x:Name="FontFamilyChoice" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
                             <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
                         </ComboBox>
@@ -173,8 +174,9 @@
                         <DataTemplate DataType="{x:Type vm:AttachmentItem}">
                             <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="6" Padding="10,4,4,4" Margin="0,0,8,6">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                    <TextBlock Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                     <TextBlock Text="{Binding Display}" FontSize="12" VerticalAlignment="Center" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Open" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnOpenAttachment" ToolTip="Open this file with its usual app" />
                                     <Button Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="9" Width="22" Height="22" MinHeight="22" Margin="4,0,0,0" ToolTip="Remove"
                                             Command="{Binding DataContext.RemoveAttachmentCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                 </StackPanel>
@@ -331,7 +333,11 @@
                             <StackPanel Margin="10">
                                 <TextBlock Text="Attachments" FontWeight="SemiBold" FontSize="14" />
                                 <TextBlock Text="{Binding AttachmentSummary}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,6,0,12" />
-                                <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Click="OnAttach" />
+                                <Border AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="8" Padding="16,22" Margin="0,0,0,8">
+                                    <StackPanel HorizontalAlignment="Center"><TextBlock Text="📎 Drop files here" TextAlignment="Center" FontWeight="SemiBold" /><TextBlock Text="Or use the Attach button" TextAlignment="Center" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" /></StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Button.Primary}" Content="Browse files…" Click="OnAttach" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Remove all attachments" Click="OnClearAttachments" Margin="0,7,0,0" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Insert picture…" Click="OnInsertImage" Margin="0,7,0,0" />
                                 <TextBlock Text="Drop files into this window, or use Attach. Missing files and large messages are checked before Send." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,15,0,0" />
                             </StackPanel>

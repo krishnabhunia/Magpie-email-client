@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -46,6 +47,33 @@ public partial class ComposeWindow
         if (_focusMode) OnToggleFocus(sender, e);
         StudioPanel.Visibility = StudioPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         StudioModeButton.Content = StudioPanel.Visibility == Visibility.Visible ? "Close studio" : "Studio";
+    }
+
+    private void OnClearAttachments(object sender, RoutedEventArgs e)
+    {
+        if (_vm.Attachments.Count == 0) return;
+        if (!Ui.Confirm("Remove attachments", "Remove every attached file from this message?")) return;
+        foreach (var attachment in _vm.Attachments.ToArray())
+            _vm.RemoveAttachmentCommand.Execute(attachment);
+    }
+
+    private void OnOpenAttachment(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not Magpie.App.ViewModels.AttachmentItem attachment) return;
+        if (attachment.Carried || !File.Exists(attachment.Path))
+        {
+            Ui.Error("Open attachment", "This file is not available on this computer. Save or attach it again.", this);
+            return;
+        }
+        var ext = Path.GetExtension(attachment.Path).ToLowerInvariant();
+        if (ext is not (".png" or ".jpg" or ".jpeg" or ".gif" or ".pdf" or ".txt" or ".doc"
+            or ".docx" or ".xls" or ".xlsx" or ".csv" or ".ppt" or ".pptx"))
+        {
+            Ui.Error("Open attachment", "For safety, use File Explorer to open this type of file.", this);
+            return;
+        }
+        try { Process.Start(new ProcessStartInfo(attachment.Path) { UseShellExecute = true }); }
+        catch (Exception ex) { Ui.Error("Open attachment", ex.Message, this); }
     }
 
     private async void OnFontChoice(object sender, SelectionChangedEventArgs e)

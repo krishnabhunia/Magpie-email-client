@@ -10,6 +10,7 @@
 ## 15.0.0 (5 Nov 2026)
 ### New
 - **Compose in three ways.** Keep the balanced email editor, select Focus for writing with fewer distractions, or open Studio for attachment details, a pre-send review and message options. Switching modes keeps the draft intact.
+- **Attachments you can find.** Attach is visible at the top and bottom of the editor, with a Studio drop area, file-type icons, safe Open actions for common document/picture types, and Remove all.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 ### Fixed

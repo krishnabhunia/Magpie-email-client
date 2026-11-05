@@ -15,6 +15,14 @@ public sealed class AttachmentItem
 {
     public string Path { get; init; } = "";
     public string Name => System.IO.Path.GetFileName(Path);
+    public string Icon => System.IO.Path.GetExtension(Path).ToLowerInvariant() switch
+    {
+        ".png" or ".jpg" or ".jpeg" or ".gif" => "▧",
+        ".pdf" => "▤",
+        ".doc" or ".docx" or ".txt" => "▣",
+        ".xls" or ".xlsx" or ".csv" => "▦",
+        _ => "📎",
+    };
     public string Size => HtmlRenderer.FormatSize(new FileInfo(Path).Exists ? new FileInfo(Path).Length : 0);
     public bool Carried { get; init; }
     /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
