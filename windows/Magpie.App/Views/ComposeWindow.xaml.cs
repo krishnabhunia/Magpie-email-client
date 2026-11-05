@@ -436,6 +436,16 @@ public partial class ComposeWindow : Window
 
     private async void OnSaveDraft(object sender, RoutedEventArgs e) => await _vm.SaveDraftAsync();
 
+    private async void OnDiscardChanges(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this,
+                "Discard the unsaved changes in this window?\n\nIf you opened a saved draft, its previously saved version will be kept.",
+                "Discard changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (!await _vm.DiscardAsync()) return;
+        _forceClose = true;
+        Close();
+    }
+
     private bool _asking;
     private bool _typedBeforeReady;
 
