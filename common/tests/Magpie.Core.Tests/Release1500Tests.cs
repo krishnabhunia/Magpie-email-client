@@ -92,6 +92,19 @@ public class Release1500Tests
         Assert.Contains(recipients, address => address.Address == "person22@example.com");
     }
 
+    [Fact]
+    public void Saved_quick_templates_remain_available_after_settings_serialization()
+    {
+        var templates = new List<Magpie.Core.Settings.QuickTemplate>
+        {
+            new() { Name = "Client update", Body = "Here is the latest status." },
+        };
+        var restored = System.Text.Json.JsonSerializer.Deserialize<List<Magpie.Core.Settings.QuickTemplate>>(
+            System.Text.Json.JsonSerializer.Serialize(templates));
+        Assert.Equal("Client update", restored!.Single().Name);
+        Assert.Equal("Here is the latest status.", restored.Single().Body);
+    }
+
     [Theory]
     [InlineData("Please find the attached report", true)]
     [InlineData("See the attachment", true)]

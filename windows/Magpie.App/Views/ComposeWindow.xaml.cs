@@ -428,10 +428,46 @@ public partial class ComposeWindow : Window
             menu.Items.Add(mi);
         }
         if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var saveCurrent = new MenuItem { Header = "Save current message text as template…" };
+        saveCurrent.Click += OnSaveCurrentAsTemplate;
+        menu.Items.Add(saveCurrent);
         var manage = new MenuItem { Header = "Manage templates…" };
         manage.Click += (_, _) => SettingsWindow.Open("Templates");
         menu.Items.Add(manage);
         menu.IsOpen = true;
+    }
+
+    private async void OnSaveCurrentAsTemplate(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var text = _vm.GetNewText != null ? await _vm.GetNewText() : "";
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Ui.Error("Save as template", "Write some message text before saving it as a reusable template.", this);
+                return;
+            }
+            var name = TextPromptDialog.Ask(this, "Save as template", "Template name (message text only, not signature or quoted email)", _vm.Subject);
+            if (name == null) return;
+            name = name.Trim();
+            if (name.Length is 0 or > 100)
+            {
+                Ui.Error("Save as template", "Enter a template name between 1 and 100 characters.", this);
+                return;
+            }
+            var engine = AppServices.Engine;
+            var existing = engine.Config.Templates.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                if (!Ui.Confirm("Replace template", $"A template called '{existing.Name}' already exists. Replace its text?")) return;
+                existing.Body = text;
+            }
+            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Body = text });
+            engine.Settings.Save();
+            MessageBox.Show(this, $"Template '{name}' was saved. Choose Templates to insert it into another message.",
+                "Template saved", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) { Ui.Error("Save as template", ex.Message, this); }
     }
 
     private async void OnSaveDraft(object sender, RoutedEventArgs e) => await _vm.SaveDraftAsync();

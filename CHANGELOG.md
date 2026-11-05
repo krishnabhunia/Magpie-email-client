@@ -20,6 +20,7 @@
 - **Discard changes explicitly.** A footer action asks for confirmation, then discards this compose window's unsaved changes while retaining the previously saved draft version, if one exists.
 - **Save a message to an .eml file.** Export the current message in standard email format, including its attachments, without sending it or closing the editor.
 - **Privacy warning for large recipient lists.** When more than 20 people are visible in To/Cc, review the audience or move everyone except the first recipient into Bcc. After moving, you review the updated recipients and press Send again; no message is sent automatically.
+- **Save a quick template while composing.** Choose Templates → Save current message text as template. A named template is available in future messages; an existing template can be replaced only after confirmation.
 - **More editing tools within the message.** Choose a font and approximate size, text colour, highlight, strikethrough, alignment, indentation, headings, tables, inline pictures, emoji, paste without formatting, undo and redo. The existing default Arial 18 px and rich signatures remain in place.
 - **Review delivery choices.** Set High, Normal or Low priority, an optional Reply-To, and request a read receipt. Availability of receipts still depends on the recipient's mail software.
 - **Recipient chips.** Enter or choose addresses as before, then review recipients as removable name/address chips. Invalid addresses remain in the field for correction.
