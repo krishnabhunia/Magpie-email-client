@@ -583,6 +583,36 @@ public partial class ComposeViewModel : ObservableObject
     /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
     public Task<bool> SaveDraftAsync() => KeepAsDraftAsync(closing: false);
 
+    /// <summary>Export the current message as a complete MIME file without sending it or changing draft status.</summary>
+    public async Task<bool> ExportEmlAsync(string destination)
+    {
+        await _saveGate.WaitAsync();
+        var temporaryFile = Path.Combine(Path.GetDirectoryName(destination)!, ".magpie-export-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            if (_queued || From == null) return false;
+            var draft = await BuildDraftAsync(validate: false);
+            if (draft == null) return false;
+            var message = Composer.Build(draft, From);
+            await using (var output = new FileStream(temporaryFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await message.WriteToAsync(output);
+            File.Move(temporaryFile, destination, overwrite: true);
+            Status = "✓ Saved message as .eml";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Ui.Error("Save message to file", ex.Message);
+            return false;
+        }
+        finally
+        {
+            try { if (File.Exists(temporaryFile)) File.Delete(temporaryFile); }
+            catch (Exception) { /* The message export already reported any primary error. */ }
+            _saveGate.Release();
+        }
+    }
+
     public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert", t.Body);
 
     // ───────────────────────── AI: write a draft (C2/C3) ─────────────────────────

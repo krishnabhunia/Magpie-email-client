@@ -52,6 +52,20 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Compose_message_can_be_exported_and_loaded_as_eml()
+    {
+        var account = new Account { Email = "sender@example.com", DisplayName = "Sender" };
+        var draft = new Draft { To = "recipient@example.com", Subject = "Export test", Html = "<p>Export me</p>" };
+        var mime = Composer.Build(draft, account);
+        using var stream = new MemoryStream();
+        mime.WriteTo(stream);
+        stream.Position = 0;
+        var loaded = MimeMessage.Load(stream);
+        Assert.Equal("Export test", loaded.Subject);
+        Assert.Equal("recipient@example.com", loaded.To.Mailboxes.Single().Address);
+    }
+
+    [Fact]
     public void Duplicate_recipients_are_detected_across_all_fields()
     {
         var repeated = ComposeSafety.DuplicateRecipients("Ananya <A@Example.com>, b@example.com", "a@example.com", "B@EXAMPLE.COM, hidden@example.com");

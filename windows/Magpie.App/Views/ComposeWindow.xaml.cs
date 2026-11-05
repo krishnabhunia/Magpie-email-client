@@ -436,6 +436,22 @@ public partial class ComposeWindow : Window
 
     private async void OnSaveDraft(object sender, RoutedEventArgs e) => await _vm.SaveDraftAsync();
 
+    private async void OnSaveEml(object sender, RoutedEventArgs e)
+    {
+        var proposedName = string.Join("-", (_vm.Subject ?? "").Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (string.IsNullOrWhiteSpace(proposedName)) proposedName = "Magpie-message";
+        if (proposedName.Length > 80) proposedName = proposedName[..80];
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save message as .eml",
+            FileName = proposedName + ".eml",
+            DefaultExt = ".eml",
+            Filter = "Email message|*.eml",
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(this) == true) await _vm.ExportEmlAsync(dialog.FileName);
+    }
+
     private async void OnDiscardChanges(object sender, RoutedEventArgs e)
     {
         if (MessageBox.Show(this,

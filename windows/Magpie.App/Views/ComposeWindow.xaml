@@ -232,6 +232,7 @@
                             </Button>
                             <Button Style="{StaticResource Button.Ghost}" Content="Templates" Margin="8,0,0,0" Click="OnTemplates" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Save draft" Margin="2,0,0,0" Click="OnSaveDraft" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Save .eml" Margin="4,0,0,0" Click="OnSaveEml" ToolTip="Save a local copy of this message with attachments without sending" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Discard changes" Margin="4,0,0,0" Click="OnDiscardChanges" ToolTip="Discard edits made in this compose window; a previously saved draft is kept" />
                         </StackPanel>
                     </DockPanel>
