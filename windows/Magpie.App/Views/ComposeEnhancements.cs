@@ -63,7 +63,7 @@ public partial class ComposeWindow
         _vm.MarkEdited();
     }
 
-    private void AddSpellcheckToggle(ContextMenu menu)
+    private MenuItem CreateSpellcheckToggle()
     {
         var spelling = new MenuItem
         {
@@ -78,8 +78,10 @@ public partial class ComposeWindow
             else if (_editorReady && Editor.CoreWebView2 != null)
                 await Editor.CoreWebView2.ExecuteScriptAsync($"setEditorSpellcheck({(_spellcheckEnabled ? "true" : "false")})");
         };
-        menu.Items.Add(spelling);
+        return spelling;
     }
+
+    private void AddSpellcheckToggle(ContextMenu menu) => menu.Items.Add(CreateSpellcheckToggle());
 
     private void UpdatePlainTextControls()
     {
@@ -754,6 +756,7 @@ public partial class ComposeWindow
             menu.IsOpen = true;
             return;
         }
+        var commands = new Dictionary<string, MenuItem>(StringComparer.Ordinal);
         foreach (var (label, command, value) in new (string, string, string?)[]
                  {
                      ("Block quote", "formatBlock", "blockquote"), ("Horizontal line", "insertHorizontalRule", null),
@@ -763,9 +766,13 @@ public partial class ComposeWindow
         {
             var item = new MenuItem { Header = label };
             item.Click += async (_, _) => await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, {JsonSerializer.Serialize(value)})");
-            menu.Items.Add(item);
+            var id = command switch
+            {
+                "formatBlock" => "quote", "insertHorizontalRule" => "rule", "superscript" => "superscript",
+                "subscript" => "subscript", "justifyRight" => "alignRight", _ => "justify",
+            };
+            commands.Add(id, item);
         }
-        menu.Items.Add(new Separator());
         var paragraphStyle = new MenuItem { Header = "Paragraph style" };
         foreach (var (label, style) in new[]
                  {
@@ -781,7 +788,7 @@ public partial class ComposeWindow
             };
             paragraphStyle.Items.Add(item);
         }
-        menu.Items.Add(paragraphStyle);
+        commands.Add("paragraph", paragraphStyle);
         var languageMenu = new MenuItem { Header = "Writing language (current paragraph)" };
         foreach (var (label, language) in new[]
                  {
@@ -797,8 +804,8 @@ public partial class ComposeWindow
             };
             languageMenu.Items.Add(item);
         }
-        menu.Items.Add(languageMenu);
-        AddSpellcheckToggle(menu);
+        commands.Add("language", languageMenu);
+        commands.Add("spellcheck", CreateSpellcheckToggle());
         foreach (var (label, direction) in new[] { ("Left-to-right paragraph", "ltr"), ("Right-to-left paragraph", "rtl") })
         {
             var item = new MenuItem { Header = label };
@@ -807,9 +814,8 @@ public partial class ComposeWindow
                 var applied = await Editor.CoreWebView2.ExecuteScriptAsync($"setWritingDirection({JsonSerializer.Serialize(direction)})");
                 if (applied != "true") Ui.Error("Text direction", "Place the cursor inside a paragraph first.", this);
             };
-            menu.Items.Add(item);
+            commands.Add(direction, item);
         }
-        menu.Items.Add(new Separator());
         var pastePlain = new MenuItem { Header = "Paste without formatting" };
         pastePlain.Click += async (_, _) =>
         {
@@ -822,16 +828,21 @@ public partial class ComposeWindow
             }
             catch (Exception ex) { Ui.Error("Paste text", ex.Message, this); }
         };
-        menu.Items.Add(pastePlain);
+        commands.Add("pastePlain", pastePlain);
         var find = new MenuItem { Header = "Find text (Ctrl+F)" };
         find.Click += (_, _) => ShowFindReplace(false);
-        menu.Items.Add(find);
+        commands.Add("find", find);
         var replace = new MenuItem { Header = "Find and replace (Ctrl+H)" };
         replace.Click += (_, _) => ShowFindReplace(true);
-        menu.Items.Add(replace);
+        commands.Add("replace", replace);
         var shortcuts = new MenuItem { Header = "Keyboard shortcuts (Ctrl+/)" };
         shortcuts.Click += (_, _) => ShowComposeShortcuts();
-        menu.Items.Add(shortcuts);
+        commands.Add("shortcuts", shortcuts);
+        // Settings are normalised at load/save; build from the allow-list so corrupt or older settings never hide an action.
+        var appearance = AppServices.Engine.Config.Appearance;
+        appearance.Normalise();
+        foreach (var id in appearance.ComposeMoreOrder)
+            if (commands.TryGetValue(id, out var command)) menu.Items.Add(command);
         menu.IsOpen = true;
     }
 

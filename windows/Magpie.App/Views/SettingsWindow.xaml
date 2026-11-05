@@ -1352,6 +1352,36 @@
                             </StackPanel>
                         </Grid>
 
+                        <!-- Compose → More menu order (B15) -->
+                        <TextBlock Text="COMPOSE MORE MENU" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Arrange the rich-text commands in Compose → More" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,10"
+                                           Text="Use the arrows to set your preferred order. The plain-text switch stays at the top; changes take effect after Save. Reset to default also restores this list." />
+                                <ItemsControl ItemsSource="{Binding ComposeMoreRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableComposeMenuItem}">
+                                            <Grid Margin="0,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="80" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0"
+                                                            Command="{Binding DataContext.MoveComposeMoreUpCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding UpLabel}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0"
+                                                            Command="{Binding DataContext.MoveComposeMoreDownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding DownLabel}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Folder details on hover (design H2) -->
                         <TextBlock Text="FOLDER DETAILS ON HOVER" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border x:Name="RowHover" Style="{StaticResource Card}">

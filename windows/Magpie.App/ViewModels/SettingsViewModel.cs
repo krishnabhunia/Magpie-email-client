@@ -152,6 +152,15 @@ public partial class EditableToolbarButton : ObservableObject
     [ObservableProperty] private bool _visible;
 }
 
+/// <summary>An item in the re-orderable Compose → More menu.</summary>
+public sealed class EditableComposeMenuItem
+{
+    public string Id { get; init; } = "";
+    public string Name => Appearance.ComposeMoreNames.TryGetValue(Id, out var name) ? name : Id;
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+}
+
 /// <summary>One line the folder hover card can show (design H2).</summary>
 public partial class EditableHoverLine : ObservableObject
 {
@@ -572,6 +581,7 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Toolbar & buttons (design C3) ──
     public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
+    public ObservableCollection<EditableComposeMenuItem> ComposeMoreRows { get; } = new();
     public ObservableCollection<ToolbarButtonVm> ToolbarPreview { get; } = new();
     [ObservableProperty] private ButtonStyle _buttonStyle;
     [ObservableProperty] private bool _colourful;
@@ -605,6 +615,24 @@ public partial class SettingsViewModel : ObservableObject
             ToolbarRows.Add(row);
         }
         RefreshPreview();
+        ComposeMoreRows.Clear();
+        foreach (var id in a.ComposeMoreOrder) ComposeMoreRows.Add(new EditableComposeMenuItem { Id = id });
+    }
+
+    [RelayCommand]
+    private void MoveComposeMoreUp(EditableComposeMenuItem? row)
+    {
+        if (row == null) return;
+        var index = ComposeMoreRows.IndexOf(row);
+        if (index > 0) ComposeMoreRows.Move(index, index - 1);
+    }
+
+    [RelayCommand]
+    private void MoveComposeMoreDown(EditableComposeMenuItem? row)
+    {
+        if (row == null) return;
+        var index = ComposeMoreRows.IndexOf(row);
+        if (index >= 0 && index < ComposeMoreRows.Count - 1) ComposeMoreRows.Move(index, index + 1);
     }
 
     private void OnToolbarRowChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => RefreshPreview();
@@ -1011,6 +1039,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeMoreOrder = ComposeMoreRows.Select(r => r.Id).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },

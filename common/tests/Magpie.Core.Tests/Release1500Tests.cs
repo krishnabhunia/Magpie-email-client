@@ -4,12 +4,31 @@ using Magpie.Core.Models;
 using System.IO.Compression;
 using System.Xml;
 using MimeKit;
+using Magpie.Core.Settings;
 
 namespace Magpie.Core.Tests;
 
 /// <summary>CW1: recipient safety, attachments and delivery options for the compose redesign.</summary>
 public class Release1500Tests
 {
+    [Fact]
+    public void Compose_more_order_is_normalised_and_cloned_independently()
+    {
+        var appearance = new Appearance
+        {
+            ComposeMoreOrder = new List<string> { "find", "quote", "find", "unrecognised" },
+        };
+        appearance.Normalise();
+        Assert.Equal(Appearance.ComposeMoreIds.Length, appearance.ComposeMoreOrder.Count);
+        Assert.Equal(new[] { "find", "quote" }, appearance.ComposeMoreOrder.Take(2));
+        Assert.All(Appearance.ComposeMoreIds, id => Assert.Contains(id, appearance.ComposeMoreOrder));
+
+        var copy = appearance.Clone();
+        copy.ComposeMoreOrder.Reverse();
+        Assert.Equal("find", appearance.ComposeMoreOrder[0]);
+        Assert.NotEqual(appearance.ComposeMoreOrder[0], copy.ComposeMoreOrder[0]);
+    }
+
     [Fact]
     public void Quick_templates_expand_only_known_variables_with_current_compose_context()
     {

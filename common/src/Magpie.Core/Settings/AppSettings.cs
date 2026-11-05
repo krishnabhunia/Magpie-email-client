@@ -222,6 +222,21 @@ public sealed class Appearance
     /// <summary>Every button the toolbar can show, in default order; the first <see cref="DefaultVisible"/> are on.</summary>
     public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "setaside", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
     public const int DefaultVisible = 8;
+    /// <summary>Reorderable rich-text entries in Compose → More. The destructive plain-text switch stays fixed at the top.</summary>
+    public static readonly string[] ComposeMoreIds =
+    {
+        "quote", "rule", "superscript", "subscript", "alignRight", "justify", "paragraph", "language",
+        "spellcheck", "ltr", "rtl", "pastePlain", "find", "replace", "shortcuts",
+    };
+    public static readonly IReadOnlyDictionary<string, string> ComposeMoreNames = new Dictionary<string, string>
+    {
+        ["quote"] = "Block quote", ["rule"] = "Horizontal line", ["superscript"] = "Superscript",
+        ["subscript"] = "Subscript", ["alignRight"] = "Align right", ["justify"] = "Justify",
+        ["paragraph"] = "Paragraph style", ["language"] = "Writing language", ["spellcheck"] = "Spellcheck",
+        ["ltr"] = "Left-to-right paragraph", ["rtl"] = "Right-to-left paragraph",
+        ["pastePlain"] = "Paste without formatting", ["find"] = "Find text", ["replace"] = "Find and replace",
+        ["shortcuts"] = "Keyboard shortcuts",
+    };
 
     public ThemeMode Theme { get; set; } = ThemeMode.MatchWindows;
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.IconAndName;
@@ -231,6 +246,8 @@ public sealed class Appearance
     /// <summary>The message list's right-click menu follows the toolbar's order.</summary>
     public bool MenuFollowsToolbar { get; set; } = true;
     public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+    /// <summary>Compose → More rich-text item order. Missing entries from older settings are appended.</summary>
+    public List<string> ComposeMoreOrder { get; set; } = ComposeMoreIds.ToList();
     public FolderHoverSettings FolderHover { get; set; } = new();
     public RowActionsSettings RowActions { get; set; } = new();
     /// <summary>Design DD1: how an email's auto-delete date shows (pointing at a row, on the row, in the reading pane).</summary>
@@ -251,6 +268,11 @@ public sealed class Appearance
         Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
         foreach (var id in ToolbarIds)
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+        ComposeMoreOrder ??= ComposeMoreIds.ToList();
+        var composeSeen = new HashSet<string>(StringComparer.Ordinal);
+        ComposeMoreOrder = ComposeMoreOrder.Where(id => id != null && ComposeMoreIds.Contains(id) && composeSeen.Add(id)).ToList();
+        foreach (var id in ComposeMoreIds)
+            if (composeSeen.Add(id)) ComposeMoreOrder.Add(id);
         (FolderHover ??= new()).Normalise();
         (RowActions ??= new()).Normalise();
         (DeleteDates ??= new()).Normalise();
@@ -262,6 +284,7 @@ public sealed class Appearance
     {
         Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+        ComposeMoreOrder = (ComposeMoreOrder ?? ComposeMoreIds.ToList()).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(), DeleteDates = DeleteDates.Clone(),
         Splash = Splash, SplashAccounts = SplashAccounts,
     };
