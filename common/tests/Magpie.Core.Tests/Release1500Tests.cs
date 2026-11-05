@@ -55,7 +55,7 @@ public class Release1500Tests
     [InlineData("notes.docx", "office")]
     [InlineData("budget.xlsx", "office")]
     [InlineData("deck.pptx", "office")]
-    [InlineData("document.docx", "none")]
+    [InlineData("document.docx", "office")]
     [InlineData("dangerous.exe", "none")]
     [InlineData("evil.pdf.exe", "none")]
     public void Compose_preview_only_accepts_known_safe_types(string file, string type) =>

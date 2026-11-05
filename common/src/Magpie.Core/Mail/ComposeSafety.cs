@@ -18,7 +18,7 @@ public static partial class ComposeSafety
     public static string ExpandQuickTemplate(string text, Account? sender, string to, string subject, DateTimeOffset now)
     {
         var recipient = Composer.ParseAddresses(to).Mailboxes.FirstOrDefault();
-        var recipientName = recipient?.Name.Trim() ?? "";
+        var recipientName = recipient?.Name?.Trim() ?? "";
         var parts = recipientName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
