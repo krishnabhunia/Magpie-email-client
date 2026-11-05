@@ -182,7 +182,7 @@
 
                 <!-- Editor -->
                 <Grid Grid.Row="2">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                     <Border x:Name="FindReplacePanel" Grid.Row="0" Visibility="Collapsed" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="16,7">
                         <StackPanel>
                             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -201,8 +201,9 @@
                             </WrapPanel>
                         </StackPanel>
                     </Border>
-                    <wv2:WebView2 x:Name="Editor" Grid.Row="1" DefaultBackgroundColor="White" AutomationProperties.Name="Rich-text email message editor" />
-                    <TextBox x:Name="PlainEditor" Grid.Row="1" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12" AutomationProperties.Name="Plain-text email message editor"
+                    <Button x:Name="QuoteToggleButton" Grid.Row="1" Style="{StaticResource Button.Ghost}" Content="Show quoted message" Visibility="Collapsed" HorizontalAlignment="Left" Margin="18,3" FontSize="11.5" Click="OnToggleQuote" AutomationProperties.Name="Show or hide the original quoted message" ToolTip="Only folds the quote while writing; the complete original text remains in the outgoing reply" />
+                    <wv2:WebView2 x:Name="Editor" Grid.Row="2" DefaultBackgroundColor="White" AutomationProperties.Name="Rich-text email message editor" />
+                    <TextBox x:Name="PlainEditor" Grid.Row="2" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12" AutomationProperties.Name="Plain-text email message editor"
                              VerticalScrollBarVisibility="Auto" FontFamily="Arial" FontSize="18" />
                 </Grid>
 

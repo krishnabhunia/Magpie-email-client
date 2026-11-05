@@ -277,6 +277,8 @@ public partial class ComposeWindow : Window
                 case "ready":
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
+                    QuoteToggleButton.Visibility = _vm.InitialHtml.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
+                        ? Visibility.Visible : Visibility.Collapsed;
                     _editorReady = true;
                     await ApplyEditorTypographyAsync();
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.

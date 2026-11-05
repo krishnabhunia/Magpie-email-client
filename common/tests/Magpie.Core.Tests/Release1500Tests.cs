@@ -55,6 +55,8 @@ public class Release1500Tests
         Assert.Contains("function replaceAllInEditor(query,replacement,matchCase)", EditorPage.Html);
         Assert.Contains("post({t:'find'})", EditorPage.Html);
         Assert.Contains("post({t:'replace'})", EditorPage.Html);
+        Assert.Contains("function toggleQuoteFold()", EditorPage.Html);
+        Assert.Contains("ed.classList.toggle('quote-folded'", EditorPage.Html);
     }
 
     [Fact]

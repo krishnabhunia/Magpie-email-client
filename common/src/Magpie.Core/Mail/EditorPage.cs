@@ -42,6 +42,9 @@ html.dark a{color:#6CC3CF}
 html.dark .magpie-quote{background:#fff;color:#23282E;border-radius:8px;padding:8px 12px}
 html.dark .magpie-quote blockquote{border-left-color:#DCD8CF;color:#5A6068}
 html.dark .magpie-quote a{color:#14606E}
+#ed.quote-folded .magpie-quote > :not(:first-child){display:none}
+#ed.quote-folded .magpie-quote{border-bottom:1px dashed #B7BEC5;padding-bottom:6px}
+#ed.quote-folded .magpie-quote::after{content:'Quoted message collapsed';display:block;color:#6D7881;font:12px/1.5 system-ui,sans-serif}
 </style></head>
 <body><div id="ed" contenteditable="true" spellcheck="true" data-ph="Write your message…"></div>
 <script>
@@ -103,6 +106,8 @@ function setTypography(body, signature, quote, preserveExisting){
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
 function setHtml(h){
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
+  // Fold only in the editor's view. getHtml() still serializes the full quote.
+  ed.classList.toggle('quote-folded',!!ed.querySelector('.magpie-quote'));
   typography=null;
   const r = document.createRange();
   const first = ed.firstChild || ed;
@@ -129,6 +134,10 @@ function getNewText(){
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
 }
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
+function toggleQuoteFold(){
+  if(!ed.querySelector('.magpie-quote')) return false;
+  ed.classList.toggle('quote-folded');return ed.classList.contains('quote-folded');
+}
 function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
 function fmt(c, v){ ed.focus(); restore(); document.execCommand(c, false, v === undefined ? null : v); post({t:'dirty'}); }
 function linkAtCaret(){
@@ -194,7 +203,8 @@ function editorMatches(query, matchCase){
   const walker=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);
   while(walker.nextNode()){
     const node=walker.currentNode;
-    if(!node.nodeValue || node.parentElement?.closest('[contenteditable="false"]')) continue;
+    if(!node.nodeValue || node.parentElement?.closest('[contenteditable="false"]')
+       || (ed.classList.contains('quote-folded') && node.parentElement?.closest('.magpie-quote'))) continue;
     const text=matchCase?node.nodeValue:node.nodeValue.toLocaleLowerCase();
     for(let at=0;(at=text.indexOf(needle,at))>=0;at+=needle.length){
       const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+needle.length);

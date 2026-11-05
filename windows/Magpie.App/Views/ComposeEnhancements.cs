@@ -79,6 +79,13 @@ public partial class ComposeWindow
         _studioRestoreAiPanel = false;
     }
 
+    private async void OnToggleQuote(object sender, RoutedEventArgs e)
+    {
+        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        var folded = await Editor.CoreWebView2.ExecuteScriptAsync("toggleQuoteFold()");
+        QuoteToggleButton.Content = folded == "true" ? "Show quoted message" : "Hide quoted message";
+    }
+
     private void ShowFindReplace(bool replace)
     {
         FindReplacePanel.Visibility = Visibility.Visible;
