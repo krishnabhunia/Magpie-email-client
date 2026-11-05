@@ -564,6 +564,7 @@ public sealed class SettingsStore
         {
             a.Signature ??= "";
             a.SignatureHtml ??= "";
+            a.MaxOutgoingMessageMb = a.MaxOutgoingMessageMb <= 0 ? 25 : Math.Min(a.MaxOutgoingMessageMb, 100);
             // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
             if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
         }

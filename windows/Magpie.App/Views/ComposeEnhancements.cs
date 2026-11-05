@@ -423,6 +423,7 @@ public partial class ComposeWindow
             "Visible To/Cc addresses: " + ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc)
                 + (ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc) > 20 ? " (consider Bcc for privacy)" : ""),
             "Attachments: " + _vm.Attachments.Count + ", approximately " + HtmlRenderer.FormatSize(encoded) + " encoded (plus any forwarded files)",
+            "Suggested send size for this account: " + HtmlRenderer.FormatSize(ComposeSafety.SuggestedOutgoingLimitBytes(_vm.From)) + " (server limits may differ)",
             $"New writing: {words} words · approximately {ComposeSafety.EstimatedReadingMinutes(words)} minute(s) to read",
             "Priority: " + _vm.Priority,
         };

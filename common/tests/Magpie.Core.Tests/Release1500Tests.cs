@@ -121,6 +121,18 @@ public class Release1500Tests
     }
 
     [Theory]
+    [InlineData(AccountKind.Gmail, 0, 25_000_000L)]
+    [InlineData(AccountKind.Microsoft, 0, 20_000_000L)]
+    [InlineData(AccountKind.Imap, 12, 12_000_000L)]
+    [InlineData(AccountKind.Imap, 0, 25_000_000L)]
+    [InlineData(AccountKind.Imap, 150, 100_000_000L)]
+    public void Compose_message_limit_is_provider_aware_and_advisory(AccountKind kind, int configuredMb, long expectedBytes)
+    {
+        var account = new Account { Kind = kind, MaxOutgoingMessageMb = configuredMb };
+        Assert.Equal(expectedBytes, ComposeSafety.SuggestedOutgoingLimitBytes(account));
+    }
+
+    [Theory]
     [InlineData("Please find the attached report", true)]
     [InlineData("See the attachment", true)]
     [InlineData("We can meet tomorrow", false)]

@@ -17,7 +17,7 @@ public partial class EditableAccount : ObservableObject
 {
     public Account Original { get; private set; }
     /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
-    public void Accept(Account saved) => Original = saved;
+    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; }
     public EditableAccount(Account a)
     {
         Original = a;
@@ -33,12 +33,14 @@ public partial class EditableAccount : ObservableObject
         _enabled = a.Enabled;
         _syncDays = a.SyncDays;
         _downloadAttachments = a.DownloadAttachments;
+        _maxOutgoingMessageMb = a.MaxOutgoingMessageMb;
         DownloadChoices = DownloadChoice.For(a.SyncDays);
     }
     public string Email => Original.Email;
     public string Kind => Original.Kind switch { AccountKind.Gmail => "Gmail", AccountKind.Microsoft => "Outlook / Microsoft 365", _ => "IMAP" }
                           + (Original.Auth == AuthMethod.OAuth2 ? " · signed in with " + (Original.Kind == AccountKind.Gmail ? "Google" : "Microsoft") : " · password");
     public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
+    public bool IsImap => Original.Kind == AccountKind.Imap;
     [ObservableProperty] private string _displayName;
     /// <summary>Design AC1: your details for this account.</summary>
     [ObservableProperty] private string _phone;
@@ -72,6 +74,7 @@ public partial class EditableAccount : ObservableObject
     /// <summary>Design DS1: "Download emails from the last …" (0 = everything) and whether attachments come too.</summary>
     [ObservableProperty] private int _syncDays;
     [ObservableProperty] private bool _downloadAttachments;
+    [ObservableProperty] private int _maxOutgoingMessageMb;
     public DownloadChoice[] DownloadChoices { get; }
 
     public Account ToAccount()
@@ -90,6 +93,7 @@ public partial class EditableAccount : ObservableObject
         a.Enabled = Enabled;
         a.SyncDays = DownloadChoice.Normalise(SyncDays);
         a.DownloadAttachments = DownloadAttachments;
+        a.MaxOutgoingMessageMb = Math.Clamp(MaxOutgoingMessageMb, 1, 100);
         return a;
     }
 
@@ -97,7 +101,7 @@ public partial class EditableAccount : ObservableObject
                            || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
                            || Enabled != Original.Enabled || SyncDays != Original.SyncDays
-                           || DownloadAttachments != Original.DownloadAttachments;
+                           || DownloadAttachments != Original.DownloadAttachments || MaxOutgoingMessageMb != Original.MaxOutgoingMessageMb;
 }
 
 public partial class EditableTag : ObservableObject
@@ -373,6 +377,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
         ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
+        ("Send size limit", "Accounts", "Estimated outgoing attachment limit for custom IMAP/SMTP accounts", "send message size megabytes MB limit upload SMTP IMAP attachment", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("Bring my accounts to other PCs", "Accounts", "Sign in once on another PC and every account comes along", "sync other pcs computer new pc spark copy sign in once home account sync password", "RowAccountsCopy"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),

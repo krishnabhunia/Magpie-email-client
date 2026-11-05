@@ -129,13 +129,17 @@ public partial class ComposeViewModel : ObservableObject
             var count = Attachments.Count;
             if (count == 0) return "No files attached";
             var size = files.Length > 0 ? ComposeSafety.EncodedSizeOfExistingFiles(files.Select(a => a.Path), "") : 0;
-            return $"{count} file{(count == 1 ? "" : "s")}"
-                   + (files.Length > 0 ? $" · about {HtmlRenderer.FormatSize(size)} encoded" : "")
+            var limit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+            var countLabel = $"{count} file{(count == 1 ? "" : "s")}";
+            return countLabel
+                   + (files.Length > 0 ? $" · about {HtmlRenderer.FormatSize(size)} encoded / {HtmlRenderer.FormatSize(limit)} suggested cap" : "")
                    + (Attachments.Any(a => a.Carried) ? " + forwarded content" : "");
         }
     }
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
     public string ProviderLabel => _e.Ai.ProviderLabel;
+
+    partial void OnFromChanged(Account? value) { OnPropertyChanged(nameof(AttachmentSummary)); MarkEdited(); }
 
     public ComposeViewModel(Draft draft, string? prefillText)
     {
@@ -571,8 +575,9 @@ public partial class ComposeViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Empty message", "The message has no new text or attachments. Send anyway?")) return;
             var encoded = ComposeSafety.EncodedSizeOfExistingFiles(Attachments.Where(a => !a.Carried).Select(a => a.Path), "");
-            if (encoded > 25_000_000 && !Ui.Confirm("Large message",
-                    $"The attached files may take about {HtmlRenderer.FormatSize(encoded)} after email encoding. Your mail provider may reject this size. Send anyway?")) return;
+            var suggestedLimit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+            if (encoded > suggestedLimit && !Ui.Confirm("Large message",
+                    $"Attached files are estimated at {HtmlRenderer.FormatSize(encoded)} after email encoding, above the {HtmlRenderer.FormatSize(suggestedLimit)} guidance for this account. Your server's actual limit may differ. Send anyway?")) return;
             // Wait for an autosave that is building the message (it shares attachment streams with this build).
             await _saveGate.WaitAsync();
             Draft? d;

@@ -1,10 +1,19 @@
 using System.Text.RegularExpressions;
+using Magpie.Core.Models;
 
 namespace Magpie.Core.Mail;
 
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
+    /// <summary>UI guidance only; actual server limits depend on the provider and mailbox policy.</summary>
+    public static long SuggestedOutgoingLimitBytes(Account? account) => account?.Kind switch
+    {
+        AccountKind.Gmail => 25_000_000L,
+        AccountKind.Microsoft => 20_000_000L,
+        _ => Math.Clamp(account?.MaxOutgoingMessageMb is int configured && configured > 0 ? configured : 25, 1, 100) * 1_000_000L,
+    };
+
     /// <summary>Only formats the composer can inspect safely without launching another application.</summary>
     public static string AttachmentPreviewKind(string? filename) => Path.GetExtension(filename ?? "").ToLowerInvariant() switch
     {

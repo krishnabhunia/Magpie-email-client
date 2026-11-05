@@ -30,6 +30,8 @@ public sealed class Account
     public TlsMode ImapSecurity { get; set; } = TlsMode.SslOnConnect;
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; } = 465;
+    /// <summary>Advisory outgoing size cap for custom IMAP/SMTP accounts, in decimal megabytes.</summary>
+    public int MaxOutgoingMessageMb { get; set; } = 25;
     public TlsMode SmtpSecurity { get; set; } = TlsMode.SslOnConnect;
 
     /// <summary>Colour dot used in the unified inbox (hex, e.g. #14606E).</summary>
