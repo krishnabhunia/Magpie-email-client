@@ -34,7 +34,7 @@ internal static partial class Program
         // Supply the catalogue directly: this is the real WPF chooser with no HTTP or installation side effects.
         VersionChoice[] choices =
         [
-            Choice("12.0.0-beta.2"), Choice("12.0.0-beta.3"), Choice("12.0.0-beta.4", compatible: false),
+            Choice("12.0.0-beta002"), Choice("12.0.0-beta003"), Choice("12.0.0-beta004", compatible: false),
             Choice("12.0.0"), Choice("13.0.0", available: false),
             Choice("10.0.0"), Choice("11.0.0-beta.4"), Choice("9.0.0", compatible: false), Choice("11.0.0"),
         ];
@@ -79,25 +79,25 @@ internal static partial class Program
                 Assert(versions.Items.Count == 1, "Beta filter defaults to only the latest compatible beta");
                 NoSelection("beta filter");
                 versions.SelectedIndex = 0;
-                Assert(select.Content.ToString()!.Contains("v12.0.0-beta.3", StringComparison.Ordinal),
+                Assert(select.Content.ToString()!.Contains("v12.0.0-beta003", StringComparison.Ordinal),
                     "An incompatible newer beta never hides the newest compatible one");
-                Assert(RowText(0).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
+                Assert(RowText(0).Contains("v12.0.0-beta003", StringComparison.Ordinal) &&
                     RowText(0).Contains("(LATEST)", StringComparison.Ordinal) &&
-                    RowText(0).Contains("Exact tag: v12.0.0-beta.3", StringComparison.Ordinal),
-                    "Newest compatible beta is rank 1 with immutable exact tag");
+                    RowText(0).Contains("Exact tag: v12.0.0-beta003", StringComparison.Ordinal),
+                    "Newest compatible beta preserves its permanent three-digit tag");
                 Assert(RowText(0).Contains("30 Oct 2026", StringComparison.Ordinal),
                     "Release list shows the publication date with local clock time");
 
                 showAll.IsChecked = true;
                 Assert(versions.Items.Count == 3, "Show all retains every beta commit for exact-version selection");
-                Assert(RowText(0).Contains("v12.0.0-beta.4", StringComparison.Ordinal) &&
+                Assert(RowText(0).Contains("v12.0.0-beta004", StringComparison.Ordinal) &&
                     !RowText(0).Contains("(LATEST)", StringComparison.Ordinal),
-                    "Blocked beta keeps exact identifier without a misleading installable rank");
-                Assert(RowText(1).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
-                    RowText(2).Contains("v12.0.0-beta 2", StringComparison.Ordinal),
-                    "Beta 1 means newest compatible release and Beta 2 means the previous one");
+                    "Blocked beta keeps exact identifier without a misleading latest marker");
+                Assert(RowText(1).Contains("v12.0.0-beta003", StringComparison.Ordinal) &&
+                    RowText(2).Contains("v12.0.0-beta002", StringComparison.Ordinal),
+                    "Beta labels stay tied to immutable tags rather than shifting display ranks");
                 NoSelection("show all beta builds");
-                versions.SelectedIndex = 0; // 12.0.0-beta.4 is incompatible.
+                versions.SelectedIndex = 0; // 12.0.0-beta004 is incompatible.
                 Assert(!select.IsEnabled && compatibility.Text.Contains("cannot safely", StringComparison.OrdinalIgnoreCase),
                     "Show all explains why the newest beta is blocked");
                 channel.SelectedIndex = 0;
