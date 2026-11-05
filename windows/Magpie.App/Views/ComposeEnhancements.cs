@@ -436,7 +436,7 @@ public partial class ComposeWindow
     {
         if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
         var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
-        var label = new TextBlock { Text = "Choose table size (up to 6 × 6)", Margin = new Thickness(8, 4) };
+        var label = new TextBlock { Text = "Choose table size (up to 6 × 6)", Margin = new Thickness(8, 4, 8, 4) };
         menu.Items.Add(new MenuItem { Header = label, IsEnabled = false });
         var grid = new UniformGrid { Columns = 6, Rows = 6, Margin = new Thickness(6) };
         for (var rows = 1; rows <= 6; rows++)
