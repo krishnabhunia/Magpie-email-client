@@ -7,6 +7,10 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 14.3.0 (5 Nov 2026)
+### Changed
+- **The version manager is back to how it was before 14.1.0** (Krishna, 5 Nov 2026). The From → To confirm screen, the "skips the latest stable" note, the Updates / Version history tabs and the "On this PC" marks are removed: you choose Update (newer) or Roll back (older) in the drop-down again, and a short Yes/No question confirms the exact version. Everything else stays — choosing exact stable or beta versions, compatibility checks, backups, the version pin, permanent beta tags and **View full implementation details**.
+- Windows only; the Mac app is unchanged.
 ## 14.2.0 (5 Nov 2026)
 ### Changed
 - **Permanent three-digit beta versions on Windows, Mac and Android builds.** Each pull-request head gets one immutable `vX.Y.Z-beta001` to `beta999` reservation from GitHub, shared by independent platform pipelines. A rebuild of the same commit keeps its tag; a new commit gets the next number; the pipeline fails if a version's 999 allocations are exhausted.
