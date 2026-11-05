@@ -82,6 +82,19 @@ public static class Composer
         return bad;
     }
 
+    /// <summary>The pieces of an address field (", " / ";" / new lines split it; separators inside quoted names are kept).</summary>
+    public static List<string> SplitAddresses(string text) => AddressPieces(text ?? "");
+
+    /// <summary>"Name &lt;address&gt;" → (Name, address); a bare address → ("", address); anything else → ("", piece).</summary>
+    public static (string Name, string Address) NameAndAddress(string piece)
+    {
+        if (MailboxAddress.TryParse(piece, out var mb)) return (mb.Name ?? "", mb.Address ?? "");
+        return ("", (piece ?? "").Trim());
+    }
+
+    /// <summary>True when the piece is a usable email address (what Send would accept).</summary>
+    public static bool IsValidAddress(string piece) => InvalidAddresses(piece).Count == 0 && !string.IsNullOrWhiteSpace(piece);
+
     // Keep separators inside quoted display names intact in both parsing and validation.
     private static List<string> AddressPieces(string text)
     {
