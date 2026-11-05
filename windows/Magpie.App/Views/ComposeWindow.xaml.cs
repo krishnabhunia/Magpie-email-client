@@ -173,6 +173,7 @@ public partial class ComposeWindow : Window
                 if (_vm.GenerateReplyDraftCommand.CanExecute(null)) _ = _vm.GenerateReplyDraftCommand.ExecuteAsync(null);
             }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
+            else if (e.Key == Key.Oem2 && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowComposeShortcuts(); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
         if (Application.Current.MainWindow is { IsVisible: true } main)
@@ -248,6 +249,7 @@ public partial class ComposeWindow : Window
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
+                case "shortcuts": ShowComposeShortcuts(); break;
             }
         }
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
@@ -368,6 +370,19 @@ public partial class ComposeWindow : Window
     {
         if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
         await Editor.CoreWebView2.ExecuteScriptAsync("removeSelectedLink()");
+    }
+
+    private void ShowComposeShortcuts()
+    {
+        MessageBox.Show(this,
+            "Ctrl+Enter — Send (or rewrite when the AI panel is focused)\n"
+            + "Ctrl+K — Insert or edit a link\n"
+            + "Ctrl+B — Bold\nCtrl+I — Italic\nCtrl+U — Underline\n"
+            + "Ctrl+Z — Undo\nCtrl+Y — Redo\n"
+            + "Ctrl+Shift+A — Open AI assistant when available\n"
+            + "Ctrl+/ — Show this shortcut sheet\n"
+            + "Esc — Close the compose window (asks about unsaved changes)",
+            "Compose keyboard shortcuts", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ───────────────────────── send / schedule / draft ─────────────────────────

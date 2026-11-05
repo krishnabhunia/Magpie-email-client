@@ -242,6 +242,7 @@ ed.addEventListener('input', function(){ post({t:'dirty'}); });
 document.addEventListener('keydown', function(e){
   if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); post({t:'send'}); }
   else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); post({t:'link'}); }
+  else if (e.ctrlKey && e.key === '/') { e.preventDefault(); post({t:'shortcuts'}); }
 });
 document.addEventListener('dragover', function(e){ e.preventDefault(); });
 document.addEventListener('drop', function(e){ e.preventDefault(); });

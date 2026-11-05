@@ -404,6 +404,9 @@ public partial class ComposeWindow
             catch (Exception ex) { Ui.Error("Paste text", ex.Message, this); }
         };
         menu.Items.Add(pastePlain);
+        var shortcuts = new MenuItem { Header = "Keyboard shortcuts (Ctrl+/)" };
+        shortcuts.Click += (_, _) => ShowComposeShortcuts();
+        menu.Items.Add(shortcuts);
         menu.IsOpen = true;
     }
 

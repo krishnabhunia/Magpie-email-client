@@ -49,6 +49,7 @@ public class Release1500Tests
         Assert.Contains("[25,50,75,100].includes(percent)", EditorPage.Html);
         Assert.Contains("function setWritingDirection(direction)", EditorPage.Html);
         Assert.Contains("function setWritingLanguage(language)", EditorPage.Html);
+        Assert.Contains("post({t:'shortcuts'})", EditorPage.Html);
     }
 
     [Fact]
