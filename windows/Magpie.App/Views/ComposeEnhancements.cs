@@ -21,6 +21,25 @@ public partial class ComposeWindow
     private bool _restoreAiRail;
     private bool _restoreAiPanel;
     private bool _studioRestoreAiPanel;
+    private bool _spellcheckEnabled = true;
+
+    private void AddSpellcheckToggle(ContextMenu menu)
+    {
+        var spelling = new MenuItem
+        {
+            Header = "Check spelling while typing (native right-click suggestions)",
+            IsCheckable = true,
+            IsChecked = _spellcheckEnabled,
+        };
+        spelling.Click += async (_, _) =>
+        {
+            _spellcheckEnabled = spelling.IsChecked;
+            if (_plain) SpellCheck.SetIsEnabled(PlainEditor, _spellcheckEnabled);
+            else if (_editorReady && Editor.CoreWebView2 != null)
+                await Editor.CoreWebView2.ExecuteScriptAsync($"setEditorSpellcheck({(_spellcheckEnabled ? "true" : "false")})");
+        };
+        menu.Items.Add(spelling);
+    }
 
     private void OnToggleFocus(object sender, RoutedEventArgs e)
     {
@@ -526,8 +545,14 @@ public partial class ComposeWindow
 
     private void OnMoreFormat(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady) return;
+        if (!_editorReady) return;
         var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
+        if (_plain)
+        {
+            AddSpellcheckToggle(menu);
+            menu.IsOpen = true;
+            return;
+        }
         foreach (var (label, command, value) in new (string, string, string?)[]
                  {
                      ("Heading 1", "formatBlock", "h1"), ("Heading 2", "formatBlock", "h2"),
@@ -557,6 +582,7 @@ public partial class ComposeWindow
             languageMenu.Items.Add(item);
         }
         menu.Items.Add(languageMenu);
+        AddSpellcheckToggle(menu);
         foreach (var (label, direction) in new[] { ("Left-to-right paragraph", "ltr"), ("Right-to-left paragraph", "rtl") })
         {
             var item = new MenuItem { Header = label };

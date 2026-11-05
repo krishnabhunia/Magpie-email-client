@@ -135,6 +135,11 @@ function getNewText(){
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
 }
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
+function setEditorSpellcheck(enabled){
+  ed.spellcheck=!!enabled;
+  ed.querySelectorAll('[spellcheck]').forEach(function(node){node.spellcheck=!!enabled;});
+  return ed.spellcheck;
+}
 function toggleQuoteFold(){
   if(!ed.querySelector('.magpie-quote')) return false;
   ed.classList.toggle('quote-folded');return ed.classList.contains('quote-folded');
@@ -236,7 +241,7 @@ function setWritingDirection(direction){
 function setWritingLanguage(language){
   if(!['en','hi','bn','zh-CN','ar'].includes(language)) return false;
   const block=currentWritingBlock();if(!block) return false;
-  block.setAttribute('lang',language);block.setAttribute('spellcheck','true');
+  block.setAttribute('lang',language);block.setAttribute('spellcheck',ed.spellcheck?'true':'false');
   post({t:'dirty'});return true;
 }
 function editorMatches(query, matchCase){

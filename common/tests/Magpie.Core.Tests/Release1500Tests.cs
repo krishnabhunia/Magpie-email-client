@@ -60,6 +60,7 @@ public class Release1500Tests
         Assert.Contains("function insertTableGrid(rows,cols)", EditorPage.Html);
         Assert.Contains("function editTable(action)", EditorPage.Html);
         Assert.Contains("post({t:'tableMenu'})", EditorPage.Html);
+        Assert.Contains("function setEditorSpellcheck(enabled)", EditorPage.Html);
     }
 
     [Fact]

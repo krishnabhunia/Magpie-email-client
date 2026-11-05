@@ -257,6 +257,7 @@ public partial class ComposeWindow : Window
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
+        SpellCheck.SetIsEnabled(PlainEditor, _spellcheckEnabled);
         var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
         _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
@@ -292,6 +293,7 @@ public partial class ComposeWindow : Window
                 case "link": OnLink(this, new RoutedEventArgs()); break;
                 case "find": ShowFindReplace(false); break;
                 case "replace": ShowFindReplace(true); break;
+                case "tableMenu": ShowTableContextMenu(); break;
                 case "shortcuts": ShowComposeShortcuts(); break;
             }
         }
