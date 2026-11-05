@@ -11,11 +11,19 @@ using Magpie.Core.Settings;
 
 namespace Magpie.App.ViewModels;
 
-public sealed class AttachmentItem
+public sealed class AttachmentItem : ObservableObject
 {
     public string Path { get; init; } = "";
-    public string Name => System.IO.Path.GetFileName(Path);
-    public string Icon => System.IO.Path.GetExtension(Path).ToLowerInvariant() switch
+    private string? _outgoingName;
+    public string Name => _outgoingName ?? System.IO.Path.GetFileName(Path);
+    public void Rename(string name)
+    {
+        _outgoingName = name;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Icon));
+        OnPropertyChanged(nameof(Display));
+    }
+    public string Icon => System.IO.Path.GetExtension(Name).ToLowerInvariant() switch
     {
         ".png" or ".jpg" or ".jpeg" or ".gif" => "▧",
         ".pdf" => "▤",
@@ -27,7 +35,7 @@ public sealed class AttachmentItem
     public bool Carried { get; init; }
     /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
     public MimeKit.MimeEntity? Part { get; init; }
-    public string Display => Carried ? Path : $"{Name}  ·  {Size}";
+    public string Display => Carried ? Name : $"{Name}  ·  {Size}";
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
@@ -109,9 +117,30 @@ public partial class ComposeViewModel : ObservableObject
         Priority = draft.Priority;
         ReplyTo = draft.ReplyTo;
         RequestReadReceipt = draft.RequestReadReceipt;
-        foreach (var p in draft.AttachmentPaths) Attachments.Add(new AttachmentItem { Path = p });
+        foreach (var p in draft.AttachmentPaths)
+        {
+            var item = new AttachmentItem { Path = p };
+            if (draft.AttachmentNames.TryGetValue(p, out var outgoingName)) item.Rename(outgoingName);
+            Attachments.Add(item);
+        }
         foreach (var part in draft.CarriedParts)
             Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "forwarded message", Carried = true, Part = part });
+        if (draft.AttachmentOrder.Count > 0)
+        {
+            var arranged = new List<AttachmentItem>();
+            foreach (var position in draft.AttachmentOrder)
+            {
+                var item = position.Path != null
+                    ? Attachments.FirstOrDefault(a => !a.Carried && string.Equals(a.Path, position.Path, StringComparison.OrdinalIgnoreCase))
+                    : position.CarriedIndex is { } index && index >= 0 && index < draft.CarriedParts.Count
+                        ? Attachments.FirstOrDefault(a => ReferenceEquals(a.Part, draft.CarriedParts[index])) : null;
+                if (item != null && !arranged.Contains(item)) arranged.Add(item);
+            }
+            foreach (var item in Attachments)
+                if (!arranged.Contains(item)) arranged.Add(item);
+            Attachments.Clear();
+            foreach (var item in arranged) Attachments.Add(item);
+        }
 
         var html = draft.Html;
         if (draft.Mode == ComposeMode.New && string.IsNullOrEmpty(html) && From != null)
@@ -379,6 +408,28 @@ public partial class ComposeViewModel : ObservableObject
         if (a.Carried) InvalidateReplyContext();   // a forward note may name this file
     }
 
+    public void RenameAttachment(AttachmentItem attachment, string outgoingName)
+    {
+        if (attachment.Part is MimeKit.MimePart part) part.FileName = outgoingName;
+        attachment.Rename(outgoingName);
+        MarkEdited();
+        InvalidateReplyContext();
+    }
+
+    private void MoveAttachment(AttachmentItem? attachment, int change)
+    {
+        if (attachment == null) return;
+        var index = Attachments.IndexOf(attachment);
+        var target = index + change;
+        if (index < 0 || target < 0 || target >= Attachments.Count) return;
+        Attachments.Move(index, target);
+        MarkEdited();
+        InvalidateReplyContext();
+    }
+
+    [RelayCommand] private void MoveAttachmentUp(AttachmentItem? attachment) => MoveAttachment(attachment, -1);
+    [RelayCommand] private void MoveAttachmentDown(AttachmentItem? attachment) => MoveAttachment(attachment, 1);
+
     private async Task<Draft?> BuildDraftAsync(bool validate = true)
     {
         if (From == null) { if (validate) Ui.Error("Send", "Add an account first."); return null; }
@@ -400,6 +451,11 @@ public partial class ComposeViewModel : ObservableObject
         _draft.RequestReadReceipt = RequestReadReceipt;
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
+        _draft.AttachmentNames = Attachments.Where(a => !a.Carried && !string.Equals(a.Name, Path.GetFileName(a.Path), StringComparison.Ordinal))
+            .ToDictionary(a => a.Path, a => a.Name, StringComparer.OrdinalIgnoreCase);
+        _draft.AttachmentOrder = Attachments.Select(a => a.Carried
+            ? new DraftAttachmentPosition { CarriedIndex = _draft.CarriedParts.IndexOf(a.Part!) }
+            : new DraftAttachmentPosition { Path = a.Path }).ToList();
         return _draft;
     }
 

@@ -89,4 +89,55 @@ public class Release1500Tests
         Assert.Equal(6, ComposeSafety.WordCount("Hello Krishna, I've attached two files."));
         Assert.Equal(2, ComposeSafety.EstimatedReadingMinutes(205));
     }
+
+    [Theory]
+    [InlineData("report.pdf", true)]
+    [InlineData("quarterly report (final).xlsx", true)]
+    [InlineData("../../data.txt", false)]
+    [InlineData("folder\\data.txt", false)]
+    [InlineData("report?.pdf", false)]
+    [InlineData("bad\nfile.pdf", false)]
+    [InlineData("renamed.", false)]
+    public void Outgoing_attachment_names_are_checked(string name, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidAttachmentName(name));
+
+    [Fact]
+    public void Interleaved_attachment_order_and_names_survive_saving_as_mime()
+    {
+        var first = Path.Combine(Path.GetTempPath(), "magpie-compose-first-" + Guid.NewGuid() + ".txt");
+        var second = Path.Combine(Path.GetTempPath(), "magpie-compose-second-" + Guid.NewGuid() + ".txt");
+        try
+        {
+            File.WriteAllText(first, "first");
+            File.WriteAllText(second, "second");
+            var forwarded = new MimePart("application", "pdf")
+            {
+                FileName = "forward.pdf",
+                Content = new MimeContent(new MemoryStream(new byte[] { 1, 2, 3 })),
+            };
+            var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+            var draft = new Draft
+            {
+                To = "client@example.com", Html = "<p>Hello</p>",
+                AttachmentPaths = new List<string> { first, second },
+                AttachmentNames = new Dictionary<string, string> { [first] = "renamed-first.txt" },
+                CarriedParts = new List<MimeEntity> { forwarded },
+                AttachmentOrder = new List<DraftAttachmentPosition>
+                {
+                    new() { CarriedIndex = 0 }, new() { Path = second }, new() { Path = first },
+                },
+            };
+
+            var message = Composer.Build(draft, account);
+            var names = message.Attachments.OfType<MimePart>().Select(part => part.FileName).ToArray();
+            Assert.Equal(new[] { "forward.pdf", Path.GetFileName(second), "renamed-first.txt" }, names);
+            var reopened = Composer.FromMime(message, account.Id, "thread");
+            Assert.Equal(names, reopened.CarriedParts.OfType<MimePart>().Select(part => part.FileName));
+        }
+        finally
+        {
+            if (File.Exists(first)) File.Delete(first);
+            if (File.Exists(second)) File.Delete(second);
+        }
+    }
 }

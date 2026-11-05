@@ -10,6 +10,13 @@ namespace Magpie.Core.Mail;
 
 public enum ComposeMode { New, Reply, ReplyAll, Forward, EditDraft }
 
+/// <summary>One attachment's position. Paths and forwarded MIME parts are stored separately.</summary>
+public sealed class DraftAttachmentPosition
+{
+    public string? Path { get; set; }
+    public int? CarriedIndex { get; set; }
+}
+
 /// <summary>Everything the compose window edits.</summary>
 public sealed class Draft
 {
@@ -29,6 +36,10 @@ public sealed class Draft
     /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
     public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
+    /// <summary>Names sent to recipients without changing the files on disk.</summary>
+    public Dictionary<string, string> AttachmentNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Order of both new and forwarded attachments, including interleaving.</summary>
+    public List<DraftAttachmentPosition> AttachmentOrder { get; set; } = new();
     /// <summary>Attachments carried over from the original (forward), as raw MIME parts.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public List<MimeEntity> CarriedParts { get; set; } = new();
     public string InReplyTo { get; set; } = "";
@@ -305,14 +316,32 @@ public static class Composer
         }
         builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
         builder.TextBody = MimeText.HtmlToText(d.Html);
-        // Never silently omit a file that was present in the compose window but moved or
-        // disappeared before Send. The user must be able to fix the attachment first.
-        foreach (var path in d.AttachmentPaths)
+        // Preserve the visible order even when local files and forwarded MIME parts
+        // are interleaved. Older drafts without an order retain paths-then-parts.
+        var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var addedParts = new HashSet<int>();
+        void AddPath(string path)
         {
+            if (!addedPaths.Add(path)) return;
             if (!File.Exists(path)) throw new FileNotFoundException("An attached file is missing. Choose it again before sending.", path);
-            builder.Attachments.Add(path);
+            var attachment = builder.Attachments.Add(path);
+            if (d.AttachmentNames.TryGetValue(path, out var alias) && ComposeSafety.ValidAttachmentName(alias))
+                attachment.FileName = alias;
         }
-        foreach (var part in d.CarriedParts) builder.Attachments.Add(part);
+        void AddPart(int index)
+        {
+            if (index < 0 || index >= d.CarriedParts.Count || !addedParts.Add(index)) return;
+            builder.Attachments.Add(d.CarriedParts[index]);
+        }
+        foreach (var entry in d.AttachmentOrder)
+        {
+            if (entry.Path is { } path && d.AttachmentPaths.Contains(path, StringComparer.OrdinalIgnoreCase)) AddPath(path);
+            else if (entry.CarriedIndex is { } index) AddPart(index);
+        }
+        // Never discard an attachment just because an old or partially restored
+        // draft has no corresponding AttachmentOrder entry.
+        foreach (var path in d.AttachmentPaths) AddPath(path);
+        for (var i = 0; i < d.CarriedParts.Count; i++) AddPart(i);
         msg.Body = builder.ToMessageBody();
         return msg;
     }

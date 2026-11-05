@@ -5,6 +5,14 @@ namespace Magpie.Core.Mail;
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
+    /// <summary>Prevent ambiguous paths/control characters in the outgoing attachment filename.</summary>
+    public static bool ValidAttachmentName(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name.Length <= 160 && name is not ("." or "..")
+        && !name.Contains('/') && !name.Contains('\\') && !name.EndsWith('.')
+        && !name.EndsWith(' ') && !name.Any(char.IsControl)
+        && !name.Any(ch => "<>:\"|?*".Contains(ch))
+        && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+
     [GeneratedRegex(@"\b(?:attach|attached|attachment|attachments|enclosed|included file|see the file)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AttachmentWords();
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using Magpie.App.Services;
+using Magpie.App.ViewModels;
 using Magpie.Core.Mail;
 
 namespace Magpie.App.Views;
@@ -79,6 +80,26 @@ public partial class ComposeWindow
         if (!Ui.Confirm("Remove attachments", "Remove every attached file from this message?")) return;
         foreach (var attachment in _vm.Attachments.ToArray())
             _vm.RemoveAttachmentCommand.Execute(attachment);
+    }
+
+    private void OnRenameAttachment(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment) return;
+        var next = TextPromptDialog.Ask(this, "Rename outgoing attachment", "Name shown to the recipient (original file stays unchanged)", attachment.Name);
+        if (next == null) return;
+        next = next.Trim();
+        if (!ComposeSafety.ValidAttachmentName(next))
+        {
+            Ui.Error("Rename attachment", "Use a filename without slashes, control characters or a trailing dot (up to 160 characters).", this);
+            return;
+        }
+        var originalExtension = Path.GetExtension(attachment.Name);
+        if (originalExtension.Length > 0 && !string.Equals(originalExtension, Path.GetExtension(next), StringComparison.OrdinalIgnoreCase))
+        {
+            Ui.Error("Rename attachment", "Keep the original file extension so recipients can recognise its type.", this);
+            return;
+        }
+        _vm.RenameAttachment(attachment, next);
     }
 
     private void OnOpenAttachment(object sender, RoutedEventArgs e)
