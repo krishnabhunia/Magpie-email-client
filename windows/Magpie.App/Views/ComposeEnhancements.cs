@@ -14,6 +14,7 @@ public partial class ComposeWindow
     private bool _focusMode;
     private bool _restoreAiRail;
     private bool _restoreAiPanel;
+    private bool _studioRestoreAiPanel;
 
     private void OnToggleFocus(object sender, RoutedEventArgs e)
     {
@@ -27,6 +28,7 @@ public partial class ComposeWindow
             FormattingToolbar.Visibility = Visibility.Collapsed;
             StudioPanel.Visibility = Visibility.Collapsed;
             StudioModeButton.Content = "Studio";
+            _studioRestoreAiPanel = false;
             Editor.MaxWidth = 960;
             Editor.HorizontalAlignment = HorizontalAlignment.Center;
             FocusModeButton.Content = "Exit focus";
@@ -45,8 +47,30 @@ public partial class ComposeWindow
     private void OnToggleStudio(object sender, RoutedEventArgs e)
     {
         if (_focusMode) OnToggleFocus(sender, e);
-        StudioPanel.Visibility = StudioPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        StudioModeButton.Content = StudioPanel.Visibility == Visibility.Visible ? "Close studio" : "Studio";
+        if (StudioPanel.Visibility == Visibility.Visible)
+        {
+            StudioPanel.Visibility = Visibility.Collapsed;
+            StudioModeButton.Content = "Studio";
+            if (_studioRestoreAiPanel) _vm.AiPanelOpen = true;
+            _studioRestoreAiPanel = false;
+        }
+        else
+        {
+            // Keep the message readable at the minimum window size: show either
+            // the AI assistant or the Studio sidebar, never both side by side.
+            _studioRestoreAiPanel = _vm.AiPanelOpen;
+            _vm.AiPanelOpen = false;
+            StudioPanel.Visibility = Visibility.Visible;
+            StudioModeButton.Content = "Close studio";
+        }
+    }
+
+    private void OnAiPanelVisibilityChanged()
+    {
+        if (!_vm.AiPanelOpen || StudioPanel.Visibility != Visibility.Visible) return;
+        StudioPanel.Visibility = Visibility.Collapsed;
+        StudioModeButton.Content = "Studio";
+        _studioRestoreAiPanel = false;
     }
 
     private void OnClearAttachments(object sender, RoutedEventArgs e)
@@ -154,6 +178,20 @@ public partial class ComposeWindow
             item.Click += async (_, _) => await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, {JsonSerializer.Serialize(value)})");
             menu.Items.Add(item);
         }
+        menu.Items.Add(new Separator());
+        var pastePlain = new MenuItem { Header = "Paste without formatting" };
+        pastePlain.Click += async (_, _) =>
+        {
+            try
+            {
+                if (!Clipboard.ContainsText()) return;
+                var clipText = Clipboard.GetText();
+                if (_plain) PlainEditor.SelectedText = clipText;
+                else await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('insertText', {JsonSerializer.Serialize(clipText)})");
+            }
+            catch (Exception ex) { Ui.Error("Paste text", ex.Message, this); }
+        };
+        menu.Items.Add(pastePlain);
         menu.IsOpen = true;
     }
 

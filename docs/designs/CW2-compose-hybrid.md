@@ -6,7 +6,7 @@ Krishna approved all 60 features in the 5 November compose audit and then select
 
 - **Balanced (default):** From/To/Cc/Bcc/Subject, a rich-text toolbar, editor, attachment strip and persistent Send / Send later / Attach / Templates / Save draft.
 - **Focus:** one-click writing mode, temporarily hiding the extra toolbar and panels; switching back must preserve the current message, selection where possible, signature, attached files and pending AI draft.
-- **Studio:** optional side panel with Files, Review, Options and AI controls. It must not displace the existing AI Reply/Reply All/Forward panel or silently generate/send content.
+- **Studio:** optional side panel with Files, Review and Options; AI remains in its existing assistant panel. At narrow window sizes, showing either panel hides the other, and closing Studio restores an AI panel that was previously open; never render both side panels at once or silently generate/send content.
 
 ## Safety and preservation
 

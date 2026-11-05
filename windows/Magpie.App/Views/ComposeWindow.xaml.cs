@@ -157,6 +157,7 @@ public partial class ComposeWindow : Window
         ThemeManager.Changed += OnThemeChanged;
         _vm.PropertyChanged += (_, a) =>
         {
+            if (a.PropertyName == nameof(ComposeViewModel.AiPanelOpen)) OnAiPanelVisibilityChanged();
             if (!_editorReady && a.PropertyName is nameof(ComposeViewModel.To) or nameof(ComposeViewModel.Cc)
                     or nameof(ComposeViewModel.Bcc) or nameof(ComposeViewModel.Subject))
                 _typedBeforeReady = true;
