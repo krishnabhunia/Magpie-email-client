@@ -19,6 +19,16 @@ public class Release1500Tests
     public void Compose_preview_only_accepts_known_safe_types(string file, string type) =>
         Assert.Equal(type, ComposeSafety.AttachmentPreviewKind(file));
 
+    [Theory]
+    [InlineData("photo.jpg", true)]
+    [InlineData("photo.PNG", true)]
+    [InlineData("scan.bmp", true)]
+    [InlineData("animation.gif", false)]
+    [InlineData("document.pdf", false)]
+    [InlineData("dangerous.jpg.exe", false)]
+    public void Only_static_picture_formats_can_be_compressed(string file, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.CanCompressImage(file));
+
     [Fact]
     public void Duplicate_recipients_are_detected_across_all_fields()
     {

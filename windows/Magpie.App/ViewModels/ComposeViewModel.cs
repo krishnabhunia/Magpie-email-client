@@ -68,6 +68,7 @@ public sealed class AttachmentItem : ObservableObject
         }
     }
     public Visibility ThumbnailVisibility => Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
+    public bool CanCompress => !Carried && ComposeSafety.CanCompressImage(Path);
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
@@ -445,6 +446,18 @@ public partial class ComposeViewModel : ObservableObject
         if (attachment.Part is MimeKit.MimePart part) part.FileName = outgoingName;
         attachment.Rename(outgoingName);
         MarkEdited();
+        InvalidateReplyContext();
+    }
+
+    /// <summary>Switch the outgoing attachment to a newly saved copy, leaving the original on disk.</summary>
+    public void ReplaceAttachmentWithOptimizedCopy(AttachmentItem original, string copyPath)
+    {
+        var index = Attachments.IndexOf(original);
+        if (index < 0 || original.Carried || !File.Exists(copyPath)) return;
+        if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, copyPath, StringComparison.OrdinalIgnoreCase))) return;
+        Attachments[index] = new AttachmentItem { Path = copyPath };
+        MarkEdited();
+        OnPropertyChanged(nameof(AttachmentSummary));
         InvalidateReplyContext();
     }
 

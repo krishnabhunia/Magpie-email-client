@@ -3,6 +3,9 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Magpie.Core;
 using Magpie.App.Services;
 using Magpie.App.ViewModels;
 using Magpie.Core.Mail;
@@ -180,6 +183,89 @@ public partial class ComposeWindow
             },
         };
         preview.Show();
+    }
+
+    private void OnCompressAttachment(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment
+            || attachment.Carried || !ComposeSafety.CanCompressImage(attachment.Path)) return;
+        if (!File.Exists(attachment.Path))
+        {
+            Ui.Error("Compress picture", "The original picture is missing. Attach it again first.", this);
+            return;
+        }
+        var pixels = TextPromptDialog.Ask(this, "Resize attachment", "Maximum picture width in pixels (320–4096)", "1600");
+        if (pixels == null) return;
+        if (!int.TryParse(pixels, out var maxWidth) || maxWidth is < 320 or > 4096)
+        {
+            Ui.Error("Compress picture", "Enter a width from 320 to 4096 pixels.", this);
+            return;
+        }
+        var jpeg = Path.GetExtension(attachment.Path).Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || Path.GetExtension(attachment.Path).Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+        var quality = 82;
+        if (jpeg)
+        {
+            var choice = MessageBox.Show(this,
+                "Choose the JPEG quality:\n\nYes — Smaller file (quality 65)\nNo — Better picture quality (quality 82)\nCancel — Keep this attachment unchanged",
+                "Compress picture", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (choice == MessageBoxResult.Cancel) return;
+            quality = choice == MessageBoxResult.Yes ? 65 : 82;
+        }
+        var targetExtension = jpeg ? ".jpg" : ".png";
+        var picker = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save optimized picture (original will not be overwritten)",
+            FileName = Path.GetFileNameWithoutExtension(attachment.Path) + "-optimized" + targetExtension,
+            DefaultExt = targetExtension,
+            Filter = jpeg ? "JPEG pictures|*.jpg" : "PNG pictures|*.png",
+            AddExtension = true,
+        };
+        if (picker.ShowDialog(this) != true) return;
+        if (Path.GetFullPath(picker.FileName).Equals(Path.GetFullPath(attachment.Path), StringComparison.OrdinalIgnoreCase))
+        {
+            Ui.Error("Compress picture", "Choose a different filename. Magpie never overwrites the original picture.", this);
+            return;
+        }
+        try
+        {
+            var originalBytes = new FileInfo(attachment.Path).Length;
+            if (originalBytes > 32 * 1024 * 1024)
+            {
+                Ui.Error("Compress picture", "Pictures larger than 32 MB need to be resized in an image editor first.", this);
+                return;
+            }
+            using (var stream = new FileStream(attachment.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnDemand);
+                var frame = decoder.Frames.First();
+                if (frame.PixelWidth == 0 || frame.PixelHeight == 0 || (long)frame.PixelWidth * frame.PixelHeight > 25_000_000)
+                {
+                    Ui.Error("Compress picture", "This picture is too large to resize safely inside Magpie.", this);
+                    return;
+                }
+                var scale = Math.Min(1.0, (double)maxWidth / frame.PixelWidth);
+                BitmapSource bitmap = scale < 1 ? new TransformedBitmap(frame, new ScaleTransform(scale, scale)) : frame;
+                BitmapEncoder encoder = jpeg ? new JpegBitmapEncoder { QualityLevel = quality } : new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using var output = new FileStream(picker.FileName, FileMode.Create, FileAccess.Write, FileShare.None);
+                encoder.Save(output);
+            }
+            var optimizedBytes = new FileInfo(picker.FileName).Length;
+            var improvement = originalBytes > 0 ? 100.0 * (originalBytes - optimizedBytes) / originalBytes : 0;
+            if (optimizedBytes >= originalBytes)
+            {
+                MessageBox.Show(this,
+                    "The optimized copy is not smaller. It was saved, but the original remains attached. Try a smaller width if you wish.",
+                    "Compress picture", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (MessageBox.Show(this,
+                    $"Original: {HtmlRenderer.FormatSize(originalBytes)}\nOptimized: {HtmlRenderer.FormatSize(optimizedBytes)} ({improvement:0}% smaller)\n\nReplace the attachment in this email with the optimized copy? Your original picture remains on disk.",
+                    "Compression complete", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                _vm.ReplaceAttachmentWithOptimizedCopy(attachment, picker.FileName);
+        }
+        catch (Exception ex) { Ui.Error("Compress picture", ex.Message, this); }
     }
 
     private async void OnFontChoice(object sender, SelectionChangedEventArgs e)
