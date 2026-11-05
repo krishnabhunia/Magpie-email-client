@@ -1394,15 +1394,29 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Outbox ids taken back with Undo (design CW1 D6: Send &amp; Archive then leaves the conversation alone).</summary>
     private readonly HashSet<long> _recalled = new();
 
-    /// <summary>Design CW1 (D6): archives the conversation once the undo window has passed, unless the send was undone.</summary>
-    public void ArchiveAfterUndo(long outboxId, int undoSeconds, string accountId, string threadKey)
+    /// <summary>Design CW1 (D6): the folders Send &amp; Archive archives from — the view the user replied from, or, when that view
+    /// isn't this account's (another account, Sent, Drafts), the account's Inbox and its other synced mail folders.</summary>
+    public List<long> ArchiveFoldersFor(string accountId)
+    {
+        var fromView = ActionFoldersFor(accountId);
+        var folders = _e.Folders(accountId);
+        var excluded = fromView.Count == 0 || fromView.All(id => folders.Any(f => f.Id == id && f.Role is FolderRole.Sent or FolderRole.Drafts or FolderRole.Trash or FolderRole.Junk or FolderRole.Archive));
+        if (!excluded) return fromView;
+        return folders.Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.Trash or FolderRole.Junk or FolderRole.Archive or FolderRole.All or FolderRole.Flagged or FolderRole.Important))
+            .Select(f => f.Id).ToList();
+    }
+
+    /// <summary>Design CW1 (D6): archives the conversation once the undo window has passed, unless the send was undone.
+    /// <paramref name="folders"/> were decided when Send was pressed, so changing the view meanwhile changes nothing.</summary>
+    public void ArchiveAfterUndo(long outboxId, int undoSeconds, string accountId, string threadKey, List<long> folders)
     {
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(0, undoSeconds) + 1) };
         timer.Tick += async (_, _) =>
         {
             timer.Stop();
             if (_recalled.Remove(outboxId)) return;
-            try { await _e.ArchiveAsync(accountId, threadKey, ActionFoldersFor(accountId)); }
+            if (folders.Count == 0) return;
+            try { await _e.ArchiveAsync(accountId, threadKey, folders); }
             catch (Exception ex) { Log.Warn("send & archive: " + ex.Message); }
         };
         timer.Start();

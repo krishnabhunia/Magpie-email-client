@@ -111,8 +111,9 @@ function setTypography(body, signature, quote, preserveExisting){
 
 // ───────────────────────── design CW1: toolbar, tables, find, fold, mentions ─────────────────────────
 try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
-var tableCell=null, imgSel=null, linkSel=null, mentionAt=null, plainPaste=false, askPaste=false, findMarks=[], findCur=-1, lastState='', statTimer=null;
+var tableCell=null, imgSel=null, linkSel=null, mentionAt=null, mentionOpen=false, plainPaste=false, askPaste=false, findMarks=[], findCur=-1, lastState='', statTimer=null;
 function setSpell(on){ ed.spellcheck=!!on; }
+function setMentionOpen(on){ mentionOpen=!!on; }   // the app says whether its suggestion list is showing
 function setAskPaste(on){ askPaste=!!on; }
 function nodeIn(n){ while(n && n!==ed){ if(n.nodeType===1) return n; n=n.parentNode; } return null; }
 function closestIn(n, sel){ var el=n && n.nodeType===1 ? n : (n ? n.parentNode : null); var c=el && el.closest ? el.closest(sel) : null; return c && ed.contains(c) ? c : null; }
@@ -239,14 +240,14 @@ function checkMention(){
   var r=s.getRangeAt(0), n=r.startContainer; if(n.nodeType!==3 || closestIn(n,'.magpie-quote,.magpie-signature')){ if(mentionAt){ mentionAt=null; post({t:'mention', q:''}); } return; }
   var before=n.textContent.slice(0, r.startOffset), m=/(^|\s)@([^\s@]{2,})$/.exec(before);
   if(m){ mentionAt={node:n, start:r.startOffset-m[2].length-1, end:r.startOffset}; var rc=r.getBoundingClientRect(); post({t:'mention', q:m[2], x:rc.left, y:rc.bottom}); }
-  else if(mentionAt){ mentionAt=null; post({t:'mention', q:''}); }
+  else if(mentionAt){ mentionAt=null; mentionOpen=false; post({t:'mention', q:''}); }
 }
 function mention(name, address){
   if(!mentionAt || !mentionAt.node.parentNode) return false;
   var n=mentionAt.node, r=document.createRange(); r.setStart(n, mentionAt.start); r.setEnd(n, mentionAt.end);
   var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); ed.focus();
   document.execCommand('insertHTML', false, '<a href="mailto:'+esc(address)+'">'+esc(name)+'</a>&nbsp;');
-  mentionAt=null; post({t:'dirty'}); return true;
+  mentionAt=null; mentionOpen=false; post({t:'dirty'}); return true;
 }
 // ── signature swap (D3) ──
 function setSignature(html){
@@ -358,8 +359,8 @@ function cmd(mode, text){
 ed.addEventListener('input', function(){ post({t:'dirty'}); postStats(); });
 document.addEventListener('keydown', function(e){
   var k=e.key, K=k.length===1?k.toUpperCase():k;
-  if(mentionAt && (k==='Enter' || k==='Tab')){ e.preventDefault(); post({t:'key', k:'mentionpick'}); return; }
-  if(mentionAt && (k==='ArrowDown' || k==='ArrowUp')){ e.preventDefault(); post({t:'key', k:k==='ArrowDown'?'mentiondown':'mentionup'}); return; }
+  if(mentionAt && mentionOpen && !e.ctrlKey && !e.altKey && (k==='Enter' || k==='Tab')){ e.preventDefault(); post({t:'key', k:'mentionpick'}); return; }
+  if(mentionAt && mentionOpen && (k==='ArrowDown' || k==='ArrowUp')){ e.preventDefault(); post({t:'key', k:k==='ArrowDown'?'mentiondown':'mentionup'}); return; }
   if (e.ctrlKey && e.key === 'Enter' && e.altKey) { e.preventDefault(); post({t:'key', k:'sendarchive'}); }
   else if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); post({t:'send'}); }
   else if (e.ctrlKey && e.shiftKey && K === 'K') { e.preventDefault(); unlinkAt(); }
