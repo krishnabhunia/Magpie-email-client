@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using Magpie.Core.Updates;
 
 namespace Magpie.App.Services;
@@ -9,7 +10,8 @@ public sealed class VersionHistoryWindow : Window
 {
     private readonly AppVersion _current;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly ComboBox _direction = new() { Width = 190, Margin = new Thickness(0, 0, 12, 0) };
+    /// <summary>Updates | Version history &amp; roll back tabs (design VP1, Q90); a Selector like the dropdown it replaced.</summary>
+    private readonly TabControl _direction = new() { Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 12) };
     private readonly ComboBox _channel = new() { Width = 170 };
     private readonly CheckBox _showAllBuilds = new()
     {
@@ -23,25 +25,34 @@ public sealed class VersionHistoryWindow : Window
     private readonly TextBlock _compatibility = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly Button _select = new() { Content = "Choose a version", IsEnabled = false, MinWidth = 190 };
     private IReadOnlyList<VersionChoice> _choices;
+    private readonly IReadOnlySet<string> _kept;
 
     public ReleaseInfo? Selection { get; private set; }
+    /// <summary>The chosen row with its compatibility, for the confirm screen.</summary>
+    public VersionChoice? SelectedChoice { get; private set; }
+    /// <summary>Every release checked for this window, for the confirm screen's "skips the latest stable" note.</summary>
+    public IReadOnlyList<VersionChoice> Choices => _choices;
+    /// <summary>True when the chosen version's checked copy is in this PC's version backups.</summary>
+    public bool SelectedOnThisPc => SelectedChoice is { } c && _kept.Contains(c.Release.Version.ToString());
     public bool IsRollback => _direction.SelectedIndex == 1;
     public bool IsBeta { get; private set; }
 
-    public VersionHistoryWindow(UpdateClient client, AppVersion current, UpdateProfile profile, string installKind)
-        : this(current, [], showPin: true)
+    public VersionHistoryWindow(UpdateClient client, AppVersion current, UpdateProfile profile, string installKind,
+        IReadOnlySet<string>? kept = null, bool rollback = false)
+        : this(current, [], showPin: true, kept, rollback)
     {
         Loaded += async (_, _) => await LoadAsync(client, profile, installKind);
     }
 
     /// <summary>The same chooser with an already checked catalogue; used by the native UI smoke tests.</summary>
-    public VersionHistoryWindow(AppVersion current, IReadOnlyList<VersionChoice> choices)
-        : this(current, choices, showPin: false) { }
+    public VersionHistoryWindow(AppVersion current, IReadOnlyList<VersionChoice> choices, IReadOnlySet<string>? kept = null)
+        : this(current, choices, showPin: false, kept, rollback: false) { }
 
-    private VersionHistoryWindow(AppVersion current, IReadOnlyList<VersionChoice> choices, bool showPin)
+    private VersionHistoryWindow(AppVersion current, IReadOnlyList<VersionChoice> choices, bool showPin, IReadOnlySet<string>? kept, bool rollback)
     {
         _current = current;
         _choices = choices;
+        _kept = kept ?? new HashSet<string>();
         Title = "Magpie · Version manager";
         Width = 760; Height = 690; MinWidth = 620; MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -67,6 +78,7 @@ public sealed class VersionHistoryWindow : Window
         {
             if (_versions.SelectedItem is not VersionRow row || !row.Choice.Compatibility.CanInstall) return;
             Selection = row.Choice.Release;
+            SelectedChoice = row.Choice;
             IsBeta = row.Choice.Prerelease;
             DialogResult = true;
         };
@@ -94,12 +106,15 @@ public sealed class VersionHistoryWindow : Window
             };
             header.Children.Add(pinLabel); header.Children.Add(clear);
         }
-        _direction.Items.Add("Update (newer)"); _direction.Items.Add("Roll back (older)"); _direction.SelectedIndex = 0;
+        _direction.Items.Add(new TabItem { Header = "Updates" });
+        _direction.Items.Add(new TabItem { Header = "Version history & roll back" });
+        _direction.SelectedIndex = rollback ? 1 : 0;
         _channel.Items.Add("Stable and beta"); _channel.Items.Add("Stable only"); _channel.Items.Add("Beta only"); _channel.SelectedIndex = 0;
         _direction.SelectionChanged += (_, _) => Refresh(); _channel.SelectionChanged += (_, _) => Refresh();
         _showAllBuilds.Checked += (_, _) => Refresh(); _showAllBuilds.Unchecked += (_, _) => Refresh();
+        header.Children.Add(_direction);
         var filters = new StackPanel { Orientation = Orientation.Horizontal };
-        filters.Children.Add(_direction); filters.Children.Add(_channel); header.Children.Add(filters);
+        filters.Children.Add(_channel); header.Children.Add(filters);
         header.Children.Add(_showAllBuilds);
 
         var details = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
@@ -168,9 +183,10 @@ public sealed class VersionHistoryWindow : Window
         var newestStable = installable.FirstOrDefault(c => !c.Prerelease)?.Release.Tag;
         var rows = visible.Select(c => new VersionRow(c,
             betaRanks.TryGetValue(c.Release.Tag, out var rank) ? (int?)rank : null,
-            c.Release.Tag == (c.Prerelease ? newestBeta : newestStable))).ToList();
+            c.Release.Tag == (c.Prerelease ? newestBeta : newestStable),
+            _kept.Contains(c.Release.Version.ToString()))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
-        Selection = null; _select.IsEnabled = false; _select.Content = "Choose a version";
+        Selection = null; SelectedChoice = null; _select.IsEnabled = false; _select.Content = "Choose a version";
         _summary.Text = ""; _compatibility.Text = "";
         _message.Text = rows.Count == 0
             ? (!IsRollback && _showAllBuilds.IsChecked != true
@@ -192,7 +208,7 @@ public sealed class VersionHistoryWindow : Window
             : choice.Release.Notes.Replace("\r", "").Replace("**", "");
     }
 
-    private sealed record VersionRow(VersionChoice Choice, int? BetaRank, bool Latest)
+    private sealed record VersionRow(VersionChoice Choice, int? BetaRank, bool Latest, bool OnThisPc = false)
     {
         public string Label
         {
@@ -208,8 +224,9 @@ public sealed class VersionHistoryWindow : Window
                 // Keep the full tag visible so a shifting display rank never changes an exact selection.
                 var exact = Choice.Prerelease && BetaRank is not null
                     ? $"\nExact tag: {Choice.Release.Tag}" : "";
-                var availability = Choice.Release.AssetAvailable
-                    ? "Application and checksum available" : "Application or checksum missing";
+                var availability = (Choice.Release.AssetAvailable
+                    ? "Application and checksum available" : "Application or checksum missing")
+                    + (OnThisPc ? "  ·  On this PC" : "");
                 return $"{friendly}{newest}{published}{exact}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
             }
         }
