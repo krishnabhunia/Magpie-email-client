@@ -21,6 +21,9 @@ public partial class ComposeWindow : Window
     private bool _plain;
     private bool _forceClose;
     private TextBox? _suggestTarget;
+    private bool _mentionSuggesting;
+    private int _plainMentionIndex = -1;
+    private string _plainMentionToken = "";
     private readonly bool _preserveDraftFormatting;
     private readonly Action _settingsChanged;
     private string _plainProtectedTail = "";
@@ -261,6 +264,14 @@ public partial class ComposeWindow : Window
         var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
         _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
+        PlainEditor.TextChanged += (_, _) => InspectPlainMention();
+        PlainEditor.PreviewKeyDown += (_, e) =>
+        {
+            if (!_mentionSuggesting || !SuggestPopup.IsOpen) return;
+            if (e.Key is not (Key.Up or Key.Down or Key.Enter or Key.Tab or Key.Escape)) return;
+            e.Handled = true;
+            HandleMentionKey(e.Key.ToString());
+        };
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
         UpdatePlainTextControls();
@@ -299,6 +310,9 @@ public partial class ComposeWindow : Window
                 case "replace": ShowFindReplace(true); break;
                 case "tableMenu": ShowTableContextMenu(); break;
                 case "shortcuts": ShowComposeShortcuts(); break;
+                case "mention": await ShowMentionSuggestionsAsync(root.GetProperty("q").GetString() ?? ""); break;
+                case "mentionClosed": if (_mentionSuggesting) HideMentionSuggestions(); break;
+                case "mentionKey": HandleMentionKey(root.GetProperty("key").GetString() ?? ""); break;
             }
         }
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
@@ -621,6 +635,7 @@ public partial class ComposeWindow : Window
     private void OnAddressChanged(object sender, TextChangedEventArgs e)
     {
         if (sender is not TextBox box || !box.IsKeyboardFocusWithin) return;
+        if (_mentionSuggesting) HideMentionSuggestions();
         var token = LastToken(box.Text);
         if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { SuggestPopup.IsOpen = false; return; }
         var hits = AppServices.Engine.Contacts.Suggest(token);
@@ -671,8 +686,45 @@ public partial class ComposeWindow : Window
         if (!SuggestPopup.IsOpen && sender is TextBox box) RefreshRecipientChips(box);
     }
 
-    private void AcceptSuggestion()
+    private async void AcceptSuggestion()
     {
+        if (_mentionSuggesting)
+        {
+            if (SuggestList.SelectedItem is not ContactSuggestion suggested) { HideMentionSuggestions(); return; }
+            var inserted = false;
+            if (_plain)
+            {
+                var end = _plainMentionIndex + _plainMentionToken.Length;
+                if (_plainMentionIndex >= 0 && end <= PlainEditor.Text.Length
+                    && PlainEditor.Text.Substring(_plainMentionIndex, _plainMentionToken.Length) == _plainMentionToken)
+                {
+                    PlainEditor.Select(_plainMentionIndex, _plainMentionToken.Length);
+                    PlainEditor.SelectedText = "@" + (string.IsNullOrWhiteSpace(suggested.Name) ? suggested.Address : suggested.Name) + " ";
+                    inserted = true;
+                }
+            }
+            else if (_editorReady && Editor.CoreWebView2 != null)
+            {
+                try
+                {
+                    inserted = await Editor.CoreWebView2.ExecuteScriptAsync($"insertMention({JsonSerializer.Serialize(string.IsNullOrWhiteSpace(suggested.Name) ? suggested.Address : suggested.Name)}, {JsonSerializer.Serialize(suggested.Address)})") == "true";
+                }
+                catch (Exception ex) { Log.Warn("insert mention: " + ex.Message); }
+            }
+            HideMentionSuggestions();
+            if (inserted)
+            {
+                var result = ComposeSafety.AddMentionRecipient(_vm.To, _vm.Cc, _vm.Bcc, suggested.Name, suggested.Address);
+                if (result.Added)
+                {
+                    _vm.To = result.To;
+                    RefreshRecipientChips(ToBox);
+                }
+                _vm.MarkEdited();
+            }
+            if (_plain) PlainEditor.Focus(); else Editor.Focus();
+            return;
+        }
         if (_suggestTarget == null || SuggestList.SelectedItem == null) { SuggestPopup.IsOpen = false; return; }
         if (SuggestList.SelectedItem is not ContactSuggestion contact) { SuggestPopup.IsOpen = false; return; }
         var text = _suggestTarget.Text;
@@ -683,6 +735,55 @@ public partial class ComposeWindow : Window
         _suggestTarget.CaretIndex = _suggestTarget.Text.Length;
         SuggestPopup.IsOpen = false;
         _suggestTarget.Focus();
+    }
+
+    private async Task ShowMentionSuggestionsAsync(string query)
+    {
+        if (query.Length < 2 || query.Length > 64) { HideMentionSuggestions(); return; }
+        var hits = AppServices.Engine.Contacts.Suggest(query);
+        if (hits.Count == 0) { HideMentionSuggestions(); return; }
+        _mentionSuggesting = true;
+        _suggestTarget = null;
+        SuggestList.ItemsSource = hits;
+        SuggestList.SelectedIndex = 0;
+        SuggestPopup.PlacementTarget = FormattingToolbar;
+        SuggestPopup.Width = Math.Max(320, Math.Min(450, FormattingToolbar.ActualWidth));
+        SuggestPopup.IsOpen = true;
+        if (!_plain && Editor.CoreWebView2 != null)
+            await Editor.CoreWebView2.ExecuteScriptAsync("setMentionSuggestionsOpen(true)");
+    }
+
+    private void InspectPlainMention()
+    {
+        if (!_plain || !_editorReady || PlainEditor.CaretIndex > PlainEditor.Text.Length) return;
+        var before = PlainEditor.Text[..PlainEditor.CaretIndex];
+        var match = Regex.Match(before, @"(?:^|\s)@([\p{L}\p{N}._-]{2,64})$");
+        if (!match.Success) { if (_mentionSuggesting) HideMentionSuggestions(); return; }
+        _plainMentionIndex = match.Index + match.Length - match.Groups[1].Length - 1;
+        _plainMentionToken = "@" + match.Groups[1].Value;
+        _ = ShowMentionSuggestionsAsync(match.Groups[1].Value);
+    }
+
+    private void HandleMentionKey(string key)
+    {
+        if (!_mentionSuggesting || !SuggestPopup.IsOpen) return;
+        switch (key)
+        {
+            case "ArrowDown": case "Down": SuggestList.SelectedIndex = Math.Min(SuggestList.Items.Count - 1, SuggestList.SelectedIndex + 1); break;
+            case "ArrowUp": case "Up": SuggestList.SelectedIndex = Math.Max(0, SuggestList.SelectedIndex - 1); break;
+            case "Enter": case "Tab": AcceptSuggestion(); break;
+            case "Escape": HideMentionSuggestions(); break;
+        }
+    }
+
+    private void HideMentionSuggestions()
+    {
+        _mentionSuggesting = false;
+        _plainMentionIndex = -1;
+        _plainMentionToken = "";
+        SuggestPopup.IsOpen = false;
+        if (!_plain && _editorReady && Editor.CoreWebView2 != null)
+            _ = Editor.CoreWebView2.ExecuteScriptAsync("setMentionSuggestionsOpen(false)");
     }
 
     // ───────────────────────── chrome ─────────────────────────

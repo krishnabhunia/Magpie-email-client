@@ -114,6 +114,23 @@ public static partial class ComposeSafety
         return repeated.Order(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    /// <summary>Append an @mentioned contact to To once, preserving existing recipients and never duplicating Cc/Bcc.</summary>
+    public static (string To, bool Added) AddMentionRecipient(string to, string cc, string bcc, string name, string address)
+    {
+        address = address.Trim();
+        var parsed = Composer.ParseAddresses(address).Mailboxes.ToArray();
+        if (address.Length == 0 || Composer.InvalidAddresses(address).Count > 0
+            || parsed.Length != 1 || !string.Equals(parsed[0].Address, address, StringComparison.OrdinalIgnoreCase))
+            return (to, false);
+        if (Composer.ParseAddresses(to).Mailboxes.Concat(Composer.ParseAddresses(cc).Mailboxes)
+                .Concat(Composer.ParseAddresses(bcc).Mailboxes)
+                .Any(item => item.Address.Equals(address, StringComparison.OrdinalIgnoreCase)))
+            return (to, false);
+
+        var entry = new MimeKit.MailboxAddress(name, address).ToString();
+        return (string.IsNullOrWhiteSpace(to) ? entry : to.TrimEnd().TrimEnd(',', ';') + ", " + entry, true);
+    }
+
     /// <summary>Addresses visible to other recipients, excluding duplicates and private Bcc recipients.</summary>
     public static int VisibleRecipientCount(string to, string cc) =>
         Composer.ParseAddresses(to).Mailboxes.Concat(Composer.ParseAddresses(cc).Mailboxes)

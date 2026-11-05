@@ -30,6 +30,36 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Mention_adds_valid_contact_to_to_and_preserves_existing_recipients()
+    {
+        var added = ComposeSafety.AddMentionRecipient("first@example.com", "", "", "Ananya Roy", "ananya@example.com");
+        Assert.True(added.Added);
+        Assert.Contains("first@example.com", added.To);
+        Assert.Contains("Ananya Roy <ananya@example.com>", added.To);
+    }
+
+    [Theory]
+    [InlineData("ANANYA@example.com", "", "", "ananya@example.com")]
+    [InlineData("", "ananya@example.com", "", "ananya@example.com")]
+    [InlineData("", "", "ananya@example.com", "ananya@example.com")]
+    [InlineData("first@example.com", "", "", "invalid address")]
+    public void Mention_never_duplicates_existing_addresses_or_adds_invalid_addresses(
+        string to, string cc, string bcc, string address)
+    {
+        var result = ComposeSafety.AddMentionRecipient(to, cc, bcc, "Ananya", address);
+        Assert.False(result.Added);
+        Assert.Equal(to, result.To);
+    }
+
+    [Fact]
+    public void Editor_supports_safe_dom_mentions_and_arrow_key_selection()
+    {
+        Assert.Contains("function insertMention(name,address)", EditorPage.Html);
+        Assert.Contains("post({t:'mention',q:match[1]})", EditorPage.Html);
+        Assert.Contains("post({t:'mentionKey',key:e.key})", EditorPage.Html);
+    }
+
+    [Fact]
     public void Quick_templates_expand_only_known_variables_with_current_compose_context()
     {
         var sender = new Account { DisplayName = "Krishna Bhunia", Email = "krishna@example.com" };

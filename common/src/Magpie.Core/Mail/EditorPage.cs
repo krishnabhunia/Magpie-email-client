@@ -109,6 +109,30 @@ function setTypography(body, signature, quote, preserveExisting){
   }
 }
 function post(o){ try{ window.chrome.webview.postMessage(JSON.stringify(o)); }catch(e){} }
+// Keep the typed @token's DOM range so a WPF contact selection can replace it without destroying nearby formatting.
+let mentionRange=null,mentionToken='',mentionMenuOpen=false;
+function setMentionSuggestionsOpen(open){ mentionMenuOpen=!!open; }
+function inspectMention(){
+  const s=window.getSelection();
+  if(s.rangeCount && s.isCollapsed && s.anchorNode && s.anchorNode.nodeType===3 && ed.contains(s.anchorNode)){
+    const before=s.anchorNode.nodeValue.slice(0,s.anchorOffset);
+    const match=/(?:^|\s)@([\p{L}\p{N}._-]{2,64})$/u.exec(before);
+    if(match){
+      mentionRange=document.createRange();mentionRange.setStart(s.anchorNode,s.anchorOffset-match[1].length-1);
+      mentionRange.setEnd(s.anchorNode,s.anchorOffset);mentionToken='@'+match[1];
+      post({t:'mention',q:match[1]});return;
+    }
+  }
+  mentionRange=null;mentionToken='';mentionMenuOpen=false;post({t:'mentionClosed'});
+}
+function insertMention(name,address){
+  const r=mentionRange;
+  if(!r || r.toString()!==mentionToken || !address || !name) return false;
+  r.deleteContents();
+  const node=document.createTextNode('@'+name+' ');r.insertNode(node);r.setStartAfter(node);r.collapse(true);
+  const s=window.getSelection();s.removeAllRanges();s.addRange(r);ed.focus();
+  mentionRange=null;mentionToken='';mentionMenuOpen=false;post({t:'dirty'});return true;
+}
 function setHtml(h){
   isPlainText=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
@@ -481,8 +505,11 @@ function cmd(mode, text){
   post({t:'dirty'});
   return true;
 }
-ed.addEventListener('input', function(){ post({t:'dirty'}); });
+ed.addEventListener('input', function(){ post({t:'dirty'});inspectMention(); });
 document.addEventListener('keydown', function(e){
+  if(mentionMenuOpen && ['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key)){
+    e.preventDefault();post({t:'mentionKey',key:e.key});return;
+  }
   if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); post({t:'send'}); }
   else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); post({t:'link'}); }
   else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); post({t:'find'}); }
