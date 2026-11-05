@@ -25,7 +25,7 @@ the section as an HTML comment (hidden in the release notes):  <!-- closes: #2 #
     python3 common/scripts/release_prep.py notes 1.2.0 [--out release-notes.md] [--header "…"]
                                                      -> that version's CHANGELOG section
     python3 common/scripts/release_prep.py closes 1.2.0       -> prints "2 4" (issue numbers)
-    python3 common/scripts/release_prep.py numeric 1.2.0-beta.3 -> prints "1.2.0"
+    python3 common/scripts/release_prep.py numeric 1.2.0-beta003 -> prints "1.2.0"
     python3 common/scripts/release_prep.py check-folders ci-download
                                                      -> fails unless the folder holds only portable/ and windows-x64/
                                                         (plus macOS/ and Android/ when built), one Magpie_<version> file each

@@ -86,7 +86,10 @@ public class HeadlessTests
         w.AttachUpdates(AppServices.Updates);
         w.Show();
         var version = w.FindControl<TextBlock>("VersionLabel")!;
-        Assert.Equal(AppServices.Current.ToString(), version.Text);
+        Assert.Equal("v" + AppServices.Current, version.Text);   // design BT1 A: v15.0.0-beta007 + a Beta chip on a test version
+        Assert.Equal(AppServices.Current.IsPrerelease, w.FindControl<Border>("BetaChip")!.IsVisible);
+        var info = w.FindControl<Button>("InfoButton")!;
+        Assert.Equal("Info (F1)", ToolTip.GetTip(info));
         Assert.False(AppServices.Updates.IsUpdateVisible);
         Assert.Equal("", AppServices.Updates.ButtonText);
         Assert.False(w.FindControl<Button>("UpdateButton")!.IsEffectivelyVisible);
@@ -357,6 +360,39 @@ public class HeadlessTests
         Assert.Equal(new KeyGesture(Key.F, KeyModifiers.Meta | KeyModifiers.Shift), Find("Message", "Forward").Gesture);
         Assert.Equal(new KeyGesture(Key.F, KeyModifiers.Meta), Find("Edit", "Find").Gesture);
         var app = MacMenus.AppMenu().Items.OfType<NativeMenuItem>().Where(i => i is not NativeMenuItemSeparator).Select(i => i.Header).ToList();
-        Assert.Equal(new[] { "About Magpie", "Settings…", "Check for Updates…" }, app);
+        Assert.Equal(new[] { "About Magpie", "Magpie Info…", "Settings…", "Check for Updates…" }, app);
+        Assert.Equal(new KeyGesture(Key.I, KeyModifiers.Meta),
+            MacMenus.AppMenu().Items.OfType<NativeMenuItem>().First(i => i.Header == "Magpie Info…").Gesture);
+    }
+
+    [AvaloniaFact]
+    public void The_info_window_has_the_four_tabs_and_the_test_build_details()
+    {
+        TestEngine.Ensure();
+        var beta = Magpie.Core.Info.BuildInfo.From("15.0.0-beta007", key => key switch
+        {
+            "SourcePr" => "35", "SourceCommit" => "4e68c2a0b1c2d3e4f5061728394a5b6c7d8e9f00",
+            "BuildTimeUtc" => "2026-11-04T14:25:00Z", "ReleaseTag" => "v15.0.0-beta007", _ => null,
+        });
+        var w = new InfoWindow(beta);
+        w.Show();
+        Assert.Equal("Magpie · Info", w.Title);
+        Assert.Equal("Version 15.0.0-beta007 · Beta · Mac", w.SubtitleText.Text);
+        Assert.Equal(new[] { "This build", "What's implemented", "What's new", "Under the hood" }, w.Tabs.Items.OfType<TabItem>().Select(t => t.Header as string));
+        Assert.Contains("beta 007 of Magpie 15.0.0", w.Banner!.Text);
+        Assert.Contains(w.BuildTable.Children.OfType<Button>(), b => b.Content as string == "PR #35");
+        var all = w.FeatureTable.RowDefinitions.Count;
+        Assert.True(all > 20);
+        w.FeatureSearch.Text = "Info window";
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, w.FeatureTable.RowDefinitions.Count);
+        w.Close();
+
+        var local = new InfoWindow(Magpie.Core.Info.BuildInfo.From("15.0.0", _ => null));
+        local.Show();
+        Assert.Null(local.Banner);
+        Assert.Contains(local.BuildTable.Children.OfType<TextBlock>(), t => t.Text == Magpie.Core.Info.BuildInfo.LocalBuild);
+        local.Close();
+        Assert.Equal(2, InfoWindow.CopyText().Split('\n').Length);
     }
 }

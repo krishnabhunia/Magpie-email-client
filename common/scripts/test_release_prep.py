@@ -63,6 +63,19 @@ class ReleasePrepTests(unittest.TestCase):
         with self.assertRaises(rp.ReleaseError):
             rp.parse("1.2")
 
+    def test_short_test_versions_bt1(self):
+        # Design BT1 A: x.y.z-betaNNN sorts below its release, above the old long betas, and 001 < 010 < 999.
+        self.assertLess(rp.compare("15.0.0-beta007", "15.0.0"), 0)
+        self.assertGreater(rp.compare("15.0.0-beta007", "14.1.0"), 0)
+        self.assertGreater(rp.compare("2.16.0-beta001", "2.16.0-beta.18.29"), 0)
+        self.assertGreater(rp.compare("15.0.0-beta001", "15.0.0-beta.1793625068.gaaaaaaaa"), 0)
+        self.assertLess(rp.compare("15.0.0-beta009", "15.0.0-beta010"), 0)
+        self.assertLess(rp.compare("15.0.0-beta099", "15.0.0-beta999"), 0)
+        self.assertEqual(rp.numeric("15.0.0-beta007"), "15.0.0")
+        self.assertEqual(rp.artifact_name("15.0.0-beta007"), "Magpie_15.0.0-beta007")
+        rp._check_layout({"portable": ["Magpie_15.0.0-beta007.exe"], "windows-x64": ["Magpie_15.0.0-beta007.exe"],
+                          "macOS": ["Magpie_15.0.0-beta007.dmg"]}, "zip")
+
     def test_version_rule_x_new_y_changed_z_fixed(self):
         # Krishna, 30 Sep 2026 (VB1): x = feature added / big UI change, y = feature changed, z = fix.
         self.assertEqual(rp.bump("2.2.0", "New"), "3.0.0")

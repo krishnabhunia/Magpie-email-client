@@ -66,6 +66,7 @@ internal static partial class Program
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
+                CheckInfoWindow(owner, output, theme);
             }
             if (expectStartupFailure)
             {
@@ -126,6 +127,7 @@ internal static partial class Program
             Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
             Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
             CheckUpdateButton(window!);
+            CheckInfoEntryPoints(window!);
         }
         finally
         {

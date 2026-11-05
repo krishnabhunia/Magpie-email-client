@@ -170,19 +170,13 @@ public sealed class VersionHistoryWindow : Window
             ? matching.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
                 .GroupBy(c => c.Prerelease).Select(g => g.First()).OrderByDescending(c => c.Release.Version)
             : matching.AsEnumerable();
-        // Friendly beta numbers are display ranks, newest installable build first in each X.Y.Z series.
-        // They never replace the immutable release tags used for download, checksums and rollback.
+        // Design BT1 A: every row shows its real version (v15.0.0-beta007); old long test tags show as they are.
         var installable = _choices.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
             .OrderByDescending(c => c.Release.Version)
             .GroupBy(c => c.Release.Version.ToString()).Select(g => g.First()).ToList();
-        var betaRanks = installable.Where(c => c.Prerelease)
-            .GroupBy(c => (c.Release.Version.Major, c.Release.Version.Minor, c.Release.Version.Patch))
-            .SelectMany(g => g.Select((choice, index) => new { choice.Release.Tag, Rank = index + 1 }))
-            .ToDictionary(x => x.Tag, x => x.Rank);
         var newestBeta = installable.FirstOrDefault(c => c.Prerelease)?.Release.Tag;
         var newestStable = installable.FirstOrDefault(c => !c.Prerelease)?.Release.Tag;
         var rows = visible.Select(c => new VersionRow(c,
-            betaRanks.TryGetValue(c.Release.Tag, out var rank) ? (int?)rank : null,
             c.Release.Tag == (c.Prerelease ? newestBeta : newestStable),
             _kept.Contains(c.Release.Version.ToString()))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
@@ -208,26 +202,20 @@ public sealed class VersionHistoryWindow : Window
             : choice.Release.Notes.Replace("\r", "").Replace("**", "");
     }
 
-    private sealed record VersionRow(VersionChoice Choice, int? BetaRank, bool Latest, bool OnThisPc = false)
+    private sealed record VersionRow(VersionChoice Choice, bool Latest, bool OnThisPc = false)
     {
         public string Label
         {
             get
             {
-                var version = Choice.Release.Version;
-                var friendly = Choice.Prerelease && BetaRank is { } rank
-                    ? $"v{version.Major}.{version.Minor}.{version.Patch}-beta {rank}"
-                    : $"v{version}";
                 var newest = Latest ? "  (LATEST)" : "";
                 var published = Choice.Release.Published is { } date
                     ? $"  ·  {date.ToLocalTime():dd MMM yyyy, h:mm tt} (local)" : "";
-                // Keep the full tag visible so a shifting display rank never changes an exact selection.
-                var exact = Choice.Prerelease && BetaRank is not null
-                    ? $"\nExact tag: {Choice.Release.Tag}" : "";
                 var availability = (Choice.Release.AssetAvailable
                     ? "Application and checksum available" : "Application or checksum missing")
                     + (OnThisPc ? "  ·  On this PC" : "");
-                return $"{friendly}{newest}{published}{exact}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
+                var name = Choice.Release.Tag is { Length: > 0 } tag ? tag : "v" + Choice.Release.Version;
+                return $"{name}{newest}{published}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
             }
         }
     }
