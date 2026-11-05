@@ -56,6 +56,7 @@ public static partial class ComposeSafety
         ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" => "image",
         ".pdf" => "pdf",
         ".txt" or ".csv" or ".md" or ".log" or ".json" or ".xml" => "text",
+        ".docx" => "office",
         _ => "none",
     };
 
@@ -69,6 +70,7 @@ public static partial class ComposeSafety
             (".png", "image/png") or (".jpg" or ".jpeg", "image/jpeg")
                 or (".gif", "image/gif") or (".bmp", "image/bmp") => "image",
             (".pdf", "application/pdf") => "pdf",
+            (".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document") => "office",
             (".txt" or ".log", "text/plain") or (".csv", "text/csv" or "text/plain")
                 or (".md", "text/markdown" or "text/plain")
                 or (".json", "application/json" or "text/plain")

@@ -1,6 +1,8 @@
 using Magpie.Core.Mail;
 using Magpie.Core.Contacts;
 using Magpie.Core.Models;
+using System.IO.Compression;
+using System.Xml;
 using MimeKit;
 
 namespace Magpie.Core.Tests;
@@ -50,6 +52,7 @@ public class Release1500Tests
     [InlineData("receipt.pdf", "pdf")]
     [InlineData("notes.md", "text")]
     [InlineData("transaction.csv", "text")]
+    [InlineData("notes.docx", "office")]
     [InlineData("document.docx", "none")]
     [InlineData("dangerous.exe", "none")]
     [InlineData("evil.pdf.exe", "none")]
@@ -64,8 +67,44 @@ public class Release1500Tests
     [InlineData("photo.jpg", "application/x-msdownload", "none")]
     [InlineData("archive.zip", "application/zip", "none")]
     [InlineData("report.pdf", "text/html", "none")]
+    [InlineData("contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "office")]
+    [InlineData("contract.docx", "application/zip", "none")]
     public void Forwarded_preview_requires_approved_type_and_filename(string file, string mime, string expected) =>
         Assert.Equal(expected, ComposeSafety.ForwardedAttachmentPreviewKind(file, mime));
+
+    [Fact]
+    public void Word_preview_extracts_text_only_from_a_valid_open_xml_package()
+    {
+        using var stream = WordPackage("""
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body><w:p><w:r><w:t>Hello </w:t><w:t>Krishna</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:body></w:document>
+            """);
+        var preview = OfficeTextPreview.ReadWordDocument(stream);
+        Assert.Contains("Hello Krishna", preview);
+        Assert.Contains("Second paragraph", preview);
+        Assert.DoesNotContain("<w:", preview);
+    }
+
+    [Fact]
+    public void Word_preview_rejects_xml_with_dtd()
+    {
+        using var stream = WordPackage("<!DOCTYPE doc [<!ENTITY example 'unsafe'>]><doc>&example;</doc>");
+        Assert.ThrowsAny<XmlException>(() => OfficeTextPreview.ReadWordDocument(stream));
+    }
+
+    private static MemoryStream WordPackage(string documentXml)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var entry = archive.CreateEntry("word/document.xml");
+            using var output = new StreamWriter(entry.Open());
+            output.Write(documentXml);
+        }
+        stream.Position = 0;
+        return stream;
+    }
 
     [Theory]
     [InlineData("photo.jpg", true)]

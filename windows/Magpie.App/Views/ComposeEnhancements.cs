@@ -336,8 +336,12 @@ public partial class ComposeWindow
                 case "text":
                     ShowTextAttachmentPreview(attachment);
                     break;
+                case "office":
+                    using (var input = new FileStream(attachment.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadWordDocument(input));
+                    break;
                 default:
-                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs and text files. Use Open for other document formats.", this);
+                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs, text and Word (.docx) files. Use Open for other document formats.", this);
                     break;
             }
         }
@@ -348,7 +352,7 @@ public partial class ComposeWindow
     {
         if (attachment.Part is not MimePart { Content: { } content } part)
         {
-            Ui.Error("Preview attachment", "This forwarded item cannot be previewed. Only individual picture, PDF and text attachments are supported.", this);
+            Ui.Error("Preview attachment", "This forwarded item cannot be previewed. Only individual picture, PDF, text and Word attachments are supported.", this);
             return;
         }
         var kind = ComposeSafety.ForwardedAttachmentPreviewKind(attachment.Name, part.ContentType.MimeType);
@@ -357,17 +361,23 @@ public partial class ComposeWindow
             Ui.Error("Preview attachment", "This forwarded file format is not supported for in-app preview.", this);
             return;
         }
-        var maximumBytes = kind == "text" ? 2 * 1024 * 1024 : kind == "image" ? 12 * 1024 * 1024 : 25 * 1024 * 1024;
+        var maximumBytes = kind switch
+        {
+            "text" => 2L * 1024 * 1024,
+            "image" => 12L * 1024 * 1024,
+            "office" => OfficeTextPreview.MaximumPackageBytes,
+            _ => 25L * 1024 * 1024,
+        };
         try
         {
-            using var decoded = new MemoryStream();
+            using var decoded = new BoundedPreviewStream(maximumBytes);
             content.DecodeTo(decoded);
-            if (decoded.Length > maximumBytes)
+            decoded.Position = 0;
+            if (kind == "office")
             {
-                Ui.Error("Preview attachment", "This forwarded file is too large to preview safely inside Magpie.", this);
+                ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadWordDocument(decoded));
                 return;
             }
-            decoded.Position = 0;
             if (kind == "text")
             {
                 using var reader = new StreamReader(decoded, detectEncodingFromByteOrderMarks: true);
@@ -397,6 +407,34 @@ public partial class ComposeWindow
             }
         }
         catch (Exception ex) { Ui.Error("Preview attachment", ex.Message, this); }
+    }
+
+    /// <summary>Reject oversized MIME data during decoding, before it can consume excessive memory.</summary>
+    private sealed class BoundedPreviewStream(long maximumLength) : MemoryStream
+    {
+        private void Check(int count)
+        {
+            if (count > maximumLength - Position)
+                throw new InvalidDataException("This forwarded attachment is too large to preview safely inside Magpie.");
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            Check(count);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Check(buffer.Length);
+            base.Write(buffer);
+        }
+
+        public override void WriteByte(byte value)
+        {
+            Check(1);
+            base.WriteByte(value);
+        }
     }
 
     private static void DeleteTemporaryPreview(string path, string directory)
