@@ -7,6 +7,20 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 15.0.0 (5 Nov 2026)
+### New
+- **Info window.** A small **ⓘ** next to the version at the top of the window (or **F1**; on the Mac also ⌘I and Magpie → Magpie Info…, and **Info** in Settings → About) opens **Magpie · Info** with four tabs:
+  - **This build** — the version, Beta or Stable, the pull request it was made from, the commit, when it was built, its GitHub tag, the download's name and how it is installed. A test version says "This is a test build. It is beta 007 of Magpie 15.0.0, made from a pull request."
+  - **What's implemented** — every feature with the version it arrived in, searchable, with filters for what is new in this version, Windows only and also on the Mac.
+  - **What's new** — this version's lines from the changelog (for a test version: the version being tested), with a link to all releases.
+  - **Under the hood** — what this copy is made with (.NET, the window toolkit, the mail and storage libraries), where it keeps your data, and how it updates, with **Open data folder** and **Open log file**.
+- **Copy build info** puts two lines on the clipboard (version, pull request, commit, build time; Windows or macOS version, how it is installed, .NET) — and the feedback email in Settings → About Me now carries the same lines.
+### Changed
+- **Short names for test versions.** A test version made from a pull request is now called `15.0.0-beta007` (beta 001, 002, … for each version) instead of `15.0.0-beta.1793625068.g4e68c2a1`. Every platform built from the same change gets the same number. The title bar shows it with a small **Beta** chip, and the version history shows each test version by its real name instead of a "beta 1, beta 2" rank. Older test versions keep their long names and still appear in the history; a short test version counts as newer than the long ones of the same version, and older than the release itself.
+### Fixed
+- **A portable copy of a test version stays portable.** `Magpie_15.0.0-beta007.exe` (and the older long test names) taken from the zip now keeps its data next to it like `Magpie_15.0.0.exe` does, instead of using the profile folders.
+<!-- closes: #138 -->
+
 ## 14.1.0 (4 Nov 2026)
 ### Changed
 - **A confirm screen before every version change on Windows.** After you choose a version, Magpie shows where you are and where you are going (From → To), a short note when it matters, and the exact steps it will take: check that the version works with your mail, download it (or use the copy on this PC), save a recovery copy of the version you have now, install it, and pin it. **Pick a different version** takes you back to the list; nothing starts until you press **Update to v…** or **Roll back to v…**.

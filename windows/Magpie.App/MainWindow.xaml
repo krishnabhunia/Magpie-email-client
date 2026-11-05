@@ -185,6 +185,29 @@
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
+                    <!-- Design BT1 A: a small Beta chip on a test version -->
+                    <Border x:Name="BetaChip" Margin="2,2,0,0" VerticalAlignment="Center" CornerRadius="4" Padding="5,0,5,1" BorderThickness="1"
+                            Background="{DynamicResource Brush.Warning.Subtle}" BorderBrush="{DynamicResource Brush.Warning}"
+                            Visibility="{Binding IsBetaBuild, Converter={StaticResource BoolToVis}}" ToolTip="A test version made from a pull request">
+                        <TextBlock Text="Beta" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.TitleBar.Text}" />
+                    </Border>
+                    <!-- Design IN1: the Info window (also F1) -->
+                    <Button x:Name="InfoButton" Content="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="13" Click="OnInfoClick" Margin="4,2,0,0"
+                            VerticalAlignment="Center" Cursor="Hand" WindowChrome.IsHitTestVisibleInChrome="True" Focusable="True"
+                            ToolTip="Info (F1)" AutomationProperties.Name="Info" Foreground="{DynamicResource Brush.TitleBar.Muted}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="4,2">
+                                    <TextBlock Text="{TemplateBinding Content}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.TitleBar.Hover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
                     <TextBlock ty:Typography.Role="folder" Text="{Binding ListTitle}" FontSize="12.5" Margin="18,1,0,0" Foreground="{DynamicResource Brush.TitleBar.Muted}" VerticalAlignment="Center" />
                     <TextBlock ty:Typography.Role="statusBar" Text="{Binding StatusText}" FontSize="12" Margin="18,1,0,0" Foreground="{DynamicResource Brush.TitleBar.Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420" />
                 </StackPanel>

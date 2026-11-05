@@ -81,10 +81,10 @@ internal static partial class Program
                 versions.SelectedIndex = 0;
                 Assert(select.Content.ToString()!.Contains("v12.0.0-beta.3", StringComparison.Ordinal),
                     "An incompatible newer beta never hides the newest compatible one");
-                Assert(RowText(0).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
+                Assert(RowText(0).StartsWith("v12.0.0-beta.3", StringComparison.Ordinal) &&
                     RowText(0).Contains("(LATEST)", StringComparison.Ordinal) &&
-                    RowText(0).Contains("Exact tag: v12.0.0-beta.3", StringComparison.Ordinal),
-                    "Newest compatible beta is rank 1 with immutable exact tag");
+                    !RowText(0).Contains("beta 1", StringComparison.Ordinal) && !RowText(0).Contains("Exact tag", StringComparison.Ordinal),
+                    "Newest compatible beta shows its real tag, without a computed rank (design BT1 A)");
                 Assert(RowText(0).Contains("30 Oct 2026", StringComparison.Ordinal),
                     "Release list shows the publication date with local clock time");
 
@@ -93,9 +93,9 @@ internal static partial class Program
                 Assert(RowText(0).Contains("v12.0.0-beta.4", StringComparison.Ordinal) &&
                     !RowText(0).Contains("(LATEST)", StringComparison.Ordinal),
                     "Blocked beta keeps exact identifier without a misleading installable rank");
-                Assert(RowText(1).Contains("v12.0.0-beta 1", StringComparison.Ordinal) &&
-                    RowText(2).Contains("v12.0.0-beta 2", StringComparison.Ordinal),
-                    "Beta 1 means newest compatible release and Beta 2 means the previous one");
+                Assert(RowText(1).StartsWith("v12.0.0-beta.3", StringComparison.Ordinal) &&
+                    RowText(2).StartsWith("v12.0.0-beta.2", StringComparison.Ordinal),
+                    "Every beta is listed by its real tag, newest first (design BT1 A)");
                 NoSelection("show all beta builds");
                 versions.SelectedIndex = 0; // 12.0.0-beta.4 is incompatible.
                 Assert(!select.IsEnabled && compatibility.Text.Contains("cannot safely", StringComparison.OrdinalIgnoreCase),

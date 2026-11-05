@@ -41,7 +41,9 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _syncText = "";
 
     /// <summary>Design V1: the version in the main window ("8.0.0").</summary>
-    public string VersionText => AppServices.Current.ToString();
+    /// <summary>"v15.0.0-beta007" (design BT1 A), with a Beta chip next to it on a test version.</summary>
+    public string VersionText => "v" + AppServices.Current;
+    public bool IsBetaBuild => AppServices.Current.IsPrerelease;
     public string VersionTip => $"Magpie {AppServices.Current}" + (AppServices.ReleaseDate.Length > 0 ? $" · released {AppServices.ReleaseDate}" : "");
     public bool HasAccounts => E.Accounts.Count > 0;
     public bool ShowEmpty => Threads.Count == 0;
