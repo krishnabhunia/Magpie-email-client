@@ -346,6 +346,90 @@ function editMergedTableCell(action,cell,table){
   }else return false;
   post({t:'dirty'});return true;
 }
+function editSpannedTable(action,cell,table){
+  // Reflow the logical grid while moving the original DOM nodes. Never flatten or clone
+  // merged content; its formatting, links and inline pictures remain attached to that node.
+  const layout=tableGrid(table),selected=layout?.positions.get(cell);
+  if(!selected) return false;
+  const rows=layout.rows.slice(),parent=rows[0].parentElement;
+  if(!rows.every(function(row){return row.parentElement===parent;})) return false;
+  const anchors=Array.from(layout.positions,function([element,pos]){
+    return {element:element,row:pos.row,col:pos.col,height:pos.height,width:pos.width};
+  });
+  let columns=layout.grid[0].length;
+  if(action==='insertRowBefore'||action==='insertRowAfter'){
+    const boundary=action==='insertRowBefore'?selected.row:selected.row+selected.height;
+    if(rows.length>=100) return false;
+    const template=rows[Math.min(boundary,rows.length-1)];
+    rows.splice(boundary,0,template.cloneNode(false));
+    for(const entry of anchors){
+      if(entry.row>=boundary) entry.row++;
+      else if(entry.row+entry.height>boundary) entry.height++;
+    }
+  }else if(action==='deleteRow'){
+    if(rows.length===1){table.remove();post({t:'dirty'});return true;}
+    const removed=selected.row;
+    rows.splice(removed,1);
+    for(const entry of anchors){
+      if(entry.row>removed) entry.row--;
+      else if(entry.row+entry.height>removed){
+        if(entry.height===1) entry.deleted=true;
+        else entry.height--;
+      }
+    }
+  }else if(action==='insertColumnBefore'||action==='insertColumnAfter'){
+    const boundary=action==='insertColumnBefore'?selected.col:selected.col+selected.width;
+    if(columns>=100) return false;
+    columns++;
+    for(const entry of anchors){
+      if(entry.col>=boundary) entry.col++;
+      else if(entry.col+entry.width>boundary) entry.width++;
+    }
+  }else if(action==='deleteColumn'){
+    if(columns===1){table.remove();post({t:'dirty'});return true;}
+    const removed=selected.col;
+    columns--;
+    for(const entry of anchors){
+      if(entry.col>removed) entry.col--;
+      else if(entry.col+entry.width>removed){
+        if(entry.width===1) entry.deleted=true;
+        else entry.width--;
+      }
+    }
+  }else return false;
+
+  if(anchors.some(function(entry){return !entry.deleted&&(entry.height>20||entry.width>20);})) return false;
+  const occupied=rows.map(function(){return Array(columns).fill(false);});
+  for(const entry of anchors){
+    if(entry.deleted) continue;
+    if(entry.row<0||entry.col<0||entry.row+entry.height>rows.length||entry.col+entry.width>columns) return false;
+    for(let y=entry.row;y<entry.row+entry.height;y++) for(let x=entry.col;x<entry.col+entry.width;x++){
+      if(occupied[y][x]) return false;
+      occupied[y][x]=true;
+    }
+  }
+  for(let y=0;y<rows.length;y++) for(let x=0;x<columns;x++){
+    if(occupied[y][x]) continue;
+    const reference=rows[y].cells[0]||cell;
+    const element=document.createElement(reference.tagName.toLowerCase());
+    element.setAttribute('style',reference.getAttribute('style')||'border:1px solid #B8C0C8;padding:5px');
+    element.appendChild(document.createElement('br'));
+    anchors.push({element:element,row:y,col:x,height:1,width:1});
+    occupied[y][x]=true;
+  }
+  for(let y=0;y<rows.length;y++){
+    const starts=anchors.filter(function(a){return !a.deleted&&a.row===y;}).sort(function(a,b){return a.col-b.col;});
+    rows[y].replaceChildren();
+    for(const entry of starts){
+      if(entry.height===1) entry.element.removeAttribute('rowspan');else entry.element.rowSpan=entry.height;
+      if(entry.width===1) entry.element.removeAttribute('colspan');else entry.element.colSpan=entry.width;
+      rows[y].appendChild(entry.element);
+    }
+  }
+  parent.replaceChildren(...rows);
+  if(!ed.contains(selectedTableCell)) selectedTableCell=table.querySelector('td,th');
+  post({t:'dirty'});return true;
+}
 function editTable(action){
   const cell=selectedTableCell;
   if(!cell||!ed.contains(cell)) return false;
@@ -353,9 +437,8 @@ function editTable(action){
   if(!row||!table) return false;
   if(action==='deleteTable'){table.remove();post({t:'dirty'});return true;}
   if(['mergeRight','mergeDown','splitCell'].includes(action)) return editMergedTableCell(action,cell,table);
-  // Row/column insert/delete needs a rectangular table. Reject those operations
-  // when spans exist; the user can split a cell first without losing its content.
-  if(table.querySelector('[rowspan],[colspan]')) return false;
+  // Use a logical cell grid when rows or columns are merged; preserve the original cell nodes.
+  if(table.querySelector('[rowspan],[colspan]')) return editSpannedTable(action,cell,table);
   const rows=Array.from(table.rows),rowIndex=rows.indexOf(row),column=Array.from(row.cells).indexOf(cell);
   if(rowIndex<0||column<0) return false;
   if(action==='insertRowBefore'||action==='insertRowAfter'){

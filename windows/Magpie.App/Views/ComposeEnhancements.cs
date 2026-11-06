@@ -681,7 +681,7 @@ public partial class ComposeWindow
             {
                 var result = await Editor.CoreWebView2.ExecuteScriptAsync($"editTable({JsonSerializer.Serialize(command)})");
                 if (result != "true")
-                    Ui.Error("Edit table", "That operation is not available for this cell. To change rows or columns in a merged table, split its merged cells first.", this);
+                    Ui.Error("Edit table", "That operation is not available for this table. Check that the selected cell is part of a valid table grid.", this);
             };
             menu.Items.Add(item);
         }

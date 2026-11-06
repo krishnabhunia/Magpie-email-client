@@ -125,14 +125,50 @@ internal static partial class Program
             Assert(await Script("editTable('mergeDown')") == "true"
                 && await Script("ed.querySelector('td').rowSpan") == "2",
                 "Table merge-down combines vertically adjacent cells");
-            Assert(await Script("editTable('insertColumnBefore')") == "false",
-                "Row and column edits refuse a table with active spans");
+            Assert(await Script("editTable('insertColumnBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "3"
+                && await Script("selectedTableCell.rowSpan") == "2",
+                "Insert-column in a row-spanned table preserves its merged cell");
             Assert(await Script("editTable('splitCell')") == "true"
-                && await Script("ed.querySelectorAll('tr')[1].cells.length") == "2",
+                && await Script("ed.querySelectorAll('tr')[1].cells.length") == "3",
                 "Split restores row-spanned cells without deleting neighbors");
             Assert(await Script("editTable('deleteTable')") == "true"
                 && await Script("ed.querySelector('table')===null") == "true",
                 "Delete-table remains available even for table cells previously merged");
+            await Script("setHtml('<table><tbody><tr><td><strong>A</strong></td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeRight')") == "true"
+                && await Script("editTable('insertColumnBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "3"
+                && await Script("ed.querySelector('strong')?.textContent") == "\"A\"",
+                "Insert-column beside a col-spanned cell preserves rich content");
+            await Script("selectedTableCell=ed.querySelector('tr').cells[0]");
+            Assert(await Script("editTable('deleteColumn')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "2"
+                && await Script("ed.querySelector('strong')?.textContent") == "\"A\"",
+                "Delete-column removes a blank column without destroying adjacent merged rich content");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("editTable('insertRowBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "3"
+                && await Script("selectedTableCell.rowSpan") == "2",
+                "Insert-row before a vertically merged cell retains its span");
+            Assert(await Script("editTable('insertRowAfter')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "4",
+                "Insert-row after a vertically merged cell retains a valid grid");
+            await Script("selectedTableCell=ed.querySelector('tr').cells[0]");
+            Assert(await Script("editTable('deleteRow')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "3"
+                && await Script("ed.querySelector('table').textContent.includes('AC')") == "true",
+                "Delete-row in a merged table preserves the other rows and merged content");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("editTable('deleteRow')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "1"
+                && await Script("ed.querySelector('table').textContent.includes('ACD')") == "true",
+                "Deleting the anchor row of a row-spanned cell moves its original rich content into the surviving row");
             await Script("setHtml('<p>Example source code</p>')");
             Assert(await Script("setParagraphStyle('h3')") == "true"
                 && await Script("ed.querySelector('h3')!==null") == "true",
