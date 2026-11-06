@@ -207,6 +207,7 @@ internal static partial class Program
                 "Plain-text switch can return to rich editing without restoring removed formatting");
             await CheckFormattingControlsAsync(Script, view);
             await CheckEmojiPickerAsync(root, Script);
+            await CheckSignatureModesAsync(Script);
             await CheckClipboardEditorAsync(Script);
             await CheckEditorWritingToolsAsync(Script);
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);

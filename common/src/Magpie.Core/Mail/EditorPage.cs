@@ -64,6 +64,7 @@ let saved = null;
 let selectedImage = null;
 let selectedTableCell = null;
 let isPlainText = false;
+let signatureBoundariesLost = false;
 let rewrite = null;
 let typography = null;
 let contextualLink=null,linkEditTarget=null,formattingTarget=null,dismissedLink=null,linkBubbleEnabled=false;
@@ -150,7 +151,7 @@ function setHtml(h){
   clipboardPictureTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;
   emojiTarget=null;
-  isPlainText=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
+  isPlainText=false;signatureBoundariesLost=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
   // Fold only in the editor's view. getHtml() still serializes the full quote.
   ed.classList.toggle('quote-folded',!!ed.querySelector('.magpie-quote'));
@@ -186,7 +187,11 @@ function getNewText(includeEmbeddedContent){
   copy.querySelectorAll('p,div,li').forEach(function(n){n.appendChild(document.createTextNode('\n'));});
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
 }
+function canReplaceSignatureBlock(){return !isPlainText&&!signatureBoundariesLost;}
 function replaceSignatureBlock(blockHtml){
+  // Flattened signature text cannot safely be identified later, even after returning to rich mode.
+  // Never guess which unmarked text to replace/remove or append a duplicate signature after conversion.
+  if(!canReplaceSignatureBlock())return false;
   // Replace only the signature, leaving the author's text and the quoted conversation untouched.
   const host=document.createElement('div');host.innerHTML=blockHtml||'';
   const next=host.querySelector('.magpie-signature');
@@ -196,6 +201,7 @@ function replaceSignatureBlock(blockHtml){
     else { const quote=ed.querySelector('.magpie-quote'); if(quote) quote.before(next); else ed.appendChild(next); }
     if(typography?.signature) applyProtectedFont(next,typography.signature);
   } else if(old) old.remove();
+  else return false;
   post({t:'dirty'});return true;
 }
 function setDark(on){ document.documentElement.classList.toggle('dark', !!on); }
@@ -214,6 +220,7 @@ function setEditorPlainText(enabled,notify){
   ed.classList.remove('quote-folded');
   const visibleText=ed.innerText;
   if(next){
+    signatureBoundariesLost=true;
     ed.textContent=visibleText;
     ed.contentEditable='plaintext-only';
     ed.classList.add('magpie-plain-text');

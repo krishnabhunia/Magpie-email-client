@@ -41,4 +41,18 @@ public partial class ComposeWindow
         }
         catch (Exception ex) { Ui.Error("Insert template", ex.Message, this); }
     }
+
+    private async Task UseQuickReplyAsync(string text)
+    {
+        try
+        {
+            if (!_editorReady)
+            {
+                _vm.Status = "The message editor is still opening. Choose the quick reply again when it is ready.";
+                return;
+            }
+            await _vm.InsertQuickReplyAsync(text);
+        }
+        catch (Exception ex) { Ui.Error("Insert quick reply", ex.Message, this); }
+    }
 }

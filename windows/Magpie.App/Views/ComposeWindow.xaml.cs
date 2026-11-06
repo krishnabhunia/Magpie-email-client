@@ -524,7 +524,13 @@ public partial class ComposeWindow : Window
 
     private void OnTemplates(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };
+        var menu = BuildTemplatesMenu((UIElement)sender);
+        menu.IsOpen = true;
+    }
+
+    private ContextMenu BuildTemplatesMenu(UIElement placementTarget)
+    {
+        var menu = new ContextMenu { PlacementTarget = placementTarget, Placement = PlacementMode.Top };
         foreach (var t in AppServices.Engine.Config.Templates)
         {
             var mi = new MenuItem
@@ -536,13 +542,43 @@ public partial class ComposeWindow : Window
             menu.Items.Add(mi);
         }
         if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var quickReplies = new MenuItem
+        {
+            Header = "Quick replies",
+            ToolTip = "Insert a saved reply at the cursor as editable text. This never sends the message.",
+        };
+        foreach (var reply in AppServices.Engine.Config.QuickReplies ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(reply)) continue;
+            // A TextBlock keeps underscores literal instead of treating them as menu access keys.
+            var item = new MenuItem
+            {
+                Header = new TextBlock
+                {
+                    Text = reply.Replace('\r', ' ').Replace('\n', ' '),
+                    MaxWidth = 340, TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+                ToolTip = reply,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(item, "Insert quick reply: " + reply);
+            item.Click += async (_, _) => await UseQuickReplyAsync(reply);
+            quickReplies.Items.Add(item);
+        }
+        if (quickReplies.Items.Count == 0)
+            quickReplies.Items.Add(new MenuItem { Header = "No quick replies configured", IsEnabled = false });
+        quickReplies.Items.Add(new Separator());
+        var manageReplies = new MenuItem { Header = "Manage quick replies…" };
+        manageReplies.Click += (_, _) => SettingsWindow.Open("Signatures");
+        quickReplies.Items.Add(manageReplies);
+        menu.Items.Add(quickReplies);
+        menu.Items.Add(new Separator());
         var saveCurrent = new MenuItem { Header = "Save subject and message text as template…" };
         saveCurrent.Click += OnSaveCurrentAsTemplate;
         menu.Items.Add(saveCurrent);
         var manage = new MenuItem { Header = "Manage templates…" };
         manage.Click += (_, _) => SettingsWindow.Open("Templates");
         menu.Items.Add(manage);
-        menu.IsOpen = true;
+        return menu;
     }
 
     private async void OnSaveCurrentAsTemplate(object sender, RoutedEventArgs e)

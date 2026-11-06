@@ -24,27 +24,68 @@ public partial class ComposeWindow
     private bool _studioRestoreAiPanel;
     private bool _spellcheckEnabled = true;
 
-    private void OnSignatures(object sender, RoutedEventArgs e)
+    private bool CanChangeComposeSignature => CanUseRichFormatting && !_vm.Sending && !_vm.RevisionBusy && !_vm.AttachmentOperationBusy;
+
+    private const string ManualSignatureHelp = "Automatic signature changes are unavailable in plain text or after signature boundaries were removed. Edit or remove any retained signature text manually in the message.";
+
+    private async void OnSignatures(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Top };
+        var menu = await BuildSignatureMenuAsync();
+        if (!IsVisible) return;
+        menu.PlacementTarget = sender as UIElement;
+        menu.Placement = PlacementMode.Top;
+        menu.IsOpen = true;
+    }
+
+    private async Task<ContextMenu> BuildSignatureMenuAsync()
+    {
+        var canChange = CanChangeComposeSignature;
+        string? disabledReason = _plain || _vm.IsPlainText ? ManualSignatureHelp : null;
+        if (canChange)
+        {
+            try
+            {
+                canChange = await Editor.CoreWebView2.ExecuteScriptAsync("canReplaceSignatureBlock()") == "true";
+                if (!canChange) disabledReason = ManualSignatureHelp;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("read compose signature state: " + ex.Message);
+                canChange = false;
+                disabledReason = "The rich-text editor is unavailable. Edit retained signature text manually.";
+            }
+        }
+        // A mode switch, send or restore may have started while the browser answered the state query.
+        canChange &= CanChangeComposeSignature;
+        if (_plain || _vm.IsPlainText) disabledReason = ManualSignatureHelp;
+        var menu = new ContextMenu();
+        if (disabledReason != null)
+        {
+            menu.Items.Add(new MenuItem
+            {
+                Header = new TextBlock { Text = disabledReason, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 },
+                IsEnabled = false,
+            });
+            menu.Items.Add(new Separator());
+        }
         var account = _vm.From;
         if (account != null)
         {
-            var defaultItem = new MenuItem { Header = "Default signature", IsEnabled = !_plain && _editorReady };
+            var defaultItem = new MenuItem { Header = "Default signature", IsEnabled = canChange };
             defaultItem.Click += async (_, _) => await SetComposeSignatureAsync(
                 Composer.SignatureHtml(account, reply: _vm.IsReply || _vm.IsForward));
             menu.Items.Add(defaultItem);
             foreach (var variant in account.SignatureVariants ?? new())
             {
                 if (string.IsNullOrWhiteSpace(variant.Name)) continue;
-                var item = new MenuItem { Header = variant.Name, IsEnabled = !_plain && _editorReady };
+                var item = new MenuItem { Header = variant.Name, IsEnabled = canChange };
                 var html = variant.Html;
                 item.Click += async (_, _) => await SetComposeSignatureAsync(
                     Composer.SignatureHtml(new Magpie.Core.Models.Account { SignatureHtml = html }, reply: false));
                 menu.Items.Add(item);
             }
             menu.Items.Add(new Separator());
-            var remove = new MenuItem { Header = "No signature", IsEnabled = !_plain && _editorReady };
+            var remove = new MenuItem { Header = "No signature", IsEnabled = canChange };
             remove.Click += async (_, _) => await SetComposeSignatureAsync("");
             menu.Items.Add(remove);
         }
@@ -53,14 +94,22 @@ public partial class ComposeWindow
         var settings = new MenuItem { Header = "Manage signatures…" };
         settings.Click += (_, _) => SettingsWindow.Open("Signatures");
         menu.Items.Add(settings);
-        menu.IsOpen = true;
+        return menu;
     }
 
     private async Task SetComposeSignatureAsync(string html)
     {
-        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
-        await Editor.CoreWebView2.ExecuteScriptAsync($"replaceSignatureBlock({JsonSerializer.Serialize(html)})");
-        _vm.MarkEdited();
+        if (!CanChangeComposeSignature) return;
+        try
+        {
+            var changed = await Editor.CoreWebView2.ExecuteScriptAsync($"replaceSignatureBlock({JsonSerializer.Serialize(html)})");
+            if (changed == "true") _vm.MarkEdited();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("change compose signature: " + ex.Message);
+            _vm.Status = "The signature could not be changed. Edit its text manually or reopen the message.";
+        }
     }
 
     private MenuItem CreateSpellcheckToggle()

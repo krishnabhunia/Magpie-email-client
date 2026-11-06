@@ -9,6 +9,7 @@ public partial class ComposeViewModel
     private ComposeWritingStatistics _writingStatistics = ComposeWritingStatistics.Measure("");
     private DispatcherTimer? _writingStatisticsTimer;
     private int _writingStatisticsRequest;
+    private bool _writingInsertionBusy;
 
     /// <summary>Visible new writing in rich mode; all retained text in plain mode, where section boundaries are lost.</summary>
     public Func<Task<string>>? GetWritingText { get; set; }
@@ -71,17 +72,85 @@ public partial class ComposeViewModel
     }
 
     /// <summary>Insert body text at the current selection; fill a blank subject, but never replace one without approval.</summary>
-    public async Task<bool> InsertTemplateAsync(QuickTemplate template, bool replaceSubject = false, string? expectedSubject = null)
+    public Task<bool> InsertTemplateAsync(QuickTemplate template, bool replaceSubject = false, string? expectedSubject = null)
     {
-        if (_closed || _queued || Sending || EditorCommand == null) return false;
-        var originalSubject = Subject;
-        if (expectedSubject != null && !string.Equals(originalSubject, expectedSubject, StringComparison.Ordinal)) return false;
-        var expanded = ComposeTemplates.Expand(template, From, To, originalSubject, DateTimeOffset.Now);
-        if (!string.IsNullOrEmpty(expanded.Body)) await EditorCommand("insert", expanded.Body);
-        if (_closed) return false;
-        // A user may change the subject while WebView2 is processing the body insertion: never overwrite that newer edit.
-        if (string.Equals(Subject, originalSubject, StringComparison.Ordinal)) Subject = expanded.SubjectFor(originalSubject, replaceSubject);
-        MarkEdited();
+        return InsertWritingTextAsync(async () =>
+        {
+            var originalSubject = Subject;
+            if (expectedSubject != null && !string.Equals(originalSubject, expectedSubject, StringComparison.Ordinal))
+            {
+                Status = "The subject changed. Review it and choose the template again.";
+                return false;
+            }
+            var expanded = ComposeTemplates.Expand(template, From, To, originalSubject, DateTimeOffset.Now);
+            if (!string.IsNullOrEmpty(expanded.Body)) await EditorCommand!("insert", expanded.Body);
+            if (_closed || _queued) return false;
+            // A user may change the subject while WebView2 is processing the body insertion: never overwrite that newer edit.
+            if (string.Equals(Subject, originalSubject, StringComparison.Ordinal)) Subject = expanded.SubjectFor(originalSubject, replaceSubject);
+            return true;
+        }, "Template inserted. Review the message before sending.");
+    }
+
+    /// <summary>Insert a configured canned reply literally; never expand tokens, replace message fields, or send.</summary>
+    public Task<bool> InsertQuickReplyAsync(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            Status = "This quick reply is empty. Choose another reply or edit it in Settings.";
+            return Task.FromResult(false);
+        }
+        return InsertWritingTextAsync(async () =>
+        {
+            await EditorCommand!("insert", text);
+            return true;
+        }, "Quick reply inserted as editable text. Review the message before sending.");
+    }
+
+    private bool CanInsertWritingText()
+    {
+        if (_closed || _queued)
+        {
+            Status = "This message is no longer editable.";
+            return false;
+        }
+        if (Sending || RevisionBusy || AttachmentOperationBusy)
+        {
+            Status = "Wait for the current send, attachment or draft restore operation before inserting text.";
+            return false;
+        }
+        if (EditorCommand == null)
+        {
+            Status = "The message editor is not ready. Try again when it is ready.";
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> InsertWritingTextAsync(Func<Task<bool>> insert, string completedStatus)
+    {
+        if (!CanInsertWritingText()) return false;
+        if (_writingInsertionBusy)
+        {
+            Status = "Wait for the current text insertion to finish.";
+            return false;
+        }
+        _writingInsertionBusy = true;
+        var acquired = false;
+        try
+        {
+            // Serialise with message builds/restores. If Send starts while the editor is inserting,
+            // MarkEdited below invalidates that send's snapshot before it can acquire this gate.
+            await _saveGate.WaitAsync();
+            acquired = true;
+            if (!CanInsertWritingText() || !await insert() || _closed || _queued) return false;
+            MarkEdited();
+            Status = completedStatus;
+        }
+        finally
+        {
+            if (acquired) _saveGate.Release();
+            _writingInsertionBusy = false;
+        }
         await RefreshWritingStatisticsAsync();
         return true;
     }

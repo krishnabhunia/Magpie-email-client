@@ -28,6 +28,7 @@
 - **Save a message to an .eml file.** Export the current message in standard email format, including its attachments, without sending it or closing the editor.
 - **Privacy warning for large recipient lists.** When more than 20 people are visible in To/Cc, review the audience or move everyone except the first recipient into Bcc. After moving, you review the updated recipients and press Send again; no message is sent automatically.
 - **Save subject and text as a quick template.** Templates can capture the subject and new message text, excluding signatures, quoted mail and attachments. Inserting fills a blank subject; replacing an existing subject requires an explicit choice. Body text inserts at the cursor, old body-only templates remain compatible, and Settings can edit both fields.
+- **Quick replies while composing.** Templates now also offers the saved Quick replies list. Choosing a reply inserts editable literal text at the current selection without sending, changing the subject, or expanding template variables; existing recipients and attachments stay intact.
 - **Keyboard shortcut help.** Press Ctrl+/ in the editor or choose More → Keyboard shortcuts to see the available compose commands without leaving your draft.
 - **Find and replace message text.** Ctrl+F finds the next match and Ctrl+H adds Replace and Replace all. Case matching is optional; both the rich editor and plain-text fallback support the search panel.
 - **Fold quoted messages while replying.** Original reply/forward text starts collapsed and can be expanded with one click, including in Focus mode. Folding affects only the editor display; the full quote remains in the sent or saved HTML.
@@ -57,6 +58,7 @@
 - **Safer whole-draft restoration.** Replacing the editor clears stale AI rewrite, mention, image and table selections. An editor failure restores the current checkpoint; concurrent edits cancel the restore. Rich-text revisions require the rich editor so the fallback cannot silently flatten their formatting. Clearing all text in the fallback editor no longer brings back the opening message body.
 - **More-menu ordering can be saved on its own.** Reordering the compose More commands now enables Apply in Appearance settings, even when no other preference changes.
 - **No stale or incomplete send during background work.** An edit made during asynchronous send review cancels that attempt and asks for a fresh review. Sending or closing waits for an active clipboard-picture attachment, and stale picture selections are discarded safely.
+- **Plain-text signatures stay under your control.** Converting to plain text retains the visible signature but removes its rich-text boundary. Automatic signature replacement/removal is unavailable after that conversion, even when switching back to rich text, with a clear explanation to edit the retained text manually. A fresh or restored rich document with intact boundaries supports signature selection again.
 
 ## 14.2.0 (5 Nov 2026)
 ### Changed
