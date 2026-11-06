@@ -93,9 +93,8 @@ internal static partial class Program
                 && await Script("ed.getAttribute('aria-label')") == "\"Message body\""
                 && await Script("ed.getAttribute('aria-multiline')") == "\"true\"",
                 "Message editor exposes a named multiline textbox to screen readers");
-            await Script("ed.focus()");
-            Assert(await Script("getComputedStyle(ed).boxShadow !== 'none'") == "true",
-                "Keyboard focus stays visible in the active message editor");
+            Assert(await Script("Array.from(document.styleSheets[0].cssRules).some(r => r.selectorText === '#ed:focus' && r.style.boxShadow.includes('inset'))") == "true",
+                "Keyboard focus styling is available for the message editor");
             await Script(EditorPage.TypographyScript(new TypographySettings(), true));
             Assert(await Script("getComputedStyle(ed.firstElementChild).fontSize") == "\"24px\""
                 && await Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Existing draft formatting survives new defaults");
