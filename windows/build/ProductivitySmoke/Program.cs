@@ -63,6 +63,7 @@ internal static partial class Program
                 CheckMainWindow(expectStartupFailure);
                 if (expectStartupFailure) continue;
                 CheckFeatureSettings(owner, engine, output, theme);
+                CheckComposeToolbar(owner, engine, theme);
                 CheckComposeRecipients(engine, theme);
                 CheckClipboardPictureControls(theme);
                 await CheckComposeWritingToolsAsync(engine, theme);

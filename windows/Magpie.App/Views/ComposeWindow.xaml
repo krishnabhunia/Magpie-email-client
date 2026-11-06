@@ -21,6 +21,40 @@
         <WindowChrome CaptionHeight="38" ResizeBorderThickness="6" GlassFrameThickness="0,0,0,1" CornerRadius="0" UseAeroCaptionButtons="False" NonClientFrameEdges="None" />
     </WindowChrome.WindowChrome>
 
+    <Window.Resources>
+        <!-- Keep native ToolBar overflow/keyboard behaviour, with an explicit themed More affordance. -->
+        <Style x:Key="Compose.Toolbar" TargetType="ToolBar">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolBar">
+                        <Grid Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <ToolBarPanel x:Name="PART_ToolBarPanel" IsItemsHost="True" Margin="0" KeyboardNavigation.TabNavigation="Continue" />
+                            <ToggleButton x:Name="OverflowButton" Grid.Column="1" Content="More tools ▾" Style="{StaticResource Button.Secondary}"
+                                          Margin="4,0,0,0" Padding="9,5" VerticalAlignment="Center" ToolTip="Formatting tools that do not fit in this window"
+                                          AutomationProperties.Name="More formatting tools" AutomationProperties.HelpText="Opens the toolbar groups hidden by the current window width"
+                                          IsChecked="{Binding IsOverflowOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Visibility="{Binding HasOverflowItems, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BoolToVis}}" />
+                            <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=OverflowButton}" StaysOpen="False" AllowsTransparency="True"
+                                   IsOpen="{Binding IsOverflowOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}"
+                                        BorderThickness="1" CornerRadius="6" Padding="6" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle">
+                                    <ScrollViewer MaxHeight="360" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <ToolBarOverflowPanel x:Name="PART_ToolBarOverflowPanel" WrapWidth="420" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource MaxMargin}}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" MinHeight="38" />
@@ -152,40 +186,39 @@
 
                 <!-- Formatting -->
                 <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
-                    <WrapPanel x:Name="FormattingItems" Orientation="Horizontal" svc:Typography.Role="editorToolbar">
-                        <Button Style="{StaticResource Button.Primary}" Content="Attach files…" Tag="plainAllowed" Click="OnAttach" Margin="0,0,8,0" ToolTip="Attach one or more files (also available below Send)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Recent ▾" Tag="plainAllowed" Click="OnAttachRecent" Margin="0,0,8,0" ToolTip="Choose from files recently attached on this computer" />
-                        <ComboBox x:Name="FontFamilyChoice" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
+                    <ToolBar x:Name="FormattingItems" Style="{StaticResource Compose.Toolbar}" svc:Typography.Role="editorToolbar" AutomationProperties.Name="Compose formatting toolbar">
+                        <Button svc:ComposeToolbarHost.Id="attach" Style="{StaticResource Button.Primary}" Content="Attach files…" Tag="plainAllowed" Click="OnAttach" Margin="0,0,4,0" ToolTip="Attach one or more files (also available below Send)" />
+                        <Button svc:ComposeToolbarHost.Id="recentFiles" Style="{StaticResource Button.Secondary}" Content="Recent ▾" Tag="plainAllowed" Click="OnAttachRecent" ToolTip="Choose from files recently attached on this computer" />
+                        <ComboBox x:Name="FontFamilyChoice" svc:ComposeToolbarHost.Id="fontFamily" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
                             <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
                         </ComboBox>
-                        <ComboBox x:Name="FontSizeChoice" Width="60" Margin="0,0,6,0" SelectionChanged="OnFontSizeChoice" ToolTip="Font size">
+                        <ComboBox x:Name="FontSizeChoice" svc:ComposeToolbarHost.Id="fontSize" Width="60" SelectionChanged="OnFontSizeChoice" ToolTip="Font size">
                             <ComboBoxItem Content="12" /><ComboBoxItem Content="14" /><ComboBoxItem Content="16" /><ComboBoxItem Content="18" IsSelected="True" /><ComboBoxItem Content="20" /><ComboBoxItem Content="24" /><ComboBoxItem Content="32" />
                         </ComboBox>
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE8DD;" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE8DB;" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE8DC;" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)" />
-                        <Button Style="{StaticResource Button.Icon}" Content="S̶" Tag="strikeThrough" Click="OnFormat" ToolTip="Strikethrough" />
-                        <Button Style="{StaticResource Button.Icon}" Content="A" Tag="foreColor" Click="OnFormat" ToolTip="Text colour" />
-                        <Button Style="{StaticResource Button.Icon}" Content="▣" Tag="hiliteColor" Click="OnFormat" ToolTip="Highlight selection" />
-                        <Border Width="1" Margin="6,8" Background="{DynamicResource Brush.Divider}" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE8FD;" Tag="insertUnorderedList" Click="OnFormat" ToolTip="Bulleted list" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE9D5;" Tag="insertOrderedList" Click="OnFormat" ToolTip="Numbered list" />
-                        <Button Style="{StaticResource Button.Icon}" Content="≡" Tag="justifyLeft" Click="OnFormat" ToolTip="Align left" />
-                        <Button Style="{StaticResource Button.Icon}" Content="☷" Tag="justifyCenter" Click="OnFormat" ToolTip="Align centre" />
-                        <Button Style="{StaticResource Button.Icon}" Content="⇥" Tag="indent" Click="OnFormat" ToolTip="Increase indent" />
-                        <Button Style="{StaticResource Button.Icon}" Content="⇤" Tag="outdent" Click="OnFormat" ToolTip="Decrease indent" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE71B;" Click="OnLink" ToolTip="Insert or edit link (Ctrl+K)" />
-                        <Button Style="{StaticResource Button.Icon}" Content="⌫" Click="OnRemoveLink" ToolTip="Remove link at the cursor" />
-                        <Button Style="{StaticResource Button.Icon}" Content="▦" Click="OnInsertTable" ToolTip="Insert a table" />
-                        <Button Style="{StaticResource Button.Icon}" Content="▧" Click="OnInsertImage" ToolTip="Insert an inline image" />
-                        <Button Style="{StaticResource Button.Icon}" Content="↔" Click="OnResizeInlineImage" ToolTip="Resize a picture after clicking it in the message" />
-                        <Button Style="{StaticResource Button.Icon}" Content="☺" Tag="plainAllowed" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
-                        <Button Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
-                        <Button Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="Find" Tag="plainAllowed" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
-                        <Button Style="{StaticResource Button.Secondary}" Content="More ▾" Tag="plainAllowed" Click="OnMoreFormat" ToolTip="Paragraph styles, plain-text mode, spelling and more" />
-                        <Button Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
-                    </WrapPanel>
+                        <Button svc:ComposeToolbarHost.Id="bold" Style="{StaticResource Button.Icon}" Content="&#xE8DD;" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
+                        <Button svc:ComposeToolbarHost.Id="italic" Style="{StaticResource Button.Icon}" Content="&#xE8DB;" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
+                        <Button svc:ComposeToolbarHost.Id="underline" Style="{StaticResource Button.Icon}" Content="&#xE8DC;" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)" />
+                        <Button svc:ComposeToolbarHost.Id="strikeThrough" Style="{StaticResource Button.Icon}" Content="S̶" Tag="strikeThrough" Click="OnFormat" ToolTip="Strikethrough" />
+                        <Button svc:ComposeToolbarHost.Id="foreColor" Style="{StaticResource Button.Icon}" Content="A" Tag="foreColor" Click="OnFormat" ToolTip="Text colour" />
+                        <Button svc:ComposeToolbarHost.Id="hiliteColor" Style="{StaticResource Button.Icon}" Content="▣" Tag="hiliteColor" Click="OnFormat" ToolTip="Highlight selection" />
+                        <Button svc:ComposeToolbarHost.Id="insertUnorderedList" Style="{StaticResource Button.Icon}" Content="&#xE8FD;" Tag="insertUnorderedList" Click="OnFormat" ToolTip="Bulleted list" />
+                        <Button svc:ComposeToolbarHost.Id="insertOrderedList" Style="{StaticResource Button.Icon}" Content="&#xE9D5;" Tag="insertOrderedList" Click="OnFormat" ToolTip="Numbered list" />
+                        <Button svc:ComposeToolbarHost.Id="justifyLeft" Style="{StaticResource Button.Icon}" Content="≡" Tag="justifyLeft" Click="OnFormat" ToolTip="Align left" />
+                        <Button svc:ComposeToolbarHost.Id="justifyCenter" Style="{StaticResource Button.Icon}" Content="☷" Tag="justifyCenter" Click="OnFormat" ToolTip="Align centre" />
+                        <Button svc:ComposeToolbarHost.Id="indent" Style="{StaticResource Button.Icon}" Content="⇥" Tag="indent" Click="OnFormat" ToolTip="Increase indent" />
+                        <Button svc:ComposeToolbarHost.Id="outdent" Style="{StaticResource Button.Icon}" Content="⇤" Tag="outdent" Click="OnFormat" ToolTip="Decrease indent" />
+                        <Button svc:ComposeToolbarHost.Id="link" Style="{StaticResource Button.Icon}" Content="&#xE71B;" Click="OnLink" ToolTip="Insert or edit link (Ctrl+K)" />
+                        <Button svc:ComposeToolbarHost.Id="removeLink" Style="{StaticResource Button.Icon}" Content="⌫" Click="OnRemoveLink" ToolTip="Remove link at the cursor" />
+                        <Button svc:ComposeToolbarHost.Id="table" Style="{StaticResource Button.Icon}" Content="▦" Click="OnInsertTable" ToolTip="Insert a table" />
+                        <Button svc:ComposeToolbarHost.Id="image" Style="{StaticResource Button.Icon}" Content="▧" Click="OnInsertImage" ToolTip="Insert an inline image" />
+                        <Button svc:ComposeToolbarHost.Id="resizeImage" Style="{StaticResource Button.Icon}" Content="↔" Click="OnResizeInlineImage" ToolTip="Resize a picture after clicking it in the message" />
+                        <Button svc:ComposeToolbarHost.Id="emoji" Style="{StaticResource Button.Icon}" Content="☺" Tag="plainAllowed" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
+                        <Button svc:ComposeToolbarHost.Id="undo" Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
+                        <Button svc:ComposeToolbarHost.Id="redo" Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
+                        <Button svc:ComposeToolbarHost.Id="find" Style="{StaticResource Button.Secondary}" Content="Find" Tag="plainAllowed" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
+                        <Button svc:ComposeToolbarHost.Id="more" Style="{StaticResource Button.Secondary}" Content="More ▾" Tag="plainAllowed" Click="OnMoreFormat" ToolTip="Paragraph styles, plain-text mode, spelling and more" />
+                        <Button svc:ComposeToolbarHost.Id="removeFormat" Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
+                    </ToolBar>
                 </Border>
 
                 <!-- Editor -->

@@ -142,6 +142,7 @@ public partial class ComposeWindow : Window
         InitializeComponent();
         _vm = new ComposeViewModel(draft, prefill);
         DataContext = _vm;
+        InitializeComposeToolbar();
         _vm.GetHtml = GetHtmlAsync;
         _vm.GetNewText = GetNewTextAsync;
         _vm.GetWritingText = GetWritingTextAsync;
@@ -151,7 +152,7 @@ public partial class ComposeWindow : Window
         _vm.RestoreRevisionEditor = RestoreRevisionEditorAsync;
         InitializeClipboardPaste();
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
-        _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
+        _settingsChanged = () => Ui.Post(() => { ApplyComposeToolbarLayout(); _ = ApplyEditorTypographyAsync(); });
         AppServices.Engine.Settings.Changed += _settingsChanged;
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
@@ -182,6 +183,7 @@ public partial class ComposeWindow : Window
             else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(false); }
             else if (e.Key == Key.H && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(true); }
             else if (e.Key == Key.Oem2 && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowComposeShortcuts(); }
+            else if (e.Key == Key.Escape && FormattingItems.IsOverflowOpen) { e.Handled = true; FormattingItems.IsOverflowOpen = false; }
             else if (e.Key == Key.Escape && FindReplacePanel.Visibility == Visibility.Visible) { e.Handled = true; HideFindReplace(); }
             else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };

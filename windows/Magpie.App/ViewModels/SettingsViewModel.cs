@@ -162,6 +162,20 @@ public sealed class EditableComposeMenuItem
     public string DownLabel => "Move " + Name + " down";
 }
 
+/// <summary>One main compose-toolbar control; Attach and More always remain available.</summary>
+public partial class EditableComposeToolbarButton : ObservableObject
+{
+    public string Id { get; init; } = "";
+    private ComposeToolbarDefinition? Definition => ComposeToolbarCatalog.Definitions.FirstOrDefault(item => item.Id == Id);
+    public string Name => Definition?.Name ?? Id;
+    public bool CanHide => Definition?.Required != true;
+    public string Note => CanHide ? "" : "Always shown";
+    public string ShowLabel => "Show " + Name;
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+    [ObservableProperty] private bool _visible;
+}
+
 /// <summary>One line the folder hover card can show (design H2).</summary>
 public partial class EditableHoverLine : ObservableObject
 {
@@ -388,6 +402,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
         ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
         ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
+        ("Compose toolbar", "Toolbar", "Show, hide and reorder formatting buttons; narrow windows move groups into More tools", "compose toolbar formatting writing editor show hide order reorder overflow more tools", "RowComposeToolbar"),
         ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
         ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
         ("Show the status bar", "Toolbar", "One row at the bottom of the window", "status bar bottom activity", "RowLook"),
@@ -582,6 +597,7 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Toolbar & buttons (design C3) ──
     public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
+    public ObservableCollection<EditableComposeToolbarButton> ComposeToolbarRows { get; } = new();
     public ObservableCollection<EditableComposeMenuItem> ComposeMoreRows { get; } = new();
     public ObservableCollection<ToolbarButtonVm> ToolbarPreview { get; } = new();
     [ObservableProperty] private ButtonStyle _buttonStyle;
@@ -616,9 +632,36 @@ public partial class SettingsViewModel : ObservableObject
             ToolbarRows.Add(row);
         }
         RefreshPreview();
+        LoadComposeToolbar(a.ComposeToolbar);
         ComposeMoreRows.Clear();
         foreach (var id in a.ComposeMoreOrder) ComposeMoreRows.Add(new EditableComposeMenuItem { Id = id });
     }
+
+    private void LoadComposeToolbar(IEnumerable<ToolbarButton>? buttons)
+    {
+        ComposeToolbarRows.Clear();
+        foreach (var button in ComposeToolbarCatalog.Normalise(buttons))
+            ComposeToolbarRows.Add(new EditableComposeToolbarButton { Id = button.Id, Visible = button.Visible });
+    }
+
+    [RelayCommand]
+    private void MoveComposeToolbarUp(EditableComposeToolbarButton? row)
+    {
+        if (row == null) return;
+        var index = ComposeToolbarRows.IndexOf(row);
+        if (index > 0) ComposeToolbarRows.Move(index, index - 1);
+    }
+
+    [RelayCommand]
+    private void MoveComposeToolbarDown(EditableComposeToolbarButton? row)
+    {
+        if (row == null) return;
+        var index = ComposeToolbarRows.IndexOf(row);
+        if (index >= 0 && index < ComposeToolbarRows.Count - 1) ComposeToolbarRows.Move(index, index + 1);
+    }
+
+    [RelayCommand]
+    private void ResetComposeToolbar() => LoadComposeToolbar(ComposeToolbarCatalog.DefaultButtons());
 
     [RelayCommand]
     private void MoveComposeMoreUp(EditableComposeMenuItem? row)
@@ -1040,6 +1083,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeToolbar = ComposeToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
             ComposeMoreOrder = ComposeMoreRows.Select(r => r.Id).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),

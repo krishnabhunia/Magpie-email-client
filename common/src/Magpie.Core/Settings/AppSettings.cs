@@ -211,7 +211,7 @@ public enum CountsMode { UnreadAndTotal = 0, UnreadOnly = 1, Off = 2 }
 /// <summary>Light or dark look (design B1). MatchWindows follows the Windows "app mode" setting.</summary>
 public enum ThemeMode { MatchWindows = 0, Light = 1, Dark = 2 }
 
-/// <summary>One reading-pane toolbar button (design C3). <see cref="Id"/> is one of <see cref="Appearance.ToolbarIds"/>.</summary>
+/// <summary>One customizable toolbar button. Id belongs to the reading-pane or compose toolbar catalog.</summary>
 public sealed class ToolbarButton
 {
     public string Id { get; set; } = "";
@@ -248,6 +248,8 @@ public sealed class Appearance
     /// <summary>The message list's right-click menu follows the toolbar's order.</summary>
     public bool MenuFollowsToolbar { get; set; } = true;
     public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+    /// <summary>Compose toolbar command order and visibility; Attach and More are always available.</summary>
+    public List<ToolbarButton> ComposeToolbar { get; set; } = ComposeToolbarCatalog.DefaultButtons();
     /// <summary>Compose → More rich-text item order. Missing entries from older settings are appended.</summary>
     public List<string> ComposeMoreOrder { get; set; } = ComposeMoreIds.ToList();
     public FolderHoverSettings FolderHover { get; set; } = new();
@@ -270,6 +272,7 @@ public sealed class Appearance
         Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
         foreach (var id in ToolbarIds)
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+        ComposeToolbar = ComposeToolbarCatalog.Normalise(ComposeToolbar);
         ComposeMoreOrder ??= ComposeMoreIds.ToList();
         var composeSeen = new HashSet<string>(StringComparer.Ordinal);
         ComposeMoreOrder = ComposeMoreOrder.Where(id => id != null && ComposeMoreIds.Contains(id) && composeSeen.Add(id)).ToList();
@@ -286,6 +289,7 @@ public sealed class Appearance
     {
         Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+        ComposeToolbar = ComposeToolbarCatalog.Normalise(ComposeToolbar),
         ComposeMoreOrder = (ComposeMoreOrder ?? ComposeMoreIds.ToList()).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(), DeleteDates = DeleteDates.Clone(),
         Splash = Splash, SplashAccounts = SplashAccounts,

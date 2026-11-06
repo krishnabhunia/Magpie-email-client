@@ -1355,6 +1355,38 @@
                             </StackPanel>
                         </Grid>
 
+                        <!-- Main compose-toolbar visibility/order and responsive groups (B15 / CW1). -->
+                        <TextBlock Text="COMPOSE TOOLBAR" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowComposeToolbar" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Choose the buttons above your message" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,10"
+                                           Text="Untick a button to hide it; use the arrows to change its position. Adjacent formatting groups move into More tools when the window is narrow. Attach files and More always stay available. Apply saves the layout for open and new compose windows." />
+                                <ItemsControl ItemsSource="{Binding ComposeToolbarRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableComposeToolbarButton}">
+                                            <Grid Margin="0,3">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding Visible, Mode=TwoWay}" IsEnabled="{Binding CanHide}"
+                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding ShowLabel}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Note}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0"
+                                                            Command="{Binding DataContext.MoveComposeToolbarUpCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding UpLabel}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0"
+                                                            Command="{Binding DataContext.MoveComposeToolbarDownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding DownLabel}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Style="{StaticResource Button.Secondary}" Content="Reset compose toolbar" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                        Command="{Binding ResetComposeToolbarCommand}" ToolTip="Restore these buttons without changing the separate Compose More menu order" />
+                            </StackPanel>
+                        </Border>
+
                         <!-- Compose → More menu order (B15) -->
                         <TextBlock Text="COMPOSE MORE MENU" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border Style="{StaticResource Card}">
