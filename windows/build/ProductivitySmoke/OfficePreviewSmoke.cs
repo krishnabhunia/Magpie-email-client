@@ -48,21 +48,43 @@ internal static partial class Program
                 var web = (WebView2)((TabItem)tabs.Items[0]).Content;
                 var navigated = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var messages = 0;
+                var navigationUris = new Dictionary<ulong, string>();
+                var navigationState = "No navigation observed";
                 web.CoreWebView2InitializationCompleted += (_, e) =>
                 {
                     if (!e.IsSuccess) { navigated.TrySetException(e.InitializationException ?? new InvalidOperationException("Office WebView2 initialization failed.")); return; }
+                    web.CoreWebView2.NavigationStarting += (_, navigation) =>
+                    {
+                        // Do not dump inline document contents if a runtime reports a data URI.
+                        var uri = navigation.Uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                            ? "data:[inline document]" : navigation.Uri[..Math.Min(navigation.Uri.Length, 160)];
+                        navigationUris[navigation.NavigationId] = uri;
+                        navigationState = $"starting id={navigation.NavigationId}; uri={uri}";
+                        Console.WriteLine("OFFICE_PREVIEW_SMOKE " + navigationState);
+                    };
                     web.CoreWebView2.NavigationCompleted += async (_, navigation) =>
                     {
+                        navigationUris.TryGetValue(navigation.NavigationId, out var uri);
+                        navigationState = $"completed id={navigation.NavigationId}; uri={uri ?? "[bootstrap start not observed]"}; "
+                            + $"success={navigation.IsSuccess}; status={navigation.WebErrorStatus}";
+                        Console.WriteLine("OFFICE_PREVIEW_SMOKE " + navigationState);
                         if (!navigation.IsSuccess)
                         {
-                            navigated.TrySetException(new InvalidOperationException("Office preview navigation failed: " + navigation.WebErrorStatus));
+                            // Initialization can cancel its blank bootstrap document when production calls
+                            // NavigateToString. Cancellation alone is not readiness or a test failure: an actual
+                            // successful preview with the expected DOM must still arrive within the same timeout.
+                            // A blocked real preview can therefore never turn this fixture green.
+                            if (navigation.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+                            navigated.TrySetException(new InvalidOperationException("Office preview navigation failed: " + navigationState));
                             return;
                         }
                         try
                         {
                             // Ignore an environment's initial blank document; wait for the generated preview itself.
-                            var title = await web.CoreWebView2.ExecuteScriptAsync("document.title").WaitAsync(TimeSpan.FromSeconds(20));
-                            if (title == "\"Magpie read-only Office preview\"") navigated.TrySetResult(true);
+                            var rendered = await web.CoreWebView2.ExecuteScriptAsync(
+                                "document.title==='Magpie read-only Office preview'&&document.querySelector('h2')?.textContent==='Summary'&&document.querySelectorAll('table td').length===2")
+                                .WaitAsync(TimeSpan.FromSeconds(20));
+                            if (rendered == "true") navigated.TrySetResult(true);
                         }
                         catch (Exception ex) { navigated.TrySetException(ex); }
                     };
@@ -74,7 +96,11 @@ internal static partial class Program
                 window.Show();
                 try
                 {
-                    await navigated.Task.WaitAsync(TimeSpan.FromSeconds(45));
+                    try { await navigated.Task.WaitAsync(TimeSpan.FromSeconds(45)); }
+                    catch (TimeoutException ex)
+                    {
+                        throw new InvalidOperationException("Office preview never rendered its required title and document contents. Last navigation: " + navigationState, ex);
+                    }
                     var core = web.CoreWebView2;
                     Task<string> Script(string script) => core.ExecuteScriptAsync(script).WaitAsync(TimeSpan.FromSeconds(20));
                     Assert(await Script("document.querySelector('h2').textContent") == "\"Summary\""
