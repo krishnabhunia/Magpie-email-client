@@ -322,6 +322,8 @@ public partial class ComposeViewModel
             try { text = await GetNewText(); } catch { text = ""; }
             if (Composer.MentionsAttachment(text) && !await AskForgotAttachment()) return false;
         }
+        // Pictures pasted or deleted in the editor change the size without a card changing: measure the body as it is now.
+        if (GetHtml != null) { try { RefreshAttachmentSummary(await GetHtml()); } catch { /* keep the last measure */ } }
         if (AttachmentsOver && AskOverLimit != null && !await AskOverLimit(AttachmentSummary)) return false;
         return true;
     }

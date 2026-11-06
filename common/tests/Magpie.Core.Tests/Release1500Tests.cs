@@ -216,6 +216,16 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Editor_shortcuts_yield_to_keys_the_app_took_and_font_size_touches_only_the_selection()
+    {
+        // Mac: the menu bar's ⌘ keys are taken by MacMenus.KeyForwardScript (preventDefault) before the editor sees them.
+        Assert.Contains("if(e.defaultPrevented) return;", EditorPage.ForMac);
+        // Font size: elements that were already size 7 / xxx-large (reopened draft, quote) are left alone.
+        Assert.Contains("before=new Set(ed.querySelectorAll(sel))", EditorPage.Html);
+        Assert.Contains("if(before.has(el)) return;", EditorPage.Html);
+    }
+
+    [Fact]
     public void Signature_swap_leaves_the_other_persons_signature_in_the_quote_alone()
     {
         // A reply to a message Magpie sent: the quote carries their signature block; the writer has none yet.

@@ -120,9 +120,14 @@ function closestIn(n, sel){ var el=n && n.nodeType===1 ? n : (n ? n.parentNode :
 function selNode(){ var s=window.getSelection(); return s.rangeCount ? s.getRangeAt(0).startContainer : null; }
 function setFontSize(px){
   ed.focus(); restore();
+  // Only what this command creates is converted: size-7 / xxx-large elements already in the message (a reopened draft, the quote) stay as they are.
+  var sel='font[size="7"],span[style*="xxx-large"]', before=new Set(ed.querySelectorAll(sel));
   document.execCommand('fontSize', false, '7');
-  ed.querySelectorAll('font[size="7"]').forEach(function(f){ var sp=document.createElement('span'); sp.style.fontSize=px+'px'; while(f.firstChild) sp.appendChild(f.firstChild); f.replaceWith(sp); });
-  ed.querySelectorAll('span[style*="xxx-large"]').forEach(function(sp){ sp.style.fontSize=px+'px'; });
+  ed.querySelectorAll(sel).forEach(function(el){
+    if(before.has(el)) return;
+    if(el.tagName==='FONT'){ var sp=document.createElement('span'); sp.style.fontSize=px+'px'; while(el.firstChild) sp.appendChild(el.firstChild); el.replaceWith(sp); }
+    else el.style.fontSize=px+'px';
+  });
   post({t:'dirty'}); postState();
 }
 function setBlock(tag){
@@ -360,6 +365,7 @@ function cmd(mode, text){
 }
 ed.addEventListener('input', function(){ post({t:'dirty'}); postStats(); });
 document.addEventListener('keydown', function(e){
+  if(e.defaultPrevented) return;   // a key the app already took (on the Mac the menu bar's ⌘ keys, e.g. ⌘, = Settings) never formats text too
   var k=e.key, K=k.length===1?k.toUpperCase():k;
   if(mentionAt && mentionOpen && !e.ctrlKey && !e.altKey && (k==='Enter' || k==='Tab')){ e.preventDefault(); post({t:'key', k:'mentionpick'}); return; }
   if(mentionAt && mentionOpen && (k==='ArrowDown' || k==='ArrowUp')){ e.preventDefault(); post({t:'key', k:k==='ArrowDown'?'mentiondown':'mentionup'}); return; }

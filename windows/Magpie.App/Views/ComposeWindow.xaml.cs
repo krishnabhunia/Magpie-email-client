@@ -280,7 +280,7 @@ public partial class ComposeWindow : Window
                 case "img": ShowPictureBubble(root); break;
                 case "table": ShowTableMenu(root); break;
                 case "mention": ShowMentions(root); break;
-                case "stats": _vm.UpdateStats(root.GetProperty("text").GetString() ?? ""); break;
+                case "stats": _vm.UpdateStats(root.GetProperty("text").GetString() ?? ""); _ = RefreshSizeAsync(); break;   // pasted / deleted pictures count
                 case "pastepic": OnPastedPicture(root.GetProperty("data").GetString() ?? ""); break;
                 case "pastefiles": OnPastedFiles(); break;
                 case "key": OnEditorKey(root.GetProperty("k").GetString() ?? ""); break;
