@@ -156,11 +156,13 @@ public sealed class RecipientBox : Border
         PushText();
     }
 
-    /// <summary>Adds a finished address (from the suggestion list or the address book). Duplicates are skipped (A6).</summary>
-    public void AddChip(string entry)
+    /// <summary>Adds a finished address. Duplicates are skipped (A6). A suggestion pick replaces what was typed (that text was
+    /// the search); <paramref name="keepTyped"/> = the chip arrives from elsewhere (a drop, Move to Cc / Bcc) and a recipient
+    /// still being typed here stays as it is.</summary>
+    public void AddChip(string entry, bool keepTyped = false)
     {
         _updating = true;
-        try { AddChipCore(entry); Input.Text = ""; }
+        try { AddChipCore(entry); if (!keepTyped) Input.Text = ""; }
         finally { _updating = false; }
         PushText();
     }
@@ -252,7 +254,7 @@ public sealed class RecipientBox : Border
         UpdateFocusLook();
         if (e.Data.GetData(DragFormat) is not string entry) return;
         if (e.Data.GetData(typeof(RecipientBox)) is RecipientBox source && source != this) source.Remove(entry);
-        AddChip(entry);
+        AddChip(entry, keepTyped: true);
         e.Handled = true;
     }
 

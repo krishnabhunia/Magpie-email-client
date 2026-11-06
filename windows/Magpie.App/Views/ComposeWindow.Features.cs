@@ -853,8 +853,8 @@ public partial class ComposeWindow
             box.OpenContactRequested += address => { if (Application.Current.MainWindow?.DataContext is MainViewModel mv) { mv.OpenContact(address); Application.Current.MainWindow.Activate(); } };
             box.MoveRequested += (entry, where) =>
             {
-                if (where == "cc") { _vm.ShowCc = true; CcBox.AddChip(entry); }
-                else { _vm.ShowBcc = true; BccBox.AddChip(entry); }
+                if (where == "cc") { _vm.ShowCc = true; CcBox.AddChip(entry, keepTyped: true); }
+                else { _vm.ShowBcc = true; BccBox.AddChip(entry, keepTyped: true); }
             };
         }
     }
