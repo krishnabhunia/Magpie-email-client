@@ -52,7 +52,7 @@ public sealed partial class MailStore
             message.WriteTo(FormatOptions.Default, buffer);
             return SaveDraftRevision(draft, buffer.ToArray());
         }
-        catch (Exception ex) when (ex is IOException or FormatException or ParseException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FormatException or ParseException or ArgumentException)
         {
             return 0;
         }
@@ -86,7 +86,7 @@ public sealed partial class MailStore
             var sample = state.Html.Length > 8192 ? state.Html[..8192] : state.Html;
             preview = ShortRevisionText(Regex.Replace(MimeText.HtmlToText(sample), @"\s+", " ").Trim(), 160);
         }
-        catch (Exception ex) when (ex is IOException or FormatException or ParseException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FormatException or ParseException or JsonException or ArgumentException)
         {
             return 0;
         }
@@ -211,7 +211,7 @@ public sealed partial class MailStore
             // The MIME parts escape with the draft; do not dispose their in-memory content streams here.
             return draft;
         }
-        catch (Exception ex) when (ex is IOException or FormatException or ParseException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FormatException or ParseException or JsonException or ArgumentException)
         {
             message?.Dispose();
             return null;
