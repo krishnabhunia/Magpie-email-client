@@ -26,6 +26,7 @@ public static class EditorPage
 html,body{margin:0;padding:0;background:#fff;height:100%}
 body{font:14px/1.6 'IBM Plex Sans','Segoe UI',system-ui,sans-serif;color:#23282E}
 #ed{min-height:100%;padding:14px 20px 40px;outline:none;box-sizing:border-box;word-wrap:break-word;overflow-wrap:anywhere}
+#ed:focus-visible{box-shadow:inset 0 0 0 2px #418DA0}
 #ed p{margin:0 0 .6em}
 #ed pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#F1F3F5;border:1px solid #DCE2E7;border-radius:5px;padding:8px 10px;font:13px/1.5 Consolas,monospace}
 #ed:empty:before{content:attr(data-ph);color:#9AA0A6}
@@ -37,6 +38,7 @@ img{max-width:100%}
 a{color:#14606E}
 html.dark,html.dark body{background:#181C20}
 html.dark body{color:#D9D6D0}
+html.dark #ed:focus-visible{box-shadow:inset 0 0 0 2px #6CC3CF}
 html.dark #ed:empty:before{color:#6F7780}
 html.dark blockquote{border-left-color:#2C3238;color:#9AA1A8}
 html.dark .magpie-signature{color:#9AA1A8}
@@ -49,7 +51,7 @@ html.dark .magpie-quote a{color:#14606E}
 #ed.quote-folded .magpie-quote{border-bottom:1px dashed #B7BEC5;padding-bottom:6px}
 #ed.quote-folded .magpie-quote::after{content:'Quoted message collapsed';display:block;color:#6D7881;font:12px/1.5 system-ui,sans-serif}
 </style></head>
-<body><div id="ed" contenteditable="true" spellcheck="true" data-ph="Write your message…"></div>
+<body><div id="ed" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Message body" spellcheck="true" data-ph="Write your message…"></div>
 <script>
 const ed = document.getElementById('ed');
 let saved = null;

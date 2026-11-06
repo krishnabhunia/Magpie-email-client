@@ -89,6 +89,12 @@ internal static partial class Program
             var latest = JsonSerializer.Deserialize<string>(await Script("getNewText()"))!;
             Assert(await Insert(latest, "replaceBody") == "true" && JsonSerializer.Deserialize<string>(await Script("getNewText()")) == "Generated answer.", "Replace changes only the new body");
             await Script("setHtml('<p style=\"font:700 24px Georgia\">Existing formatted draft</p>')");
+            Assert(await Script("ed.getAttribute('role')") == "\"textbox\""
+                && await Script("ed.getAttribute('aria-label')") == "\"Message body\""
+                && await Script("ed.getAttribute('aria-multiline')") == "\"true\"",
+                "Message editor exposes a named multiline textbox to screen readers");
+            Assert(await Script("getComputedStyle(ed).boxShadow !== 'none'") == "true",
+                "Keyboard focus stays visible in the active message editor");
             await Script(EditorPage.TypographyScript(new TypographySettings(), true));
             Assert(await Script("getComputedStyle(ed.firstElementChild).fontSize") == "\"24px\""
                 && await Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Existing draft formatting survives new defaults");
