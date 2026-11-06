@@ -36,6 +36,8 @@ Version 15.0.0 implements Q91 / issue #132 from the approved [CW1 design](design
 | E5 | The last size, position and maximised state are saved (1 s after a change) and restored; a window that would open off-screen is pulled back; several open windows stagger by 28 px | `ComposeSettings.Left/Top/Width/Height/Maximized`, `RestorePlacement` |
 | E6 | `@` + 2 letters in the text → the recipient suggestions; Enter / Tab / ↑ ↓ work in the list; the pick becomes a `mailto:` link and the person is added to To if not there yet ("… added to To") | `checkMention / mention`, `AddMention` |
 
+The footer (Send ▾ · Send later · Attach ▾ · Templates ▾ · Signature ▾ · Options ▾) is a `WrapPanel`: at the 640 px minimum width, or with the assistant panel open, the trailing buttons wrap to a second line instead of being clipped; the word count, status and Discard stay docked right.
+
 ## Shortcuts
 
 | Message | Keys | Text | Keys |

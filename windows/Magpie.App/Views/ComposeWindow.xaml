@@ -279,7 +279,8 @@
                                 </StackPanel>
                             </Button>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal">
+                        <!-- A WrapPanel: in a narrow window (640 px minimum, assistant panel open) the trailing buttons wrap to a second line instead of being clipped. -->
+                        <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Style="{StaticResource Button.Primary}" Content="Send" Padding="22,6" Click="OnSend" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}" ToolTip="Send (Ctrl+Enter)" />
                             <Button Style="{StaticResource Button.Primary}" Content="&#xE70D;" FontFamily="{StaticResource Font.Icons}" FontSize="9" Padding="8,6" Margin="-4,0,0,0" Click="OnSendMenu" ToolTip="Send &amp; Archive, Send later"
                                     IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}" />
@@ -304,7 +305,7 @@
                                     <TextBlock Text="Options ▾" />
                                 </StackPanel>
                             </Button>
-                        </StackPanel>
+                        </WrapPanel>
                     </DockPanel>
                 </Border>
             </Grid>
