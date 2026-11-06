@@ -246,6 +246,24 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Recipient_entries_are_quoted_so_names_with_separators_stay_one_recipient()
+    {
+        Assert.Equal("a@b.com", Composer.FormatAddress("", "a@b.com"));
+        Assert.Equal("a@b.com", Composer.FormatAddress("a@b.com", "a@b.com"));
+        Assert.Equal("Ann <a@b.com>", Composer.FormatAddress("Ann", "a@b.com"));
+        foreach (var name in new[] { "Sales; Support", "Bhunia, Krishna", "Ann \"Boss\" Lee" })
+        {
+            var entry = Composer.FormatAddress(name, "a@b.com");
+            var pieces = Composer.SplitAddresses(entry);
+            Assert.Single(pieces);
+            Assert.Empty(Composer.InvalidAddresses(entry));
+            var (n, a) = Composer.NameAndAddress(pieces[0]);
+            Assert.Equal(name, n);
+            Assert.Equal("a@b.com", a);
+        }
+    }
+
+    [Fact]
     public void Signature_swap_leaves_the_other_persons_signature_in_the_quote_alone()
     {
         // A reply to a message Magpie sent: the quote carries their signature block; the writer has none yet.

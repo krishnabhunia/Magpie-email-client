@@ -92,6 +92,20 @@ public static class Composer
         return ("", (piece ?? "").Trim());
     }
 
+    /// <summary>"Name &lt;address&gt;" for an address field, quoted and escaped the way mail expects (a name with a comma, semicolon
+    /// or quote stays one recipient); the bare address when there is no name or the name is the address.</summary>
+    public static string FormatAddress(string? name, string address)
+    {
+        address = (address ?? "").Trim();
+        var n = (name ?? "").Trim();
+        if (n.Length == 0 || string.Equals(n, address, StringComparison.OrdinalIgnoreCase)) return address;
+        if (PlainName.IsMatch(n)) return n + " <" + address + ">";   // letters, digits, spaces, . _ ' - : no quoting needed
+        try { return new MailboxAddress(n, address).ToString(); }    // anything else: MimeKit quotes and escapes it
+        catch { return address; }
+    }
+
+    private static readonly Regex PlainName = new(@"^[\p{L}\p{N} ._'\-]+$", RegexOptions.Compiled);
+
     /// <summary>True when the piece is a usable email address (what Send would accept).</summary>
     public static bool IsValidAddress(string piece) => InvalidAddresses(piece).Count == 0 && !string.IsNullOrWhiteSpace(piece);
 

@@ -617,7 +617,7 @@ public partial class ComposeWindow : Window
     private void AcceptSuggestion()
     {
         if (_suggestTarget == null || SuggestList.SelectedItem is not ContactSuggestion contact) { CloseSuggestions(); return; }
-        var entry = string.IsNullOrEmpty(contact.Name) ? contact.Address : $"{(contact.Name.Contains(',') ? "\"" + contact.Name + "\"" : contact.Name)} <{contact.Address}>";
+        var entry = Composer.FormatAddress(contact.Name, contact.Address);
         var owner = BoxOf(_suggestTarget);
         CloseSuggestions();
         if (owner != null) owner.AddChip(entry);

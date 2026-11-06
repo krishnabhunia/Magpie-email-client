@@ -58,7 +58,7 @@ public partial class ComposeViewModel
         var have = Composer.SplitAddresses(To).Concat(Composer.SplitAddresses(Cc)).Concat(Composer.SplitAddresses(Bcc))
             .Select(p => Composer.NameAndAddress(p).Address);
         if (have.Contains(address, StringComparer.OrdinalIgnoreCase)) return false;
-        var entry = string.IsNullOrWhiteSpace(name) ? address : (name.Contains(',') ? "\"" + name + "\"" : name) + " <" + address + ">";
+        var entry = Composer.FormatAddress(name, address);
         To = To.Trim().Length == 0 ? entry : To.TrimEnd().TrimEnd(',', ';') + ", " + entry;
         return true;
     }

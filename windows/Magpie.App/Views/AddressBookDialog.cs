@@ -166,7 +166,7 @@ internal sealed class AddressBookDialog
     {
         foreach (var m in _ticked.Values)
         {
-            var entry = m.Name.Length > 0 && m.Name != m.Email ? (m.Name.Contains(',') ? "\"" + m.Name + "\"" : m.Name) + " <" + m.Email + ">" : m.Email;
+            var entry = Core.Mail.Composer.FormatAddress(m.Name, m.Email);
             foreach (var list in new[] { _to, _cc, _bcc }) list.RemoveAll(x => x.Equals(entry, StringComparison.OrdinalIgnoreCase));
             target.Add(entry);
         }
