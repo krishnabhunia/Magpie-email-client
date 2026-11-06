@@ -144,10 +144,12 @@ public partial class ComposeWindow : Window
         DataContext = _vm;
         _vm.GetHtml = GetHtmlAsync;
         _vm.GetNewText = GetNewTextAsync;
+        _vm.GetWritingText = GetWritingTextAsync;
         _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
         _vm.FocusAnswerBox = () => Dispatcher.BeginInvoke(new Action(ReplyAi.FocusAnswer), System.Windows.Threading.DispatcherPriority.Input);
         _vm.EditorCommand = EditorCommandAsync;
         _vm.RestoreRevisionEditor = RestoreRevisionEditorAsync;
+        InitializeClipboardPaste();
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
         _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
         AppServices.Engine.Settings.Changed += _settingsChanged;
@@ -291,8 +293,10 @@ public partial class ComposeWindow : Window
             switch (root.GetProperty("t").GetString())
             {
                 case "ready":
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setNativeAttachmentPaste(true)");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setLinkBubbleEnabled(true)");
                     if (_vm.IsPlainText)
                         await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
                     QuoteToggleButton.Visibility = _vm.InitialHtml.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
@@ -307,6 +311,7 @@ public partial class ComposeWindow : Window
                     await _vm.ReplyEditorReadyAsync();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
+                case "clipboardPaste": await PasteClipboardAttachmentAsync(showEmptyMessage: false); break;
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
@@ -419,25 +424,34 @@ public partial class ComposeWindow : Window
     {
         if (_plain || !_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
         if (_vm.IsPlainText && command is not ("undo" or "redo")) return;
-        var value = command switch { "foreColor" => "#14606e", "hiliteColor" => "#fff0a6", _ => null };
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, {JsonSerializer.Serialize(value)})");
+        if (command is "foreColor" or "hiliteColor") { await ShowColourPaletteAsync(sender, command); return; }
+        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, null)");
     }
 
     private async void OnLink(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady) return;
-        var current = "";
-        try { current = JsonSerializer.Deserialize<string>(await Editor.CoreWebView2.ExecuteScriptAsync("selectedLinkUrl()")) ?? ""; }
-        catch (Exception) { /* A new selection can still create a link. */ }
-        var url = TextPromptDialog.Ask(this, current.Length > 0 ? "Edit link" : "Insert link", "Web address", current.Length > 0 ? current : "https://");
-        if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
-        if (!ComposeSafety.ValidComposeLink(url)) { Ui.Error("Insert link", "Use an http, https or mailto address.", this); return; }
-        await Editor.CoreWebView2.ExecuteScriptAsync($"setSelectedLink({JsonSerializer.Serialize(url)})");
+        if (!CanUseRichFormatting) return;
+        try
+        {
+            if (await Editor.CoreWebView2.ExecuteScriptAsync("captureLinkSelection()") != "true") return;
+            var current = JsonSerializer.Deserialize<string>(await Editor.CoreWebView2.ExecuteScriptAsync("selectedLinkUrl()")) ?? "";
+            var url = TextPromptDialog.Ask(this, current.Length > 0 ? "Edit link" : "Insert link", "Web address (http, https or mailto)", current.Length > 0 ? current : "https://")?.Trim();
+            if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
+            if (!ComposeSafety.ValidComposeLink(url)) { Ui.Error("Insert link", "Use an http, https or mailto address.", this); return; }
+            var changed = await Editor.CoreWebView2.ExecuteScriptAsync($"setSelectedLink({JsonSerializer.Serialize(url)})");
+            if (changed != "true") Ui.Error("Edit link", "The address is invalid or the selected text changed. Select the link or text and try again.", this);
+        }
+        catch (Exception ex) { Log.Warn("compose link: " + ex.Message); }
+        finally
+        {
+            try { if (Editor.CoreWebView2 != null) await Editor.CoreWebView2.ExecuteScriptAsync("cancelLinkSelection()"); }
+            catch (Exception ex) { Log.Warn("close compose link: " + ex.Message); }
+        }
     }
 
     private async void OnRemoveLink(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        if (!CanUseRichFormatting) return;
         await Editor.CoreWebView2.ExecuteScriptAsync("removeSelectedLink()");
     }
 
@@ -449,6 +463,7 @@ public partial class ComposeWindow : Window
             + "Ctrl+F — Find text in this message\nCtrl+H — Find and replace\n"
             + "Ctrl+B — Bold\nCtrl+I — Italic\nCtrl+U — Underline\n"
             + "Ctrl+Z — Undo\nCtrl+Y — Redo\n"
+            + "Ctrl+V — Paste text or files; choose inline/attachment for pictures\n"
             + "Ctrl+Shift+A — Open AI assistant when available\n"
             + "Ctrl+/ — Show this shortcut sheet\n"
             + "Esc — Close the compose window (asks about unsaved changes)",
@@ -510,12 +525,16 @@ public partial class ComposeWindow : Window
         var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };
         foreach (var t in AppServices.Engine.Config.Templates)
         {
-            var mi = new MenuItem { Header = t.Name };
-            mi.Click += (_, _) => _vm.InsertTemplate(t);
+            var mi = new MenuItem
+            {
+                Header = t.Name,
+                ToolTip = string.IsNullOrWhiteSpace(t.Subject) ? "Insert message text at the cursor" : "Subject: " + t.Subject + "\nInsert message text; an existing subject is replaced only after confirmation.",
+            };
+            mi.Click += async (_, _) => await UseQuickTemplateAsync(t);
             menu.Items.Add(mi);
         }
         if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-        var saveCurrent = new MenuItem { Header = "Save current message text as template…" };
+        var saveCurrent = new MenuItem { Header = "Save subject and message text as template…" };
         saveCurrent.Click += OnSaveCurrentAsTemplate;
         menu.Items.Add(saveCurrent);
         var manage = new MenuItem { Header = "Manage templates…" };
@@ -534,7 +553,8 @@ public partial class ComposeWindow : Window
                 Ui.Error("Save as template", "Write some message text before saving it as a reusable template.", this);
                 return;
             }
-            var name = TextPromptDialog.Ask(this, "Save as template", "Template name (message text only, not signature or quoted email)", _vm.Subject);
+            var subject = _vm.Subject;
+            var name = TextPromptDialog.Ask(this, "Save as template", "Template name (subject + new message text; excludes signature, quoted email and attachments)", subject);
             if (name == null) return;
             name = name.Trim();
             if (name.Length is 0 or > 100)
@@ -546,12 +566,13 @@ public partial class ComposeWindow : Window
             var existing = engine.Config.Templates.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
-                if (!Ui.Confirm("Replace template", $"A template called '{existing.Name}' already exists. Replace its text?")) return;
+                if (!Ui.Confirm("Replace template", $"A template called '{existing.Name}' already exists. Replace its saved subject and message text?", this)) return;
+                existing.Subject = subject;
                 existing.Body = text;
             }
-            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Body = text });
+            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Subject = subject, Body = text });
             engine.Settings.Save();
-            MessageBox.Show(this, $"Template '{name}' was saved. Choose Templates to insert it into another message.",
+            MessageBox.Show(this, $"Template '{name}' was saved with its subject and message text. Choose Templates to use it in another message. Existing subjects are kept unless you explicitly choose to replace them.",
                 "Template saved", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex) { Ui.Error("Save as template", ex.Message, this); }
@@ -590,7 +611,14 @@ public partial class ComposeWindow : Window
 
     private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_forceClose || !_vm.Dirty) return;
+        if (_forceClose) return;
+        if (_vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy)
+        {
+            e.Cancel = true;
+            _vm.Status = "Wait for the current send, attachment or restore operation to finish before closing.";
+            return;
+        }
+        if (!_vm.Dirty) return;
         e.Cancel = true;
         if (await AskToKeepAsync("Keep this message as a draft?\n\nYes — keep it (it goes to your Drafts folder; if you are offline it waits on this PC and uploads later).\nNo — discard it."))
         {
@@ -618,12 +646,17 @@ public partial class ComposeWindow : Window
         finally { _asking = false; }
     }
 
-    /// <summary>Has content that would be lost if the window closed now.</summary>
-    public bool HasUnsavedContent => !_forceClose && _vm.Dirty;
+    /// <summary>Has unsaved content or an in-flight operation that must settle before app exit or Windows logoff.</summary>
+    public bool HasUnsavedContent => !_forceClose && (_vm.Dirty || _vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy);
 
     /// <summary>Called when Magpie quits: asks about an unsent message first. False = the user cancelled quitting.</summary>
     public async Task<bool> CloseForExitAsync()
     {
+        if (!_forceClose && (_vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy))
+        {
+            _vm.Status = "Wait for the current send, attachment or restore operation to finish before closing.";
+            return false;
+        }
         if (!_forceClose && _vm.Dirty && !await AskToKeepAsync("Magpie is closing. Keep this message as a draft?\n\nYes — keep it (Drafts, or on this PC if offline).\nNo — discard it."))
             return false;
         _forceClose = true;
@@ -641,7 +674,9 @@ public partial class ComposeWindow : Window
 
     private void OnAddressChanged(object sender, TextChangedEventArgs e)
     {
-        if (sender is not TextBox box || !box.IsKeyboardFocusWithin) return;
+        if (sender is not TextBox box || _vm == null) return;
+        UpdateRecipientValidation(box);
+        if (!box.IsKeyboardFocusWithin) { RefreshRecipientChips(box); return; }
         if (_mentionSuggesting) HideMentionSuggestions();
         var token = LastToken(box.Text);
         if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { SuggestPopup.IsOpen = false; return; }

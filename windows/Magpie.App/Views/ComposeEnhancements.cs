@@ -735,18 +735,7 @@ public partial class ComposeWindow
         menu.IsOpen = true;
     }
 
-    private void OnInsertEmoji(object sender, RoutedEventArgs e)
-    {
-        if (_plain || !_editorReady) return;
-        var menu = new ContextMenu { PlacementTarget = sender as UIElement, Placement = PlacementMode.Bottom };
-        foreach (var emoji in new[] { "🙂", "👍", "✅", "🙏", "📎", "⭐", "❤️", "🎉", "→", "₹" })
-        {
-            var item = new MenuItem { Header = emoji };
-            item.Click += async (_, _) => await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('insertText', {JsonSerializer.Serialize(emoji)})");
-            menu.Items.Add(item);
-        }
-        menu.IsOpen = true;
-    }
+    private async void OnInsertEmoji(object sender, RoutedEventArgs e) => await ShowEmojiPickerAsync(sender);
 
     private void OnMoreFormat(object sender, RoutedEventArgs e)
     {
@@ -855,17 +844,26 @@ public partial class ComposeWindow
         var body = _vm.GetNewText != null ? await _vm.GetNewText() : "";
         var missing = ComposeSafety.MissingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path));
         var duplicates = ComposeSafety.DuplicateRecipients(_vm.To, _vm.Cc, _vm.Bcc);
-        var encoded = ComposeSafety.EncodedSizeOfExistingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path), "");
+        var invalid = Composer.InvalidAddresses(_vm.To).Concat(Composer.InvalidAddresses(_vm.Cc))
+            .Concat(Composer.InvalidAddresses(_vm.Bcc)).Concat(Composer.InvalidAddresses(_vm.ReplyTo)).ToArray();
+        EncodedMessageSize? encoded = null;
+        string? sizeError = null;
+        try { encoded = await _vm.MeasureDraftSizeAsync(); }
+        catch (Exception ex) { sizeError = ex.Message; }
         var words = ComposeSafety.WordCount(body);
         var notes = new List<string>
         {
             "Recipients: " + Composer.ParseAddresses(_vm.To + "," + _vm.Cc + "," + _vm.Bcc).Mailboxes.Count(),
             "Visible To/Cc addresses: " + ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc)
                 + (ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc) > 20 ? " (consider Bcc for privacy)" : ""),
-            "Attachments: " + _vm.Attachments.Count + ", approximately " + HtmlRenderer.FormatSize(encoded) + " encoded (plus any forwarded files)",
+            "Attachments: " + _vm.Attachments.Count,
+            encoded == null ? "Full message size unavailable: " + sizeError
+                : $"Full encoded message: {(encoded.AtLeast ? "at least " : "")}{HtmlRenderer.FormatSize(encoded.Bytes)} (including body, inline pictures and forwarded files)",
             "Suggested send size for this account: " + HtmlRenderer.FormatSize(ComposeSafety.SuggestedOutgoingLimitBytes(_vm.From)) + " (server limits may differ)",
             $"New writing: {words} words · approximately {ComposeSafety.EstimatedReadingMinutes(words)} minute(s) to read",
             "Priority: " + _vm.Priority,
+            "Read receipt: " + (_vm.RequestReadReceipt ? "requested (recipient software may decline)" : "not requested"),
+            "Message format: " + (_vm.IsPlainText ? "plain text" : "rich text / HTML"),
         };
         if (_vm.WarnExternalRecipients && _vm.From != null)
         {
@@ -873,6 +871,9 @@ public partial class ComposeWindow
             if (external.Count > 0) notes.Add("EXTERNAL: " + string.Join(", ", external));
         }
         if (missing.Count > 0) notes.Add("MISSING: " + string.Join(", ", missing.Select(Path.GetFileName)));
+        if (invalid.Length > 0) notes.Add("INVALID OR INCOMPLETE ADDRESSES: " + string.Join(", ", invalid));
+        if (string.IsNullOrWhiteSpace(_vm.To) && string.IsNullOrWhiteSpace(_vm.Cc) && string.IsNullOrWhiteSpace(_vm.Bcc))
+            notes.Add("No recipients");
         if (duplicates.Count > 0) notes.Add("DUPLICATES: " + string.Join(", ", duplicates));
         if (ComposeSafety.MentionsAttachment(body) && _vm.Attachments.Count == 0) notes.Add("Possibly forgotten attachment");
         if (string.IsNullOrWhiteSpace(_vm.Subject)) notes.Add("No subject");

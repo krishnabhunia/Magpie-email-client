@@ -192,7 +192,7 @@ public static partial class ComposeSafety
             .ToArray();
     }
 
-    public static int WordCount(string text) => Regex.Matches(text ?? "", @"\b[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*\b").Count;
+    public static int WordCount(string text) => Regex.Matches(text ?? "", @"\b[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:['’\-][\p{L}\p{N}][\p{L}\p{M}\p{N}]*)*\b").Count;
 
     public static int EstimatedReadingMinutes(int words) => Math.Max(1, (Math.Max(0, words) + 199) / 200);
 

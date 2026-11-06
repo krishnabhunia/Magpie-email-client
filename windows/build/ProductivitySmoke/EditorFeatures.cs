@@ -205,6 +205,10 @@ internal static partial class Program
                 && await Script("ed.contentEditable") == "\"true\""
                 && await Script("ed.querySelector('p')!==null") == "true",
                 "Plain-text switch can return to rich editing without restoring removed formatting");
+            await CheckFormattingControlsAsync(Script, view);
+            await CheckEmojiPickerAsync(root, Script);
+            await CheckClipboardEditorAsync(Script);
+            await CheckEditorWritingToolsAsync(Script);
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }

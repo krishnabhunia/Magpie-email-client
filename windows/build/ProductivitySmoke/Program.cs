@@ -63,6 +63,10 @@ internal static partial class Program
                 CheckMainWindow(expectStartupFailure);
                 if (expectStartupFailure) continue;
                 CheckFeatureSettings(owner, engine, output, theme);
+                CheckComposeRecipients(engine, theme);
+                CheckClipboardPictureControls(theme);
+                await CheckComposeWritingToolsAsync(engine, theme);
+                await CheckComposeBusyCloseAsync(theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
@@ -89,6 +93,7 @@ internal static partial class Program
             CheckAiReplySentOnlyFallback(root, engine);
             CheckAiWritingFlow(root, engine);
             await CheckDraftHistoryAsync(root, engine);
+            await CheckComposeMessageSizeAsync(root, engine);
             await CheckEditorPageAsync(root);
             await CheckOfficePreviewAsync(root);
             vm.RemoveWorkspaceView(id);
@@ -128,6 +133,7 @@ internal static partial class Program
             Assert(window?.FindName("SearchBox") is TextBox, "Full main window constructs the search box");
             Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
             CheckUpdateButton(window!);
+            CheckPriorityIndicator(window!);
         }
         finally
         {

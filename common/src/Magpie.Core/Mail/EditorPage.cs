@@ -50,16 +50,24 @@ html.dark .magpie-quote a{color:#14606E}
 #ed.quote-folded .magpie-quote > :not(:first-child){display:none}
 #ed.quote-folded .magpie-quote{border-bottom:1px dashed #B7BEC5;padding-bottom:6px}
 #ed.quote-folded .magpie-quote::after{content:'Quoted message collapsed';display:block;color:#6D7881;font:12px/1.5 system-ui,sans-serif}
+#linkBubble{position:fixed;z-index:10;max-width:min(420px,calc(100vw - 24px));padding:10px 12px;border:1px solid #B8C0C8;border-radius:8px;background:#fff;color:#23282E;box-shadow:0 6px 24px #0002;font:13px/1.5 'Segoe UI',system-ui,sans-serif}
+#linkBubble[hidden]{display:none}#linkBubble .link-address{display:block;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:8px;user-select:text}
+#linkBubble .link-actions{display:flex;gap:8px}#linkBubble button{border:1px solid #B8C0C8;border-radius:4px;background:#F1F5F6;color:#14606E;padding:4px 10px;cursor:pointer;font:inherit}
+#linkBubble button:focus-visible{outline:2px solid #418DA0;outline-offset:2px}html.dark #linkBubble{background:#232B32;color:#E0E4E8;border-color:#4A5964}html.dark #linkBubble button{background:#29343E;color:#6CC3CF;border-color:#596976}
 </style></head>
 <body><div id="ed" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Message body" spellcheck="true" data-ph="Write your message…"></div>
+<div id="linkBubble" role="dialog" aria-label="Link actions" aria-describedby="linkAddress" hidden><span id="linkAddress" class="link-address"></span><div class="link-actions"><button id="editContextLink" type="button">Edit link</button><button id="removeContextLink" type="button">Remove link</button><button id="closeContextLink" type="button" aria-label="Close link actions">Close</button></div></div>
 <script>
 const ed = document.getElementById('ed');
+const linkBubble=document.getElementById('linkBubble');
 let saved = null;
 let selectedImage = null;
 let selectedTableCell = null;
 let isPlainText = false;
 let rewrite = null;
 let typography = null;
+let contextualLink=null,linkEditTarget=null,formattingTarget=null,dismissedLink=null,linkBubbleEnabled=false;
+let emojiTarget=null;
 const protectedFonts = new WeakMap();
 function fontCss(style){ return 'font-family:' + JSON.stringify(style.family) + ';font-size:' + style.size + 'px;font-weight:400'; }
 function applyFont(el, style, normal){ el.style.fontFamily=style.family; el.style.fontSize=style.size+'px'; if(normal!==false) el.style.fontWeight='400'; }
@@ -139,6 +147,9 @@ function setHtml(h){
   // Whole-draft restoration invalidates every range or node captured from the previous DOM.
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
   selectedImage=null;selectedTableCell=null;saved=null;
+  clipboardPictureTarget=null;
+  hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;
+  emojiTarget=null;
   isPlainText=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
   // Fold only in the editor's view. getHtml() still serializes the full quote.
@@ -166,11 +177,11 @@ function getHtml(){
   Array.from(copy.childNodes).forEach(function(n){if(n.nodeType===Node.TEXT_NODE && n.textContent){const span=document.createElement('span');applyFont(span,typography.body);n.replaceWith(span);span.appendChild(n);}});
   return copy.innerHTML;
 }
-function getNewText(){
+function getNewText(includeEmbeddedContent){
   const source=ed.cloneNode(true), stop=source.querySelector('.magpie-signature,.magpie-quote');
   const range=document.createRange();range.selectNodeContents(source);if(stop) range.setEndBefore(stop);
   const copy=document.createElement('div');copy.appendChild(range.cloneContents());
-  copy.querySelectorAll('img,video,audio,object').forEach(function(n){n.replaceWith(document.createTextNode('[Embedded content]'));});
+  copy.querySelectorAll('img,video,audio,object').forEach(function(n){n.replaceWith(document.createTextNode(includeEmbeddedContent===false?'':'[Embedded content]'));});
   copy.querySelectorAll('br').forEach(function(n){n.replaceWith(document.createTextNode('\n'));});
   copy.querySelectorAll('p,div,li').forEach(function(n){n.appendChild(document.createTextNode('\n'));});
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
@@ -196,6 +207,9 @@ function setEditorSpellcheck(enabled){
 function setEditorPlainText(enabled,notify){
   const next=!!enabled;
   if(next===isPlainText) return true;
+  clipboardPictureTarget=null;
+  hideLinkBubble();linkEditTarget=null;formattingTarget=null;
+  emojiTarget=null;
   // Unfold quotes before conversion: the text-only email must retain the entire thread.
   ed.classList.remove('quote-folded');
   const visibleText=ed.innerText;
@@ -220,10 +234,52 @@ function toggleQuoteFold(){
   if(!ed.querySelector('.magpie-quote')) return false;
   ed.classList.toggle('quote-folded');return ed.classList.contains('quote-folded');
 }
-function restore(){ if(saved){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); } }
-function fmt(c, v){ ed.focus(); restore(); document.execCommand(c, false, v === undefined ? null : v); post({t:'dirty'}); }
+function validEditorRange(range){ return !!range && ed.contains(range.startContainer) && ed.contains(range.endContainer); }
+function restore(){ if(validEditorRange(saved)){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); return true; } return false; }
+function fmt(c, v){
+  if(isPlainText && !['undo','redo','insertText'].includes(c)) return false;
+  ed.focus();if(!restore()) return false;
+  const changed=document.execCommand(c, false, v === undefined ? null : v);
+  if(changed) post({t:'dirty'});return changed;
+}
+function captureFormattingSelection(){
+  formattingTarget=null;
+  if(isPlainText||!validEditorRange(saved)) return false;
+  formattingTarget={range:saved.cloneRange(),html:ed.innerHTML};return true;
+}
+function cancelFormattingSelection(){ formattingTarget=null; }
+function captureEmojiSelection(){
+  emojiTarget=null;
+  if(!validEditorRange(saved))return false;
+  emojiTarget={range:saved.cloneRange(),html:ed.innerHTML,plain:isPlainText};return true;
+}
+function cancelEmojiSelection(){emojiTarget=null;}
+function insertSelectedEmoji(value){
+  const target=emojiTarget;
+  if(typeof value!=='string'||!value.length||value.length>32||/[\u0000-\u001f\u007f]/.test(value)
+      ||!target||target.plain!==isPlainText||target.html!==ed.innerHTML||!validEditorRange(target.range))return false;
+  saved=target.range.cloneRange();emojiTarget=null;ed.focus();restore();
+  const changed=document.execCommand('insertText',false,value);
+  const selection=window.getSelection();
+  if(selection.rangeCount&&validEditorRange(selection.getRangeAt(0)))saved=selection.getRangeAt(0).cloneRange();
+  if(changed)post({t:'dirty'});return changed;
+}
+function applyEditorColour(command,colour){
+  if(isPlainText||!['foreColor','hiliteColor'].includes(command)||typeof colour!=='string'
+      ||(!/^#[0-9a-f]{6}$/i.test(colour)&&!(command==='hiliteColor'&&colour==='transparent'))) return false;
+  const target=formattingTarget;
+  if(!target || target.html!==ed.innerHTML||!validEditorRange(target.range)) return false;
+  const range=target.range;
+  if(!validEditorRange(range)) return false;
+  saved=range.cloneRange();formattingTarget=null;
+  ed.focus();restore();
+  const changed=document.execCommand(command,false,colour);
+  const selection=window.getSelection();
+  if(selection.rangeCount && validEditorRange(selection.getRangeAt(0))) saved=selection.getRangeAt(0).cloneRange();
+  if(changed) post({t:'dirty'});return changed;
+}
 function setParagraphStyle(style){
-  if(!['p','h1','h2','h3','pre'].includes(style)) return false;
+  if(isPlainText||!['p','h1','h2','h3','pre'].includes(style)) return false;
   ed.focus();restore();
   if(!document.execCommand('formatBlock',false,style)) return false;
   if(style==='pre'){
@@ -240,35 +296,103 @@ function setParagraphStyle(style){
   post({t:'dirty'});return true;
 }
 function linkAtCaret(){
-  const node=saved?.startContainer || window.getSelection()?.anchorNode;
+  if(isPlainText) return null;
+  if(contextualLink&&ed.contains(contextualLink)) return contextualLink;
+  const node=validEditorRange(saved)?saved.startContainer:window.getSelection()?.anchorNode;
   const element=node?.nodeType===Node.ELEMENT_NODE ? node : node?.parentElement;
   const link=element?.closest('a');
   return link && ed.contains(link) ? link : null;
 }
 function selectedLinkUrl(){ return linkAtCaret()?.getAttribute('href') || ''; }
+function validLinkUrl(url){
+  if(typeof url!=='string'||url.length>2048||/[\u0000-\u0020\u007f]/.test(url)) return false;
+  let parsed;try{parsed=new URL(url);}catch(e){return false;}
+  return ['https:','http:'].includes(parsed.protocol)?!!parsed.hostname:parsed.protocol==='mailto:'&&!!parsed.pathname;
+}
+function captureLinkSelection(){
+  linkEditTarget=null;
+  if(isPlainText||!validEditorRange(saved)) return false;
+  linkEditTarget={range:saved.cloneRange(),link:linkAtCaret(),html:ed.innerHTML};return true;
+}
+function cancelLinkSelection(){ linkEditTarget=null;dismissLinkBubble(); }
 function setSelectedLink(url){
-  let parsed; try{parsed=new URL(url);}catch(e){return false;}
-  if(!['https:', 'http:', 'mailto:'].includes(parsed.protocol)) return false;
-  ed.focus();restore();
-  const existing=linkAtCaret();
-  if(existing) existing.setAttribute('href', url);
-  else if(saved && saved.collapsed){
+  if(isPlainText||!validLinkUrl(url)) return false;
+  const target=linkEditTarget;
+  if(!target||target.html!==ed.innerHTML||!validEditorRange(target.range)||(target.link&&!ed.contains(target.link))) return false;
+  const existing=target.link;
+  const range=target.range;
+  if(!validEditorRange(range)) return false;
+  saved=range.cloneRange();ed.focus();restore();
+  if(existing) existing.setAttribute('href',url);
+  else if(saved.collapsed){
     const link=document.createElement('a');link.setAttribute('href',url);link.textContent=url;
     saved.insertNode(link);saved.setStartAfter(link);saved.collapse(true);
     const selection=window.getSelection();selection.removeAllRanges();selection.addRange(saved);
-  }else document.execCommand('createLink', false, url);
+  }else if(!document.execCommand('createLink',false,url)) return false;
+  linkEditTarget=null;dismissedLink=existing;hideLinkBubble();
   post({t:'dirty'});return true;
 }
 function removeSelectedLink(){
-  ed.focus();restore();
+  if(isPlainText) return false;
   const existing=linkAtCaret();
   if(!existing) return false;
-  const parent=existing.parentNode;
+  const parent=existing.parentNode,index=Array.from(parent.childNodes).indexOf(existing),count=existing.childNodes.length;
+  const range=validEditorRange(saved)?saved.cloneRange():null;
+  // Moving nodes preserves their markup, but live DOM ranges may collapse while those nodes move.
+  const start=range?[range.startContainer,range.startOffset]:null,end=range?[range.endContainer,range.endOffset]:null;
   while(existing.firstChild) parent.insertBefore(existing.firstChild,existing);
   parent.removeChild(existing);
+  function mapped(point){
+    if(point[0]===existing) return [parent,index+point[1]];
+    if(point[0]===parent&&point[1]>index) return [parent,point[1]+count-1];
+    return point;
+  }
+  if(start&&end){
+    try{const restored=document.createRange();restored.setStart(...mapped(start));restored.setEnd(...mapped(end));saved=restored;}
+    catch(e){saved=null;}
+  }
+  hideLinkBubble();linkEditTarget=null;ed.focus();restore();
   post({t:'dirty'});return true;
 }
+function hideLinkBubble(clearTarget){
+  linkBubble.hidden=true;
+  if(clearTarget!==false) contextualLink=null;
+}
+function dismissLinkBubble(){dismissedLink=contextualLink||linkAtCaret();hideLinkBubble();}
+function setLinkBubbleEnabled(enabled){linkBubbleEnabled=!!enabled;if(!linkBubbleEnabled)hideLinkBubble();}
+function showLinkBubble(link){
+  if(!linkBubbleEnabled||isPlainText||!link||!ed.contains(link)) {hideLinkBubble();return false;}
+  contextualLink=link;
+  const label=document.getElementById('linkAddress');
+  label.textContent=(link.getAttribute('href')||'No address').slice(0,2048);
+  label.title=label.textContent;
+  linkBubble.hidden=false;
+  const bounds=link.getBoundingClientRect();
+  linkBubble.style.left=Math.max(12,Math.min(bounds.left,window.innerWidth-linkBubble.offsetWidth-12))+'px';
+  const below=bounds.bottom+7;
+  linkBubble.style.top=Math.max(8,below+linkBubble.offsetHeight<window.innerHeight?below:bounds.top-linkBubble.offsetHeight-7)+'px';
+  return true;
+}
+document.getElementById('editContextLink').addEventListener('click',function(){
+  if(captureLinkSelection()){hideLinkBubble(false);post({t:'link'});}
+});
+document.getElementById('removeContextLink').addEventListener('click',function(){removeSelectedLink();});
+document.getElementById('closeContextLink').addEventListener('click',function(){dismissLinkBubble();ed.focus();restore();});
+document.addEventListener('pointerdown',function(e){if(!linkBubble.contains(e.target)&&!e.target.closest?.('#ed a')) dismissLinkBubble();});
+document.addEventListener('scroll',function(){dismissLinkBubble();},true);
+window.addEventListener('resize',function(){dismissLinkBubble();});
 ed.addEventListener('click', function(e){
+  const link=e.target.closest?.('a');
+  if(link&&ed.contains(link)){
+    e.preventDefault();
+    const selection=window.getSelection();
+    if(selection.rangeCount&&validEditorRange(selection.getRangeAt(0))) saved=selection.getRangeAt(0).cloneRange();
+    if(!saved||!link.contains(saved.startContainer)) {
+      saved=document.createRange();saved.selectNodeContents(link);
+      selection.removeAllRanges();selection.addRange(saved);
+    }
+    dismissedLink=null;showLinkBubble(link);
+  }
   if(e.target instanceof HTMLImageElement && ed.contains(e.target)) selectedImage=e.target;
 });
 function resizeSelectedImage(percent){
@@ -545,7 +669,16 @@ function replaceAllInEditor(query,replacement,matchCase){
 }
 document.addEventListener('selectionchange', function(){
   const s = window.getSelection();
-  if (s.rangeCount && ed.contains(s.anchorNode)) { saved = s.getRangeAt(0).cloneRange(); post({t:'sel', text: s.toString()}); }
+  if (s.rangeCount && validEditorRange(s.getRangeAt(0))) {
+    saved=s.getRangeAt(0).cloneRange();post({t:'sel',text:s.toString()});
+    if(!linkEditTarget){
+      const explicitLink=contextualLink;
+      contextualLink=null;
+      const link=linkAtCaret();
+      if(!link)dismissedLink=null;
+      if(link&&(s.isCollapsed||(explicitLink===link&&link.contains(saved.endContainer)))&&link!==dismissedLink)showLinkBubble(link);else hideLinkBubble();
+    }
+  }
 });
 function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(p){ return '<p'+(typography?' style="'+esc(fontCss(typography.body)).replace(/"/g,'&quot;')+'"':'')+'>' + esc(p).replace(/\n/g,'<br>') + '</p>'; }).join(''); }
@@ -583,7 +716,10 @@ function cmd(mode, text){
     ed.focus(); document.execCommand('insertHTML', false, inlineHtml(text));
     rewrite = null;
   }
-  else if (mode === 'insert') { ed.focus(); restore(); document.execCommand('insertHTML', false, toHtml(text)); }
+  else if (mode === 'insert') {
+    ed.focus();if(!restore()) return false;
+    if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,isPlainText?text:toHtml(text))) return false;
+  }
   else if (mode === 'replaceBody') {
     insertBody(text,true);
   }
@@ -594,7 +730,37 @@ function cmd(mode, text){
   return true;
 }
 ed.addEventListener('input', function(){ post({t:'dirty'});inspectMention(); });
+let nativeAttachmentPaste=false;
+let clipboardPictureTarget=null;
+function setNativeAttachmentPaste(enabled){nativeAttachmentPaste=!!enabled;}
+function clipboardHasFiles(data){
+  return !!data && ((data.files?.length||0)>0 || Array.from(data.items||[]).some(item=>item.kind==='file'));
+}
+ed.addEventListener('paste',function(e){
+  // Only the Windows host opts in; normal text/HTML paste and the Mac editor keep their existing behaviour.
+  if(!nativeAttachmentPaste || !e.isTrusted || !clipboardHasFiles(e.clipboardData)) return;
+  e.preventDefault();
+  const selection=window.getSelection();
+  if(selection.rangeCount && ed.contains(selection.anchorNode)) saved=selection.getRangeAt(0).cloneRange();
+  post({t:'clipboardPaste'});
+});
+function captureClipboardPicture(){
+  clipboardPictureTarget=null;
+  if(isPlainText || !validEditorRange(saved)) return false;
+  clipboardPictureTarget={range:saved.cloneRange(),html:ed.innerHTML};return true;
+}
+function cancelClipboardPicture(){clipboardPictureTarget=null;}
+function insertClipboardPicture(data){
+  if(isPlainText || typeof data!=='string' || data.length>11200000 || !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(data)) return false;
+  const target=clipboardPictureTarget;
+  if(!target || target.html!==ed.innerHTML || !validEditorRange(target.range)) return false;
+  saved=target.range.cloneRange();clipboardPictureTarget=null;
+  ed.focus();restore();
+  if(!document.execCommand('insertImage',false,data)) return false;
+  post({t:'dirty'});return true;
+}
 document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'&&!linkBubble.hidden){e.preventDefault();dismissLinkBubble();ed.focus();restore();return;}
   if(mentionMenuOpen && ['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key)){
     e.preventDefault();post({t:'mentionKey',key:e.key});return;
   }

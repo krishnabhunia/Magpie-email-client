@@ -101,6 +101,7 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
     [ObservableProperty] private bool _sending;
+    [ObservableProperty] private bool _attachmentOperationBusy;
 
     // ── AI rail (S5) ──
     [ObservableProperty] private bool _showAiRail;
@@ -124,24 +125,16 @@ public partial class ComposeViewModel : ObservableObject
     public bool IsPlainText
     {
         get => _draft.IsPlainText;
-        set => _draft.IsPlainText = value;
-    }
-    public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
-    public string AttachmentSummary
-    {
-        get
+        set
         {
-            var files = Attachments.Where(a => !a.Carried).ToArray();
-            var count = Attachments.Count;
-            if (count == 0) return "No files attached";
-            var size = files.Length > 0 ? ComposeSafety.EncodedSizeOfExistingFiles(files.Select(a => a.Path), "") : 0;
-            var limit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
-            var countLabel = $"{count} file{(count == 1 ? "" : "s")}";
-            return countLabel
-                   + (files.Length > 0 ? $" · about {HtmlRenderer.FormatSize(size)} encoded / {HtmlRenderer.FormatSize(limit)} suggested cap" : "")
-                   + (Attachments.Any(a => a.Carried) ? " + forwarded content" : "");
+            if (_draft.IsPlainText == value) return;
+            _draft.IsPlainText = value;
+            OnPropertyChanged(nameof(WritingStatisticsSummary));
+            OnPropertyChanged(nameof(WritingStatisticsHelp));
         }
     }
+    public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
+    public string AttachmentSummary => FullMessageSizeSummary;
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
     public string ProviderLabel => _e.Ai.ProviderLabel;
 
@@ -199,6 +192,7 @@ public partial class ComposeViewModel : ObservableObject
         {
             _openedFrom = _e.Store.GetLocalDraft(localId);
             _pendingUpload = _openedFrom?.PendingUpload ?? false;
+            if (_openedFrom != null) _encodedMessageSize = new EncodedMessageSize(_openedFrom.Mime.LongLength);
             Claim(localId);
         }
         _onSettings = () => Ui.Post(RefreshAi);
@@ -242,6 +236,8 @@ public partial class ComposeViewModel : ObservableObject
         if (!_constructed || _restoringRevision) return;   // filling/restoring fields is not an individual edit
         _edits++;
         Dirty = true;
+        InvalidateMessageSize();
+        ScheduleWritingStatistics();
         if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
     }
 
@@ -260,6 +256,7 @@ public partial class ComposeViewModel : ObservableObject
         try
         {
             if (_closed || _queued) return;
+            var edits = _edits;
             var d = await BuildDraftAsync(validate: false);
             if (d == null || _closed || _queued) return;
             var pending = _pendingUpload;
@@ -268,6 +265,12 @@ public partial class ComposeViewModel : ObservableObject
             var id = await Task.Run(() => _e.SaveLocalDraft(d, pending));
             if (id == 0) return;
             if (!_closed) Claim(id);
+            var size = await Task.Run(() => _e.Store.GetLocalDraftMimeSize(id));
+            if (size is { } bytes && _edits == edits)
+            {
+                _encodedMessageSize = new EncodedMessageSize(bytes);
+                OnPropertyChanged(nameof(AttachmentSummary));
+            }
             Status = "Saved on this PC · " + DateTime.Now.ToString("HH:mm");
         }
         catch (Exception ex) { Log.Warn("autosave: " + ex.Message); }
@@ -303,6 +306,7 @@ public partial class ComposeViewModel : ObservableObject
     /// </summary>
     public async Task<bool> KeepAsDraftAsync(bool closing)
     {
+        if (closing && AttachmentOperationBusy) { Status = "Finish attaching the picture before closing this message."; return false; }
         await SettleAutosaveAsync(stop: closing);
         await _saveGate.WaitAsync();
         try
@@ -360,6 +364,7 @@ public partial class ComposeViewModel : ObservableObject
     /// <returns>False if putting back the kept version failed (the window then stays open).</returns>
     public async Task<bool> DiscardAsync()
     {
+        if (AttachmentOperationBusy) { Status = "Finish attaching the picture before discarding this message."; return false; }
         await SettleAutosaveAsync(stop: true);
         await _saveGate.WaitAsync();
         try
@@ -392,6 +397,7 @@ public partial class ComposeViewModel : ObservableObject
     public void Detach()
     {
         _closed = true;
+        StopWritingStatistics();
         ReleaseClaim();   // a draft still marked for upload is picked up by the background upload from now on
         _e.Settings.Changed -= _onSettings;
         _aiCts?.Cancel();
@@ -402,8 +408,8 @@ public partial class ComposeViewModel : ObservableObject
 
     partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
     partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
-    partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
-    partial void OnBccChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnCcChanged(string value) { NotifyRecipientVisibility(); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnBccChanged(string value) { NotifyRecipientVisibility(); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
     partial void OnPriorityChanged(string value) => MarkEdited();
     partial void OnReplyToChanged(string value) => MarkEdited();
     partial void OnRequestReadReceiptChanged(bool value) => MarkEdited();
@@ -422,8 +428,16 @@ public partial class ComposeViewModel : ObservableObject
     }
 
     [RelayCommand] private void ToggleAiPanel() => AiPanelOpen = !AiPanelOpen;
-    [RelayCommand] private void ShowCc() => ShowCcBcc = true;
+    [RelayCommand] private void ShowCc() => SetRecipientRowVisible("cc", true);
     [RelayCommand] private void OpenAiSettings() => Views.SettingsWindow.Open("AI");
+
+    /// <summary>Claim clipboard attachment work before its first await; a closing/queued draft cannot accept it.</summary>
+    public bool TryBeginAttachmentOperation()
+    {
+        if (_closed || _queued || Sending || RevisionBusy || AttachmentOperationBusy) return false;
+        AttachmentOperationBusy = true;
+        return true;
+    }
 
     public void AddAttachments(IEnumerable<string> paths)
     {
@@ -432,7 +446,8 @@ public partial class ComposeViewModel : ObservableObject
         {
             if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
             var fi = new FileInfo(p);
-            if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
+            var limit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+            if (ComposeSafety.EstimatedEncodedBytes(new[] { fi.Length }) > limit && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)} before email encoding. It may exceed this account's {HtmlRenderer.FormatSize(limit)} message-size guidance after encoding. Attach anyway?"))
                 continue;
             Attachments.Add(new AttachmentItem { Path = p });
             added.Add(p);
@@ -520,10 +535,13 @@ public partial class ComposeViewModel : ObservableObject
     public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
+        if (AttachmentOperationBusy) { Status = "Finish attaching the picture, then review and press Send."; return; }
         if (Sending || _queued || RevisionBusy) return;
         StopReplyDraft(clear: true);
         DiscardPreview();
         Sending = true;
+        var sendVersion = _edits;
+        var sendingAccount = From;
         try
         {
             if (string.IsNullOrWhiteSpace(To) && string.IsNullOrWhiteSpace(Cc) && string.IsNullOrWhiteSpace(Bcc))
@@ -578,14 +596,11 @@ public partial class ComposeViewModel : ObservableObject
                         + string.Join("\n", external) + "\n\nReview carefully before sending. Continue?")) return;
             }
             var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
+            if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
             if (ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Did you forget an attachment?", "Your message refers to an attachment, but no files are attached. Send anyway?")) return;
             if (string.IsNullOrWhiteSpace(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Empty message", "The message has no new text or attachments. Send anyway?")) return;
-            var encoded = ComposeSafety.EncodedSizeOfExistingFiles(Attachments.Where(a => !a.Carried).Select(a => a.Path), "");
-            var suggestedLimit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
-            if (encoded > suggestedLimit && !Ui.Confirm("Large message",
-                    $"Attached files are estimated at {HtmlRenderer.FormatSize(encoded)} after email encoding, above the {HtmlRenderer.FormatSize(suggestedLimit)} guidance for this account. Your server's actual limit may differ. Send anyway?")) return;
             // Wait for an autosave that is building the message (it shares attachment streams with this build).
             await _saveGate.WaitAsync();
             Draft? d;
@@ -594,8 +609,16 @@ public partial class ComposeViewModel : ObservableObject
             long id;
             try
             {
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 d = await BuildDraftAsync();
                 if (d == null) return;
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                var encoded = await MeasureBuiltDraftSizeAsync(d);
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                var suggestedLimit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+                if (encoded.Bytes > suggestedLimit && !Ui.Confirm("Large message",
+                        $"The complete message is {(encoded.AtLeast ? "at least " : "")}{HtmlRenderer.FormatSize(encoded.Bytes)} after email encoding, including the body, inline pictures and forwarded attachments. This exceeds the {HtmlRenderer.FormatSize(suggestedLimit)} guidance for this account. The server's actual limit may differ. Send anyway?")) return;
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 undo = _e.Config.UndoSendSeconds;
                 sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
                 id = _e.QueueSend(d, sendAt, remindIfNoReply, archiveAfterSend);
@@ -620,6 +643,14 @@ public partial class ComposeViewModel : ObservableObject
             Ui.Error("Send", ex.Message);
         }
         finally { Sending = false; }
+    }
+
+    private bool SendSnapshotIsCurrent(int version, Account? account)
+    {
+        if (_closed || _queued) return false;
+        if (_edits == version && ReferenceEquals(From, account) && !AttachmentOperationBusy) return true;
+        Status = "Message changed during review. Check the latest content and press Send again.";
+        return false;
     }
 
     /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
@@ -654,9 +685,6 @@ public partial class ComposeViewModel : ObservableObject
             _saveGate.Release();
         }
     }
-
-    public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert",
-        ComposeSafety.ExpandQuickTemplate(t.Body, From, To, Subject, DateTimeOffset.Now));
 
     // ───────────────────────── AI: write a draft (C2/C3) ─────────────────────────
 

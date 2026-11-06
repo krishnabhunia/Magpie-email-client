@@ -710,6 +710,12 @@
                                                 </StackPanel>
                                             </DockPanel>
                                             <DockPanel Grid.Row="1" Margin="0,2,0,0">
+                                                <!-- D1: sender priority is distinct from the user's pinned state. -->
+                                                <TextBlock x:Name="HighPriorityBadge" DockPanel.Dock="Left" Text="!" FontSize="14" FontWeight="Bold"
+                                                           Foreground="{DynamicResource Brush.Danger}" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}"
+                                                           AutomationProperties.Name="High priority message"
+                                                           ToolTip="Contains a message marked high priority by its sender" ty:Typography.Role="listBadges" />
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                                     <TextBlock Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0" VerticalAlignment="Center"
                                                                ToolTip="Arrived" Visibility="{Binding ShowDeleteDay, Converter={StaticResource BoolToVis}}"  ty:Typography.Role="listDate" />

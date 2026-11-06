@@ -1162,7 +1162,7 @@
 
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
                         <TextBlock svc:Typography.Role="settingsTitle" Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
-                        <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,8" />
+                        <TextBlock Text="Reusable subject and message text. Use them from Templates in a compose window. Leave Subject empty for a body-only template; an existing message subject is never replaced without confirmation." TextWrapping="Wrap" Style="{StaticResource Text.Caption}" Margin="0,4,0,8" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,14"
                                    Text="Variables: {{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}}, {{time}}. Recipient names require a named To address; unavailable values remain as placeholders." />
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
@@ -1181,6 +1181,9 @@
                                             <StackPanel Margin="16,0,16,16">
                                                 <TextBlock Text="Name" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,0,8" />
+                                                <TextBlock Text="Subject (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Template subject" />
+                                                <TextBlock Text="Message text" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
                                                          MinHeight="70" VerticalContentAlignment="Top" />
                                             </StackPanel>

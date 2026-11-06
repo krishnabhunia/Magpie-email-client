@@ -124,6 +124,7 @@ public partial class EditableQuickReply : ObservableObject
 public partial class EditableTemplate : ObservableObject
 {
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _name = "";
+    [ObservableProperty] private string _subject = "";
     [ObservableProperty] private string _body = "";
     /// <summary>Collapsed card (design CL1); a new template starts open.</summary>
     [ObservableProperty] private bool _isExpanded;
@@ -747,7 +748,7 @@ public partial class SettingsViewModel : ObservableObject
         _googleClientSecret = c.GoogleClientSecret;
         _microsoftClientId = c.MicrosoftClientId;
         foreach (var t in c.Tags) Tags.Add(new EditableTag { Name = t.Name, Color = t.Color });
-        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Body = t.Body });
+        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Subject = t.Subject, Body = t.Body });
         foreach (var a in c.Accounts) Accounts.Add(new EditableAccount(a));
 
         var ai = c.Ai;
@@ -1024,7 +1025,7 @@ public partial class SettingsViewModel : ObservableObject
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Subject = t.Subject, Body = t.Body }).ToList();
 
         var ai = c.Ai;
         ai.Enabled = AiEnabled;

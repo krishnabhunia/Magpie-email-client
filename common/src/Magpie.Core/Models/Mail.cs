@@ -3,7 +3,14 @@ namespace Magpie.Core.Models;
 public enum FolderRole { Other = 0, Inbox = 1, Sent = 2, Drafts = 3, Trash = 4, Junk = 5, Archive = 6, All = 7, Flagged = 8, Important = 9 }
 
 [Flags]
-public enum MessageFlags { None = 0, Seen = 1, Flagged = 2, Answered = 4, Draft = 8, Deleted = 16 }
+public enum MessageFlags
+{
+    None = 0, Seen = 1, Flagged = 2, Answered = 4, Draft = 8, Deleted = 16,
+    /// <summary>Sender-declared importance, independent of the user's pinned / IMAP flagged state.</summary>
+    HighPriority = 32,
+    /// <summary>Priority headers have been checked, including messages with no priority header.</summary>
+    PriorityKnown = 64,
+}
 
 /// <summary>Spark-style smart inbox buckets.</summary>
 public enum Category { People = 0, Notifications = 1, Newsletters = 2 }
@@ -59,6 +66,7 @@ public sealed class MessageRow
 
     public bool IsSeen => Flags.HasFlag(MessageFlags.Seen);
     public bool IsFlagged => Flags.HasFlag(MessageFlags.Flagged);
+    public bool IsHighPriority => Flags.HasFlag(MessageFlags.HighPriority);
     /// <summary>
     /// Set aside (design B7) is stored as a snooze that never wakes (31 Dec 9999): the conversation leaves the Inbox and
     /// every Inbox count exactly like a snoozed one, without a date. Snoozed views leave it out; the Set aside view lists it.
@@ -81,6 +89,8 @@ public sealed class ThreadRow
     public int Count { get; set; }
     public int UnreadCount { get; set; }
     public bool Flagged { get; set; }
+    /// <summary>At least one message in this conversation was marked high priority by its sender.</summary>
+    public bool HighPriority { get; set; }
     public bool HasAttachments { get; set; }
     public string Participants { get; set; } = "";
     public DateTimeOffset? SnoozeUntil { get; set; }

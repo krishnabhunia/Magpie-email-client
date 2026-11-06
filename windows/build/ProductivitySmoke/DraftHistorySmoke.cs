@@ -48,6 +48,16 @@ internal static partial class Program
             };
             var localId = engine.SaveLocalDraft(draft, pendingUpload: true);
             Assert(localId != 0, "Draft-history fixture has a kept local baseline");
+            // Snapshots preserve serialized MIME bytes. Text attachments can have their line endings
+            // canonicalized by MIME serialization, before revision history ever receives them.
+            using var originalMime = Composer.FromBytes(engine.Store.GetLocalDraft(localId)!.Mime);
+            var originalSnapshotBytes = DraftAttachmentBytes(originalMime.Attachments.Single());
+            using var changedMime = Composer.FromBytes(Composer.ToBytes(Composer.Build(new Draft
+            {
+                AccountId = account.Id, MessageId = "history-expected-current@example.test", Html = changedHtml,
+                AttachmentPaths = new() { changedPath },
+            }, account)));
+            var changedSnapshotBytes = DraftAttachmentBytes(changedMime.Attachments.Single());
             var identity = (draft.AccountId, draft.MessageId, draft.Mode, draft.ThreadKey, draft.SourceDraftRow,
                 draft.InReplyTo, draft.References, draft.ForwardOfRow, draft.CalendarReply);
             var editorHtml = originalHtml;
@@ -100,18 +110,23 @@ internal static partial class Program
                     draft.InReplyTo, draft.References, draft.ForwardOfRow, draft.CalendarReply)
                 && draft.LocalDraftId == localId && vm.LocalDraftId == localId,
                 "Restore keeps this compose window's account, stable message identity, reply context and local row");
-            Assert(vm.Attachments.Count == 1 && vm.Attachments[0].Carried && vm.Attachments[0].Name == "original-attachment.txt"
-                && draft.AttachmentPaths.Count == 0 && DraftAttachmentBytes(vm.Attachments[0].Part!).SequenceEqual(originalBytes),
-                "Restored attachments come from captured MIME bytes even after the original file was deleted");
+            Assert(vm.Attachments.Count == 1, $"Restore has one attachment, actual count={vm.Attachments.Count}");
+            Assert(vm.Attachments[0].Carried, "The restored attachment is carried by the MIME snapshot");
+            Assert(vm.Attachments[0].Name == "original-attachment.txt",
+                $"Restore keeps the attachment name, actual name={vm.Attachments[0].Name}");
+            Assert(draft.AttachmentPaths.Count == 0,
+                $"Restore retains no original attachment paths, actual count={draft.AttachmentPaths.Count}");
+            AssertDraftAttachmentBytes(vm.Attachments[0].Part!, originalSnapshotBytes,
+                "Restored attachment after its original source file was deleted");
             Assert(vm.Dirty && !vm.RevisionBusy && vm.AiPreview.Length == 0 && vm.ReplyDraftPreview.Length == 0
                 && vm.PreviewKind.Length == 0 && vm.SelectedText.Length == 0,
                 "Restore is an unsent edit and clears stale AI previews and selections");
             var current = engine.Store.GetDraftRevisions(account.Id, draft.MessageId).First(r => r.Subject == "Current unsent draft");
             var backup = engine.Store.OpenDraftRevision(account.Id, draft.MessageId, current.Id);
             Assert(backup != null && backup.Html == changedHtml && backup.Subject == "Current unsent draft"
-                && backup.To.Contains("current-incomplete") && !backup.IsPlainText
-                && DraftAttachmentBytes(backup.CarriedParts.Single()).SequenceEqual(changedBytes),
+                && backup.To.Contains("current-incomplete") && !backup.IsPlainText,
                 "Restore checkpoints the latest unsaved content and attachment bytes before replacing them");
+            AssertDraftAttachmentBytes(backup!.CarriedParts.Single(), changedSnapshotBytes, "Pre-restore current-content checkpoint");
             Assert(engine.Store.GetLocalDraft(localId)?.PendingUpload == true,
                 "Restore preserves the existing kept draft's pending-upload policy");
 
@@ -125,11 +140,13 @@ internal static partial class Program
                 && vm.Subject == "Original kept draft" && vm.To == originalTo && vm.IsPlainText
                 && vm.Priority == "High" && vm.RequestReadReceipt && vm.Dirty && !vm.RevisionBusy
                 && draft.LocalDraftId == localId && draft.MessageId == identity.MessageId
-                && vm.Attachments.Count == 1 && DraftAttachmentBytes(vm.Attachments[0].Part!).SequenceEqual(originalBytes)
+                && vm.Attachments.Count == 1
                 && afterUnsupportedRestore?.Subject == "Original kept draft" && afterUnsupportedRestore.IsPlainText
-                && afterUnsupportedRestore.Html.Contains("Original body.")
-                && DraftAttachmentBytes(afterUnsupportedRestore.CarriedParts.Single()).SequenceEqual(originalBytes),
+                && afterUnsupportedRestore.Html.Contains("Original body."),
                 "The plain-editor fallback rejects a rich revision before changing the editor, fields or saved draft");
+            AssertDraftAttachmentBytes(vm.Attachments[0].Part!, originalSnapshotBytes, "Unsupported-restore editor attachment");
+            AssertDraftAttachmentBytes(afterUnsupportedRestore!.CarriedParts.Single(), originalSnapshotBytes,
+                "Unsupported-restore saved attachment");
             vm.SupportsRichDraftRestore = true;
 
             // The editor can fail after replacing DOM/text. The view model must put back content and fields.
@@ -151,9 +168,10 @@ internal static partial class Program
             Assert(restoreFailure?.Message == "Synthetic editor replacement failure"
                 && editorWrites == beforeFailedRestoreWrites + 2 && editorHtml == originalHtml && editorPlain
                 && vm.Subject == "Original kept draft" && vm.To == originalTo && vm.RequestReadReceipt
-                && vm.Attachments.Count == 1 && DraftAttachmentBytes(vm.Attachments[0].Part!).SequenceEqual(originalBytes)
+                && vm.Attachments.Count == 1
                 && draft.LocalDraftId == localId && vm.Dirty && !vm.RevisionBusy,
                 "A partial editor replacement failure rolls back content and fields without losing identity or dirty state");
+            AssertDraftAttachmentBytes(vm.Attachments[0].Part!, originalSnapshotBytes, "Failed-editor rollback attachment");
             Assert(engine.OpenLocalDraft(localId)?.Subject == "Original kept draft",
                 "Failure rollback also restores the current local draft on disk");
             vm.RestoreRevisionEditor = ReplaceEditor;
@@ -188,9 +206,25 @@ internal static partial class Program
 
             Assert(await vm.DiscardAsync(), "Discard remains available after revision restoration");
             var kept = engine.OpenLocalDraft(localId);
-            Assert(kept?.Subject == "Original kept draft" && kept.Html.Contains("Original body.")
-                && DraftAttachmentBytes(kept.CarriedParts.Single()).SequenceEqual(originalBytes),
+            Assert(kept?.Subject == "Original kept draft" && kept.Html.Contains("Original body."),
                 "Discard restores the originally kept baseline, not the last revision chosen from history");
+            AssertDraftAttachmentBytes(kept!.CarriedParts.Single(), originalSnapshotBytes, "Discard baseline attachment");
+
+            var binaryPath = Path.Combine(root, "history-binary-source.bin");
+            var binaryBytes = new byte[] { 0, 10, 13, 255, 128, 13, 10, 1, 2, 3 };
+            File.WriteAllBytes(binaryPath, binaryBytes);
+            var binaryDraft = new Draft
+            {
+                AccountId = account.Id, MessageId = "history-binary@example.test", Html = "<p>Binary fixture</p>",
+                AttachmentPaths = new() { binaryPath },
+            };
+            var binaryId = engine.CaptureDraftRevision(binaryDraft);
+            Assert(binaryId != 0, "A binary attachment is captured as a self-contained revision");
+            File.Delete(binaryPath);
+            var binaryRevision = engine.Store.OpenDraftRevision(account.Id, binaryDraft.MessageId, binaryId);
+            Assert(binaryRevision != null && binaryRevision.AttachmentPaths.Count == 0,
+                "A binary revision restores independently of its deleted file path");
+            AssertDraftAttachmentBytes(binaryRevision!.CarriedParts.Single(), binaryBytes, "Binary revision preserves exact source bytes");
             Assert(http.Requests == 0 && engine.Store.GetOutbox().Count == 0,
                 "History capture, preview, restore, rollback and clear never contact a provider or queue mail");
             Console.WriteLine("DRAFT_HISTORY_SMOKE_PASSED");
@@ -208,5 +242,12 @@ internal static partial class Program
         using var bytes = new MemoryStream();
         ((MimePart)entity).Content!.DecodeTo(bytes);
         return bytes.ToArray();
+    }
+
+    private static void AssertDraftAttachmentBytes(MimeEntity entity, byte[] expected, string reason)
+    {
+        var actual = DraftAttachmentBytes(entity);
+        Assert(actual.SequenceEqual(expected),
+            $"{reason}: expected {expected.Length} bytes ({Convert.ToHexString(expected)}), actual {actual.Length} bytes ({Convert.ToHexString(actual)})");
     }
 }

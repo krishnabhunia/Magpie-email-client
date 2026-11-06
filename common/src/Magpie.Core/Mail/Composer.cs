@@ -284,11 +284,13 @@ public static class Composer
         {
             msg.Headers.Add("X-Priority", "1 (Highest)");
             msg.Headers.Add("Importance", "high");
+            msg.Headers.Add("X-MSMail-Priority", "High");
         }
         else if (string.Equals(d.Priority, "Low", StringComparison.OrdinalIgnoreCase))
         {
             msg.Headers.Add("X-Priority", "5 (Lowest)");
             msg.Headers.Add("Importance", "low");
+            msg.Headers.Add("X-MSMail-Priority", "Low");
         }
         if (d.RequestReadReceipt)
             msg.Headers.Add("Disposition-Notification-To", account.Email);
@@ -449,8 +451,7 @@ public static class Composer
             Bcc = FormatList(msg.Bcc),
             Subject = msg.Subject ?? "",
             ReplyTo = FormatList(msg.ReplyTo),
-            Priority = string.Equals(msg.Headers["Importance"], "high", StringComparison.OrdinalIgnoreCase) ? "High"
-                : string.Equals(msg.Headers["Importance"], "low", StringComparison.OrdinalIgnoreCase) ? "Low" : "Normal",
+            Priority = MailPriorityHeaders.Read(msg.Headers),
             RequestReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
             InReplyTo = string.IsNullOrEmpty(msg.InReplyTo) ? "" : "<" + msg.InReplyTo + ">",
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),

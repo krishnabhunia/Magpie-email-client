@@ -44,7 +44,7 @@
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -81,8 +81,12 @@
 
                     <TextBlock Grid.Row="1" Text="To" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Cc / Bcc" FontSize="12" Margin="10,0,0,0" Command="{Binding ShowCcCommand}"
-                                Visibility="{Binding ShowCcBcc, Converter={StaticResource InvBoolToVis}}" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                            <Button x:Name="ShowCcLink" Style="{StaticResource Button.Link}" Content="Cc" Tag="cc" FontSize="12" Margin="10,0,0,0" Click="OnShowRecipientRow"
+                                    AutomationProperties.Name="Show Cc recipients" Visibility="{Binding ShowCcRow, Converter={StaticResource InvBoolToVis}}" />
+                            <Button x:Name="ShowBccLink" Style="{StaticResource Button.Link}" Content="Bcc" Tag="bcc" FontSize="12" Margin="10,0,0,0" Click="OnShowRecipientRow"
+                                    AutomationProperties.Name="Show Bcc recipients" Visibility="{Binding ShowBccRow, Converter={StaticResource InvBoolToVis}}" />
+                        </StackPanel>
                         <StackPanel>
                             <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
@@ -94,22 +98,26 @@
                         </StackPanel>
                     </DockPanel>
 
-                    <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcRow, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel x:Name="CcRow" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcRow, Converter={StaticResource BoolToVis}}">
                         <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" Visibility="Collapsed" Click="OnEditRecipients" />
                             <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="cc" Click="OnPickContacts" Margin="8,0,0,0" />
+                            <Button x:Name="HideCcLink" Style="{StaticResource Button.Link}" Content="Hide Cc" Tag="cc" Click="OnHideRecipientRow" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanHideCcRow}" AutomationProperties.Name="Hide empty Cc row" ToolTip="Only an empty recipient row can be hidden; addresses are never cleared" />
                         </StackPanel>
                         <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Cc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
                     </StackPanel>
-                    <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}" />
-                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcBcc, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowBccRow, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel x:Name="BccRow" Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowBccRow, Converter={StaticResource BoolToVis}}">
                         <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" Visibility="Collapsed" Click="OnEditRecipients" />
                             <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="bcc" Click="OnPickContacts" Margin="8,0,0,0" />
+                            <Button x:Name="HideBccLink" Style="{StaticResource Button.Link}" Content="Hide Bcc" Tag="bcc" Click="OnHideRecipientRow" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanHideBccRow}" AutomationProperties.Name="Hide empty Bcc row" ToolTip="Only an empty recipient row can be hidden; addresses are never cleared" />
                         </StackPanel>
                         <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Bcc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
                                  TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
@@ -241,6 +249,7 @@
 
                 <!-- Footer -->
                 <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,10">
+                    <StackPanel>
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Right" Text="{Binding Status}" ToolTip="{Binding Status}" MaxWidth="180" TextTrimming="CharacterEllipsis" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
                         <WrapPanel Orientation="Horizontal">
@@ -265,6 +274,10 @@
                             <Button Style="{StaticResource Button.Ghost}" Content="Discard changes" Margin="4,0,0,0" Click="OnDiscardChanges" ToolTip="Discard edits made in this compose window; a previously saved draft is kept" />
                         </WrapPanel>
                     </DockPanel>
+                    <TextBlock x:Name="WritingStatisticsFooter" Text="{Binding WritingStatisticsSummary}" ToolTip="{Binding WritingStatisticsHelp}"
+                               AutomationProperties.Name="{Binding WritingStatisticsSummary}" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,7,0,0" />
+                    </StackPanel>
                 </Border>
             </Grid>
 

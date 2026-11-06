@@ -102,11 +102,14 @@ public sealed class AccountSync : IDisposable
     /// so new mail is still checked every few seconds while a big mailbox fills in.
     /// </summary>
     public static int BackfillPerRound { get; set; } = 1000;
+    /// <summary>Existing cached messages checked for sender priority per full account sync; headers only.</summary>
+    internal const int PriorityBackfillPerRound = 100;
 
     private static readonly string[] ExtraHeaders =
     {
         "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted", "X-Mailer", "Feedback-ID", "X-Campaign",
         "X-CampaignID", "X-Mailgun-Tag", "X-MC-User", "X-SG-EID", Settings.AccountsCopy.Header,
+        "Importance", "X-Priority", "X-MSMail-Priority",
     };
 
     public Account Account { get; private set; }
@@ -131,6 +134,9 @@ public sealed class AccountSync : IDisposable
     private HashSet<uint> FlagRetry(long folderId) => _flagRetry.TryGetValue(folderId, out var set) ? set : _flagRetry[folderId] = new HashSet<uint>();
     private long _priorityFolder;
     private int _budget;
+    private int _priorityBudget;
+    // A server refusing an optional header fetch must not starve every older message. Retry these next session.
+    private readonly HashSet<(long folder, long uid)> _prioritySkipped = new();
     /// <summary>Per folder: server UIDs still to list, newest first (filled by a full check, drained by backfill rounds).</summary>
     private readonly Dictionary<long, List<UniqueId>> _queue = new();
     private DateTimeOffset _lastFullCheck = DateTimeOffset.MinValue;
@@ -387,6 +393,7 @@ public sealed class AccountSync : IDisposable
                 .ToList();
             // The first round only lists recent mail in every folder, so everything shows up quickly; older emails follow.
             _budget = _initialDone ? BackfillPerRound : 0;
+            _priorityBudget = full ? PriorityBackfillPerRound : 0;
             if (full)
                 foreach (var gone in _remaining.Keys.Where(id => !folders.Any(o => o.local.Id == id)).ToList()) { _remaining.TryRemove(gone, out _); lock (_queue) _queue.Remove(gone); }
             var initial = !_initialDone && before.Values.All(f => f.LastSync == 0);
@@ -465,6 +472,7 @@ public sealed class AccountSync : IDisposable
                 local.UidNext = 0;
                 lock (_tried) _tried.RemoveWhere(t => t.folder == local.Id);
                 _flagRetry.Remove(local.Id);
+                _prioritySkipped.RemoveWhere(t => t.folder == local.Id);
                 lock (_queue) _queue.Remove(local.Id);
                 full = true;
             }
@@ -600,6 +608,7 @@ public sealed class AccountSync : IDisposable
                 var gone = map.Keys.Where(u => !serverUids.Contains(u)).ToList();
                 if (gone.Count > 0) _store.DeleteUids(local.Id, gone);
                 changed = changes.Count > 0 || gone.Count > 0;
+                changed |= await BackfillPrioritiesAsync(f, local, map, serverAll, pendingRemovals, ct) > 0;
             }
 
             // 4. Older emails: everything on the server (below the new-mail line) not listed here yet — the first sync
@@ -619,6 +628,45 @@ public sealed class AccountSync : IDisposable
         finally
         {
             try { await f.CloseAsync(false, ct); } catch { }
+        }
+    }
+
+    internal static List<UniqueId> PriorityBackfillCandidates(IReadOnlyDictionary<long, (long id, MFlags flags)> map,
+        IEnumerable<UniqueId> serverUids, int budget, ISet<long> excluded) => serverUids
+        .Where(u => map.TryGetValue(u.Id, out var row) && !row.flags.HasFlag(MFlags.PriorityKnown) && !excluded.Contains(u.Id))
+        .OrderByDescending(u => u.Id).Take(Math.Clamp(budget, 0, PriorityBackfillPerRound)).ToList();
+
+    internal static FetchRequest PriorityHeadersRequest() => new(MessageSummaryItems.UniqueId)
+    {
+        Headers = new HeaderSet(MailPriorityHeaders.Names),
+    };
+
+    private async Task<int> BackfillPrioritiesAsync(IMailFolder folder, MailFolder local,
+        Dictionary<long, (long id, MFlags flags)> map, List<UniqueId> serverUids,
+        HashSet<(long, long)> pendingRemovals, CancellationToken ct)
+    {
+        if (_priorityBudget <= 0) return 0;
+        var excluded = pendingRemovals.Where(p => p.Item1 == local.Id).Select(p => p.Item2)
+            .Concat(_prioritySkipped.Where(p => p.folder == local.Id).Select(p => p.uid)).ToHashSet();
+        var candidates = PriorityBackfillCandidates(map, serverUids, _priorityBudget, excluded);
+        if (candidates.Count == 0) return 0;
+        _priorityBudget -= candidates.Count;
+        var requested = candidates.Select(u => (long)u.Id).ToHashSet();
+        try
+        {
+            // BODY.PEEK[HEADER.FIELDS ...] does not download bodies or change the server's read state.
+            var summaries = await FetchTolerantAsync(folder, candidates, PriorityHeadersRequest(), ct);
+            var priorities = summaries.Where(s => requested.Contains(s.UniqueId.Id) && s.Headers != null)
+                .Select(s => (uid: (long)s.UniqueId.Id, high: MailPriorityHeaders.Read(s.Headers) == "High")).ToList();
+            var returned = priorities.Select(p => p.uid).ToHashSet();
+            foreach (var uid in requested.Where(uid => !returned.Contains(uid))) _prioritySkipped.Add((local.Id, uid));
+            return _store.UpdateMessagePriorities(local.Id, priorities);
+        }
+        catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
+        {
+            foreach (var uid in requested) _prioritySkipped.Add((local.Id, uid));
+            Log.Warn($"[{Account.Email}] {local.Path}: optional priority headers deferred: {ex.Message}");
+            return 0;
         }
     }
 
@@ -834,7 +882,7 @@ public sealed class AccountSync : IDisposable
             Preview = MimeText.Preview(s.PreviewText ?? ""),
             Date = date,
             SortDate = date,
-            Flags = s.Flags is { } fl ? Merge(MFlags.None, fl) : MFlags.None,
+            Flags = (s.Flags is { } fl ? Merge(MFlags.None, fl) : MFlags.None) | MailPriorityHeaders.Flags(s.Headers),
             HasAttachments = s.Attachments?.Any() == true,
             Size = s.Size ?? 0,
             Category = category,

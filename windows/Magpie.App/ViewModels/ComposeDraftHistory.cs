@@ -63,7 +63,7 @@ public partial class ComposeViewModel
     /// <summary>Restore content only, retaining this compose window's identity, claims and Keep/Discard baseline.</summary>
     public async Task<bool> RestoreDraftRevisionAsync(long revisionId)
     {
-        if (RevisionBusy || _closed || _queued || Sending || From == null || RestoreRevisionEditor == null) return false;
+        if (RevisionBusy || AttachmentOperationBusy || _closed || _queued || Sending || From == null || RestoreRevisionEditor == null) return false;
         RevisionBusy = true;
         await _saveGate.WaitAsync();
         Draft? rollback = null;

@@ -167,6 +167,8 @@ public sealed class TagDef
 public sealed class QuickTemplate
 {
     public string Name { get; set; } = "";
+    /// <summary>Optional subject; missing/empty in older settings means a body-only template.</summary>
+    public string Subject { get; set; } = "";
     public string Body { get; set; } = "";
 }
 

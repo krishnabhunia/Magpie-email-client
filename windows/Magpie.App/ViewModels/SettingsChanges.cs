@@ -27,7 +27,7 @@ public partial class SettingsViewModel
         _changeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _changeTimer.Tick += (_, _) => { _changeTimer.Stop(); HasChanges = Snapshot() != _baseline; };
         PropertyChanged += (_, e) => { if (e.PropertyName != null && !_quiet.Contains(e.PropertyName)) NoteChange(); };
-        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, AiConnections, QuickReplyList, RuleList })
+        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, ComposeMoreRows, AiConnections, QuickReplyList, RuleList })
             Track(list);
         _baseline = Snapshot();
         HasChanges = false;
@@ -80,7 +80,7 @@ public partial class SettingsViewModel
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Subject = t.Subject, Body = t.Body }).ToList();
         c.Ai.Enabled = AiEnabled;
         c.Ai.Summarise = Summarise;
         c.Ai.Draft = Draft;
@@ -103,6 +103,7 @@ public partial class SettingsViewModel
         {
             Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeMoreOrder = ComposeMoreRows.Select(r => r.Id).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
