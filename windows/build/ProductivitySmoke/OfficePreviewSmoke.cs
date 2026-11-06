@@ -50,6 +50,8 @@ internal static partial class Program
                 var messages = 0;
                 var navigationUris = new Dictionary<ulong, string>();
                 var navigationState = "No navigation observed";
+                ulong expectedNavigationId = 0;
+                var documentNavigations = 0;
                 web.CoreWebView2InitializationCompleted += (_, e) =>
                 {
                     if (!e.IsSuccess) { navigated.TrySetException(e.InitializationException ?? new InvalidOperationException("Office WebView2 initialization failed.")); return; }
@@ -59,6 +61,11 @@ internal static partial class Program
                         var uri = navigation.Uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
                             ? "data:[inline document]" : navigation.Uri[..Math.Min(navigation.Uri.Length, 160)];
                         navigationUris[navigation.NavigationId] = uri;
+                        if (string.Equals(navigation.Uri, OfficePreviewWindow.DocumentUri, StringComparison.Ordinal))
+                        {
+                            expectedNavigationId = navigation.NavigationId;
+                            documentNavigations++;
+                        }
                         navigationState = $"starting id={navigation.NavigationId}; uri={uri}";
                         Console.WriteLine("OFFICE_PREVIEW_SMOKE " + navigationState);
                     };
@@ -68,23 +75,21 @@ internal static partial class Program
                         navigationState = $"completed id={navigation.NavigationId}; uri={uri ?? "[bootstrap start not observed]"}; "
                             + $"success={navigation.IsSuccess}; status={navigation.WebErrorStatus}";
                         Console.WriteLine("OFFICE_PREVIEW_SMOKE " + navigationState);
+                        // Only the explicitly generated document can complete readiness. Bootstrap, deliberately
+                        // blocked external URLs and older superseded theme navigations are not the target page.
+                        if (navigation.NavigationId != expectedNavigationId) return;
                         if (!navigation.IsSuccess)
                         {
-                            // Initialization can cancel its blank bootstrap document when production calls
-                            // NavigateToString. Cancellation alone is not readiness or a test failure: an actual
-                            // successful preview with the expected DOM must still arrive within the same timeout.
-                            // A blocked real preview can therefore never turn this fixture green.
-                            if (navigation.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
                             navigated.TrySetException(new InvalidOperationException("Office preview navigation failed: " + navigationState));
                             return;
                         }
                         try
                         {
-                            // Ignore an environment's initial blank document; wait for the generated preview itself.
                             var rendered = await web.CoreWebView2.ExecuteScriptAsync(
                                 "document.title==='Magpie read-only Office preview'&&document.querySelector('h2')?.textContent==='Summary'&&document.querySelectorAll('table td').length===2")
                                 .WaitAsync(TimeSpan.FromSeconds(20));
                             if (rendered == "true") navigated.TrySetResult(true);
+                            else navigated.TrySetException(new InvalidOperationException("The expected Office document navigation did not contain the required title, heading and table."));
                         }
                         catch (Exception ex) { navigated.TrySetException(ex); }
                     };
@@ -92,36 +97,81 @@ internal static partial class Program
                         navigated.TrySetException(new InvalidOperationException("Office preview process failed: " + failure.ProcessFailedKind));
                     web.CoreWebView2.WebMessageReceived += (_, _) => messages++;
                 };
-                Console.WriteLine("OFFICE_PREVIEW_SMOKE phase=show; dark=" + dark);
-                window.Show();
-                try
+                async Task WaitForDocumentAsync()
                 {
                     try { await navigated.Task.WaitAsync(TimeSpan.FromSeconds(45)); }
                     catch (TimeoutException ex)
                     {
                         throw new InvalidOperationException("Office preview never rendered its required title and document contents. Last navigation: " + navigationState, ex);
                     }
+                }
+                Console.WriteLine("OFFICE_PREVIEW_SMOKE phase=show; dark=" + dark);
+                window.Show();
+                try
+                {
+                    await WaitForDocumentAsync();
                     var core = web.CoreWebView2;
                     Task<string> Script(string script) => core.ExecuteScriptAsync(script).WaitAsync(TimeSpan.FromSeconds(20));
+                    Assert(core.Source == OfficePreviewWindow.DocumentUri, "Office preview loads only its exact intercepted in-memory document URL");
                     Assert(await Script("document.querySelector('h2').textContent") == "\"Summary\""
                         && await Script("document.querySelectorAll('table td').length") == "2"
                         && await Script("document.querySelector('table').textContent.includes('125')") == "true",
                         "Structured Office preview renders headings and tables in " + (dark ? "dark" : "light"));
                     Assert(JsonSerializer.Deserialize<string>(await Script("getComputedStyle(document.body).backgroundColor"))
                         == (dark ? "rgb(24, 28, 32)" : "rgb(255, 255, 255)"), "Structured Office preview follows the app theme");
+                    var initialNavigations = documentNavigations;
+                    window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                    await Script("document.title");
+                    Assert(documentNavigations == initialNavigations,
+                        "A repeated WPF Loaded event does not reinitialize the preview or duplicate its document navigation");
+                    foreach (var nextDark in new[] { !dark, dark })
+                    {
+                        navigated = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        ThemeManager.SetMode(nextDark ? ThemeMode.Dark : ThemeMode.Light);
+                        await WaitForDocumentAsync();
+                        Assert(core.Source == OfficePreviewWindow.DocumentUri
+                            && JsonSerializer.Deserialize<string>(await Script("getComputedStyle(document.body).backgroundColor"))
+                                == (nextDark ? "rgb(24, 28, 32)" : "rgb(255, 255, 255)"),
+                            "Changing theme reloads the same guarded local document with fresh response contents");
+                    }
                     Assert(!core.Settings.IsScriptEnabled && !core.Settings.IsWebMessageEnabled && !core.Settings.AreHostObjectsAllowed,
                         "Office preview disables document scripts, host messages and host objects");
                     Assert(await Script("typeof window.officeUnexpectedScript") == "\"undefined\"" && messages == 0,
                         "Unexpected Office markup cannot execute document scripts or post host messages");
                     Assert(AutomationProperties.GetName(web) == "Read-only Office document preview", "Office preview has a screen-reader name");
-                    var blocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    const string forbidden = "https://office-preview.invalid/navigation";
-                    core.NavigationStarting += (_, e) =>
+                    foreach (var forbidden in new[] { "https://office-preview.invalid/navigation", "data:text/html,untrusted", "about:blank" })
                     {
-                        if (e.Uri == forbidden) blocked.TrySetResult(e.Cancel);
-                    };
-                    core.Navigate(forbidden);
-                    Assert(await blocked.Task.WaitAsync(TimeSpan.FromSeconds(20)), "Office preview cancels external navigation before any network request");
+                        var blocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        var completed = new TaskCompletionSource<(bool Success, CoreWebView2WebErrorStatus Error)>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        ulong blockedNavigationId = 0;
+                        EventHandler<CoreWebView2NavigationStartingEventArgs> onBlocked = (_, e) =>
+                        {
+                            if (e.Uri != forbidden) return;
+                            blockedNavigationId = e.NavigationId;
+                            blocked.TrySetResult(e.Cancel);
+                        };
+                        EventHandler<CoreWebView2NavigationCompletedEventArgs> onCompleted = (_, e) =>
+                        {
+                            if (e.NavigationId == blockedNavigationId) completed.TrySetResult((e.IsSuccess, e.WebErrorStatus));
+                        };
+                        core.NavigationStarting += onBlocked;
+                        core.NavigationCompleted += onCompleted;
+                        try
+                        {
+                            core.Navigate(forbidden);
+                            Assert(await blocked.Task.WaitAsync(TimeSpan.FromSeconds(20)), "Office preview cancels navigation outside its exact generated document: " + forbidden);
+                            var result = await completed.Task.WaitAsync(TimeSpan.FromSeconds(20));
+                            Assert(!result.Success && result.Error == CoreWebView2WebErrorStatus.OperationCanceled,
+                                "The forbidden navigation finishes as cancelled before document-preservation checks");
+                        }
+                        finally
+                        {
+                            core.NavigationStarting -= onBlocked;
+                            core.NavigationCompleted -= onCompleted;
+                        }
+                    }
+                    Assert(await Script("document.title") == "\"Magpie read-only Office preview\"" && ((TabItem)tabs.Items[0]).IsEnabled,
+                        "Deliberately blocked navigations neither replace the document nor trigger its failure fallback");
                     tabs.SelectedIndex = 1;
                     var plain = (TextBox)((TabItem)tabs.Items[1]).Content;
                     Assert(plain.IsReadOnly && plain.Text.Contains("Summary") && plain.Text.Contains("125"),

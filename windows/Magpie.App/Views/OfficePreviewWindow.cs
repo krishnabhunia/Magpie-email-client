@@ -1,3 +1,4 @@
+using System.Text;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -12,6 +13,9 @@ namespace Magpie.App.Views;
 /// <summary>Structured Office text rendered locally, with no scripts, network, downloads or external navigation.</summary>
 public static class OfficePreviewWindow
 {
+    // The reserved .invalid host is never resolved: the only permitted document is supplied from memory below.
+    public const string DocumentUri = "https://office-preview.magpie.invalid/document.html";
+
     public static void Show(Window? owner, string name, OfficePreviewDocument preview) => Create(owner, name, preview).Show();
 
     /// <summary>The optional environment permits isolated native UI tests without using the normal browser profile.</summary>
@@ -56,27 +60,55 @@ public static class OfficePreviewWindow
         window.Content = root;
         var closed = false;
         var ready = false;
+        var initializing = false;
+        bool? renderedDark = null;
+        var renderedHtml = "";
+        ulong activeDocumentNavigation = 0;
+        var responseStreams = new Dictionary<ulong, List<MemoryStream>>();
+        void ReleaseResponses(ulong navigationId)
+        {
+            if (!responseStreams.Remove(navigationId, out var streams)) return;
+            foreach (var stream in streams) stream.Dispose();
+        }
         void UsePlainText()
         {
             if (closed) return;
+            ready = false;
             structured.IsEnabled = false; tabs.SelectedItem = plain;
             notice.Text = "Structured preview is unavailable on this PC. Plain text is shown; the attachment was not opened externally.";
         }
         void RefreshTheme()
         {
             if (closed || !ready) return;
-            web.DefaultBackgroundColor = ThemeManager.WebBackground;
-            web.CoreWebView2?.NavigateToString(preview.HtmlForTheme(ThemeManager.IsDark));
+            var dark = ThemeManager.IsDark;
+            if (renderedDark == dark) return;
+            try
+            {
+                web.DefaultBackgroundColor = ThemeManager.WebBackground;
+                renderedHtml = preview.HtmlForTheme(dark);
+                renderedDark = dark;
+                web.CoreWebView2.Navigate(DocumentUri);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("refresh Office preview: " + ex.Message);
+                UsePlainText();
+            }
         }
         ThemeManager.Changed += RefreshTheme;
         window.Closed += (_, _) =>
         {
             closed = true;
             ThemeManager.Changed -= RefreshTheme;
-            web.Dispose();
+            // The browser must stop reading before its response bodies are disposed.
+            try { web.Dispose(); }
+            finally { foreach (var id in responseStreams.Keys.ToArray()) ReleaseResponses(id); }
         };
         window.Loaded += async (_, _) =>
         {
+            // Loaded may recur when a WPF template/theme is reapplied. Initialize and wire security exactly once.
+            if (closed || initializing) return;
+            initializing = true;
             try
             {
                 if (environment == null)
@@ -99,11 +131,38 @@ public static class OfficePreviewWindow
                 // Defense in depth: the generated page also has a default-src 'none' CSP and no resource URLs.
                 core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
                 core.WebResourceRequested += (_, e) =>
-                    e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 403, "Blocked", "Content-Type: text/plain");
+                {
+                    if (!closed && activeDocumentNavigation != 0
+                        && string.Equals(e.Request.Uri, DocumentUri, StringComparison.Ordinal)
+                        && string.Equals(e.Request.Method, "GET", StringComparison.Ordinal)
+                        && e.ResourceContext == CoreWebView2WebResourceContext.Document)
+                    {
+                        var stream = new MemoryStream(Encoding.UTF8.GetBytes(renderedHtml), writable: false);
+                        if (!responseStreams.TryGetValue(activeDocumentNavigation, out var streams))
+                            responseStreams[activeDocumentNavigation] = streams = new List<MemoryStream>();
+                        streams.Add(stream);
+                        e.Response = core.Environment.CreateWebResourceResponse(stream, 200, "OK",
+                            "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
+                            + "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n");
+                    }
+                    else e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 403, "Blocked", "Content-Type: text/plain\r\nCache-Control: no-store\r\n");
+                };
                 core.NavigationStarting += (_, e) =>
                 {
-                    if (!string.Equals(e.Uri, "about:blank", StringComparison.OrdinalIgnoreCase)) e.Cancel = true;
+                    if (closed || !string.Equals(e.Uri, DocumentUri, StringComparison.Ordinal)) e.Cancel = true;
+                    else activeDocumentNavigation = e.NavigationId;
                 };
+                core.NavigationCompleted += (_, e) =>
+                {
+                    // Completion means this navigation has finished consuming its response. Retaining streams
+                    // until then avoids premature disposal without accumulating HTML on every theme switch.
+                    ReleaseResponses(e.NavigationId);
+                    if (closed || e.NavigationId != activeDocumentNavigation || e.IsSuccess
+                        || e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+                    Log.Warn("Office document navigation failed: " + e.WebErrorStatus);
+                    UsePlainText();
+                };
+                core.FrameNavigationStarting += (_, e) => e.Cancel = true;
                 core.NewWindowRequested += (_, e) => e.Handled = true;
                 core.DownloadStarting += (_, e) => e.Cancel = true;
                 core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
