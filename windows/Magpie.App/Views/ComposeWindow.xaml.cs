@@ -281,7 +281,7 @@ public partial class ComposeWindow : Window
                 case "table": ShowTableMenu(root); break;
                 case "mention": ShowMentions(root); break;
                 case "stats": _vm.UpdateStats(root.GetProperty("text").GetString() ?? ""); _ = RefreshSizeAsync(); break;   // pasted / deleted pictures count
-                case "pastepic": OnPastedPicture(root.GetProperty("data").GetString() ?? ""); break;
+                case "pastepics": OnPastedPictures(root.GetProperty("data").EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()); break;
                 case "pastefiles": OnPastedFiles(); break;
                 case "key": OnEditorKey(root.GetProperty("k").GetString() ?? ""); break;
             }

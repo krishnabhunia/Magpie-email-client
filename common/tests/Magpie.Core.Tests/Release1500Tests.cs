@@ -264,6 +264,14 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Pasting_several_pictures_sends_them_all_at_once()
+    {
+        Assert.Contains("post({t:'pastepics', data:", EditorPage.Html);
+        Assert.DoesNotContain("t:'pastepic'", EditorPage.Html);
+        Assert.Contains("pics.forEach(", EditorPage.Html);
+    }
+
+    [Fact]
     public void Signature_swap_leaves_the_other_persons_signature_in_the_quote_alone()
     {
         // A reply to a message Magpie sent: the quote carries their signature block; the writer has none yet.

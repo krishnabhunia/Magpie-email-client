@@ -283,7 +283,11 @@ document.addEventListener('paste', function(e){
   if(files.length && !hasText){
     var pics=files.filter(function(f){ return /^image\//.test(f.type); });
     if(pics.length===files.length && pics.length){
-      if(askPaste){ e.preventDefault(); var fr=new FileReader(); fr.onload=function(){ post({t:'pastepic', data:fr.result}); }; fr.readAsDataURL(pics[0]); }
+      if(askPaste){
+        // Every pasted picture is read, then sent together so the app asks once and keeps them all.
+        e.preventDefault(); var urls=new Array(pics.length), left=pics.length;
+        pics.forEach(function(f,i){ var fr=new FileReader(); fr.onload=function(){ urls[i]=fr.result; if(--left===0) post({t:'pastepics', data:urls.filter(function(u){ return !!u; })}); }; fr.onerror=function(){ if(--left===0) post({t:'pastepics', data:urls.filter(function(u){ return !!u; })}); }; fr.readAsDataURL(f); });
+      }
       return;
     }
     e.preventDefault(); post({t:'pastefiles'});

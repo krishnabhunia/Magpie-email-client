@@ -255,15 +255,17 @@ public partial class ComposeWindow
     private void OnMoreMenu(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Bottom };
-        foreach (var id in _overflow)
+        // What More ▾ offers: the buttons folded away by a narrow window, then the ones hidden in Settings (still reachable here).
+        var inMore = _overflow.Concat(ComposeConfig.Toolbar.Where(b => !b.Visible && ComposeSettings.IsButton(b.Id)).Select(b => b.Id)).Distinct().ToList();
+        foreach (var id in inMore)
         {
             var mi = new MenuItem { Header = ComposeSettings.NameOf(id) };
             var captured = id;
             mi.Click += (_, _) => RunTool(captured, MoreButton);
             menu.Items.Add(mi);
         }
-        if (_overflow.Count > 0) menu.Items.Add(new Separator());
-        if (!_overflow.Contains("align"))
+        if (inMore.Count > 0) menu.Items.Add(new Separator());
+        if (!inMore.Contains("align"))
         {
             foreach (var (text, cmd, keys) in new[] { ("Align left", "justifyLeft", "Ctrl+Shift+L"), ("Align centre", "justifyCenter", "Ctrl+Shift+E"), ("Align right", "justifyRight", "Ctrl+Shift+R"), ("Justify", "justifyFull", "Ctrl+Shift+J") })
             {
@@ -419,19 +421,26 @@ public partial class ComposeWindow
     }
 
     /// <summary>C4: a picture was pasted and the setting says Ask (or the setting decided).</summary>
-    private void OnPastedPicture(string dataUri)
+    /// <summary>C4: pictures pasted as data (one or several at once) — one question, the same answer for all of them.</summary>
+    private void OnPastedPictures(List<string> dataUris)
     {
+        if (dataUris.Count == 0) return;
         var choice = ComposeConfig.PastePicture;
         if (choice == PastePictureChoice.Ask)
         {
-            var (id, remember) = ComposeChoiceDialog.Ask(this, "You pasted a picture", "Put it in the message where the cursor is, or attach it as a file?",
-                new[] { new ComposeChoiceDialog.Choice("Attach as file", "attach"), new ComposeChoiceDialog.Choice("Put in message", "inline", Primary: true) }, "Always do this");
+            var many = dataUris.Count > 1;
+            var (id, remember) = ComposeChoiceDialog.Ask(this, many ? $"You pasted {dataUris.Count} pictures" : "You pasted a picture",
+                many ? "Put them in the message where the cursor is, or attach them as files?" : "Put it in the message where the cursor is, or attach it as a file?",
+                new[] { new ComposeChoiceDialog.Choice(many ? "Attach as files" : "Attach as file", "attach"), new ComposeChoiceDialog.Choice("Put in message", "inline", Primary: true) }, "Always do this");
             if (id == null) return;
             choice = id == "attach" ? PastePictureChoice.AttachFile : PastePictureChoice.InMessage;
             if (remember) { ComposeConfig.PastePicture = choice; AppServices.Engine.Settings.Save(notify: false); }
         }
-        if (choice == PastePictureChoice.AttachFile) _vm.AttachDataUri(dataUri);
-        else Script($"insertPicture({JsonSerializer.Serialize("<img src=\"" + dataUri + "\" style=\"max-width:100%\">")})");
+        foreach (var dataUri in dataUris)
+        {
+            if (choice == PastePictureChoice.AttachFile) _vm.AttachDataUri(dataUri);
+            else Script($"insertPicture({JsonSerializer.Serialize("<img src=\"" + dataUri + "\" style=\"max-width:100%\">")})");
+        }
         _ = RefreshSizeAsync();
     }
 
