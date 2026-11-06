@@ -1304,7 +1304,7 @@ public partial class MainViewModel : ObservableObject
     private void CancelScheduled(ScheduledItem? s)
     {
         if (s == null) return;
-        var d = _e.Recall(s.Item.Id);
+        var d = RecallToDraft(s.Item.Id);
         if (d != null) Views.ComposeWindow.OpenDraft(d);
         ReloadList();
     }
@@ -1391,8 +1391,18 @@ public partial class MainViewModel : ObservableObject
         toast.EditAction();
     }
 
-    /// <summary>Outbox ids taken back with Undo (design CW1 D6: Send &amp; Archive then leaves the conversation alone).</summary>
+    /// <summary>Outbox ids taken back before they went (Undo, or Cancel &amp; edit in Scheduled) — design CW1 D6: Send &amp; Archive
+    /// then leaves the conversation alone.</summary>
     private readonly HashSet<long> _recalled = new();
+
+    /// <summary>Every way of taking a queued message back goes through here, so a pending Send &amp; Archive is always cancelled with it.
+    /// Returns the draft to reopen, or null when the message already went (then the archive still happens).</summary>
+    private Draft? RecallToDraft(long outboxId)
+    {
+        var d = _e.Recall(outboxId);
+        if (d != null) _recalled.Add(outboxId);
+        return d;
+    }
 
     /// <summary>Design CW1 (D6): the folders Send &amp; Archive archives from — the view the user replied from, or, when that view
     /// isn't this account's (another account, Sent, Drafts), the account's Inbox and its other synced mail folders.</summary>
@@ -1427,7 +1437,6 @@ public partial class MainViewModel : ObservableObject
     {
         toast ??= Toasts.LastOrDefault(t => !t.Done);
         if (toast == null) return;
-        _recalled.Add(toast.OutboxId);
         Toasts.Remove(toast);
         RefreshToasts();
         if (toast.UndoAction != null)
@@ -1436,7 +1445,7 @@ public partial class MainViewModel : ObservableObject
             catch (Exception ex) { Log.Error("undo", ex); Ui.Error("Undo", ex.Message); }
             return;
         }
-        var d = _e.Recall(toast.OutboxId);
+        var d = RecallToDraft(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
     }
@@ -1466,9 +1475,8 @@ public partial class MainViewModel : ObservableObject
     {
         var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
         if (toast?.UndoAction != null) { UndoSend(toast); return; }   // e.g. an invite answer: its own undo
-        _recalled.Add(outboxId);
         if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
-        var d = _e.Recall(outboxId);
+        var d = RecallToDraft(outboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
     }

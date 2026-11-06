@@ -251,12 +251,13 @@ function mention(name, address){
   mentionAt=null; mentionOpen=false; post({t:'dirty'}); return true;
 }
 // ── signature swap (D3) ──
+function ownSignature(){ var all=ed.querySelectorAll('.magpie-signature'); for(var i=0;i<all.length;i++){ if(!all[i].closest('.magpie-quote')) return all[i]; } return null; }
 function setSignature(html){
-  var sig=ed.querySelector('.magpie-signature');
+  var sig=ownSignature();   // never the other person's signature inside the quoted email
   var block = html ? '<div class="magpie-signature"><br>'+html+'</div>' : '';
   if(sig){ if(block){ var d=document.createElement('div'); d.innerHTML=block; sig.replaceWith(d.firstChild); } else sig.remove(); }
   else if(block){ var q=ed.querySelector('.magpie-quote,.mq-pill'); var d2=document.createElement('div'); d2.innerHTML=block; if(q) ed.insertBefore(d2.firstChild, q); else ed.appendChild(d2.firstChild); }
-  if(typography){ ed.querySelectorAll('.magpie-signature').forEach(function(el){ applyProtectedFont(el, typography.signature); }); }
+  if(typography){ var own=ownSignature(); if(own) applyProtectedFont(own, typography.signature); }
   post({t:'dirty'});
 }
 function postStats(){ if(statTimer) clearTimeout(statTimer); statTimer=setTimeout(function(){ post({t:'stats', text:getNewText()}); }, 400); }

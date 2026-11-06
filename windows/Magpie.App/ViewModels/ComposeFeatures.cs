@@ -140,11 +140,15 @@ public partial class ComposeViewModel
         {
             var comma = dataUri.IndexOf(',');
             if (!dataUri.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase) || comma < 0) return null;
-            var type = dataUri[5..dataUri.IndexOf(';')];
-            var ext = type.Split('/')[1].Split('+')[0];
+            // The media type comes from the page (which shows sender HTML), so only known picture types get a fixed extension —
+            // it is never spliced into the file name as text.
+            var header = dataUri[5..comma];
+            var ext = Composer.PastedPictureExtension(header.Split(';')[0]);
+            if (ext == null) { Log.Warn("attach pasted picture: not a picture type Magpie saves (" + header + ")"); return null; }
             var dir = Path.Combine(_e.Paths.MailRoot, "attachments-pasted");
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, "picture-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6] + "." + ext);
+            if (!Composer.IsInside(dir, path)) return null;
             File.WriteAllBytes(path, Convert.FromBase64String(dataUri[(comma + 1)..]));
             Attachments.Add(new AttachmentItem { Path = path });
             MarkEdited();

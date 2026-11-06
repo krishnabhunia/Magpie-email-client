@@ -186,6 +186,54 @@ public class Release1500Tests
     }
 
     [Fact]
+    public void Pasted_picture_types_map_to_fixed_extensions_and_never_to_a_path()
+    {
+        Assert.Equal("png", Composer.PastedPictureExtension("image/png"));
+        Assert.Equal("jpg", Composer.PastedPictureExtension("IMAGE/JPEG"));
+        Assert.Equal("webp", Composer.PastedPictureExtension("image/webp;charset=binary"));
+        Assert.Null(Composer.PastedPictureExtension("image/x\\..\\..\\Startup\\p.cmd"));
+        Assert.Null(Composer.PastedPictureExtension("image/svg+xml"));
+        Assert.Null(Composer.PastedPictureExtension("text/html"));
+        Assert.Null(Composer.PastedPictureExtension(null));
+        var dir = Path.Combine(Path.GetTempPath(), "magpie-paste-test");
+        Assert.True(Composer.IsInside(dir, Path.Combine(dir, "picture-1.png")));
+        Assert.False(Composer.IsInside(dir, Path.Combine(dir, "..", "picture-1.png")));
+        Assert.False(Composer.IsInside(dir, Path.Combine(dir, "sub", "picture-1.png")));
+    }
+
+    [Fact]
+    public void Quote_header_encodes_the_senders_name_and_address()
+    {
+        var row = Rows.Make("acc", 1, "t1");
+        row.FromName = "<img src=x onerror=\"alert(1)\">";
+        row.FromAddress = "a@b.c";
+        var q = Composer.QuoteBlock(row, new MessageBody { Html = "<p>x</p>" });
+        Assert.DoesNotContain("<img", q);
+        Assert.Contains("&lt;img src=x onerror=", q);
+        row.FromName = "";
+        row.FromAddress = "<b>a@b.c</b>";
+        Assert.DoesNotContain("<b>", Composer.QuoteBlock(row, null));
+    }
+
+    [Fact]
+    public void Signature_swap_leaves_the_other_persons_signature_in_the_quote_alone()
+    {
+        // A reply to a message Magpie sent: the quote carries their signature block; the writer has none yet.
+        var quote = "<div class=\"magpie-quote\"><p>On x, Ann wrote:</p><blockquote><p>Hello</p><div class=\"magpie-signature\"><br><p>Ann</p></div><p>tail</p></blockquote></div>";
+        var html = "<p>Hi</p>" + quote;
+        var added = Composer.ReplaceSignature(html, "<p>Me</p>");
+        Assert.Contains("<p>Ann</p>", added);
+        Assert.Contains("<p>tail</p>", added);
+        Assert.True(added.IndexOf("<p>Me</p>", StringComparison.Ordinal) < added.IndexOf("magpie-quote", StringComparison.Ordinal));
+        var none = Composer.ReplaceSignature(html, "");
+        Assert.Equal(html, none);
+        // The editor page does the same: its swap only looks outside the quote.
+        var page = EditorPage.Html;
+        Assert.Contains("function ownSignature()", page);
+        Assert.Contains("closest('.magpie-quote')", page);
+    }
+
+    [Fact]
     public void Signature_by_id_falls_back_to_the_default_and_respects_the_switches()
     {
         var a = Gmail();

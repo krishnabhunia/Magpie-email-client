@@ -245,7 +245,8 @@ public static class Composer
 
     public static string QuoteBlock(MessageRow o, MessageBody? body)
     {
-        var who = string.IsNullOrWhiteSpace(o.FromName) ? o.FromAddress : $"{o.FromName} &lt;{WebUtility.HtmlEncode(o.FromAddress)}&gt;";
+        // The sender's name and address are theirs, not ours: encoded, so a crafted name is text in the quote, never markup.
+        var who = string.IsNullOrWhiteSpace(o.FromName) ? WebUtility.HtmlEncode(o.FromAddress) : $"{WebUtility.HtmlEncode(o.FromName)} &lt;{WebUtility.HtmlEncode(o.FromAddress)}&gt;";
         var when = o.Date.ToLocalTime().ToString("ddd, d MMM yyyy 'at' HH:mm");
         return $"<div class=\"magpie-quote\"><p>On {WebUtility.HtmlEncode(when)}, {who} wrote:</p><blockquote style=\"margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex\">{BodyForQuote(body)}</blockquote></div>";
     }
@@ -539,6 +540,33 @@ public static class Composer
     public static readonly string[] PictureExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" };
     public static bool IsPicture(string path) => PictureExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
 
+    /// <summary>C4: the file extension for a pasted picture's media type ("image/png" → "png"); null when it is not a picture type
+    /// Magpie saves. The type comes from the editor page, so it is never used as part of a file name unchecked.</summary>
+    public static string? PastedPictureExtension(string? mediaType)
+    {
+        var t = (mediaType ?? "").Trim().ToLowerInvariant();
+        var semi = t.IndexOf(';'); if (semi >= 0) t = t[..semi];
+        return t switch
+        {
+            "image/png" => "png",
+            "image/jpeg" or "image/jpg" or "image/pjpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" or "image/x-ms-bmp" => "bmp",
+            "image/tiff" => "tiff",
+            _ => null,
+        };
+    }
+
+    /// <summary>True when <paramref name="path"/> resolves to a file directly inside <paramref name="directory"/>.</summary>
+    public static bool IsInside(string directory, string path)
+    {
+        var dir = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(path);
+        return string.Equals(Path.GetDirectoryName(full)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), dir,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
     /// <summary>D9: the message as a .eml file (what Send would build, Bcc included so the file is complete).</summary>
     public static byte[] ToEml(Draft d, Account account) => ToBytes(Build(d, account));
 
@@ -549,10 +577,13 @@ public static class Composer
     public static string ReplaceSignature(string html, string signatureHtml)
     {
         var block = string.IsNullOrWhiteSpace(signatureHtml) ? "" : "<div class=\"magpie-signature\"><br>" + signatureHtml + "</div>";
-        var m = SignatureBlock.Match(html ?? "");
-        if (m.Success) return html![..m.Index] + block + html[(m.Index + m.Length)..];
-        var q = QuoteStart.Match(html ?? "");
-        return q.Success ? html![..q.Index] + block + html[q.Index..] : (html ?? "") + block;
+        html ??= "";
+        // Only the writer's own signature is swapped: the quoted email may carry the other person's signature block, which stays.
+        var q = QuoteStart.Match(html);
+        var own = q.Success ? html[..q.Index] : html;
+        var m = SignatureBlock.Match(own);
+        if (m.Success) return own[..m.Index] + block + own[(m.Index + m.Length)..] + (q.Success ? html[q.Index..] : "");
+        return q.Success ? own + block + html[q.Index..] : html + block;
     }
 
     private static readonly Regex SignatureBlock = new(@"<div\b[^>]*class=[""'][^""']*\bmagpie-signature\b[^""']*[""'][^>]*>.*?</div>(?=\s*(?:<div\b[^>]*class=[""'][^""']*\bmagpie-quote\b|$))", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);

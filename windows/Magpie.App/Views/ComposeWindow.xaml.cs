@@ -291,7 +291,10 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        if (_plain || !_editorReady) return ComposeViewModel.TextToParagraphs(PlainEditor.Text is { Length: > 0 } t ? t : MimeText.HtmlToText(_vm.InitialHtml));
+        // The plain editor holds the message once it is in use — an emptied body stays empty. Before any editor is ready
+        // (a save racing the page load) the message is still what it was opened with.
+        if (_plain) return ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
