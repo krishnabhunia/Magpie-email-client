@@ -7,7 +7,7 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 15.0.0 (5 Nov 2026)
+## 15.0.0 (6 Nov 2026)
 ### New
 - **A full compose window.** Recipients become chips (initials, name, ✕) the moment an address is complete; an address that doesn't look right stays in red so you can fix it instead of Send failing. Point at a chip for a card with the full address, Move to Cc / Bcc, Open contact, Copy address. Drag a chip between To, Cc and Bcc. **Cc**, **Bcc** and **Reply-To** are separate links, and the 📖 button opens the address book (All / Frequent / Groups, tick people, send them to To, Cc or Bcc). The same address twice is merged; more than 20 visible people shows a note with **Move them to Bcc**.
 - **A formatting toolbar.** Undo · Redo │ Paragraph style (Normal, Heading 1–3, Code) · Font · Size │ Bold · Italic · Underline · Strikethrough │ Text colour · Highlight │ Alignment · Bulleted · Numbered · Outdent · Indent │ Quote · Horizontal line · Table (hover a grid; right-click a table to add or delete rows and columns) · Picture · Emoji (searchable, with a Recent row) · Link (a bubble on a link: open, edit, remove) │ Clear formatting. When the window is narrow the right-most buttons fold into **More ▾**, which also holds Superscript, Subscript, Paste as plain text and the plain-text switch. Settings → Appearance → **New message toolbar** chooses the buttons and their order.
