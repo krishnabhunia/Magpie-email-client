@@ -93,6 +93,7 @@ internal static partial class Program
                 && await Script("ed.getAttribute('aria-label')") == "\"Message body\""
                 && await Script("ed.getAttribute('aria-multiline')") == "\"true\"",
                 "Message editor exposes a named multiline textbox to screen readers");
+            await Script("ed.focus()");
             Assert(await Script("getComputedStyle(ed).boxShadow !== 'none'") == "true",
                 "Keyboard focus stays visible in the active message editor");
             await Script(EditorPage.TypographyScript(new TypographySettings(), true));
