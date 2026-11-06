@@ -723,9 +723,12 @@ function cmd(mode, text){
     ed.focus(); document.execCommand('insertHTML', false, inlineHtml(text));
     rewrite = null;
   }
-  else if (mode === 'insert') {
+  else if (mode === 'insert' || mode === 'insertLiteral') {
     ed.focus();if(!restore()) return false;
-    if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,isPlainText?text:toHtml(text))) return false;
+    // Literal canned replies use inline breaks: wrapping them in <p> lets Chromium promote a
+    // single newline to a paragraph boundary and changes the reply's visible text.
+    const insertion=isPlainText?text:(mode==='insertLiteral'?inlineHtml(text):toHtml(text));
+    if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion)) return false;
   }
   else if (mode === 'replaceBody') {
     insertBody(text,true);

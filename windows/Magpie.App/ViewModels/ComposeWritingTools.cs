@@ -101,7 +101,7 @@ public partial class ComposeViewModel
         }
         return InsertWritingTextAsync(async () =>
         {
-            await EditorCommand!("insert", text);
+            await EditorCommand!("insertLiteral", text);
             return true;
         }, "Quick reply inserted as editable text. Review the message before sending.");
     }

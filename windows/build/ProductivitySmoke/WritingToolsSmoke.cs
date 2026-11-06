@@ -167,7 +167,7 @@ internal static partial class Program
         var originalPlain = (bool)plainField.GetValue(window)!;
         Func<string, string, Task> insert = (kind, value) =>
         {
-            Assert(kind == "insert", theme + ": quick replies only request insertion, never a send or body replacement");
+            Assert(kind == "insertLiteral", theme + ": quick replies only request literal insertion, never a send or body replacement");
             insertions++;
             text += "\n" + value;
             return Task.CompletedTask;
@@ -317,7 +317,7 @@ internal static partial class Program
             "Templates insert body text into plain-text mode without attempting HTML insertion");
         const string literalReply = "Thanks_{{first_name}} <b>literal</b>\nRegards {{subject}}.";
         await script("setHtml('<p><strong>Keep bold</strong> selected <em>keep emphasis</em></p><div class=\"magpie-signature\">Saved signature</div><div class=\"magpie-quote\">Saved quote</div>');findInEditor('selected',true)");
-        var richInserted = await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")");
+        var richInserted = await script("cmd('insertLiteral'," + JsonSerializer.Serialize(literalReply) + ")");
         var richText = await script("ed.innerText");
         var richTextContent = await script("ed.textContent");
         var richHtml = await script("ed.innerHTML");
@@ -331,7 +331,7 @@ internal static partial class Program
             Assert(preservation.RootElement.EnumerateObject().All(property => property.Value.GetBoolean()),
                 "Rich quick replies preserve surrounding formatting, signature and quote." + richDiagnostic);
         await script("setHtml('<p>Plain selected suffix</p>');setEditorPlainText(true);findInEditor('selected',true)");
-        var plainInserted = await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")");
+        var plainInserted = await script("cmd('insertLiteral'," + JsonSerializer.Serialize(literalReply) + ")");
         var insertedPlainText = await script("ed.innerText");
         var insertedPlainTextContent = await script("ed.textContent");
         var insertedPlainHtml = await script("ed.innerHTML");
@@ -348,5 +348,8 @@ internal static partial class Program
         var prior = await script("ed.innerHTML");
         Assert(await script("cmd('insert','Must not insert')") == "false" && await script("ed.innerHTML") == prior,
             "Template insertion rejects a stale or out-of-editor selection without changing the message");
+        await script("saved=document.createRange();saved.selectNodeContents(document.getElementById('linkAddress'))");
+        Assert(await script("cmd('insertLiteral','Must not insert')") == "false" && await script("ed.innerHTML") == prior,
+            "Literal quick reply insertion rejects a stale or out-of-editor selection without changing the message");
     }
 }
