@@ -283,10 +283,11 @@ public class Release1500Tests
         Assert.True(added.IndexOf("<p>Me</p>", StringComparison.Ordinal) < added.IndexOf("magpie-quote", StringComparison.Ordinal));
         var none = Composer.ReplaceSignature(html, "");
         Assert.Equal(html, none);
-        // The editor page does the same: its swap only looks outside the quote.
+        // The editor page does the same: its swap only looks outside the quote, and inserts next to the quote wherever it sits.
         var page = EditorPage.Html;
         Assert.Contains("function ownSignature()", page);
         Assert.Contains("closest('.magpie-quote')", page);
+        Assert.Contains("q.parentNode.insertBefore(d2.firstChild, q)", page);
     }
 
     [Fact]

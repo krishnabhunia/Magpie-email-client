@@ -270,7 +270,7 @@ function setSignature(html){
   var sig=ownSignature();   // never the other person's signature inside the quoted email
   var block = html ? '<div class="magpie-signature"><br>'+html+'</div>' : '';
   if(sig){ if(block){ var d=document.createElement('div'); d.innerHTML=block; sig.replaceWith(d.firstChild); } else sig.remove(); }
-  else if(block){ var q=ed.querySelector('.magpie-quote,.mq-pill'); var d2=document.createElement('div'); d2.innerHTML=block; if(q) ed.insertBefore(d2.firstChild, q); else ed.appendChild(d2.firstChild); }
+  else if(block){ var q=ed.querySelector('.magpie-quote,.mq-pill'); var d2=document.createElement('div'); d2.innerHTML=block; if(q) q.parentNode.insertBefore(d2.firstChild, q); else ed.appendChild(d2.firstChild); }   // the quote may sit inside a wrapper div (a reopened draft)
   if(typography){ var own=ownSignature(); if(own) applyProtectedFont(own, typography.signature); }
   post({t:'dirty'});
 }

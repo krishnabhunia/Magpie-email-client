@@ -219,6 +219,7 @@ public sealed class RecipientBox : Border
 
     private void EditChip(Chip c)
     {
+        if (Input.Text.Trim().Length > 0) CommitInput();   // a recipient typed but not yet entered becomes a chip first — never lost
         var entry = c.Entry;
         RemoveChip(c, push: false);
         _updating = true;
@@ -379,7 +380,7 @@ public sealed class RecipientBox : Border
         {
             var h = 0;
             foreach (var ch in address.ToLowerInvariant()) h = unchecked(h * 31 + ch);
-            var brush = (Brush)new BrushConverter().ConvertFromString(Palette[Math.Abs(h) % Palette.Length])!;
+            var brush = (Brush)new BrushConverter().ConvertFromString(Palette[(int)((uint)h % (uint)Palette.Length)])!;   // unsigned: int.MinValue has no Abs
             brush.Freeze();
             return brush;
         }
