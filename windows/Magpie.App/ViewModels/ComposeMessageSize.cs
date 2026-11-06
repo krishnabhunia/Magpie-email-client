@@ -1,10 +1,16 @@
 using Magpie.Core.Mail;
+using Magpie.Core.Models;
 
 namespace Magpie.App.ViewModels;
 
 public partial class ComposeViewModel
 {
     private EncodedMessageSize? _encodedMessageSize;
+
+    internal int ReviewVersion => _edits;
+    internal bool ReviewSnapshotIsCurrent(int version, Account? account)
+        => !_closed && !_queued && !Sending && !RevisionBusy && !AttachmentOperationBusy
+            && _edits == version && ReferenceEquals(From, account);
 
     private void InvalidateMessageSize()
     {
@@ -30,10 +36,18 @@ public partial class ComposeViewModel
         await _saveGate.WaitAsync();
         try
         {
-            if (_closed || _queued || Sending) throw new InvalidOperationException("The message is closing or sending.");
+            if (_closed || _queued || Sending || RevisionBusy || AttachmentOperationBusy)
+                throw new InvalidOperationException("Wait for the current send, attachment or restore operation to finish before reviewing.");
+            var version = _edits;
+            var account = From;
             var draft = await BuildDraftAsync(validate: false)
                 ?? throw new InvalidOperationException("Choose a sending account first.");
-            return await MeasureBuiltDraftSizeAsync(draft);
+            if (!ReviewSnapshotIsCurrent(version, account))
+                throw new InvalidOperationException("The message changed while its size was being checked. Review it again.");
+            var size = await MeasureBuiltDraftSizeAsync(draft);
+            if (!ReviewSnapshotIsCurrent(version, account))
+                throw new InvalidOperationException("The message changed while its size was being checked. Review it again.");
+            return size;
         }
         finally { _saveGate.Release(); }
     }

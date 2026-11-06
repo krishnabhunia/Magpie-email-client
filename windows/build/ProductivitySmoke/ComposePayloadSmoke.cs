@@ -95,6 +95,17 @@ internal static partial class Program
             var second = await vm.MeasureDraftSizeAsync();
             Assert(second.Bytes > 32_000 && carried.Content.Stream.CanRead,
                 "Review can remeasure without disposing forwarded content");
+            vm.GetHtml = () =>
+            {
+                vm.Subject = "Changed while Review was reading the editor";
+                return Task.FromResult(html);
+            };
+            Exception? staleSize = null;
+            try { await vm.MeasureDraftSizeAsync(); }
+            catch (InvalidOperationException ex) { staleSize = ex; }
+            Assert(staleSize != null && vm.AttachmentSummary.Contains("updates after autosave or Review"),
+                "Review declines an edited snapshot and never publishes its stale encoded size");
+            vm.GetHtml = () => Task.FromResult(html);
             Assert(http.Requests == 0 && engine.Store.GetOutbox().Count == 0,
                 "Message sizing neither contacts a server nor queues the draft");
             Assert(vm.TryBeginAttachmentOperation() && !vm.TryBeginAttachmentOperation(),

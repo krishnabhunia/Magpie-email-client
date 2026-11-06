@@ -85,7 +85,7 @@ public partial class ComposeWindow
 
     private void UpdatePlainTextControls()
     {
-        foreach (var control in FormattingItems.Children.OfType<Control>())
+        foreach (var control in _composeToolbarControls.Values.OfType<Control>())
         {
             var tag = (control as Button)?.Tag as string;
             control.IsEnabled = !_vm.IsPlainText || tag is "plainAllowed" or "undo" or "redo";
@@ -841,15 +841,28 @@ public partial class ComposeWindow
 
     private async void OnReview(object sender, RoutedEventArgs e)
     {
-        var body = _vm.GetNewText != null ? await _vm.GetNewText() : "";
-        var missing = ComposeSafety.MissingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path));
-        var duplicates = ComposeSafety.DuplicateRecipients(_vm.To, _vm.Cc, _vm.Bcc);
-        var invalid = Composer.InvalidAddresses(_vm.To).Concat(Composer.InvalidAddresses(_vm.Cc))
-            .Concat(Composer.InvalidAddresses(_vm.Bcc)).Concat(Composer.InvalidAddresses(_vm.ReplyTo)).ToArray();
+        var version = _vm.ReviewVersion;
+        var account = _vm.From;
+        string body;
+        try { body = _vm.GetNewText != null ? await _vm.GetNewText() : ""; }
+        catch (Exception ex)
+        {
+            if (_vm.ReviewSnapshotIsCurrent(version, account)) Ui.Error("Compose review", ex.Message, this);
+            return;
+        }
         EncodedMessageSize? encoded = null;
         string? sizeError = null;
         try { encoded = await _vm.MeasureDraftSizeAsync(); }
         catch (Exception ex) { sizeError = ex.Message; }
+        if (!_vm.ReviewSnapshotIsCurrent(version, account))
+        {
+            _vm.Status = "Message changed during review. Check the latest content and choose Review again.";
+            return;
+        }
+        var missing = ComposeSafety.MissingFiles(_vm.Attachments.Where(a => !a.Carried).Select(a => a.Path));
+        var duplicates = ComposeSafety.DuplicateRecipients(_vm.To, _vm.Cc, _vm.Bcc);
+        var invalid = Composer.InvalidAddresses(_vm.To).Concat(Composer.InvalidAddresses(_vm.Cc))
+            .Concat(Composer.InvalidAddresses(_vm.Bcc)).Concat(Composer.InvalidAddresses(_vm.ReplyTo)).ToArray();
         var words = ComposeSafety.WordCount(body);
         var notes = new List<string>
         {

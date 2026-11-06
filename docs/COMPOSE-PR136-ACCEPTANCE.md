@@ -31,7 +31,7 @@ This record distinguishes implementation and automated coverage from completed h
 | Draft revisions | Scoped MIME snapshots, preview/confirmed restore, backup and rollback, stale-selection clearing | `DraftRevisionTests.cs`, `DraftHistorySmoke.cs` |
 | Modern Office preview | Bounded structured Word/Excel/PowerPoint preview and plain-text tab; local-only rendering | `OfficeDocumentPreviewTests.cs`, `OfficePreviewSmoke.cs` |
 
-The continuation also prevents queueing a stale message when fields change during asynchronous send preparation. Sending, closing or discarding cannot race an active clipboard picture save. MIME text-attachment smoke expectations use decoded snapshot bytes because MIME serialization may normalize line endings; separate binary fixtures verify exact preservation.
+The continuation also prevents queueing a stale message when fields change during asynchronous send preparation. Review rejects edits made while reading or measuring the message instead of mixing old and new values. Sending, closing or discarding cannot race an active clipboard picture save. MIME text-attachment smoke expectations use decoded snapshot bytes because MIME serialization may normalize line endings; separate binary fixtures verify exact preservation.
 
 ## Known limits and remaining acceptance
 
