@@ -364,12 +364,12 @@ public partial class ComposeWindow
         catch (Exception ex) { Ui.Error("Open attachment", ex.Message, this); }
     }
 
-    private void OnPreviewAttachment(object sender, RoutedEventArgs e)
+    private async void OnPreviewAttachment(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not AttachmentItem attachment) return;
         if (attachment.Carried)
         {
-            PreviewForwardedAttachment(attachment);
+            await PreviewForwardedAttachmentAsync(attachment);
             return;
         }
         if (!File.Exists(attachment.Path))
@@ -390,17 +390,20 @@ public partial class ComposeWindow
                     break;
                 case "office":
                     using (var input = new FileStream(attachment.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadDocument(input, attachment.Name));
+                    {
+                        var preview = await Task.Run(() => OfficeDocumentPreview.ReadDocument(input, attachment.Name));
+                        OfficePreviewWindow.Show(this, attachment.Name, preview);
+                    }
                     break;
                 default:
-                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs, text, Word, Excel and PowerPoint files. Use Open for other formats.", this);
+                    Ui.Error("Preview attachment", "Magpie can preview pictures, PDFs, text and modern Office files (.docx, .xlsx, .pptx). Legacy and macro-enabled Office formats require their own application.", this);
                     break;
             }
         }
         catch (Exception ex) { Ui.Error("Preview attachment", ex.Message, this); }
     }
 
-    private void PreviewForwardedAttachment(AttachmentItem attachment)
+    private async Task PreviewForwardedAttachmentAsync(AttachmentItem attachment)
     {
         if (attachment.Part is not MimePart { Content: { } content } part)
         {
@@ -427,7 +430,8 @@ public partial class ComposeWindow
             decoded.Position = 0;
             if (kind == "office")
             {
-                ShowTextAttachmentPreview(attachment.Name, OfficeTextPreview.ReadDocument(decoded, attachment.Name));
+                var preview = await Task.Run(() => OfficeDocumentPreview.ReadDocument(decoded, attachment.Name));
+                OfficePreviewWindow.Show(this, attachment.Name, preview);
                 return;
             }
             if (kind == "text")

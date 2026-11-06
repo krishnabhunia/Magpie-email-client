@@ -1489,6 +1489,7 @@ public sealed class MailEngine : IDisposable
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
         var msg = Composer.Build(d, account);
         // Copies on this PC saved after this one (e.g. in another window) are newer: leave those.
+        TryCaptureDraftRevision(d, msg);
         var cutoff = d.LocalDraftId is { } lid ? Store.GetLocalDraft(lid)?.Updated : null;
         if (!await sync.ReplaceDraftAsync(msg, ct))
             throw new InvalidOperationException("This account has no Drafts folder.");
@@ -1544,8 +1545,31 @@ public sealed class MailEngine : IDisposable
         var id = Store.SaveLocalDraft(local, insertIfMissing);
         if (id == 0) return 0;
         d.LocalDraftId = id;
+        TryCaptureDraftRevision(d, local.Mime);
         Changed?.Invoke(new ChangeSet { AccountId = d.AccountId });
         return id;
+    }
+
+    /// <summary>Capture a self-contained local revision. Zero means it exceeded the history safety limits.</summary>
+    public long CaptureDraftRevision(Draft draft)
+    {
+        using var operation = _versionOperations.Enter();
+        var account = AccountById(draft.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
+        var message = Composer.Build(draft, account);
+        return Store.SaveDraftRevision(draft, message);
+    }
+
+    private void TryCaptureDraftRevision(Draft draft, MimeMessage message)
+    {
+        try { Store.SaveDraftRevision(draft, message); }
+        catch (Exception ex) { Log.Warn("draft history: " + ex.Message); }
+    }
+
+    private void TryCaptureDraftRevision(Draft draft, byte[] mime)
+    {
+        // A history failure must never turn an otherwise successful draft save into a failure.
+        try { Store.SaveDraftRevision(draft, mime); }
+        catch (Exception ex) { Log.Warn("draft history: " + ex.Message); }
     }
 
     public List<LocalDraft> LocalDrafts() => Store.GetLocalDrafts();

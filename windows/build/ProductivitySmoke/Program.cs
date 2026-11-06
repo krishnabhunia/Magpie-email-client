@@ -88,7 +88,9 @@ internal static partial class Program
             CheckAiReplyFlow(root, engine);
             CheckAiReplySentOnlyFallback(root, engine);
             CheckAiWritingFlow(root, engine);
+            await CheckDraftHistoryAsync(root, engine);
             await CheckEditorPageAsync(root);
+            await CheckOfficePreviewAsync(root);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();

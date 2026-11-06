@@ -239,7 +239,7 @@ public partial class ComposeViewModel : ObservableObject
     /// <summary>Call on every edit: marks the message changed and autosaves it on this PC a moment later.</summary>
     public void MarkEdited()
     {
-        if (!_constructed) return;   // filling the fields from the draft is not an edit
+        if (!_constructed || _restoringRevision) return;   // filling/restoring fields is not an individual edit
         _edits++;
         Dirty = true;
         if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
@@ -520,7 +520,7 @@ public partial class ComposeViewModel : ObservableObject
     public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
-        if (Sending || _queued) return;
+        if (Sending || _queued || RevisionBusy) return;
         StopReplyDraft(clear: true);
         DiscardPreview();
         Sending = true;

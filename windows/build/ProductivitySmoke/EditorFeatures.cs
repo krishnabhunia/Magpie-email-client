@@ -88,6 +88,15 @@ internal static partial class Program
                 && afterAppend.Split("class=\"magpie-quote\"").Length == 2, "Real HTML serializes explicit type and one signature/quote");
             var latest = JsonSerializer.Deserialize<string>(await Script("getNewText()"))!;
             Assert(await Insert(latest, "replaceBody") == "true" && JsonSerializer.Deserialize<string>(await Script("getNewText()")) == "Generated answer.", "Replace changes only the new body");
+            // Replacing the whole document invalidates every old DOM range, even if its HTML is identical.
+            await Script("setHtml('<p>Selected text</p><table><tr><td>Cell</td></tr></table><img alt=\"Local fixture\">')");
+            await Script("rewrite={range:document.createRange(),html:ed.innerHTML};mentionRange=document.createRange();mentionToken='@old';mentionMenuOpen=true;selectedImage=ed.querySelector('img');selectedTableCell=ed.querySelector('td')");
+            await Script("setHtml(ed.innerHTML)");
+            Assert(await Script("rewrite===null && mentionRange===null && mentionToken==='' && !mentionMenuOpen && selectedImage===null && selectedTableCell===null") == "true",
+                "Whole-draft restoration clears stale rewrite, mention, picture and table selections");
+            Assert(await Script("cmd('replaceSelection','Must not insert')") == "false"
+                && await Script("!ed.textContent.includes('Must not insert') && saved!==null && ed.contains(saved.startContainer)") == "true",
+                "An old rewrite cannot target a restored document and the new caret belongs to the current DOM");
             await Script("setHtml('<p style=\"font:700 24px Georgia\">Existing formatted draft</p>')");
             Assert(await Script("ed.getAttribute('role')") == "\"textbox\""
                 && await Script("ed.getAttribute('aria-label')") == "\"Message body\""

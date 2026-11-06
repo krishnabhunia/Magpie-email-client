@@ -136,6 +136,9 @@ function insertMention(name,address){
   mentionRange=null;mentionToken='';mentionMenuOpen=false;post({t:'dirty'});return true;
 }
 function setHtml(h){
+  // Whole-draft restoration invalidates every range or node captured from the previous DOM.
+  rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
+  selectedImage=null;selectedTableCell=null;saved=null;
   isPlainText=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
   // Fold only in the editor's view. getHtml() still serializes the full quote.

@@ -147,6 +147,7 @@ public partial class ComposeWindow : Window
         _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
         _vm.FocusAnswerBox = () => Dispatcher.BeginInvoke(new Action(ReplyAi.FocusAnswer), System.Windows.Threading.DispatcherPriority.Input);
         _vm.EditorCommand = EditorCommandAsync;
+        _vm.RestoreRevisionEditor = RestoreRevisionEditorAsync;
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
         _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
         AppServices.Engine.Settings.Changed += _settingsChanged;
@@ -256,6 +257,7 @@ public partial class ComposeWindow : Window
 
     private void UsePlainEditor()
     {
+        _vm.SupportsRichDraftRestore = false;
         _plain = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
@@ -276,6 +278,7 @@ public partial class ComposeWindow : Window
         _editorReady = true;
         UpdatePlainTextControls();
         _ = ApplyEditorTypographyAsync();
+        _ = _vm.CaptureDraftRevisionAsync();
         _ = _vm.ReplyEditorReadyAsync();
     }
 
@@ -300,6 +303,7 @@ public partial class ComposeWindow : Window
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
                     if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
                     if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
+                    await _vm.CaptureDraftRevisionAsync();
                     await _vm.ReplyEditorReadyAsync();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
@@ -320,7 +324,8 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        if (_plain || !_editorReady) return ComposeViewModel.TextToParagraphs(PlainEditor.Text is { Length: > 0 } t ? t : MimeText.HtmlToText(_vm.InitialHtml));
+        if (_plain) return ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
