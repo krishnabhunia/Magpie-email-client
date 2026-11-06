@@ -10,6 +10,7 @@ using Magpie.App.ViewModels;
 using Magpie.Core;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
+using Magpie.Core.Settings;
 using Microsoft.Web.WebView2.Core;
 
 namespace Magpie.App.Views;
@@ -21,6 +22,9 @@ public partial class ComposeWindow : Window
     private bool _plain;
     private bool _forceClose;
     private TextBox? _suggestTarget;
+    private readonly bool _foldQuote;
+    /// <summary>WebView2 couldn't start: the plain editor is the only editor (design CW1: the plain-text switch stays off).</summary>
+    private bool _noWebView;
     private readonly bool _preserveDraftFormatting;
     private readonly Action _settingsChanged;
     private string _plainProtectedTail = "";
@@ -144,7 +148,12 @@ public partial class ComposeWindow : Window
         _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
         _vm.FocusAnswerBox = () => Dispatcher.BeginInvoke(new Action(ReplyAi.FocusAnswer), System.Windows.Threading.DispatcherPriority.Input);
         _vm.EditorCommand = EditorCommandAsync;
+        _vm.AskForgotAttachment = AskForgotAttachmentAsync;
+        _vm.AskOverLimit = AskOverLimitAsync;
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
+        // Design CW1 (E2): replies start with the quoted message folded; forwards and re-opened drafts don't.
+        _foldQuote = draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll && AppServices.Engine.Config.Compose.FoldQuote;
+        WireRecipientBoxes();
         _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
         AppServices.Engine.Settings.Changed += _settingsChanged;
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
@@ -162,8 +171,20 @@ public partial class ComposeWindow : Window
         };
         PreviewKeyDown += (_, e) =>
         {
+            var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             if (e.Key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && _vm.ShowAiRail)
             { e.Handled = true; _vm.ToggleAiPanelCommand.Execute(null); }
+            // Design CW1 (E4): the same keys as inside the editor page, for when the focus is in a header field.
+            else if (ctrl && !shift && e.Key == Key.S) { e.Handled = true; OnSaveDraft(this, new RoutedEventArgs()); }
+            else if (ctrl && !shift && e.Key == Key.F && !ReplyAi.HasKeyboardFocus) { e.Handled = true; OpenFind(false); }
+            else if (ctrl && !shift && e.Key == Key.H && !ReplyAi.HasKeyboardFocus) { e.Handled = true; OpenFind(true); }
+            else if (ctrl && e.Key == Key.OemQuestion) { e.Handled = true; ComposePopups.Shortcuts(this); }
+            else if (ctrl && shift && e.Key == Key.O) { e.Handled = true; OnAttach(this, new RoutedEventArgs()); }
+            else if (ctrl && shift && e.Key == Key.C && !ToBox.HasFocusWithin && !CcBox.HasFocusWithin && !BccBox.HasFocusWithin) { e.Handled = true; OnEditorKey("cc"); }
+            else if (ctrl && shift && e.Key == Key.B) { e.Handled = true; OnEditorKey("bcc"); }
+            else if (e.Key == Key.Enter && ctrl && (Keyboard.Modifiers & ModifierKeys.Alt) != 0) { e.Handled = true; _ = _vm.SendAndArchiveAsync(); }
+            else if (e.Key == Key.Escape && FindBar.Visibility == Visibility.Visible && FindBar.IsKeyboardFocusWithin) { e.Handled = true; OnFindClose(this, new RoutedEventArgs()); }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0 && ReplyAi.HasKeyboardFocus)
             {
                 // AW1: Ctrl+Enter in the AI draft panel rewrites the draft; it never sends the email from there.
@@ -171,7 +192,7 @@ public partial class ComposeWindow : Window
                 if (_vm.GenerateReplyDraftCommand.CanExecute(null)) _ = _vm.GenerateReplyDraftCommand.ExecuteAsync(null);
             }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
-            else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
+            else if (e.Key == Key.Escape && !SuggestPopup.IsOpen && !MentionPopup.IsOpen) { e.Handled = true; Close(); }
         };
         if (Application.Current.MainWindow is { IsVisible: true } main)
         {
@@ -180,6 +201,7 @@ public partial class ComposeWindow : Window
             WindowStartupLocation = WindowStartupLocation.Manual;
         }
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        RestorePlacement();   // design CW1 (E5): the last size and place win over the offset above
     }
 
     private async Task InitEditorAsync()
@@ -212,12 +234,12 @@ public partial class ComposeWindow : Window
     private void UsePlainEditor()
     {
         _plain = true;
+        _noWebView = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
-        var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
-        _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
-        PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
+        _plainProtectedTail = ProtectedTail(_vm.InitialHtml);
+        PlainEditor.TextChanged += OnPlainChanged;
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
         _ = ApplyEditorTypographyAsync();
@@ -237,15 +259,31 @@ public partial class ComposeWindow : Window
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
                     _editorReady = true;
                     await ApplyEditorTypographyAsync();
+                    // Design CW1: spelling, folded quote, the paste question, the toolbar
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setSpell({(AppServices.Engine.Config.Compose.CheckSpelling ? "true" : "false")})");
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setAskPaste({(AppServices.Engine.Config.Compose.PastePicture != PastePictureChoice.InMessage ? "true" : "false")})");
+                    if (_foldQuote) await Editor.CoreWebView2.ExecuteScriptAsync("foldQuote()");
+                    BuildToolbar();
+                    if (_vm.PlainText) { _vm.PlainText = false; await SwitchPlainTextAsync(true, ask: false); }
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
                     if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
-                    if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
+                    if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Input.Focus();
                     await _vm.ReplyEditorReadyAsync();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
+                // Design CW1
+                case "state": ApplyEditorState(root); break;
+                case "linkat": ShowLinkBubble(root); break;
+                case "img": ShowPictureBubble(root); break;
+                case "table": ShowTableMenu(root); break;
+                case "mention": ShowMentions(root); break;
+                case "stats": _vm.UpdateStats(root.GetProperty("text").GetString() ?? ""); _ = RefreshSizeAsync(); break;   // pasted / deleted pictures count
+                case "pastepics": OnPastedPictures(root.GetProperty("data").EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()); break;
+                case "pastefiles": OnPastedFiles(); break;
+                case "key": OnEditorKey(root.GetProperty("k").GetString() ?? ""); break;
             }
         }
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
@@ -253,7 +291,10 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        if (_plain || !_editorReady) return ComposeViewModel.TextToParagraphs(PlainEditor.Text is { Length: > 0 } t ? t : MimeText.HtmlToText(_vm.InitialHtml));
+        // The plain editor holds the message once it is in use — an emptied body stays empty. Before any editor is ready
+        // (a save racing the page load) the message is still what it was opened with.
+        if (_plain) return ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
@@ -277,6 +318,13 @@ public partial class ComposeWindow : Window
         catch (Exception ex) { Log.Warn("editor typography: " + ex.Message); }
     }
 
+    /// <summary>The signature + quoted part of <paramref name="html"/> as plain text (the plain editor never lets AI drafts or templates touch it).</summary>
+    private static string ProtectedTail(string html)
+    {
+        var protectedStart = Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
+        return protectedStart.Success ? MimeText.HtmlToText(html[protectedStart.Index..]).TrimStart() : "";
+    }
+
     private string PlainNewText()
     {
         var text = PlainEditor.Text;
@@ -298,6 +346,7 @@ public partial class ComposeWindow : Window
     {
         if (_plain)
         {
+            if (mode == "signature") throw new InvalidOperationException("Switch back to rich text to change the signature.");
             if (mode == "replyDraft")
             {
                 using var payload = JsonDocument.Parse(text);
@@ -336,6 +385,11 @@ public partial class ComposeWindow : Window
                 PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
             }
             else PlainEditor.SelectedText = text;
+            return;
+        }
+        if (mode == "signature")
+        {
+            await Editor.CoreWebView2.ExecuteScriptAsync($"setSignature({JsonSerializer.Serialize(text)})");
             return;
         }
         var result = await Editor.CoreWebView2.ExecuteScriptAsync($"cmd({JsonSerializer.Serialize(mode)}, {JsonSerializer.Serialize(text)})");
@@ -415,7 +469,24 @@ public partial class ComposeWindow : Window
             mi.Click += (_, _) => _vm.InsertTemplate(t);
             menu.Items.Add(mi);
         }
+        // Design CW1 (D5): quick replies are here too
+        var quick = _vm.QuickReplies;
+        if (quick.Count > 0)
+        {
+            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Quick replies", IsEnabled = false });
+            foreach (var q in quick)
+            {
+                var mi = new MenuItem { Header = q.Length > 48 ? q[..48] + "…" : q };
+                var text = q;
+                mi.Click += (_, _) => _vm.InsertQuickReply(text);
+                menu.Items.Add(mi);
+            }
+        }
         if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var saveAs = new MenuItem { Header = "Save this message as a template…" };
+        saveAs.Click += (_, _) => OnSaveAsTemplate();
+        menu.Items.Add(saveAs);
         var manage = new MenuItem { Header = "Manage templates…" };
         manage.Click += (_, _) => SettingsWindow.Open("Templates");
         menu.Items.Add(manage);
@@ -482,15 +553,23 @@ public partial class ComposeWindow : Window
     {
         if (sender is not TextBox box || !box.IsKeyboardFocusWithin) return;
         var token = LastToken(box.Text);
-        if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { SuggestPopup.IsOpen = false; return; }
+        if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { CloseSuggestions(); return; }
         var hits = AppServices.Engine.Contacts.Suggest(token);
-        if (hits.Count == 0) { SuggestPopup.IsOpen = false; return; }
+        if (hits.Count == 0) { CloseSuggestions(); return; }
         SuggestList.ItemsSource = hits;
         SuggestList.SelectedIndex = 0;
         _suggestTarget = box;
-        SuggestPopup.PlacementTarget = box;
-        SuggestPopup.Width = Math.Max(320, box.ActualWidth);
+        var owner = BoxOf(box);
+        SuggestPopup.PlacementTarget = (UIElement?)owner ?? box;
+        SuggestPopup.Width = Math.Max(320, owner?.ActualWidth ?? box.ActualWidth);
         SuggestPopup.IsOpen = true;
+        if (owner != null) owner.SuggestionsOpen = true;
+    }
+
+    private void CloseSuggestions()
+    {
+        SuggestPopup.IsOpen = false;
+        foreach (var b in new[] { ToBox, CcBox, BccBox, ReplyToBox }) b.SuggestionsOpen = false;
     }
 
     private void OnAddressKey(object sender, KeyEventArgs e)
@@ -512,7 +591,7 @@ public partial class ComposeWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                SuggestPopup.IsOpen = false;
+                CloseSuggestions();
                 e.Handled = true;
                 break;
         }
@@ -527,20 +606,22 @@ public partial class ComposeWindow : Window
 
     private void OnAddressLostFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (!SuggestList.IsKeyboardFocusWithin && !SuggestPopup.IsMouseOver) SuggestPopup.IsOpen = false;
+        if (SuggestList.IsKeyboardFocusWithin || SuggestPopup.IsMouseOver) return;   // picking a suggestion: the pick replaces the typed text
+        var wasOpen = SuggestPopup.IsOpen;
+        CloseSuggestions();
+        // The box skipped its own commit while the list was open; the focus went elsewhere, so commit now.
+        if (wasOpen && sender is TextBox input) BoxOf(input)?.CommitInput();
     }
 
+    /// <summary>Design CW1 (A1): the picked person becomes a chip in the field the user was typing in.</summary>
     private void AcceptSuggestion()
     {
-        if (_suggestTarget == null || SuggestList.SelectedItem == null) { SuggestPopup.IsOpen = false; return; }
-        if (SuggestList.SelectedItem is not ContactSuggestion contact) { SuggestPopup.IsOpen = false; return; }
-        var text = _suggestTarget.Text;
-        var i = text.LastIndexOfAny(new[] { ',', ';' });
-        var head = i >= 0 ? text[..(i + 1)] + " " : "";
-        var entry = string.IsNullOrEmpty(contact.Name) ? contact.Address : $"{(contact.Name.Contains(',') ? "\"" + contact.Name + "\"" : contact.Name)} <{contact.Address}>";
-        _suggestTarget.Text = head + entry + ", ";
-        _suggestTarget.CaretIndex = _suggestTarget.Text.Length;
-        SuggestPopup.IsOpen = false;
+        if (_suggestTarget == null || SuggestList.SelectedItem is not ContactSuggestion contact) { CloseSuggestions(); return; }
+        var entry = Composer.FormatAddress(contact.Name, contact.Address);
+        var owner = BoxOf(_suggestTarget);
+        CloseSuggestions();
+        if (owner != null) owner.AddChip(entry);
+        else { _suggestTarget.Text = entry + ", "; _suggestTarget.CaretIndex = _suggestTarget.Text.Length; }
         _suggestTarget.Focus();
     }
 

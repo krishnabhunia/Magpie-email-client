@@ -10,6 +10,9 @@ namespace Magpie.Core.Mail;
 
 public enum ComposeMode { New, Reply, ReplyAll, Forward, EditDraft }
 
+/// <summary>Design CW1 (D1): the sender's priority mark. High / Low go out as X-Priority, Importance and X-MSMail-Priority headers.</summary>
+public enum MailPriority { Normal = 0, High = 1, Low = 2 }
+
 /// <summary>Everything the compose window edits.</summary>
 public sealed class Draft
 {
@@ -42,6 +45,14 @@ public sealed class Draft
     public string MessageId { get; set; } = "";
     /// <summary>An iCalendar reply sent with the message as text/calendar; method=REPLY (invite answers, design B3).</summary>
     public string CalendarReply { get; set; } = "";
+    /// <summary>Design CW1 (A5): the Reply-To header ("" = none).</summary>
+    public string ReplyTo { get; set; } = "";
+    /// <summary>Design CW1 (D1).</summary>
+    public MailPriority Priority { get; set; }
+    /// <summary>Design CW1 (D2): ask the recipient's mail app for a read receipt (Disposition-Notification-To).</summary>
+    public bool ReadReceipt { get; set; }
+    /// <summary>Design CW1 (B16): send as text/plain only — no formatting, pictures or tables.</summary>
+    public bool PlainText { get; set; }
 }
 
 /// <summary>Builds replies/forwards and the final MIME message.</summary>
@@ -70,6 +81,33 @@ public static class Composer
                 bad.Add(piece);
         return bad;
     }
+
+    /// <summary>The pieces of an address field (", " / ";" / new lines split it; separators inside quoted names are kept).</summary>
+    public static List<string> SplitAddresses(string text) => AddressPieces(text ?? "");
+
+    /// <summary>"Name &lt;address&gt;" → (Name, address); a bare address → ("", address); anything else → ("", piece).</summary>
+    public static (string Name, string Address) NameAndAddress(string piece)
+    {
+        if (MailboxAddress.TryParse(piece, out var mb)) return (mb.Name ?? "", mb.Address ?? "");
+        return ("", (piece ?? "").Trim());
+    }
+
+    /// <summary>"Name &lt;address&gt;" for an address field, quoted and escaped the way mail expects (a name with a comma, semicolon
+    /// or quote stays one recipient); the bare address when there is no name or the name is the address.</summary>
+    public static string FormatAddress(string? name, string address)
+    {
+        address = (address ?? "").Trim();
+        var n = (name ?? "").Trim();
+        if (n.Length == 0 || string.Equals(n, address, StringComparison.OrdinalIgnoreCase)) return address;
+        if (PlainName.IsMatch(n)) return n + " <" + address + ">";   // letters, digits, spaces, . _ ' - : no quoting needed
+        try { return new MailboxAddress(n, address).ToString(); }    // anything else: MimeKit quotes and escapes it
+        catch { return address; }
+    }
+
+    private static readonly Regex PlainName = new(@"^[\p{L}\p{N} ._'\-]+$", RegexOptions.Compiled);
+
+    /// <summary>True when the piece is a usable email address (what Send would accept).</summary>
+    public static bool IsValidAddress(string piece) => InvalidAddresses(piece).Count == 0 && !string.IsNullOrWhiteSpace(piece);
 
     // Keep separators inside quoted display names intact in both parsing and validation.
     private static List<string> AddressPieces(string text)
@@ -221,7 +259,8 @@ public static class Composer
 
     public static string QuoteBlock(MessageRow o, MessageBody? body)
     {
-        var who = string.IsNullOrWhiteSpace(o.FromName) ? o.FromAddress : $"{o.FromName} &lt;{WebUtility.HtmlEncode(o.FromAddress)}&gt;";
+        // The sender's name and address are theirs, not ours: encoded, so a crafted name is text in the quote, never markup.
+        var who = string.IsNullOrWhiteSpace(o.FromName) ? WebUtility.HtmlEncode(o.FromAddress) : $"{WebUtility.HtmlEncode(o.FromName)} &lt;{WebUtility.HtmlEncode(o.FromAddress)}&gt;";
         var when = o.Date.ToLocalTime().ToString("ddd, d MMM yyyy 'at' HH:mm");
         return $"<div class=\"magpie-quote\"><p>On {WebUtility.HtmlEncode(when)}, {who} wrote:</p><blockquote style=\"margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex\">{BodyForQuote(body)}</blockquote></div>";
     }
@@ -239,7 +278,13 @@ public static class Composer
     }
 
     /// <summary>The final RFC 5322 message.</summary>
-    public static MimeMessage Build(Draft d, Account account)
+    /// <summary>Header a plain-text message keeps while it is a draft (see <see cref="Build"/>'s <c>forDraft</c>).</summary>
+    public const string PlainTextDraftHeader = "X-Magpie-Plain-Text";
+
+    /// <summary>The message as MIME. <paramref name="forDraft"/> = saved as a draft (on this PC or the server), not sent: a
+    /// plain-text message then keeps its HTML too, so reopening it still knows where the signature and the quoted email are,
+    /// and carries <see cref="PlainTextDraftHeader"/> so it reopens as plain text. What is sent has text/plain only.</summary>
+    public static MimeMessage Build(Draft d, Account account, bool forDraft = false)
     {
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress(account.DisplayName, account.Email));
@@ -254,6 +299,9 @@ public static class Composer
         if (!string.IsNullOrWhiteSpace(d.InReplyTo)) msg.InReplyTo = d.InReplyTo.Trim().Trim('<', '>');
         foreach (var r in Threading.ParseReferences(d.References)) msg.References.Add(r);
         msg.Headers.Add("X-Mailer", "Magpie 1.0");
+        if (!string.IsNullOrWhiteSpace(d.ReplyTo)) msg.ReplyTo.AddRange(ParseAddresses(d.ReplyTo));
+        foreach (var (name, value) in PriorityHeaders(d.Priority)) msg.Headers.Add(name, value);
+        if (d.ReadReceipt) msg.Headers.Add("Disposition-Notification-To", new MailboxAddress(account.DisplayName, account.Email).ToString());
 
         var builder = new BodyBuilder();
         // Pasted pictures arrive as data: URIs, which many mail apps block — send them as inline attachments.
@@ -278,8 +326,13 @@ public static class Composer
             msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
             return msg;
         }
-        builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
-        builder.TextBody = MimeText.HtmlToText(d.Html);
+        if (d.PlainText && forDraft) msg.Headers.Add(PlainTextDraftHeader, "yes");
+        if (d.PlainText && !forDraft) builder.TextBody = MimeText.HtmlToText(d.Html);
+        else
+        {
+            builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
+            builder.TextBody = MimeText.HtmlToText(d.Html);
+        }
         foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);
         foreach (var part in d.CarriedParts) builder.Attachments.Add(part);
         msg.Body = builder.ToMessageBody();
@@ -390,6 +443,10 @@ public static class Composer
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,
             MessageId = msg.MessageId ?? "",
+            ReplyTo = FormatList(msg.ReplyTo),
+            Priority = PriorityOf(msg.Headers["X-Priority"] ?? "", msg.Headers["Importance"] ?? "", msg.Headers["X-MSMail-Priority"] ?? ""),
+            ReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
+            PlainText = msg.Headers.Contains(PlainTextDraftHeader) || (string.IsNullOrEmpty(msg.HtmlBody) && !string.IsNullOrEmpty(msg.TextBody)),
         };
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");
@@ -404,5 +461,162 @@ public static class Composer
             if (part is MimePart { IsAttachment: true } || part is MessagePart) d.CarriedParts.Add(part);
         }
         return d;
+    }
+
+    // ───────────────────────── design CW1: priority, receipts, limits, checks ─────────────────────────
+
+    /// <summary>The headers a priority goes out with (none for Normal).</summary>
+    public static IEnumerable<(string Name, string Value)> PriorityHeaders(MailPriority p)
+    {
+        switch (p)
+        {
+            case MailPriority.High:
+                yield return ("X-Priority", "1 (Highest)");
+                yield return ("Importance", "High");
+                yield return ("X-MSMail-Priority", "High");
+                break;
+            case MailPriority.Low:
+                yield return ("X-Priority", "5 (Lowest)");
+                yield return ("Importance", "Low");
+                yield return ("X-MSMail-Priority", "Low");
+                break;
+        }
+    }
+
+    /// <summary>Reads a received email's priority from its headers (any of the three; X-Priority 1–2 = High, 4–5 = Low).</summary>
+    public static MailPriority PriorityOf(string xPriority, string importance, string msMailPriority)
+    {
+        var imp = (importance ?? "").Trim();
+        if (imp.Length == 0) imp = (msMailPriority ?? "").Trim();
+        if (imp.StartsWith("high", StringComparison.OrdinalIgnoreCase) || imp.StartsWith("urgent", StringComparison.OrdinalIgnoreCase)) return MailPriority.High;
+        if (imp.StartsWith("low", StringComparison.OrdinalIgnoreCase) || imp.StartsWith("non-urgent", StringComparison.OrdinalIgnoreCase)) return MailPriority.Low;
+        var m = Regex.Match(xPriority ?? "", @"^\s*([1-5])");
+        if (!m.Success) return MailPriority.Normal;
+        return m.Groups[1].Value switch { "1" or "2" => MailPriority.High, "4" or "5" => MailPriority.Low, _ => MailPriority.Normal };
+    }
+
+    public static bool IsHighPriority(string xPriority, string importance, string msMailPriority) =>
+        PriorityOf(xPriority, importance, msMailPriority) == MailPriority.High;
+
+    /// <summary>The attachment limit the compose window shows for an account, in bytes (C2): the account's own number, or
+    /// Gmail 25 MB, Outlook / Microsoft 365 20 MB, IMAP 25 MB.</summary>
+    public static long AttachmentLimit(Account? account)
+    {
+        if (account == null) return 25L * 1024 * 1024;
+        if (account.AttachmentLimitMb > 0) return account.AttachmentLimitMb * 1024L * 1024;
+        return account.Kind == AccountKind.Microsoft ? 20L * 1024 * 1024 : 25L * 1024 * 1024;
+    }
+
+    /// <summary>Bytes of the attached files plus the pictures inside the message (data: URIs), for the size bar (C2).</summary>
+    public static long AttachedBytes(IEnumerable<string> paths, IEnumerable<long> carriedSizes, string html)
+    {
+        long total = 0;
+        foreach (var p in paths) { try { if (File.Exists(p)) total += new FileInfo(p).Length; } catch { } }
+        total += carriedSizes.Sum();
+        foreach (Match m in DataImage.Matches(html ?? "")) total += m.Groups[2].Value.Length * 3L / 4;
+        return total;
+    }
+
+    private static readonly Regex MentionsFile = new(@"\b(attach(?:ed|ment|ments|ing)?|enclos(?:ed|ure)|pfa|see the file|find the file|the file (?:is|here))\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>C3: the new text talks about an attachment ("attached", "enclosed", "PFA", …).</summary>
+    public static bool MentionsAttachment(string newText) => !string.IsNullOrWhiteSpace(newText) && MentionsFile.IsMatch(newText);
+
+    /// <summary>D8: words in the new text (runs of letters / digits).</summary>
+    public static int WordCount(string text) => string.IsNullOrWhiteSpace(text) ? 0 : Regex.Matches(text, @"[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*").Count;
+
+    /// <summary>A6: the same address twice in one field is merged (first one kept, case ignored); separators become ", ".</summary>
+    public static string MergeDuplicates(string field)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var kept = new List<string>();
+        foreach (var piece in AddressPieces(field ?? ""))
+        {
+            var key = MailboxAddress.TryParse(piece, out var mb) ? mb.Address : piece;
+            if (seen.Add(key)) kept.Add(piece);
+        }
+        return string.Join(", ", kept);
+    }
+
+    /// <summary>A6: how many different people the message is visible to (To + Cc), for the "more than 20" note.</summary>
+    public static int VisibleRecipients(string to, string cc)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var piece in AddressPieces(to ?? "").Concat(AddressPieces(cc ?? "")))
+            seen.Add(MailboxAddress.TryParse(piece, out var mb) ? mb.Address : piece);
+        return seen.Count;
+    }
+    public const int ManyRecipients = 20;
+
+    /// <summary>B9: a picture file as an inline &lt;img&gt; (data: URI; sent as cid, see <see cref="Build"/>).</summary>
+    public static string PictureHtml(string path)
+    {
+        var ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+        var type = ext switch { "jpg" or "jpeg" => "image/jpeg", "png" => "image/png", "gif" => "image/gif", "webp" => "image/webp", "bmp" => "image/bmp", _ => "" };
+        if (type.Length == 0) throw new InvalidOperationException("Only png, jpg, gif, webp and bmp pictures can go inside the message.");
+        var data = Convert.ToBase64String(File.ReadAllBytes(path));
+        return "<img src=\"data:" + type + ";base64," + data + "\" alt=\"" + WebUtility.HtmlEncode(Path.GetFileName(path)) + "\" style=\"max-width:100%\">";
+    }
+
+    public static readonly string[] PictureExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" };
+    public static bool IsPicture(string path) => PictureExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+
+    /// <summary>C4: the file extension for a pasted picture's media type ("image/png" → "png"); null when it is not a picture type
+    /// Magpie saves. The type comes from the editor page, so it is never used as part of a file name unchecked.</summary>
+    public static string? PastedPictureExtension(string? mediaType)
+    {
+        var t = (mediaType ?? "").Trim().ToLowerInvariant();
+        var semi = t.IndexOf(';'); if (semi >= 0) t = t[..semi];
+        return t switch
+        {
+            "image/png" => "png",
+            "image/jpeg" or "image/jpg" or "image/pjpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" or "image/x-ms-bmp" => "bmp",
+            "image/tiff" => "tiff",
+            _ => null,
+        };
+    }
+
+    /// <summary>True when <paramref name="path"/> resolves to a file directly inside <paramref name="directory"/>.</summary>
+    public static bool IsInside(string directory, string path)
+    {
+        var dir = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(path);
+        return string.Equals(Path.GetDirectoryName(full)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), dir,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    /// <summary>D9: the message as a .eml file (what Send would build, Bcc included so the file is complete).</summary>
+    public static byte[] ToEml(Draft d, Account account) => ToBytes(Build(d, account));
+
+    /// <summary>D4: a template from a message — the new text as plain paragraphs (no signature, no quote).</summary>
+    public static string TemplateBody(string newText) => (newText ?? "").Replace("\r\n", "\n").Trim();
+
+    /// <summary>D3: swaps the signature block in the editor HTML for <paramref name="signatureHtml"/> ("" removes it). Returns the new HTML.</summary>
+    public static string ReplaceSignature(string html, string signatureHtml)
+    {
+        var block = string.IsNullOrWhiteSpace(signatureHtml) ? "" : "<div class=\"magpie-signature\"><br>" + signatureHtml + "</div>";
+        html ??= "";
+        // Only the writer's own signature is swapped: the quoted email may carry the other person's signature block, which stays.
+        var q = QuoteStart.Match(html);
+        var own = q.Success ? html[..q.Index] : html;
+        var m = SignatureBlock.Match(own);
+        if (m.Success) return own[..m.Index] + block + own[(m.Index + m.Length)..] + (q.Success ? html[q.Index..] : "");
+        return q.Success ? own + block + html[q.Index..] : html + block;
+    }
+
+    private static readonly Regex SignatureBlock = new(@"<div\b[^>]*class=[""'][^""']*\bmagpie-signature\b[^""']*[""'][^>]*>.*?</div>(?=\s*(?:<div\b[^>]*class=[""'][^""']*\bmagpie-quote\b|$))", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex QuoteStart = new(@"<div\b[^>]*class=[""'][^""']*\bmagpie-quote\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Signature HTML of the signature with this id, the account's default when the id is unknown, "" for none.</summary>
+    public static string SignatureHtmlFor(Account? account, string? signatureId, bool reply)
+    {
+        if (account == null || (reply ? !account.SignatureOnReplies : !account.SignatureOnNew)) return "";
+        var def = (account.Signatures ?? new()).FirstOrDefault(s => s.Id == signatureId) ?? account.DefaultSignature;
+        var html = def?.Html ?? account.SignatureHtml;
+        if (string.IsNullOrWhiteSpace(MimeText.HtmlToText(html)) && !(html ?? "").Contains("<img", StringComparison.OrdinalIgnoreCase)) return "";
+        return HtmlRenderer.SanitizeBody(html!, new Dictionary<string, string>(), allowRemote: true).html;
     }
 }

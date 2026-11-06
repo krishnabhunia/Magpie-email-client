@@ -20,6 +20,35 @@ public sealed class AttachmentItem
     /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
     public MimeKit.MimeEntity? Part { get; init; }
     public string Display => Carried ? Path : $"{Name}  ·  {Size}";
+    /// <summary>Design CW1 (C2): bytes of a carried-over part, for the size bar.</summary>
+    public long CarriedSize
+    {
+        get
+        {
+            try { return Part is MimeKit.MimePart { Content: { Stream: { } st } } ? st.Length : 0; }
+            catch { return 0; }
+        }
+    }
+    /// <summary>Design CW1 (C1): "XLS", "PDF", "DOC", "ZIP", "IMG" … from the file name.</summary>
+    public string Kind
+    {
+        get
+        {
+            var ext = System.IO.Path.GetExtension(Name).TrimStart('.').ToUpperInvariant();
+            return ext switch
+            {
+                "XLSX" or "XLS" or "CSV" => "XLS", "DOCX" or "DOC" or "RTF" or "ODT" => "DOC", "PPTX" or "PPT" => "PPT", "PDF" => "PDF",
+                "ZIP" or "7Z" or "RAR" or "GZ" => "ZIP", "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" => "IMG", "TXT" or "MD" or "LOG" => "TXT",
+                "EML" or "MSG" => "EML", "" => "FILE", _ => ext.Length > 4 ? ext[..4] : ext,
+            };
+        }
+    }
+    public bool IsPicture => !Carried && Magpie.Core.Mail.Composer.IsPicture(Path);
+    /// <summary>Colour of the type badge.</summary>
+    public string KindColour => Kind switch
+    {
+        "XLS" => "#1D6F42", "DOC" => "#2B579A", "PPT" => "#B7472A", "PDF" => "#B3261E", "ZIP" => "#5A6068", "IMG" => "#4B3F86", "EML" => "#14606E", _ => "#5A6068",
+    };
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
@@ -43,7 +72,6 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _to = "";
     [ObservableProperty] private string _cc = "";
     [ObservableProperty] private string _bcc = "";
-    [ObservableProperty] private bool _showCcBcc;
     [ObservableProperty] private string _subject = "";
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
@@ -79,7 +107,6 @@ public partial class ComposeViewModel : ObservableObject
         To = draft.To;
         Cc = draft.Cc;
         Bcc = draft.Bcc;
-        ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
         Subject = draft.Subject;
         foreach (var p in draft.AttachmentPaths) Attachments.Add(new AttachmentItem { Path = p });
         foreach (var part in draft.CarriedParts)
@@ -95,6 +122,7 @@ public partial class ComposeViewModel : ObservableObject
         // so closing the window asks before discarding it.
         StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null && draft.LocalDraftId == null;
         InitializeReplyDrafts(prefillText);
+        InitFeatures(draft);
         RefreshAi();
         if (draft.LocalDraftId is { } localId)
         {
@@ -302,8 +330,8 @@ public partial class ComposeViewModel : ObservableObject
     public static string TextToParagraphs(string text) => Composer.TextToParagraphs(text);
 
     partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
-    partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
-    partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); RefreshRecipientNote(); }
+    partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); RefreshRecipientNote(); }
     partial void OnBccChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
 
     public void RefreshAi()
@@ -320,16 +348,14 @@ public partial class ComposeViewModel : ObservableObject
     }
 
     [RelayCommand] private void ToggleAiPanel() => AiPanelOpen = !AiPanelOpen;
-    [RelayCommand] private void ShowCc() => ShowCcBcc = true;
     [RelayCommand] private void OpenAiSettings() => Views.SettingsWindow.Open("AI");
 
     public void AddAttachments(IEnumerable<string> paths)
     {
         foreach (var p in paths.Where(File.Exists))
         {
-            var fi = new FileInfo(p);
-            if (fi.Length > 25 * 1024 * 1024 && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)}. Many mail servers reject messages over 25 MB. Attach anyway?"))
-                continue;
+            // Design CW1 (A6 for files): the same file twice is one attachment; the size bar (C2) replaces the old per-file warning.
+            if (Attachments.Any(a => !a.Carried && a.Path.Equals(p, StringComparison.OrdinalIgnoreCase))) continue;
             Attachments.Add(new AttachmentItem { Path = p });
             MarkEdited();
         }
@@ -350,7 +376,7 @@ public partial class ComposeViewModel : ObservableObject
         if (From == null) { if (validate) Ui.Error("Send", "Add an account first."); return null; }
         if (validate)
         {
-            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
+            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).Concat(Composer.InvalidAddresses(ReplyTo)).ToList();
             if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
         }
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
@@ -362,6 +388,7 @@ public partial class ComposeViewModel : ObservableObject
         _draft.Subject = Subject;
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
+        FillDraftOptions(_draft);
         return _draft;
     }
 
@@ -381,6 +408,7 @@ public partial class ComposeViewModel : ObservableObject
                 return;
             }
             if (string.IsNullOrWhiteSpace(Subject) && !Ui.Confirm("No subject", "Send this message without a subject?")) return;
+            if (!await ChecksBeforeSendAsync()) return;
             // Wait for an autosave that is building the message (it shares attachment streams with this build).
             await _saveGate.WaitAsync();
             Draft? d;
@@ -406,6 +434,8 @@ public partial class ComposeViewModel : ObservableObject
             {
                 if (when != null) vm.ShowScheduled(id, sendAt, Subject);
                 else vm.ShowUndo(id, undo, Subject);
+                // Design CW1 (D6): Send & Archive — the conversation is archived once the undo window has passed, unless Undo was clicked.
+                if (ArchiveAfterSend is { } arc && when == null) vm.ArchiveAfterUndo(id, undo, arc.AccountId, arc.ThreadKey, vm.ArchiveFoldersFor(arc.AccountId));
             }
             CloseRequested?.Invoke();
         }
@@ -414,7 +444,11 @@ public partial class ComposeViewModel : ObservableObject
             Log.Error("queue send", ex);
             Ui.Error("Send", ex.Message);
         }
-        finally { Sending = false; }
+        finally
+        {
+            Sending = false;
+            if (!_queued) ArchiveAfterSend = null;   // design CW1 (D6): a cancelled Send & Archive doesn't turn the next Send into one
+        }
     }
 
     /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
