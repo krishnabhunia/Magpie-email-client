@@ -317,15 +317,33 @@ internal static partial class Program
             "Templates insert body text into plain-text mode without attempting HTML insertion");
         const string literalReply = "Thanks_{{first_name}} <b>literal</b>\nRegards {{subject}}.";
         await script("setHtml('<p><strong>Keep bold</strong> selected <em>keep emphasis</em></p><div class=\"magpie-signature\">Saved signature</div><div class=\"magpie-quote\">Saved quote</div>');findInEditor('selected',true)");
-        Assert(await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")") == "true"
-            && JsonSerializer.Deserialize<string>(await script("ed.innerText"))!.Replace("\r\n", "\n").Contains(literalReply)
-            && await script("ed.querySelector('b')===null && ed.querySelector('strong').textContent==='Keep bold' && ed.querySelector('em').textContent==='keep emphasis' && ed.querySelector('.magpie-signature').textContent==='Saved signature' && ed.querySelector('.magpie-quote').textContent==='Saved quote'") == "true",
-            "Rich quick replies are literal text at selection, preserving formatting, signature and quote without interpreting markup or tokens");
+        var richInserted = await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")");
+        var richText = await script("ed.innerText");
+        var richTextContent = await script("ed.textContent");
+        var richHtml = await script("ed.innerHTML");
+        var richPreservation = await script("({literalMarkup:ed.querySelector('b')===null,bold:ed.querySelector('strong')?.textContent==='Keep bold',emphasis:ed.querySelector('em')?.textContent==='keep emphasis',signature:ed.querySelector('.magpie-signature')?.textContent==='Saved signature',quote:ed.querySelector('.magpie-quote')?.textContent==='Saved quote'})");
+        var richDiagnostic = " Fixture-only diagnostics: inserted=" + richInserted + "; expected=" + JsonSerializer.Serialize(literalReply)
+            + "; innerText=" + richText + "; textContent=" + richTextContent + "; innerHTML=" + richHtml + "; preservation=" + richPreservation;
+        Assert(richInserted == "true", "Rich quick reply insertion reports success." + richDiagnostic);
+        Assert(JsonSerializer.Deserialize<string>(richText)!.Replace("\r\n", "\n").Contains(literalReply),
+            "Rich quick replies retain the exact literal text without interpreting markup or tokens." + richDiagnostic);
+        using (var preservation = JsonDocument.Parse(richPreservation))
+            Assert(preservation.RootElement.EnumerateObject().All(property => property.Value.GetBoolean()),
+                "Rich quick replies preserve surrounding formatting, signature and quote." + richDiagnostic);
         await script("setHtml('<p>Plain selected suffix</p>');setEditorPlainText(true);findInEditor('selected',true)");
-        Assert(await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")") == "true"
-            && JsonSerializer.Deserialize<string>(await script("ed.innerText"))!.Replace("\r\n", "\n") == "Plain " + literalReply + " suffix"
-            && await script("ed.querySelector('b')===null && ed.contentEditable==='plaintext-only'") == "true",
-            "Plain-message quick replies insert the same literal text without changing message mode");
+        var plainInserted = await script("cmd('insert'," + JsonSerializer.Serialize(literalReply) + ")");
+        var insertedPlainText = await script("ed.innerText");
+        var insertedPlainTextContent = await script("ed.textContent");
+        var insertedPlainHtml = await script("ed.innerHTML");
+        var plainPreservation = await script("({literalMarkup:ed.querySelector('b')===null,plainMode:ed.contentEditable==='plaintext-only'})");
+        var plainDiagnostic = " Fixture-only diagnostics: inserted=" + plainInserted + "; expected=" + JsonSerializer.Serialize("Plain " + literalReply + " suffix")
+            + "; innerText=" + insertedPlainText + "; textContent=" + insertedPlainTextContent + "; innerHTML=" + insertedPlainHtml + "; preservation=" + plainPreservation;
+        Assert(plainInserted == "true", "Plain-message quick reply insertion reports success." + plainDiagnostic);
+        Assert(JsonSerializer.Deserialize<string>(insertedPlainText)!.Replace("\r\n", "\n") == "Plain " + literalReply + " suffix",
+            "Plain-message quick replies retain the exact literal text and surrounding writing." + plainDiagnostic);
+        using (var preservation = JsonDocument.Parse(plainPreservation))
+            Assert(preservation.RootElement.EnumerateObject().All(property => property.Value.GetBoolean()),
+                "Plain-message quick replies do not interpret markup or change message mode." + plainDiagnostic);
         await script("saved=document.createRange();saved.selectNodeContents(document.getElementById('linkAddress'))");
         var prior = await script("ed.innerHTML");
         Assert(await script("cmd('insert','Must not insert')") == "false" && await script("ed.innerHTML") == prior,
