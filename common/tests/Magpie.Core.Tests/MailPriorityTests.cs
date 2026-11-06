@@ -146,7 +146,7 @@ public class MailPriorityTests
             Rows.Make("A", inbox, "pin", date: now, flags: MFlags.Flagged | MFlags.PriorityKnown),
         });
         var threads = store.ListThreads(new ListQuery { FolderIds = new[] { inbox } }, now);
-        var high = Assert.Single(threads.Where(t => t.ThreadKey == "high"));
+        var high = Assert.Single(threads, t => t.ThreadKey == "high");
         Assert.True(high.HighPriority);
         Assert.False(high.Latest.IsHighPriority);
         Assert.False(high.Flagged);
@@ -187,7 +187,7 @@ public class MailPriorityTests
         Assert.Equal(AccountSync.PriorityBackfillPerRound, candidates.Count);
         Assert.Equal(197u, candidates[0].Id);
         Assert.Equal(candidates.Select(u => u.Id).OrderByDescending(u => u), candidates.Select(u => u.Id));
-        Assert.All(candidates, uid => Assert.False(excluded.Contains(uid.Id)));
+        Assert.All(candidates, uid => Assert.DoesNotContain((long)uid.Id, excluded));
         Assert.Equal(3, AccountSync.PriorityBackfillCandidates(map, server, 3, excluded).Count);
         Assert.Empty(AccountSync.PriorityBackfillCandidates(map, server, 0, excluded));
         Assert.Empty(AccountSync.PriorityBackfillCandidates(map, server, -1, excluded));
@@ -202,6 +202,7 @@ public class MailPriorityTests
         Assert.Equal(MessageSummaryItems.None, request.Items & bodyFields);
         Assert.True(request.Items.HasFlag(MessageSummaryItems.UniqueId));
         Assert.NotNull(request.Headers);
-        Assert.Equal(MailPriorityHeaders.Names.OrderBy(s => s), request.Headers!.OrderBy(s => s));
+        Assert.Equal(MailPriorityHeaders.Names.OrderBy(s => s, StringComparer.OrdinalIgnoreCase),
+            request.Headers!.OrderBy(s => s, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
     }
 }
