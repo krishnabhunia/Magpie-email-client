@@ -264,7 +264,13 @@ public static class Composer
     }
 
     /// <summary>The final RFC 5322 message.</summary>
-    public static MimeMessage Build(Draft d, Account account)
+    /// <summary>Header a plain-text message keeps while it is a draft (see <see cref="Build"/>'s <c>forDraft</c>).</summary>
+    public const string PlainTextDraftHeader = "X-Magpie-Plain-Text";
+
+    /// <summary>The message as MIME. <paramref name="forDraft"/> = saved as a draft (on this PC or the server), not sent: a
+    /// plain-text message then keeps its HTML too, so reopening it still knows where the signature and the quoted email are,
+    /// and carries <see cref="PlainTextDraftHeader"/> so it reopens as plain text. What is sent has text/plain only.</summary>
+    public static MimeMessage Build(Draft d, Account account, bool forDraft = false)
     {
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress(account.DisplayName, account.Email));
@@ -306,7 +312,8 @@ public static class Composer
             msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
             return msg;
         }
-        if (d.PlainText) builder.TextBody = MimeText.HtmlToText(d.Html);
+        if (d.PlainText && forDraft) msg.Headers.Add(PlainTextDraftHeader, "yes");
+        if (d.PlainText && !forDraft) builder.TextBody = MimeText.HtmlToText(d.Html);
         else
         {
             builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
@@ -425,7 +432,7 @@ public static class Composer
             ReplyTo = FormatList(msg.ReplyTo),
             Priority = PriorityOf(msg.Headers["X-Priority"] ?? "", msg.Headers["Importance"] ?? "", msg.Headers["X-MSMail-Priority"] ?? ""),
             ReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
-            PlainText = string.IsNullOrEmpty(msg.HtmlBody) && !string.IsNullOrEmpty(msg.TextBody),
+            PlainText = msg.Headers.Contains(PlainTextDraftHeader) || (string.IsNullOrEmpty(msg.HtmlBody) && !string.IsNullOrEmpty(msg.TextBody)),
         };
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");

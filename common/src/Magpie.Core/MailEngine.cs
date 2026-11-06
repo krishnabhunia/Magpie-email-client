@@ -1484,7 +1484,7 @@ public sealed class MailEngine : IDisposable
         ct.ThrowIfCancellationRequested();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
-        var msg = Composer.Build(d, account);
+        var msg = Composer.Build(d, account, forDraft: true);
         // Copies on this PC saved after this one (e.g. in another window) are newer: leave those.
         var cutoff = d.LocalDraftId is { } lid ? Store.GetLocalDraft(lid)?.Updated : null;
         if (!await sync.ReplaceDraftAsync(msg, ct))
@@ -1522,7 +1522,7 @@ public sealed class MailEngine : IDisposable
     {
         using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
-        var msg = Composer.Build(d, account);
+        var msg = Composer.Build(d, account, forDraft: true);
         var text = MimeText.HtmlToText(d.Html);
         var preview = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
         var local = new LocalDraft

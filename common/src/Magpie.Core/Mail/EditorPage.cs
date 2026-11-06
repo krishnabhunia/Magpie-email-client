@@ -120,6 +120,13 @@ function closestIn(n, sel){ var el=n && n.nodeType===1 ? n : (n ? n.parentNode :
 function selNode(){ var s=window.getSelection(); return s.rangeCount ? s.getRangeAt(0).startContainer : null; }
 function setFontSize(px){
   ed.focus(); restore();
+  var s0=window.getSelection();
+  if(s0.rangeCount && s0.isCollapsed && ed.contains(s0.anchorNode)){
+    // Nothing selected: what is typed next gets the size — a sized span with a zero-width space to type into (removed by cleanCopy).
+    var sz=document.createElement('span'); sz.style.fontSize=px+'px'; sz.appendChild(document.createTextNode('\u200b'));
+    var r0=s0.getRangeAt(0); r0.insertNode(sz); r0.setStart(sz.firstChild,1); r0.collapse(true); s0.removeAllRanges(); s0.addRange(r0);
+    post({t:'dirty'}); postState(); return;
+  }
   // Only what this command creates is converted: size-7 / xxx-large elements already in the message (a reopened draft, the quote) stay as they are.
   var sel='font[size="7"],span[style*="xxx-large"]', before=new Set(ed.querySelectorAll(sel));
   document.execCommand('fontSize', false, '7');
@@ -234,6 +241,8 @@ function foldQuote(){
 function unfoldQuote(){ var q=ed.querySelector('.magpie-quote[data-folded]'); if(!q) return; q.removeAttribute('data-folded'); ed.querySelectorAll('.mq-pill').forEach(function(p){ p.remove(); }); post({t:'dirty'}); }
 function cleanCopy(copy){
   copy.querySelectorAll('mark.mf').forEach(function(m){ m.replaceWith(document.createTextNode(m.textContent)); });
+  var w=document.createTreeWalker(copy, NodeFilter.SHOW_TEXT), zw=[]; while(w.nextNode()){ if(w.currentNode.nodeValue.indexOf('\u200b')>=0) zw.push(w.currentNode); }
+  zw.forEach(function(t){ t.nodeValue=t.nodeValue.replace(/\u200b/g,''); if(!t.nodeValue && t.parentNode && t.parentNode.tagName==='SPAN' && t.parentNode.childNodes.length===1 && t.parentNode!==copy) t.parentNode.remove(); });
   copy.querySelectorAll('.mq-pill').forEach(function(p){ p.remove(); });
   copy.querySelectorAll('[data-folded]').forEach(function(q){ q.removeAttribute('data-folded'); });
   copy.querySelectorAll('img.mg-sel').forEach(function(i){ i.classList.remove('mg-sel'); if(!i.getAttribute('class')) i.removeAttribute('class'); });

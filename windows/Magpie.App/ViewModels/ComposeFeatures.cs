@@ -252,10 +252,15 @@ public partial class ComposeViewModel
     /// decided when Send is pressed (the view the user replied from), not when the timer fires.</summary>
     public (string AccountId, string ThreadKey)? ArchiveAfterSend { get; private set; }
 
+    /// <summary>The account the conversation being answered lives in — fixed when the window opened. From may be changed to
+    /// another account before sending (and <c>BuildDraftAsync</c> then writes that into the draft); the archive still has
+    /// to happen where the conversation is.</summary>
+    private string _sourceAccountId = "";
+
     public Task SendAndArchiveAsync()
     {
         if (!CanSendAndArchive) return SendAsync(null, null);
-        ArchiveAfterSend = (_draft.AccountId, _draft.ThreadKey);
+        ArchiveAfterSend = (_sourceAccountId.Length > 0 ? _sourceAccountId : _draft.AccountId, _draft.ThreadKey);
         return SendAsync(null, null);
     }
 
@@ -330,6 +335,7 @@ public partial class ComposeViewModel
 
     private void InitFeatures(Draft draft)
     {
+        _sourceAccountId = draft.AccountId ?? "";
         ReplyTo = draft.ReplyTo;
         if (draft.Mode == ComposeMode.New && string.IsNullOrWhiteSpace(ReplyTo) && From != null) ReplyTo = From.ReplyTo;
         ShowCc = Cc.Length > 0;

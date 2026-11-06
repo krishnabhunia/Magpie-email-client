@@ -62,6 +62,26 @@ public class Release1500Tests
         Assert.True(plain.PlainText);
     }
 
+    [Fact]
+    public void Plain_text_draft_keeps_its_signature_and_quote_boundaries_but_the_sent_message_is_text_only()
+    {
+        var html = "<p>new words</p><div class=\"magpie-signature\"><br><p>Me</p></div><div class=\"magpie-quote\"><p>On x, Ann wrote:</p><blockquote><p>q</p></blockquote></div>";
+        var d = new Draft { To = "a@b.com", Subject = "s", Html = html, PlainText = true };
+        // Saved as a draft: both parts + the flag, so reopening finds the protected blocks and stays plain text.
+        var draft = Composer.Build(d, Gmail(), forDraft: true);
+        Assert.NotNull(draft.HtmlBody);
+        Assert.Equal("yes", draft.Headers[Composer.PlainTextDraftHeader]);
+        var again = Composer.FromMime(Composer.FromBytes(Composer.ToBytes(draft)), "acc", "t");
+        Assert.True(again.PlainText);
+        Assert.Contains("magpie-signature", again.Html);
+        Assert.Contains("magpie-quote", again.Html);
+        // Sent: text only, no flag header.
+        var sent = Composer.Build(d, Gmail());
+        Assert.Null(sent.HtmlBody);
+        Assert.False(sent.Headers.Contains(Composer.PlainTextDraftHeader));
+        Assert.Contains("new words", sent.TextBody);
+    }
+
     [Theory]
     [InlineData("1 (Highest)", "", "", MailPriority.High)]
     [InlineData("2", "", "", MailPriority.High)]
