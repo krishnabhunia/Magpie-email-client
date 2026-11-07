@@ -652,6 +652,7 @@ function deleteTableNative(action,cell,table){
   const nextCell=remaining?(copy.contains(copiedCell)?copiedCell:copy.querySelector('td,th')):null;
   const plannedNodes=remaining?[copy].concat(Array.from(copy.querySelectorAll('*'))):[];
   const records=plannedNodes.map(function(node){return protectedFonts.get(origins.get(node));});
+  const plannedStyles=plannedNodes.map(function(node){return node.getAttribute('style');});
   // Temporary provenance lives only on the inserted nodes, never on the live original table.
   // Native Undo keeps those same nodes; removing the attributes does not replace its references.
   let marker='data-magpie-table-edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
@@ -699,6 +700,9 @@ function deleteTableNative(action,cell,table){
         const index=Number(node.getAttribute(marker));
         if(index===0)replacement=node;
         if(index===nextIndex)selectionCell=node;
+        // Native paste drops declarations that match inherited typography. Preserve the exact
+        // planned attributes on its new nodes so Undo/Redo and protected-font reset keep them.
+        if(plannedStyles[index]===null)node.removeAttribute('style');else node.setAttribute('style',plannedStyles[index]);
         if(records[index])protectedFonts.set(node,{...records[index]});
       });
     }

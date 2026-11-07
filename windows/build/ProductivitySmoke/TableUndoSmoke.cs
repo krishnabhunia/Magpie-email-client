@@ -35,11 +35,24 @@ internal static partial class Program
             };
             window.tableUndoValue=node=>node.nodeType===Node.ELEMENT_NODE?node.outerHTML:node.nodeValue;
             window.tableUndoCurrent=()=>ed.querySelector('table[data-table-fixture]');
+            window.tableUndoPlaceholder=()=>{
+              const state=window.tableUndoState,table=window.tableUndoCurrent(),slot=state.slot;
+              if(table)return {valid:table.parentNode===slot.parent&&table.previousSibling===slot.previous&&table.nextSibling===slot.next,node:null};
+              if(slot.parent!==ed&&!ed.contains(slot.parent))return {valid:false,node:null};
+              const at=slot.previous?slot.previous.nextSibling:slot.parent.firstChild;
+              if(at===slot.next)return {valid:(!slot.previous||slot.previous.parentNode===slot.parent)&&(!slot.next||slot.next.parentNode===slot.parent),node:null};
+              // Native delete may leave its caret BR exactly where the selected table stood.
+              // No other extra node, existing BR, attribute, parent or position is accepted.
+              const valid=at?.nodeType===Node.ELEMENT_NODE&&at.tagName==='BR'&&at.attributes.length===0&&at.childNodes.length===0
+                &&at.parentNode===slot.parent&&at.previousSibling===slot.previous&&at.nextSibling===slot.next
+                &&!state.originalNodes.includes(at)&&!state.outside?.some(entry=>entry.node===at);
+              return {valid:!!valid,node:valid?at:null};
+            };
             window.tableUndoOutside=()=>{
-              const state=window.tableUndoState,table=window.tableUndoCurrent(),nodes=[],walk=document.createTreeWalker(ed,NodeFilter.SHOW_ALL);
+              const state=window.tableUndoState,table=window.tableUndoCurrent(),placeholder=window.tableUndoPlaceholder().node,nodes=[],walk=document.createTreeWalker(ed,NodeFilter.SHOW_ALL);
               while(walk.nextNode()){
                 const node=walk.currentNode;
-                if((table&&(node===table||table.contains(node)))||state.ancestors.some(entry=>entry.node===node))continue;
+                if(node===placeholder||(table&&(node===table||table.contains(node)))||state.ancestors.some(entry=>entry.node===node))continue;
                 nodes.push(node);
               }
               return nodes;
@@ -48,15 +61,16 @@ internal static partial class Program
               const table=window.tableUndoCurrent(),ancestors=[];
               for(let node=table.parentElement;node&&node!==ed;node=node.parentElement)
                 ancestors.push({node:node,attributes:JSON.stringify(Array.from(node.attributes,attribute=>[attribute.name,attribute.value]))});
-              window.tableUndoState={original:table,originalNodes:window.tableUndoNodes(table),ancestors:ancestors,
+              window.tableUndoState={original:table,originalNodes:window.tableUndoNodes(table),ancestors:ancestors,slot:{parent:table.parentNode,previous:table.previousSibling,next:table.nextSibling},
                 kept:Array.from(table.querySelectorAll('[data-table-keep]'),cell=>({key:cell.getAttribute('data-cell'),html:cell.innerHTML}))};
               window.tableUndoState.outside=window.tableUndoOutside().map(node=>({node:node,value:window.tableUndoValue(node)}));
             };
             window.tableUndoObserve=()=>{
-              const state=window.tableUndoState,table=window.tableUndoCurrent(),outside=window.tableUndoOutside(),layout=table?tableGrid(table):null;
+              const state=window.tableUndoState,table=window.tableUndoCurrent(),placeholder=window.tableUndoPlaceholder(),outside=window.tableUndoOutside(),layout=table?tableGrid(table):null;
               const noMarkers=Array.from(ed.querySelectorAll('*')).every(node=>Array.from(node.attributes).every(attribute=>!attribute.name.startsWith('data-magpie-table-edit-')));
               return {html:ed.innerHTML,tableCount:ed.querySelectorAll('table').length,rows:layout?.rows.length||0,columns:layout?.grid[0]?.length||0,
-                outside:outside.length===state.outside.length&&outside.every((node,index)=>node===state.outside[index].node&&window.tableUndoValue(node)===state.outside[index].value),
+                outside:placeholder.valid&&outside.length===state.outside.length&&outside.every((node,index)=>node===state.outside[index].node&&window.tableUndoValue(node)===state.outside[index].value),
+                caretPlaceholder:!!placeholder.node,originalSlot:placeholder.valid,
                 ancestors:state.ancestors.every(entry=>ed.contains(entry.node)&&JSON.stringify(Array.from(entry.node.attributes,attribute=>[attribute.name,attribute.value]))===entry.attributes),
                 kept:!!table&&state.kept.every(entry=>Array.from(table.querySelectorAll('[data-table-keep]')).some(cell=>cell.getAttribute('data-cell')===entry.key&&cell.innerHTML===entry.html)),
                 selected:!!selectedTableCell&&ed.contains(selectedTableCell)&&selectedTableCell.closest('table')===table,selectedKey:selectedTableCell?.getAttribute('data-cell')||null,
@@ -64,7 +78,8 @@ internal static partial class Program
             };
             window.tableUndoSameNodes=name=>{
               const current=window.tableUndoNodes(window.tableUndoCurrent()),expected=window.tableUndoState[name];
-              return current.length===expected.length&&current.every((node,index)=>node===expected[index]);
+              const expectedPlaceholder=name==='afterNodes'?window.tableUndoState.afterPlaceholder:name==='secondNodes'?window.tableUndoState.secondPlaceholder:null;
+              return current.length===expected.length&&current.every((node,index)=>node===expected[index])&&window.tableUndoPlaceholder().node===expectedPlaceholder;
             };
             window.tableUndoRun=action=>{
               const descriptor=Object.getOwnPropertyDescriptor(document,'execCommand'),native=document.execCommand,result={changed:false,calls:0,attempts:[]};
@@ -125,7 +140,7 @@ internal static partial class Program
                                     && value.GetProperty("selectedKey").GetString() == "keep"),
                             "Table deletion preserves the expected grid, exact surviving rich cell HTML and a valid rebound selection" + details);
                     }
-                    await script("window.tableUndoState.afterNodes=window.tableUndoNodes(window.tableUndoCurrent())");
+                    await script("window.tableUndoState.afterNodes=window.tableUndoNodes(window.tableUndoCurrent());window.tableUndoState.afterPlaceholder=window.tableUndoPlaceholder().node");
                     async Task History(string command, string expected, string nodes, string label, bool outside = true)
                     {
                         var changed = await script("fmt(" + JsonSerializer.Serialize(command) + ")");
@@ -155,7 +170,7 @@ internal static partial class Program
                         using var secondResult = JsonDocument.Parse(second);
                         Assert(secondResult.RootElement.GetProperty("changed").GetBoolean() && secondResult.RootElement.GetProperty("calls").GetInt32() == 1 && twice != after,
                             fixture.Name + ": a second destructive command uses the rebound selected cell\nNative: " + Bounded(second) + "\nBefore: " + Bounded(after) + "\nAfter: " + Bounded(twice));
-                        await script("window.tableUndoState.secondNodes=window.tableUndoNodes(window.tableUndoCurrent())");
+                        await script("window.tableUndoState.secondNodes=window.tableUndoNodes(window.tableUndoCurrent());window.tableUndoState.secondPlaceholder=window.tableUndoPlaceholder().node");
                         await History("undo", after, "afterNodes", "Undo of the second table command restores the first result exactly");
                         await History("redo", twice, "secondNodes", "Redo of the second table command restores its own exact result");
                     }
@@ -182,7 +197,7 @@ internal static partial class Program
         }
         finally
         {
-            await script("setQuoteFoldingSupported(" + initialFolding + ");setHtml('<p><br></p>',false);delete window.tableUndoNodes;delete window.tableUndoValue;delete window.tableUndoCurrent;delete window.tableUndoOutside;delete window.tableUndoCapture;delete window.tableUndoObserve;delete window.tableUndoSameNodes;delete window.tableUndoRun;delete window.tableUndoType;delete window.tableUndoState");
+            await script("setQuoteFoldingSupported(" + initialFolding + ");setHtml('<p><br></p>',false);delete window.tableUndoNodes;delete window.tableUndoValue;delete window.tableUndoCurrent;delete window.tableUndoPlaceholder;delete window.tableUndoOutside;delete window.tableUndoCapture;delete window.tableUndoObserve;delete window.tableUndoSameNodes;delete window.tableUndoRun;delete window.tableUndoType;delete window.tableUndoState");
         }
     }
 }
