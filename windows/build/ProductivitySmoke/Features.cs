@@ -54,6 +54,52 @@ internal static partial class Program
         vm.ApplyCommand.Execute(null);
         Typography.Apply(engine.Config.Typography);
         Assert(text.FontSize == 13 && text.FontFamily.Source.Contains("Segoe UI"), "Reset restores the original WPF style");
+        var originalComposeOrder = engine.Config.Appearance.ComposeMoreOrder.ToArray();
+        vm.MoveComposeMoreDownCommand.Execute(vm.ComposeMoreRows[0]);
+        PumpUntil(() => vm.HasChanges);
+        Assert(vm.CanApplySettings && engine.Config.Appearance.ComposeMoreOrder.SequenceEqual(originalComposeOrder),
+            "Changing only Compose More order enables Apply without changing the saved order early");
+        var reorderedCompose = vm.ComposeMoreRows.Select(row => row.Id).ToArray();
+        vm.ApplyCommand.Execute(null);
+        Assert(!vm.HasChanges && engine.Config.Appearance.ComposeMoreOrder.SequenceEqual(reorderedCompose),
+            "Apply persists Compose More order and accepts the new dirty-tracking baseline");
+        vm.MoveComposeMoreUpCommand.Execute(vm.ComposeMoreRows[1]);
+        PumpUntil(() => vm.HasChanges);
+        vm.ApplyCommand.Execute(null);
+        Assert(!vm.HasChanges && engine.Config.Appearance.ComposeMoreOrder.SequenceEqual(originalComposeOrder),
+            "Reordering Compose More back preserves all commands and restores the original order");
+        Assert(vm.ComposeToolbarRows.Count == ComposeToolbarCatalog.Definitions.Count
+            && !vm.ComposeToolbarRows.Single(row => row.Id == "attach").CanHide
+            && !vm.ComposeToolbarRows.Single(row => row.Id == "more").CanHide,
+            "Settings exposes all main compose commands and protects required access anchors");
+        vm.ComposeToolbarRows.Single(row => row.Id == "bold").Visible = false;
+        PumpUntil(() => vm.HasChanges);
+        Assert(vm.CanApplySettings && engine.Config.Appearance.ComposeToolbar.Single(row => row.Id == "bold").Visible,
+            "Changing only a compose-toolbar checkbox enables Apply and leaves saved settings untouched until then");
+        vm.ApplyCommand.Execute(null);
+        Assert(!vm.HasChanges && !engine.Config.Appearance.ComposeToolbar.Single(row => row.Id == "bold").Visible,
+            "Apply persists compose-toolbar visibility and accepts the dirty-tracking baseline");
+        vm.MoveComposeToolbarDownCommand.Execute(vm.ComposeToolbarRows[0]);
+        PumpUntil(() => vm.HasChanges);
+        var reorderedToolbar = vm.ComposeToolbarRows.Select(row => row.Id).ToArray();
+        vm.ApplyCommand.Execute(null);
+        Assert(!vm.HasChanges && engine.Config.Appearance.ComposeToolbar.Select(row => row.Id).SequenceEqual(reorderedToolbar),
+            "Changing only main-toolbar order enables Apply and persists the individual order");
+        vm.MoveComposeMoreDownCommand.Execute(vm.ComposeMoreRows[0]);
+        var retainedMoreOrder = vm.ComposeMoreRows.Select(row => row.Id).ToArray();
+        vm.ResetComposeToolbarCommand.Execute(null);
+        Assert(vm.ComposeToolbarRows.All(row => row.Visible)
+            && vm.ComposeToolbarRows.Select(row => row.Id).SequenceEqual(ComposeToolbarCatalog.Definitions.Select(item => item.Id))
+            && vm.ComposeMoreRows.Select(row => row.Id).SequenceEqual(retainedMoreOrder),
+            "Compose-only reset restores visibility and order without resetting the separate More menu");
+        PumpUntil(() => vm.HasChanges);
+        vm.ApplyCommand.Execute(null);
+        Assert(engine.Config.Appearance.ComposeToolbar.All(row => row.Visible)
+            && engine.Config.Appearance.ComposeMoreOrder.SequenceEqual(retainedMoreOrder),
+            "Applying the main-toolbar reset preserves the independently customized More menu");
+        vm.MoveComposeMoreUpCommand.Execute(vm.ComposeMoreRows[1]);
+        PumpUntil(() => vm.HasChanges);
+        vm.ApplyCommand.Execute(null);
         probe.Close();
         window.UpdateLayout();
         Capture(window, Path.Combine(output, theme + "-fonts-text.png"));
@@ -64,6 +110,7 @@ internal static partial class Program
         window.Close();
         Assert(SettingsViewModel.Search("font size").Any(h => h.Page == "Fonts"), "Global Settings search finds typography");
         Assert(SettingsViewModel.Search("reply tone").Any(h => h.Page == "AiReplies"), "Global Settings search finds reply preferences");
+        Assert(SettingsViewModel.Search("compose toolbar").Any(h => h.Page == "Toolbar"), "Global Settings search finds main compose-toolbar customization");
     }
 
     private static void CheckAiReplyFlow(string root, MailEngine originalEngine)

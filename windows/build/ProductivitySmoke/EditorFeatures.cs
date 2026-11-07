@@ -67,6 +67,36 @@ internal static partial class Program
             {
                 return WaitEditorAsync(view.CoreWebView2.ExecuteScriptAsync(script), "script " + ++scriptNumber, State);
             }
+            await CheckPlainFallbackWhitespaceAsync();
+            // Each AI check initializes its own editor state; collect every failure in the same native run.
+            var aiFailures = new List<Exception>();
+            var initialQuoteFoldingSupport = await Script("quoteFoldingSupported");
+            try
+            {
+                try { await CheckPlainFallbackAiUndoAsync(); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("Plain fallback AI Undo smoke failed", ex)); }
+                try { await CheckAiApplyUndoAsync(Script); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("WebView2 AI Undo smoke failed", ex)); }
+                try { await CheckAiBodyBoundaryStateAsync(Script); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("AI body boundary-state smoke failed", ex)); }
+            }
+            finally
+            {
+                // AI fixtures enable Windows folding. Preserve the actual page default for the
+                // later unsupported-host check, including when an AI assertion fails.
+                await Script("setQuoteFoldingSupported(" + initialQuoteFoldingSupport + ")");
+            }
+            if (aiFailures.Count > 0) throw new AggregateException("Native AI Undo smoke failed", aiFailures);
+            // Both fixtures initialize their own document. Run them independently so one failure
+            // cannot hide the native history or cross-inline search result in the same CI run.
+            var editingFailures = new List<Exception>();
+            try { await CheckEditorFindProgressionAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Editor search smoke failed", ex)); }
+            try { await CheckTableUndoAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Table deletion Undo smoke failed", ex)); }
+            if (editingFailures.Count > 0) throw new AggregateException("Native editor editing smoke failed", editingFailures);
+            await CheckWindowsQuoteFoldingAsync(Script);
+            await CheckPlainEditorWhitespaceRoundTripAsync(Script);
             const string original = "<p>My own opening.</p><div class=\"magpie-signature\"><p>Regards, Example User</p></div><div class=\"magpie-quote\"><blockquote>Original quoted message</blockquote></div>";
             await Script("setHtml(" + JsonSerializer.Serialize(original) + ")");
             await Script(EditorPage.TypographyScript(new TypographySettings(), false));
@@ -88,7 +118,22 @@ internal static partial class Program
                 && afterAppend.Split("class=\"magpie-quote\"").Length == 2, "Real HTML serializes explicit type and one signature/quote");
             var latest = JsonSerializer.Deserialize<string>(await Script("getNewText()"))!;
             Assert(await Insert(latest, "replaceBody") == "true" && JsonSerializer.Deserialize<string>(await Script("getNewText()")) == "Generated answer.", "Replace changes only the new body");
+            // Replacing the whole document invalidates every old DOM range, even if its HTML is identical.
+            await Script("setHtml('<p>Selected text</p><table><tr><td>Cell</td></tr></table><img alt=\"Local fixture\">')");
+            await Script("rewrite={range:document.createRange(),html:ed.innerHTML};mentionRange=document.createRange();mentionToken='@old';mentionMenuOpen=true;selectedImage=ed.querySelector('img');selectedTableCell=ed.querySelector('td')");
+            await Script("setHtml(ed.innerHTML)");
+            Assert(await Script("rewrite===null && mentionRange===null && mentionToken==='' && !mentionMenuOpen && selectedImage===null && selectedTableCell===null") == "true",
+                "Whole-draft restoration clears stale rewrite, mention, picture and table selections");
+            Assert(await Script("cmd('replaceSelection','Must not insert')") == "false"
+                && await Script("!ed.textContent.includes('Must not insert') && saved!==null && ed.contains(saved.startContainer)") == "true",
+                "An old rewrite cannot target a restored document and the new caret belongs to the current DOM");
             await Script("setHtml('<p style=\"font:700 24px Georgia\">Existing formatted draft</p>')");
+            Assert(await Script("ed.getAttribute('role')") == "\"textbox\""
+                && await Script("ed.getAttribute('aria-label')") == "\"Message body\""
+                && await Script("ed.getAttribute('aria-multiline')") == "\"true\"",
+                "Message editor exposes a named multiline textbox to screen readers");
+            Assert(await Script("Array.from(document.styleSheets[0].cssRules).some(r => r.selectorText === '#ed:focus' && r.style.boxShadow.includes('inset'))") == "true",
+                "Keyboard focus styling is available for the message editor");
             await Script(EditorPage.TypographyScript(new TypographySettings(), true));
             Assert(await Script("getComputedStyle(ed.firstElementChild).fontSize") == "\"24px\""
                 && await Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Existing draft formatting survives new defaults");
@@ -110,6 +155,113 @@ internal static partial class Program
             await Script("ed.firstElementChild.style.fontWeight='700'");
             await Script(EditorPage.TypographyScript(new TypographySettings(), false));
             Assert(await Script("getComputedStyle(ed.firstElementChild).fontWeight") == "\"700\"", "Settings refresh preserves newly typed bold formatting");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeRight')") == "true"
+                && await Script("ed.querySelector('tr').cells[0].colSpan") == "2"
+                && await Script("ed.querySelector('tr').cells.length") == "1",
+                "Table merge-right combines cells without removing other rows");
+            Assert(await Script("editTable('mergeDown')") == "false",
+                "Table merge-down refuses a non-rectangular selection");
+            Assert(await Script("editTable('splitCell')") == "true"
+                && await Script("ed.querySelector('tr').cells.length") == "2"
+                && await Script("ed.querySelector('tr').textContent.includes('AB')") == "true",
+                "Split restores columns and preserves merged content");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("ed.querySelector('td').rowSpan") == "2",
+                "Table merge-down combines vertically adjacent cells");
+            Assert(await Script("editTable('insertColumnBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "3"
+                && await Script("selectedTableCell.rowSpan") == "2",
+                "Insert-column in a row-spanned table preserves its merged cell");
+            Assert(await Script("editTable('splitCell')") == "true"
+                && await Script("ed.querySelectorAll('tr')[1].cells.length") == "3",
+                "Split restores row-spanned cells without deleting neighbors");
+            Assert(await Script("editTable('deleteTable')") == "true"
+                && await Script("ed.querySelector('table')===null") == "true",
+                "Delete-table remains available even for table cells previously merged");
+            await Script("setHtml('<table><tbody><tr><td><strong>A</strong></td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeRight')") == "true"
+                && await Script("editTable('insertColumnBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "3"
+                && await Script("ed.querySelector('strong')?.textContent") == "\"A\"",
+                "Insert-column beside a col-spanned cell preserves rich content");
+            await Script("selectedTableCell=ed.querySelector('tr').cells[0]");
+            Assert(await Script("editTable('deleteColumn')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).grid[0].length") == "2"
+                && await Script("ed.querySelector('strong')?.textContent") == "\"A\"",
+                "Delete-column removes a blank column without destroying adjacent merged rich content");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("editTable('insertRowBefore')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "3"
+                && await Script("selectedTableCell.rowSpan") == "2",
+                "Insert-row before a vertically merged cell retains its span");
+            Assert(await Script("editTable('insertRowAfter')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "4",
+                "Insert-row after a vertically merged cell retains a valid grid");
+            await Script("selectedTableCell=ed.querySelector('tr').cells[0]");
+            Assert(await Script("editTable('deleteRow')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "3"
+                && await Script("ed.querySelector('table').textContent.includes('AC')") == "true",
+                "Delete-row in a merged table preserves the other rows and merged content");
+            await Script("setHtml('<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></tbody></table>')");
+            await Script("selectedTableCell=ed.querySelector('td')");
+            Assert(await Script("editTable('mergeDown')") == "true"
+                && await Script("editTable('deleteRow')") == "true"
+                && await Script("tableGrid(ed.querySelector('table')).rows.length") == "1"
+                && await Script("ed.querySelector('table').textContent.includes('ACD')") == "true",
+                "Deleting the anchor row of a row-spanned cell moves its original rich content into the surviving row");
+            await Script("setHtml('<p>Example source code</p>')");
+            Assert(await Script("setParagraphStyle('h3')") == "true"
+                && await Script("ed.querySelector('h3')!==null") == "true",
+                "Real editor applies Heading 3 to the current paragraph");
+            Assert(await Script("setParagraphStyle('pre')") == "true"
+                && await Script("ed.querySelector('pre')!==null") == "true",
+                "Real editor applies a semantic code block");
+            Assert(await Script("setParagraphStyle('script')") == "false",
+                "Paragraph style rejects unsupported HTML tags");
+            await Script("setHtml('<p><b>Bold opening</b></p><div class=\"magpie-quote\">Full original quote</div>')");
+            Assert(await Script("setEditorPlainText(true)") == "true"
+                && await Script("ed.contentEditable") == "\"plaintext-only\""
+                && await Script("ed.querySelector('b')===null") == "true",
+                "Plain-text switch removes rich formatting from the editor");
+            var plainHtml = JsonSerializer.Deserialize<string>(await Script("getHtml()"))!;
+            Assert(plainHtml.Contains("Bold opening") && plainHtml.Contains("Full original quote"),
+                "Plain-text conversion retains author text and any previously folded original quote");
+            Assert(await Script("setEditorPlainText(false)") == "true"
+                && await Script("ed.contentEditable") == "\"true\""
+                && await Script("ed.querySelector('p')!==null") == "true",
+                "Plain-text switch can return to rich editing without restoring removed formatting");
+            await CheckFormattingControlsAsync(Script, view);
+            await CheckEmojiPickerAsync(root, Script);
+            await CheckSignatureModesAsync(Script);
+            await CheckClipboardEditorAsync(Script);
+            await CheckInlineImageEditorAsync(Script);
+            // These final stages initialize their own document; retain every failure in one native run.
+            var finalEditorFailures = new List<Exception>();
+            try { await CheckCloudLinkEditorAsync(Script); }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Cloud-link editor smoke failed", ex)); }
+            try
+            {
+                await CheckEditorWritingToolsAsync(Script);
+                Console.WriteLine("EDITOR_WRITING_TOOLS_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Writing-tools editor smoke failed", ex)); }
+            try
+            {
+                // Execute the actual Mac page in the browser too; host capabilities must start disabled.
+                ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                navigation = "pending Mac editor page";
+                view.CoreWebView2.NavigateToString(EditorPage.ForMac);
+                await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
+                await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
+                Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Mac default quote-visibility smoke failed", ex)); }
+            if (finalEditorFailures.Count > 0) throw new AggregateException("Independent final editor smoke stages failed", finalEditorFailures);
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }
