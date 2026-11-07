@@ -230,15 +230,39 @@ internal static partial class Program
     {
         const string url = "https://drive.google.com/file/d/cloud-smoke/view";
         const string label = "Report <Q4> & costs.txt";
+        const string snapshot = """
+            (()=>{
+              const bound=(value,limit=1600)=>typeof value==='string'&&value.length>limit?value.slice(0,limit)+' [truncated]':value;
+              const point=(node,offset)=>({node:node?.nodeName,parent:node?.parentElement?.tagName,offset:offset,text:bound(node?.textContent,120)});
+              const describe=range=>range?{valid:validEditorRange(range),collapsed:range.collapsed,text:bound(range.toString(),120),start:point(range.startContainer,range.startOffset),end:point(range.endContainer,range.endOffset)}:null;
+              const selection=window.getSelection(),link=ed.querySelector('a'),text=ed.textContent;
+              return {html:bound(ed.innerHTML),text:bound(text,600),codepoints:Array.from(text).slice(0,256).map(character=>'U+'+character.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')),
+                link:link?{href:bound(link.href,400),text:bound(link.textContent,400),html:bound(link.outerHTML,800)}:null,em:bound(ed.querySelector('em')?.textContent,200),bold:bound(ed.querySelector('b')?.outerHTML,400),q4:ed.querySelector('q4')!==null,
+                plain:isPlainText,contentEditable:ed.contentEditable,selection:selection.rangeCount?describe(selection.getRangeAt(0)):null,saved:describe(saved),
+                cloudTarget:cloudLinkTarget?{html:bound(cloudLinkTarget.html),htmlMatches:cloudLinkTarget.html===ed.innerHTML,plain:cloudLinkTarget.plain,plainMatches:cloudLinkTarget.plain===isPlainText,range:describe(cloudLinkTarget.range)}:null};
+            })()
+            """;
+        static string Bounded(string value) => value.Length <= 7000 ? value : value[..7000] + " [truncated]";
         await script("setEditorPlainText(false,false);setHtml('<p><b>Selected</b> surrounding <em>text</em></p>');findInEditor('Selected',true)");
         Assert(await script("captureCloudLink()") == "true", "Cloud upload captures the rich-editor insertion position");
+        var captured = await script(snapshot);
         await script("window.getSelection().removeAllRanges()");
-        Assert(await script("insertCloudLink(" + JsonSerializer.Serialize(url) + "," + JsonSerializer.Serialize(label) + ")") == "true"
-            && await script("ed.querySelector('a').href===" + JsonSerializer.Serialize(url)
+        var beforeInsert = await script(snapshot);
+        var inserted = await script("insertCloudLink(" + JsonSerializer.Serialize(url) + "," + JsonSerializer.Serialize(label) + ")");
+        var afterInsert = await script(snapshot);
+        var contentChecks = await script("({href:ed.querySelector('a')?.href===" + JsonSerializer.Serialize(url)
+            + ",label:ed.querySelector('a')?.textContent===" + JsonSerializer.Serialize(label)
+            + ",text:ed.textContent===" + JsonSerializer.Serialize("Selected" + label + " surrounding text")
+            + ",emphasis:ed.querySelector('em')?.textContent==='text',literal:ed.querySelector('q4')===null})");
+        var richContent = inserted == "true" ? await script("ed.querySelector('a').href===" + JsonSerializer.Serialize(url)
                 + "&&ed.querySelector('a').textContent===" + JsonSerializer.Serialize(label)
                 + "&&ed.textContent===" + JsonSerializer.Serialize("Selected" + label + " surrounding text")
-                + "&&ed.querySelector('em').textContent==='text'&&ed.querySelector('q4')===null") == "true",
-            "Cloud link preserves selected/surrounding rich content and treats the filename as literal text");
+                + "&&ed.querySelector('em').textContent==='text'&&ed.querySelector('q4')===null") : "not-run";
+        var diagnostic = "\nInserted: " + inserted + "; strict content predicate: " + richContent + "; checks: " + contentChecks
+            + "\nCaptured: " + Bounded(captured) + "\nBefore insertion: " + Bounded(beforeInsert) + "\nAfter insertion: " + Bounded(afterInsert);
+        Console.WriteLine("CLOUD_EDITOR_RICH_DIAGNOSTIC" + diagnostic);
+        Assert(inserted == "true" && richContent == "true",
+            "Cloud link preserves selected/surrounding rich content and treats the filename as literal text" + diagnostic);
         Assert(await script("fmt('undo')&&ed.querySelector('a')===null&&ed.textContent==='Selected surrounding text'") == "true"
             && await script("fmt('redo')&&ed.querySelector('a').href===" + JsonSerializer.Serialize(url)) == "true",
             "Cloud link insertion participates in the real editor's undo and redo history");

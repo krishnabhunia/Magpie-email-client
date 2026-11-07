@@ -233,15 +233,28 @@ internal static partial class Program
             await CheckSignatureModesAsync(Script);
             await CheckClipboardEditorAsync(Script);
             await CheckInlineImageEditorAsync(Script);
-            await CheckCloudLinkEditorAsync(Script);
-            await CheckEditorWritingToolsAsync(Script);
-            // Execute the actual Mac page in the browser too; host capabilities must start disabled.
-            ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            navigation = "pending Mac editor page";
-            view.CoreWebView2.NavigateToString(EditorPage.ForMac);
-            await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
-            await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
-            Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
+            // These final stages initialize their own document; retain every failure in one native run.
+            var finalEditorFailures = new List<Exception>();
+            try { await CheckCloudLinkEditorAsync(Script); }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Cloud-link editor smoke failed", ex)); }
+            try
+            {
+                await CheckEditorWritingToolsAsync(Script);
+                Console.WriteLine("EDITOR_WRITING_TOOLS_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Writing-tools editor smoke failed", ex)); }
+            try
+            {
+                // Execute the actual Mac page in the browser too; host capabilities must start disabled.
+                ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                navigation = "pending Mac editor page";
+                view.CoreWebView2.NavigateToString(EditorPage.ForMac);
+                await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
+                await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
+                Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Mac default quote-visibility smoke failed", ex)); }
+            if (finalEditorFailures.Count > 0) throw new AggregateException("Independent final editor smoke stages failed", finalEditorFailures);
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }
