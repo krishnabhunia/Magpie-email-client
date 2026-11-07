@@ -31,10 +31,13 @@ internal static partial class Program
                     async data => await script("fmt('insertImage'," + JsonSerializer.Serialize(data) + ")") == "true",
                     () => true, _ => Task.FromResult(png)) && vm.Dirty && !vm.AttachmentOperationBusy,
                 "Production inline-image operation completes only after real WebView insertion acknowledgement");
-            Assert(await script("ed.querySelectorAll('img').length===1&&ed.querySelector('img').src==="
-                    + JsonSerializer.Serialize("data:image/png;base64," + Convert.ToBase64String(png))
-                    + "&&ed.textContent===" + JsonSerializer.Serialize(text)) == "true",
-                "File-picker inline image reaches the actual editor without deleting surrounding message text");
+            var observed = await script("(()=>{const images=ed.querySelectorAll('img');return {count:images.length,"
+                + "source:images[0]?.src,text:ed.textContent,codes:Array.from(ed.textContent).map(c=>c.codePointAt(0)),html:getHtml()};})()");
+            using var result = JsonDocument.Parse(observed);
+            Assert(result.RootElement.GetProperty("count").GetInt32() == 1
+                    && result.RootElement.GetProperty("source").GetString() == "data:image/png;base64," + Convert.ToBase64String(png)
+                    && result.RootElement.GetProperty("text").GetString() == text,
+                "File-picker inline image reaches the actual editor without deleting surrounding message text: " + observed);
         }
         finally
         {

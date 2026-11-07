@@ -63,8 +63,8 @@ public partial class ComposeWindow
                 var image = Clipboard.GetImage();
                 if (image == null) return;
                 // Capture the picture before opening a modal choice: another application may change the clipboard.
-                var canInline = !_plain && _editorReady && !_vm.IsPlainText && Editor.CoreWebView2 != null;
-                if (canInline) canInline = await Editor.CoreWebView2.ExecuteScriptAsync("captureClipboardPicture()") == "true";
+                var editor = !_plain && _editorReady && !_vm.IsPlainText ? Editor.CoreWebView2 : null;
+                var canInline = editor != null && await editor.ExecuteScriptAsync("captureClipboardPicture()") == "true";
                 var choice = new ClipboardPictureDialog(canInline) { Owner = this };
                 if (choice.ShowDialog() != true) return;
                 var png = ComposeClipboardImage.EncodePng(image, choice.Choice == ClipboardPictureChoice.Inline

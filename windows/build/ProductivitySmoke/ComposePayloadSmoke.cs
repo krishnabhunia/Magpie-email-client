@@ -93,7 +93,7 @@ internal static partial class Program
             Assert(vm.AttachmentSummary.Contains("updates after autosave or Review"),
                 "Editing invalidates the old full-message size rather than showing a stale number");
             var second = await vm.MeasureDraftSizeAsync();
-            Assert(second.Bytes > 32_000 && carried.Content.Stream.CanRead,
+            Assert(second.Bytes > 32_000 && carried.Content?.Stream?.CanRead == true,
                 "Review can remeasure without disposing forwarded content");
             vm.GetHtml = () =>
             {

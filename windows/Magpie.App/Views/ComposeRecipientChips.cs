@@ -42,7 +42,7 @@ public partial class ComposeWindow
             var raw = text[first..end];
             var valid = MailboxAddress.TryParse(raw, out var mailbox) && Composer.InvalidAddresses(raw).Count == 0;
             result.Add(new RecipientToken(first, end - first, raw,
-                valid ? mailbox!.Name : "", valid ? mailbox!.Address : "", valid));
+                valid ? mailbox!.Name ?? "" : "", valid ? mailbox!.Address : "", valid));
         }
         for (var index = 0; index < text.Length; index++)
         {
@@ -268,8 +268,9 @@ public partial class ComposeWindow
         var invalid = RecipientTokens(box.Text).Count(token => !token.IsValid);
         if (invalid > 0) box.SetResourceReference(Control.BorderBrushProperty, "Brush.Danger");
         else box.ClearValue(Control.BorderBrushProperty);
-        box.ToolTip = invalid > 0 ? $"{invalid} invalid or incomplete address(es). Correct the red recipients before sending." : null;
-        AutomationProperties.SetHelpText(box, invalid > 0 ? box.ToolTip.ToString()! : "Type recipient addresses separated by commas, semicolons or newlines.");
+        var help = invalid > 0 ? $"{invalid} invalid or incomplete address(es). Correct the red recipients before sending." : null;
+        box.ToolTip = help;
+        AutomationProperties.SetHelpText(box, help ?? "Type recipient addresses separated by commas, semicolons or newlines.");
     }
 
     private UIElement? BuildRecipientHover(FrameworkElement target)
