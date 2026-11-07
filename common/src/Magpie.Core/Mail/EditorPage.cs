@@ -146,7 +146,7 @@ function insertMention(name,address){
   const s=window.getSelection();s.removeAllRanges();s.addRange(r);ed.focus();
   mentionRange=null;mentionToken='';mentionMenuOpen=false;post({t:'dirty'});return true;
 }
-function setHtml(h){
+function setHtml(h,bodySectionsLost){
   // Whole-draft restoration invalidates every range or node captured from the previous DOM.
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
   selectedImage=null;selectedTableCell=null;saved=null;
@@ -154,8 +154,24 @@ function setHtml(h){
   cloudLinkTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;
   emojiTarget=null;
-  isPlainText=false;signatureBoundariesLost=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
+  isPlainText=false;signatureBoundariesLost=bodySectionsLost===true;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
+  // A signature/quote-only draft still needs a real editable author position. Initialize it as
+  // part of the loaded document, never as a temporary node added/removed around an undoable edit.
+  const protectedStart=ed.querySelector('.magpie-signature,.magpie-quote');
+  if(protectedStart){
+    const walker=document.createTreeWalker(ed,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
+    let node,hasAuthorPosition=false;
+    while((node=walker.nextNode())&&node!==protectedStart){
+      const element=node.nodeType===Node.TEXT_NODE?node.parentElement:node;
+      if(!element?.isContentEditable)continue;
+      if((node.nodeType===Node.TEXT_NODE&&/[^\t\r\n ]/.test(node.textContent))
+          || (node.nodeType===Node.ELEMENT_NODE&&!node.contains(protectedStart)&&node.matches('p,div,li,pre,blockquote,br,td,th,img,video,audio,object,table,hr'))){
+        hasAuthorPosition=true;break;
+      }
+    }
+    if(!hasAuthorPosition){const paragraph=document.createElement('p');paragraph.appendChild(document.createElement('br'));protectedStart.before(paragraph);}
+  }
   // Only hosts with an expansion control may fold quotes. Serialization always keeps the full quote.
   ed.classList.toggle('quote-folded',quoteFoldingSupported&&!!ed.querySelector('.magpie-quote'));
   typography=null;
@@ -191,6 +207,8 @@ function getNewText(includeEmbeddedContent){
   return (copy.textContent||'').replace(/\r\n/g,'\n').trim();
 }
 function canReplaceSignatureBlock(){return !isPlainText&&!signatureBoundariesLost;}
+function getBodySectionsLost(){return isPlainText||signatureBoundariesLost;}
+function canReplaceBody(){return !getBodySectionsLost();}
 function replaceSignatureBlock(blockHtml){
   // Flattened signature text cannot safely be identified later, even after returning to rich mode.
   // Never guess which unmarked text to replace/remove or append a duplicate signature after conversion.
@@ -731,8 +749,8 @@ function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }
 function insertBody(text, replace){
-  // Only generated body text passes through the browser's paste normalizer. The live signature,
-  // quote and existing append-body nodes keep their markup, identity and typography-reset records.
+  // Only generated body text passes through the browser's paste normalizer. The live signature
+  // and quote keep their markup, identity and typography-reset records.
   const guards=[],selection=window.getSelection();let changed=false,caret=null;
   function guard(node){
     if(node.nodeType!==Node.ELEMENT_NODE || guards.some(function(entry){return entry[0]===node;}))return;
@@ -747,25 +765,12 @@ function insertBody(text, replace){
     }else{
       const stop=ed.querySelector('.magpie-signature,.magpie-quote');
       ed.querySelectorAll('.magpie-signature,.magpie-quote').forEach(guard);
-      let preceding=null;
-      if(!replace){
-        // Guard untouched preceding subtrees, including siblings outside a nested quote's wrapper.
-        // Never guard an ancestor of the insertion point or move nodes outside the native edit.
-        let branch=stop,parent=stop?stop.parentNode:ed;
-        while(parent){
-          for(let node=branch?branch.previousSibling:parent.lastChild;node;node=node.previousSibling){
-            if(!preceding&&(node.nodeType===Node.ELEMENT_NODE || (node.nodeType===Node.TEXT_NODE&&node.textContent.trim())))preceding=node;
-            guard(node);
-          }
-          if(parent===ed)break;
-          branch=parent;parent=parent.parentNode;
-        }
-      }
       if(replace){range.setStart(ed,0);if(stop)range.setEndBefore(stop);else range.setEnd(ed,ed.childNodes.length);}
       else{if(stop)range.setStartBefore(stop);else range.setStart(ed,ed.childNodes.length);range.collapse(true);}
-      // Blink/WebKit consume this marker and create any needed raw-text paragraph break inside
-      // the same undoable edit, without a persistent marker or a wrapper outside native history.
-      insertion=(!replace&&preceding?.nodeType===Node.TEXT_NODE?'<br class="Apple-interchange-newline">':'')+toHtml(text);
+      // Keep the author body editable: guarding both sides leaves no native caret position.
+      // Blink/WebKit consume this marker to separate an append from existing body formatting
+      // inside the same undoable edit, without rewriting or temporarily wrapping those nodes.
+      insertion=(!replace&&getNewText().length>0?'<br class="Apple-interchange-newline">':'')+toHtml(text);
     }
     ed.focus();selection.removeAllRanges();selection.addRange(range);
     changed=document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion);
@@ -783,6 +788,9 @@ function insertBody(text, replace){
   return true;
 }
 function cmd(mode, text){
+  // Plain conversion loses the signature/quote boundary. This state is restored with saved drafts;
+  // switching back to rich text cannot make a whole-body replacement safe again.
+  if((mode==='replaceBody'||mode==='appendBody'||mode==='replyDraft')&&!canReplaceBody())return false;
   if(mode==='replyDraft'){
     let request; try{request=JSON.parse(text);}catch(e){return false;}
     if(!request || typeof request.text!=='string' || typeof request.expectedNewText!=='string'
@@ -797,7 +805,9 @@ function cmd(mode, text){
   if (mode === 'replaceSelection') {
     if (!rewrite || rewrite.html !== ed.innerHTML) return false;
     const s = window.getSelection(); s.removeAllRanges(); s.addRange(rewrite.range);
-    ed.focus(); document.execCommand('insertHTML', false, inlineHtml(text));
+    ed.focus();
+    if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,isPlainText?text:inlineHtml(text)))return false;
+    if(s.rangeCount)saved=s.getRangeAt(0).cloneRange();
     rewrite = null;
   }
   else if (mode === 'insert' || mode === 'insertLiteral') {

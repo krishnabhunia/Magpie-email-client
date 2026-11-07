@@ -331,6 +331,7 @@ public sealed partial class MailStore
         public bool RequestDeliveryReceipt { get; set; }
         public SecureMailOptions Security { get; set; } = new();
         public bool IsPlainText { get; set; }
+        public bool? BodySectionsLost { get; set; }
         public TextStyle? ComposeStyle { get; set; }
         public string InReplyTo { get; set; } = "";
         public string References { get; set; } = "";
@@ -345,6 +346,7 @@ public sealed partial class MailStore
             Subject = draft.Subject ?? "", Html = draft.Html ?? "", Priority = draft.Priority ?? "Normal",
             RequestReadReceipt = draft.RequestReadReceipt, RequestDeliveryReceipt = draft.RequestDeliveryReceipt,
             Security = draft.Security.Clone(), IsPlainText = draft.IsPlainText,
+            BodySectionsLost = draft.BodySectionsLost || draft.IsPlainText,
             ComposeStyle = draft.ComposeStyle?.Clone(), InReplyTo = draft.InReplyTo ?? "", References = draft.References ?? "",
             ThreadKey = draft.ThreadKey ?? "", ReplyArchiveSource = draft.ReplyArchiveSource,
             CalendarReply = draft.CalendarReply ?? "",
@@ -362,6 +364,7 @@ public sealed partial class MailStore
             draft.Subject = Subject; draft.Html = Html; draft.Priority = Priority;
             draft.RequestReadReceipt = RequestReadReceipt; draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
             draft.Security = Security.Clone(); draft.IsPlainText = IsPlainText;
+            draft.BodySectionsLost = IsPlainText || (BodySectionsLost ?? draft.BodySectionsLost);
             draft.ComposeStyle = ComposeStyle?.Clone(); draft.InReplyTo = InReplyTo; draft.References = References;
             draft.ThreadKey = ThreadKey; draft.CalendarReply = CalendarReply;
             draft.ReplyArchiveSource = ReplyArchiveSource;

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Windows;
 using Magpie.App.Services;
 using Magpie.Core.Mail;
@@ -17,16 +16,16 @@ public partial class ComposeWindow
         UpdatePlainTextControls();
     }
 
-    private async Task RestoreRevisionEditorAsync(string html, bool plainText)
+    private async Task RestoreRevisionEditorAsync(string html, bool plainText, bool bodySectionsLost)
     {
         if (!_editorReady) throw new InvalidOperationException("The message editor is still loading.");
         HideMentionSuggestions();
         _plainRewrite = null;
         if (_plain)
         {
+            _plainBodySectionsKnown = !bodySectionsLost && !plainText;
             PlainEditor.Text = plainText ? MimeText.EditorHtmlToPlainText(html) : MimeText.HtmlToText(html);
-            var protectedStart = Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
-            _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(html[protectedStart.Index..]).TrimStart() : "";
+            _plainProtectedTail = ComposeBodySafety.CapturePlainProtectedTail(html);
             PlainEditor.CaretIndex = 0;
         }
         else
@@ -35,7 +34,7 @@ public partial class ComposeWindow
             // A plain revision uses one p per line, not rich paragraph spacing. Rehydrate its exact text before
             // asking the browser for innerText, otherwise adjacent lines gain extra paragraph breaks.
             var editorHtml = plainText ? MimeText.PlainTextToEditorHtml(MimeText.EditorHtmlToPlainText(html)) : html;
-            await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(editorHtml)})");
+            await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(editorHtml)}, {(bodySectionsLost || plainText ? "true" : "false")})");
             if (plainText) await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
             await Editor.CoreWebView2.ExecuteScriptAsync($"setEditorSpellcheck({(_spellcheckEnabled ? "true" : "false")})");
             await Editor.CoreWebView2.ExecuteScriptAsync(EditorPage.TypographyScript(AppServices.Engine.Config.Typography, true));

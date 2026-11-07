@@ -70,7 +70,7 @@ internal static partial class Program
             vm = (ComposeViewModel)window.DataContext;
             vm.GetHtml = () => Task.FromResult(html);
             vm.GetNewText = vm.GetWritingText = () => Task.FromResult(originalText);
-            vm.RestoreRevisionEditor = (restored, _) => { html = restored; return Task.CompletedTask; };
+            vm.RestoreRevisionEditor = (restored, _, _) => { html = restored; return Task.CompletedTask; };
             var picker = (ComboBox)window.FindName("SenderIdentityPicker");
             Flush(window);
             Assert(vm.SelectedSender?.Address == primary.Email && vm.HasSenderAliases

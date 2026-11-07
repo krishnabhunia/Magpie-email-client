@@ -175,7 +175,7 @@ public partial class ComposeWindow : Window
         await _runEditor($"setDark({(App.IsDark ? "true" : "false")})");
         // setHtml resets the shared editor to rich mode. Apply the persisted mode in the same script turn,
         // before accepting editor actions, so a reopened text-only draft never allows hidden link targets.
-        var initialized = await _runEditor($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)});setEditorPlainText({(_vm.IsPlainText ? "true" : "false")},false)");
+        var initialized = await _runEditor($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)}, {(_vm.BodySectionsLost ? "true" : "false")});setEditorPlainText({(_vm.IsPlainText ? "true" : "false")},false)");
         if (initialized != "true") throw new InvalidOperationException("The message editor could not restore its text format.");
         _editorReady = true;
     }

@@ -48,7 +48,7 @@ internal static partial class Program
             vm = new ComposeViewModel(draft, null)
             {
                 GetHtml = () => Task.FromResult(html), GetNewText = () => Task.FromResult("A reviewed reply."),
-                RestoreRevisionEditor = (restored, _) => { html = restored; return Task.CompletedTask; },
+                RestoreRevisionEditor = (restored, _, _) => { html = restored; return Task.CompletedTask; },
             };
             var originalItem = vm.Attachments.Single();
             Assert(originalItem.Name == "original.eml", "Compose displays a carried message's actual MIME filename (" + theme + ")");

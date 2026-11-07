@@ -134,10 +134,17 @@ public partial class ComposeViewModel : ObservableObject
         set
         {
             if (_draft.IsPlainText == value) return;
+            if (value || _draft.IsPlainText) _draft.BodySectionsLost = true;
             _draft.IsPlainText = value;
             OnPropertyChanged(nameof(WritingStatisticsSummary));
             OnPropertyChanged(nameof(WritingStatisticsHelp));
         }
+    }
+    /// <summary>Sticky until a revision with its original rich sections is explicitly restored.</summary>
+    public bool BodySectionsLost
+    {
+        get => _draft.BodySectionsLost || _draft.IsPlainText;
+        set => _draft.BodySectionsLost = value;
     }
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public string AttachmentSummary => FullMessageSizeSummary;

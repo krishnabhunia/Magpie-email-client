@@ -1479,6 +1479,7 @@ public sealed class MailEngine : IDisposable
             ArchiveAfterSend = archiveAfterSend,
             ArchiveSource = archiveAfterSend ? archiveSource : null,
             RequestDeliveryReceipt = d.RequestDeliveryReceipt,
+            BodySectionsLost = d.BodySectionsLost || d.IsPlainText,
         };
         Store.AddOutbox(item);
         DropStaleLocalCopies(msg.MessageId, d.LocalDraftId);
@@ -1503,6 +1504,7 @@ public sealed class MailEngine : IDisposable
         d.Mode = ComposeMode.EditDraft;
         d.ReplyArchiveSource = Store.GetPostSendArchiveSource(outboxId);
         d.RequestDeliveryReceipt = item.RequestDeliveryReceipt;
+        if (item.BodySectionsLost is bool lost) d.BodySectionsLost = lost || d.IsPlainText;
         RestoreReplyArchiveSource(d);
         return d;
     }
@@ -1812,6 +1814,7 @@ public sealed class MailEngine : IDisposable
                 _ = SenderIdentities.Resolve(account, msg.From.Mailboxes.Single().Address);
                 SecureMail.ValidateQueued(item, protectedRecall);
                 msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
+                ComposeBodySafety.RemoveDraftMetadata(msg);
                 DeliveryReceipts.RemoveDraftMetadata(msg);
                 if (item.RequestDeliveryReceipt) receipt = await _sendWithDeliveryReceipt(account, msg, ct);
                 else await _sendMessage(account, msg, ct);

@@ -15,7 +15,7 @@ This continuation follows Krishna's original approval of all 60 compose features
 | 46 — Provider-dependent confidential sending | Explicit provider capability explanation and web/help handoff | Gmail confidential mode and Microsoft rights management are **not applied natively by Magpie**. The handoff does not copy or send message content. It does not simulate expiry or revocation. |
 | 50 — Template variables and categories | Existing variables plus optional named categories in Settings and the compose Templates menu | Uncategorized legacy templates retain their top-level menu placement. Categories are limited to 48 characters. |
 | 51 — AI grammar and translation | Existing grammar action plus target-language picker and explicit Translate action | Uses the configured AI provider and existing consent rules. Only selected text is rewritten; the output remains a preview until the user applies it. |
-| 53 — Review AI output and Undo | Explicit previews plus native Undo/Redo transactions for body insert/replace and selection rewrite | The rich and plain fallback editors retain signatures and quoted content. |
+| 53 — Review AI output and Undo | Explicit previews plus native Undo/Redo transactions for body insert/replace and selection rewrite | Whole-body edits require known signature/quote boundaries; converted or unmarked imported drafts use selected-text rewriting. The restriction survives saving and recovery. |
 
 ## Sender identity behaviour
 

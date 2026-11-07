@@ -65,7 +65,7 @@ internal static partial class Program
             var editorWrites = 0;
             vm = new ComposeViewModel(draft, null);
             vm.GetHtml = () => Task.FromResult(editorHtml);
-            Task ReplaceEditor(string html, bool plain)
+            Task ReplaceEditor(string html, bool plain, bool sectionsLost)
             {
                 editorWrites++;
                 editorHtml = html;
@@ -152,9 +152,9 @@ internal static partial class Program
             // The editor can fail after replacing DOM/text. The view model must put back content and fields.
             var beforeFailedRestoreWrites = editorWrites;
             var failOnce = true;
-            vm.RestoreRevisionEditor = (html, plain) =>
+            vm.RestoreRevisionEditor = (html, plain, sectionsLost) =>
             {
-                ReplaceEditor(html, plain);
+                ReplaceEditor(html, plain, sectionsLost);
                 if (failOnce)
                 {
                     failOnce = false;

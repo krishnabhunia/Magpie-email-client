@@ -207,16 +207,18 @@ public sealed class SecureMailTests(SecureMailFixtures fixtures) : IClassFixture
     }
 
     [Theory]
-    [InlineData(MailSecurityFormat.Smime)]
-    [InlineData(MailSecurityFormat.OpenPgp)]
-    public void Queue_restart_undo_and_draft_history_preserve_security_intent(MailSecurityFormat format)
+    [InlineData(MailSecurityFormat.Smime, false)]
+    [InlineData(MailSecurityFormat.Smime, true)]
+    [InlineData(MailSecurityFormat.OpenPgp, false)]
+    [InlineData(MailSecurityFormat.OpenPgp, true)]
+    public void Queue_restart_undo_and_draft_history_preserve_security_intent(MailSecurityFormat format, bool sectionsLost)
     {
         using var dir = new TempDir(); using var protector = new TestProtector(); long queued, local, revision;
         using (var engine = Engine(dir, protector))
         {
             ImportIntoEngine(engine, format);
             var draft = new Draft { AccountId = "A", To = SecureMailFixtures.Recipient, Subject = "Secret draft", Html = "<p>Exact private draft</p>",
-                Security = new() { Format = format, Sign = true, Encrypt = true } };
+                BodySectionsLost = sectionsLost, Security = new() { Format = format, Sign = true, Encrypt = true } };
             local = engine.SaveLocalDraft(draft, false);
             revision = engine.CaptureDraftRevision(draft);
             queued = engine.QueueSend(draft, DateTimeOffset.UtcNow.AddHours(1), null);
@@ -226,11 +228,19 @@ public sealed class SecureMailTests(SecureMailFixtures fixtures) : IClassFixture
         using var reopened = Engine(dir, protector);
         Assert.True(reopened.OpenLocalDraft(local)!.Security.Encrypt);
         var item = Assert.Single(reopened.Store.GetOutbox());
+        Assert.Equal(sectionsLost, item.BodySectionsLost);
+        using (var wire = Composer.FromBytes(item.Mime))
+        {
+            Assert.Null(wire.Headers[ComposeBodySafety.DraftHeader]);
+            reopened.SecureMail.ValidateQueued(item, reopened.Store.SecureOutboxState(queued));
+        }
         var history = reopened.Store.OpenDraftRevision("A", item.MessageId, revision)!;
         Assert.True(history.Security.Sign); Assert.True(history.Security.Encrypt); Assert.Equal(format, history.Security.Format);
+        Assert.Equal(sectionsLost, history.BodySectionsLost);
         // Undo uses the protected recovery snapshot even if the identity has since been removed.
         foreach (var key in reopened.SecureMail.Keys.List("A")) reopened.SecureMail.Keys.Remove("A", key.Id);
         var recalled = reopened.Recall(queued)!;
+        Assert.Equal(sectionsLost, recalled.BodySectionsLost);
         Assert.Contains("Exact private draft", recalled.Html); Assert.True(recalled.Security.Encrypt); Assert.True(recalled.Security.Sign);
         Assert.Equal(format, recalled.Security.Format); Assert.Empty(reopened.Store.GetOutbox());
         Assert.Null(reopened.Store.SecureOutboxState(queued));

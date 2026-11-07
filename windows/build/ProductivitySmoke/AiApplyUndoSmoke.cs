@@ -15,6 +15,23 @@ internal static partial class Program
     private static async Task CheckAiApplyUndoAsync(Func<string, Task<string>> script)
     {
         const string original = "<p><b>My own opening.</b></p><div class=\"magpie-signature\"><p style=\"font-family:Georgia;font-size:24px\">Regards, <b>Example User</b></p></div><div class=\"magpie-quote\"><blockquote style=\"font-family:Tahoma;font-size:11px\">Original <b>quoted</b> message</blockquote><p>Entire older thread remains.</p></div>";
+        await script("""
+            window.aiRunBodyCommand=(mode,text)=>{
+              const descriptor=Object.getOwnPropertyDescriptor(document,'execCommand'),native=document.execCommand;
+              window.aiBodyEditDiagnostics={mode:mode};
+              document.execCommand=function(command,ui,value){
+                function state(){
+                  const selection=window.getSelection(),range=selection.rangeCount?selection.getRangeAt(0):null;
+                  const point=(node,offset)=>{const element=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;return {node:node?.nodeName,offset:offset,element:element?.tagName,editable:element?.isContentEditable,html:element?.outerHTML.slice(0,1500)};};
+                  return {enabled:document.queryCommandEnabled(command),active:document.activeElement?.id,rootEditable:ed.isContentEditable,collapsed:selection.isCollapsed,start:range?point(range.startContainer,range.startOffset):null,end:range?point(range.endContainer,range.endOffset):null,html:ed.innerHTML.slice(0,5000)};
+                }
+                const attempt={command:command,insertion:typeof value==='string'?value.slice(0,1000):value,before:state()};
+                window.aiBodyEditDiagnostics.native=attempt;
+                try{return attempt.result=native.call(document,command,ui,value);}finally{attempt.after=state();}
+              };
+              try{return cmd(mode,text);}finally{if(descriptor)Object.defineProperty(document,'execCommand',descriptor);else delete document.execCommand;}
+            };
+            """);
         static string Read(string value) => JsonSerializer.Deserialize<string>(value) ?? "";
         static string Bounded(string value) => value.Length <= 4000 ? value : value[..4000] + " [truncated]";
         const string sameProtectedNodes = "(()=>{const current=Array.from(ed.querySelectorAll('.magpie-signature,.magpie-signature *,.magpie-quote,.magpie-quote *'));return current.length===window.aiUndoProtectedNodes.length&&current.every((node,index)=>node===window.aiUndoProtectedNodes[index]);})()";
@@ -38,8 +55,11 @@ internal static partial class Program
             var protectedBefore = await script("JSON.stringify(Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).map(n=>n.outerHTML))");
             var expected = Read(await script("getNewText()"));
             var payload = JsonSerializer.Serialize(new { text = "Generated answer.\n\nSecond paragraph <literal>.", expectedNewText = expected, mode });
-            Assert(await script("cmd('replyDraft'," + JsonSerializer.Serialize(payload) + ")") == "true", "AI " + mode + " uses a native edit transaction");
+            var applied = await script("window.aiRunBodyCommand('replyDraft'," + JsonSerializer.Serialize(payload) + ")");
             var after = await script("ed.innerHTML");
+            Assert(applied == "true", "AI " + mode + " uses a native edit transaction; result=" + applied
+                + "\nNative command: " + Bounded(await script("JSON.stringify(window.aiBodyEditDiagnostics)"))
+                + "\nBefore HTML: " + Bounded(before) + "\nAfter HTML: " + Bounded(after));
             var protectedAfter = await script("JSON.stringify(Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).map(n=>n.outerHTML))");
             var retainedNodes = await script(sameProtectedNodes);
             Assert(after != before && protectedAfter == protectedBefore && retainedNodes == "true",
@@ -70,14 +90,6 @@ internal static partial class Program
                 + "\nActual HTML: " + Bounded(await script("ed.innerHTML")));
         }
         await CheckAiBodyBoundariesAsync(script);
-        await script("setHtml('<p>Plain opening</p>');setEditorPlainText(true)");
-        var plainBefore = await script("ed.innerText");
-        Assert(await script("cmd('replaceBody','Plain generated text\\nwith a second line')") == "true", "Plain-mode AI apply uses native insertText");
-        var plainAfter = await script("ed.innerText");
-        Assert(await script("fmt('undo')") == "true" && await script("ed.innerText") == plainBefore
-            && await script("fmt('redo')") == "true" && await script("ed.innerText") == plainAfter,
-            "Plain-mode WebView2 AI replacement participates in real native Undo and Redo");
-        await script("setEditorPlainText(false);setHtml('<p><br></p>')");
         Console.WriteLine("AI_APPLY_NATIVE_UNDO_SMOKE_PASSED");
     }
 
@@ -88,6 +100,7 @@ internal static partial class Program
         {
             (Name: "nested protected roots", Html: "<section><p data-ai-existing style=\"color:purple;font-family:Georgia\"><b>Nested opening.</b></p>" + tail + "</section>"),
             (Name: "empty body", Html: tail),
+            (Name: "nested empty body", Html: "<section>" + tail + "</section>"),
             (Name: "raw text before tail", Html: "Unwrapped opening." + tail),
             (Name: "raw text without tail", Html: "Unwrapped opening."),
             (Name: "styled inline before tail", Html: "<span data-ai-existing contenteditable=\"true\" style=\"font-family:Georgia;font-size:22px\"><b>Inline opening.</b></span>" + tail),
@@ -103,12 +116,22 @@ internal static partial class Program
         foreach (var fixture in cases)
         foreach (var mode in new[] { "appendBody", "replaceBody" })
         {
-            await script("setDark(false);setQuoteFoldingSupported(true);setHtml(" + JsonSerializer.Serialize(fixture.Html) + ");" + snapshot);
+            await script("setDark(false);setQuoteFoldingSupported(true);setHtml(" + JsonSerializer.Serialize(fixture.Html) + ")");
+            if (fixture.Name.Contains("empty", StringComparison.Ordinal))
+            {
+                var loaded = await script("ed.innerHTML");
+                await script("setHtml(ed.innerHTML)");
+                var reopened = await script("ed.innerHTML");
+                Assert(reopened == loaded && await script("getNewText()") == "\"\"",
+                    "A protected-only draft has an editable empty body without accumulating paragraphs on reopen"
+                    + "\nLoaded HTML: " + Bounded(loaded) + "\nReopened HTML: " + Bounded(reopened));
+            }
+            await script(snapshot);
             var before = await script("ed.innerHTML");
             var expected = JsonSerializer.Deserialize<string>(await script("getNewText()"))!;
             var visibleBefore = Rendered(await script("window.aiRenderedBody()"));
             var payload = JsonSerializer.Serialize(new { text = "Generated boundary answer.\n\nSecond boundary paragraph.", expectedNewText = expected, mode });
-            var changed = await script("cmd('replyDraft'," + JsonSerializer.Serialize(payload) + ")");
+            var changed = await script("window.aiRunBodyCommand('replyDraft'," + JsonSerializer.Serialize(payload) + ")");
             var after = await script("ed.innerHTML");
             var body = JsonSerializer.Deserialize<string>(await script("getNewText()"))!;
             var visibleBody = Rendered(await script("window.aiRenderedBody()"));
@@ -119,6 +142,7 @@ internal static partial class Program
             var bodyMatches = visibleBody == expectedBody;
             var details = "\nFixture: " + fixture.Name + "; mode=" + mode + "; changed=" + changed + "; retained tail=" + retainedTail
                 + "; retained body=" + retainedBody + "\nBefore HTML: " + Bounded(before) + "\nAfter HTML: " + Bounded(after)
+                + "\nNative command: " + Bounded(await script("JSON.stringify(window.aiBodyEditDiagnostics)"))
                 + "\nBefore getNewText: " + JsonSerializer.Serialize(expected) + "\nAfter getNewText: " + JsonSerializer.Serialize(body)
                 + "\nExpected rendered body: " + JsonSerializer.Serialize(expectedBody) + "\nActual rendered body: " + JsonSerializer.Serialize(visibleBody);
             Assert(changed == "true" && after != before && retainedTail == "true" && bodyMatches

@@ -67,7 +67,7 @@ internal static partial class Program
             vm = (ComposeViewModel)window.DataContext;
             vm.GetHtml = () => Task.FromResult(html);
             vm.GetNewText = () => Task.FromResult("A receipt request is not delivery confirmation.");
-            vm.RestoreRevisionEditor = (_, _) => Task.CompletedTask;
+            vm.RestoreRevisionEditor = (_, _, _) => Task.CompletedTask;
             var options = RealizeComposeOptions(window);
             var check = (CheckBox)window.FindName("RequestDeliveryReceiptCheck");
             var readCheck = options.Content.Children.OfType<CheckBox>().Single(c => Equals(c.Content, "Request read receipt"));

@@ -159,6 +159,8 @@ public sealed class OutboxItem
     public int Attempts { get; set; }
     public bool AutomaticRetryExhausted => Status == OutboxStatus.Failed && Attempts >= MaximumAutomaticAttempts;
     public bool RequestDeliveryReceipt { get; set; }
+    /// <summary>Local editor safety state; null keeps conservative inference for queues created by older versions.</summary>
+    public bool? BodySectionsLost { get; set; }
     public Magpie.Core.Mail.DeliveryReceiptResult? DeliveryReceipt { get; set; }
     public string LastError { get; set; } = "";
     public string Subject { get; set; } = "";

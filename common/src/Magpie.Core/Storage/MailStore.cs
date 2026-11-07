@@ -54,6 +54,7 @@ public sealed partial class MailStore
         EnsureSavedContactsSchema();   // design B4
         EnsureDraftRevisionSchema();
         EnsureSecureOutboxSchema();
+        EnsureOutboxBodySectionsSchema();
     }
 
     private SqliteConnection Open()
@@ -1070,6 +1071,15 @@ public sealed partial class MailStore
 
     // ───────────────────────── outbox ─────────────────────────
 
+    // Always run even when the schema version already matches. Null leaves legacy recovery conservative;
+    // explicit false/true preserves new drafts without adding local editor metadata to signed wire bytes.
+    private void EnsureOutboxBodySectionsSchema()
+    {
+        using var c = Open();
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('outbox') WHERE name='body_sections_lost'")) == 0)
+            Exec(c, "ALTER TABLE outbox ADD COLUMN body_sections_lost INTEGER");
+    }
+
     /// <summary>Separate durable queue keeps the optional post-send action across restart without modifying the mail schema version.</summary>
     private void EnsurePostSendArchiveSchema()
     {
@@ -1097,8 +1107,8 @@ public sealed partial class MailStore
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created)
-            VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c) RETURNING id
+            INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created,body_sections_lost)
+            VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c,$bl) RETURNING id
             """;
         cmd.Parameters.AddWithValue("$a", o.AccountId);
         cmd.Parameters.AddWithValue("$m", o.Mime);
@@ -1109,6 +1119,7 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$tk", o.ThreadKey);
         cmd.Parameters.AddWithValue("$ra", (object?)o.RemindAt?.ToUnixTimeMilliseconds() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$bl", o.BodySectionsLost is bool lost ? (object)(lost ? 1 : 0) : DBNull.Value);
         o.Id = Convert.ToInt64(cmd.ExecuteScalar());
         if (o.RequestDeliveryReceipt)
         {
@@ -1171,7 +1182,7 @@ public sealed partial class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT o.id,o.account_id," + (withMime ? "o.mime" : "x''") + ",o.send_at,o.status,o.attempts,o.last_error,o.subject,o.to_text,o.message_id,o.thread_key,o.remind_at,o.created,d.state,d.server_response FROM outbox o"
+        cmd.CommandText = "SELECT o.id,o.account_id," + (withMime ? "o.mime" : "x''") + ",o.send_at,o.status,o.attempts,o.last_error,o.subject,o.to_text,o.message_id,o.thread_key,o.remind_at,o.created,d.state,d.server_response,o.body_sections_lost FROM outbox o"
             + " LEFT JOIN outbox_delivery_receipts d ON d.outbox_id=o.id"
             + (includeDone ? "" : " WHERE o.status IN (0,1,2)") + " ORDER BY o.send_at";
         var list = new List<OutboxItem>();
@@ -1187,6 +1198,7 @@ public sealed partial class MailStore
                 Created = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(12)),
                 RequestDeliveryReceipt = !r.IsDBNull(13),
                 DeliveryReceipt = r.IsDBNull(13) ? null : new DeliveryReceiptResult((DeliveryReceiptState)r.GetInt32(13), DeliveryReceipts.SafeServerResponse(r.GetString(14))),
+                BodySectionsLost = r.IsDBNull(15) ? null : r.GetInt32(15) != 0,
             });
         return list;
     }

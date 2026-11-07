@@ -126,6 +126,7 @@ public sealed class Connector
 
     public async Task SendAsync(Account a, MimeMessage msg, CancellationToken ct)
     {
+        ComposeBodySafety.RemoveDraftMetadata(msg);
         msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
         using var smtp = await OpenSmtpAsync(a, ct);
         DeliveryReceipts.RemoveDraftMetadata(msg);
@@ -135,6 +136,7 @@ public sealed class Connector
 
     public async Task<DeliveryReceiptResult> SendWithDeliveryReceiptAsync(Account a, MimeMessage msg, CancellationToken ct)
     {
+        ComposeBodySafety.RemoveDraftMetadata(msg);
         msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
         using var smtp = (DeliveryReceiptSmtpClient)await OpenSmtpAsync(a, ct);
         var result = await smtp.SendWithReceiptAsync(msg, ct);

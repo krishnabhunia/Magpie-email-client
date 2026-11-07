@@ -41,6 +41,8 @@ public sealed class Draft
     public string Html { get; set; } = "";
     /// <summary>Send as text/plain only. Formatting is removed explicitly by the composer UI.</summary>
     public bool IsPlainText { get; set; }
+    /// <summary>Section boundaries were flattened or cannot be established; body-wide AI edits must fail closed.</summary>
+    public bool BodySectionsLost { get; set; }
     /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
     public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
@@ -271,6 +273,7 @@ public static class Composer
         var message = Build(d, account);
         if (d.RequestDeliveryReceipt) message.Headers.Add(DeliveryReceipts.DraftHeader, DeliveryReceipts.DraftRequest);
         d.Security.WriteDraftHeader(message);
+        ComposeBodySafety.WriteDraftMetadata(message, d);
         return message;
     }
 
@@ -496,6 +499,7 @@ public static class Composer
             ThreadKey = threadKey,
             MessageId = msg.MessageId ?? "",
             IsPlainText = msg.HtmlBody == null,
+            BodySectionsLost = ComposeBodySafety.ReadLostSections(msg),
         };
         var html = msg.HtmlBody;
         if (string.IsNullOrEmpty(html))

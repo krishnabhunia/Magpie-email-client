@@ -12,9 +12,10 @@ These complete the original compose checklist's timezone/offline clarity and rev
 
 ## AI apply and Undo
 
-- A reviewed rich-editor AI insertion or replacement is one native browser editing transaction over the writable body only. Adjacent existing content is protected during that command, keeping the live signature and quote nodes, their exact markup and their typography-reset records. Appending also preserves the existing body's nodes and formatting.
+- A reviewed rich-editor AI insertion or replacement is one native browser editing transaction over the writable body only. The signature and quote are protected during that command, keeping their live nodes, exact markup and typography-reset records. The author body stays editable; native paragraph separation keeps appended text apart from its existing formatting. A signature-only or quote-only draft starts with a persistent blank author paragraph.
 - Native Undo returns the exact preceding document; Redo reapplies the accepted result. Later manual typing has its own undo entry. Signature/quote markup, folding and typography-reset records are retained.
 - The native text-box fallback groups a selected-text replacement instead of assigning its `Text` property, preserving its real Undo/Redo history. Its toolbar Undo and Redo actions now reach that history too.
+- Whole-body AI application requires known signature and quote boundaries. When plain-text conversion or imported content makes those boundaries unavailable, Magpie keeps the message unchanged and offers selected-text rewriting. This restriction survives saving, history, scheduling and Undo Send; restoring a known rich revision restores body editing. A live fallback window can still use its exact original protected tail.
 - Selection rewrites continue through the existing native editing command. AI results remain previews until explicitly accepted, and applying a result never sends mail.
 
 ## Verification

@@ -22,6 +22,7 @@
 - **See when scheduled mail can actually leave.** Send-later presets, custom time selection and scheduled-message status show the local timezone and UTC offset. The screens explain that Magpie must be running and online and that an overdue message waits until it can be sent. Ambiguous or unavailable local times are rejected with a request to choose another time.
 ### Fixed
 - **Undo an applied AI draft.** Inserting or replacing the written body is one editor change that Undo and Redo can reverse, in both the rich editor and plain-text fallback, while retaining the signature and quoted message.
+- **Keep retained text safe after plain-text conversion.** When the signature and quoted-message boundaries are no longer known, whole-body AI actions leave the draft unchanged and explain how to rewrite selected text. That restriction survives saving, history, scheduling and Undo Send; selected-text edits retain native Undo and Redo.
 - **Know when automatic retries have stopped.** A message that reaches the retry limit asks for review and a manual retry instead of continuing to promise an automatic retry.
 - **Keep sender configuration stable during editing.** An unrelated Settings save preserves the selected alias and current composer state. Incomplete alias input reports validation without crashing settings change tracking or the default-signature action.
 

@@ -27,6 +27,8 @@ public partial class ComposeWindow : Window
     private readonly bool _preserveDraftFormatting;
     private readonly Action _settingsChanged;
     private string _plainProtectedTail = "";
+    // Only this live fallback window knows the exact tail captured before rich sections were flattened.
+    private bool _plainBodySectionsKnown;
 
     // ───────────────────────── opening ─────────────────────────
 
@@ -261,14 +263,14 @@ public partial class ComposeWindow : Window
 
     private void UsePlainEditor()
     {
+        _plainBodySectionsKnown = !_vm.BodySectionsLost;
         _vm.SupportsRichDraftRestore = false;
         _plain = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
         PlainEditor.Text = _vm.IsPlainText ? MimeText.EditorHtmlToPlainText(_vm.InitialHtml) : MimeText.HtmlToText(_vm.InitialHtml);
         SpellCheck.SetIsEnabled(PlainEditor, _spellcheckEnabled);
-        var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
-        _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
+        _plainProtectedTail = ComposeBodySafety.CapturePlainProtectedTail(_vm.InitialHtml);
         PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
         PlainEditor.TextChanged += (_, _) => InspectPlainMention();
         PlainEditor.PreviewKeyDown += (_, e) =>
@@ -301,7 +303,7 @@ public partial class ComposeWindow : Window
                     // Plain draft p-per-line storage must not acquire the browser's rich paragraph spacing.
                     var initialEditorHtml = _vm.IsPlainText
                         ? MimeText.PlainTextToEditorHtml(MimeText.EditorHtmlToPlainText(_vm.InitialHtml)) : _vm.InitialHtml;
-                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(initialEditorHtml)})");
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(initialEditorHtml)}, {(_vm.BodySectionsLost ? "true" : "false")})");
                     await Editor.CoreWebView2.ExecuteScriptAsync("setLinkBubbleEnabled(true)");
                     if (_vm.IsPlainText)
                         await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
@@ -335,9 +337,15 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        if (_plain) return _vm.IsPlainText ? MimeText.PlainTextToEditorHtml(PlainEditor.Text) : ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (_plain)
+        {
+            // The saved paragraph representation cannot reconstruct this window's original protected tail.
+            _vm.BodySectionsLost = true;
+            return _vm.IsPlainText ? MimeText.PlainTextToEditorHtml(PlainEditor.Text) : ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        }
         if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
+        if (await Editor.CoreWebView2.ExecuteScriptAsync("getBodySectionsLost()") == "true") _vm.BodySectionsLost = true;
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
 
@@ -379,6 +387,13 @@ public partial class ComposeWindow : Window
 
     private async Task EditorCommandAsync(string mode, string text)
     {
+        if (ComposeBodySafety.IsFullBodyCommand(mode))
+        {
+            var safe = _plain
+                ? _plainBodySectionsKnown && (_plainProtectedTail.Length == 0 || PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
+                : !_vm.BodySectionsLost && await Editor.CoreWebView2.ExecuteScriptAsync("canReplaceBody()") == "true";
+            if (!safe) throw new InvalidOperationException(ComposeBodySafety.RestrictionReason);
+        }
         if (_plain)
         {
             if (mode == "replyDraft")
