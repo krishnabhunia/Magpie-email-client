@@ -623,17 +623,23 @@ function setWritingLanguage(language){
   block.setAttribute('lang',language);block.setAttribute('spellcheck',ed.spellcheck?'true':'false');
   post({t:'dirty'});return true;
 }
+function editorSearchPattern(query,matchCase){
+  if(typeof query!=='string' || !query.length || query.length>200) return null;
+  // Match the original string: Unicode case folding must not change DOM UTF-16 offsets.
+  // Escape the user's literal query; the Unicode ignore-case flag is independent of the host locale.
+  return new RegExp(query.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&'),matchCase?'gu':'giu');
+}
 function editorMatches(query, matchCase){
-  if(typeof query!=='string' || !query.length || query.length>200) return [];
-  const needle=matchCase?query:query.toLocaleLowerCase(),matches=[];
+  const pattern=editorSearchPattern(query,matchCase),matches=[];
+  if(!pattern) return matches;
   const walker=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);
   while(walker.nextNode()){
     const node=walker.currentNode;
     if(!node.nodeValue || node.parentElement?.closest('[contenteditable="false"]')
        || (ed.classList.contains('quote-folded') && node.parentElement?.closest('.magpie-quote'))) continue;
-    const text=matchCase?node.nodeValue:node.nodeValue.toLocaleLowerCase();
-    for(let at=0;(at=text.indexOf(needle,at))>=0;at+=needle.length){
-      const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+needle.length);
+    pattern.lastIndex=0;
+    for(let match;(match=pattern.exec(node.nodeValue))!==null;){
+      const range=document.createRange();range.setStart(node,match.index);range.setEnd(node,match.index+match[0].length);
       matches.push(range);
       if(matches.length>2000) return null;
     }
@@ -662,9 +668,10 @@ function findInEditor(query,matchCase){
   return {count:matches.length,index:selected+1};
 }
 function replaceFoundText(query,replacement,matchCase){
-  if(!saved || saved.collapsed || typeof replacement!=='string') return false;
-  const selected=saved.toString();
-  if(matchCase?selected!==query:selected.toLocaleLowerCase()!==query.toLocaleLowerCase()) return false;
+  const pattern=editorSearchPattern(query,matchCase);
+  if(!pattern || !saved || saved.collapsed || typeof replacement!=='string') return false;
+  const selected=saved.toString(),match=pattern.exec(selected);
+  if(!match || match.index!==0 || match[0].length!==selected.length) return false;
   if(!ed.contains(saved.commonAncestorContainer)) return false;
   ed.focus();restore();
   if(!document.execCommand('insertText',false,replacement)) return false;

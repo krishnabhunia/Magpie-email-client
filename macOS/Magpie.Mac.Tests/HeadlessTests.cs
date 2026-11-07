@@ -75,7 +75,7 @@ public static class TestEngine
     };
 }
 
-public class HeadlessTests
+public partial class HeadlessTests
 {
     [AvaloniaFact]
     public void Main_window_shows_the_version_and_no_update_button_without_a_newer_version()

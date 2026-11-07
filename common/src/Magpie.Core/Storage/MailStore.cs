@@ -330,7 +330,17 @@ public sealed partial class MailStore
         using var tx = c.BeginTransaction();
         foreach (var o in others.Where(o => o != keep))
         {
-            foreach (var t in new[] { "messages", "reminders", "outbox" })
+            // Send & Archive is tied to the original conversation, which may belong to a different
+            // account than From. Keep Undo's thread key in step with that verified source; a merge in
+            // the sending account must not retarget it. Ordinary outgoing mail remains account-scoped.
+            Exec(c, """
+                UPDATE outbox SET thread_key=$k
+                WHERE (account_id=$a AND thread_key=$o AND NOT EXISTS
+                    (SELECT 1 FROM post_send_archives p WHERE p.outbox_id=outbox.id AND p.source_verified=1))
+                  OR id IN (SELECT outbox_id FROM post_send_archives
+                    WHERE account_id=$a AND thread_key=$o AND source_verified=1)
+                """, ("$k", keep), ("$a", accountId), ("$o", o));
+            foreach (var t in new[] { "messages", "reminders", "reply_archive_sources", "post_send_archives" })
                 Exec(c, "UPDATE " + t + " SET thread_key=$k WHERE account_id=$a AND thread_key=$o", ("$k", keep), ("$a", accountId), ("$o", o));
             Exec(c, "DELETE FROM summaries WHERE account_id=$a AND thread_key IN ($o,$k)", ("$a", accountId), ("$o", o), ("$k", keep));
         }

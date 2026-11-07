@@ -69,3 +69,13 @@ Do not claim the broader 60-feature scope is finished or merge because the imple
 ## Case-sensitive attachment follow-up
 
 The fresh review of `a48dfb4` identified a shared MIME deduplication bug on case-sensitive volumes. Shared attachment paths and their default outgoing-name map now compare exactly, preserving distinct `Report.pdf` / `report.pdf` files. Exact repeated paths still produce one MIME part, and stale order entries cannot add an unselected case variant. `AttachmentPathIdentityTests` covers actual distinct binary payloads, renamed ordering, local draft/history/queue persistence and exact-path deduplication. Case-variant file fixtures run where the filesystem can create two such files; exact-path coverage runs everywhere. The Windows picker retains its existing Windows selection behaviour.
+
+## Fresh review of `c9cf889`
+
+| Finding | Correction and regression |
+|---|---|
+| Mac reopened plain-text drafts initialized a rich editor and could lose link destinations | The Mac host restores plain mode immediately after `setHtml`; Insert Link uses literal text in that mode. Headless tests exercise actual initialization, insertion, save, scheduled queue and Undo for local/server drafts, with exact whitespace and web/mailto destinations. Rich drafts keep hyperlink behaviour. |
+| Lowercasing changed UTF-16 positions used by Find/Replace | Literal Unicode matching now reports offsets in the original text; Replace One uses identical matching rules. The real JavaScript functions pass dependency-free Node checks, including reproduction of the previous dotted-I corruption. A native WebView2 fixture checks formatted nodes, supplementary letters, literal metacharacters and unchanged unrelated text. |
+| Merging a source conversation left its automatic archive action on the old key | One storage transaction updates both provenance tables and the source-bound queued thread key. Six regressions cover cross-account send/Undo, already-sent restart, sender-only merges and rollback; the original source account remains authoritative. |
+
+The dependent remaining-features implementation is [PR #145](https://github.com/krishnabhunia/Magpie-email-client/pull/145). Its provider limits and integration checks remain separate from the core corrections above. Neither PR is permission to merge without Krishna's approval.
