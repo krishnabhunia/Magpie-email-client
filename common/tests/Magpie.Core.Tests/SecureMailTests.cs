@@ -361,8 +361,10 @@ public sealed class SecureMailTests(SecureMailFixtures fixtures) : IClassFixture
         Assert.Equal(Body, read.Message.TextBody); Assert.True(Assert.Single(read.Signatures).Valid);
     }
 
-    [Fact]
-    public void Legacy_OpenPgp_without_integrity_protection_is_not_opened()
+    [Theory]
+    [InlineData(NewLineFormat.Dos)]
+    [InlineData(NewLineFormat.Unix)]
+    public void Legacy_OpenPgp_without_integrity_protection_is_not_opened(NewLineFormat lineEndings)
     {
         using var dir = new TempDir(); using var protector = new TestProtector();
         var service = Service(dir, MailSecurityFormat.OpenPgp, protector);
@@ -378,9 +380,23 @@ public sealed class SecureMailTests(SecureMailFixtures fixtures) : IClassFixture
         message.Body = new MultipartEncrypted
         {
             new MimePart("application", "pgp-encrypted") { Content = new MimeContent(new MemoryStream(Encoding.ASCII.GetBytes("Version: 1\r\n"))) },
-            new MimePart("application", "octet-stream") { Content = new MimeContent(new MemoryStream(encoded.ToArray())) },
+            new MimePart("application", "octet-stream")
+            {
+                Content = new MimeContent(new MemoryStream(encoded.ToArray())),
+                ContentTransferEncoding = ContentEncoding.Base64,
+            },
         };
-        Assert.Contains("integrity protection", Assert.Throws<MailSecurityException>(() => service.Open(message, "A")).Message);
+        // This is binary packet data, not ASCII-armoured OpenPGP. Encode it explicitly so a MIME
+        // newline conversion cannot corrupt the packet before the intended integrity check runs.
+        var options = FormatOptions.Default.Clone(); options.NewLineFormat = lineEndings;
+        using var wire = new MemoryStream(); message.WriteTo(options, wire); wire.Position = 0;
+        using var reopened = MimeMessage.Load(wire);
+        using var decoded = new MemoryStream();
+        var payload = Assert.IsType<MimePart>(Assert.IsType<MultipartEncrypted>(reopened.Body)[1]);
+        Assert.NotNull(payload.Content);
+        payload.Content.DecodeTo(decoded);
+        Assert.Equal(encoded.ToArray(), decoded.ToArray());
+        Assert.Contains("integrity protection", Assert.Throws<MailSecurityException>(() => service.Open(reopened, "A")).Message);
     }
 
     [Theory]

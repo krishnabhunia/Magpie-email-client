@@ -169,8 +169,9 @@ public sealed class SecureMailService
     public (string Html, string Text) ReadQueuedBody(OutboxItem item, byte[]? protectedRecall)
     {
         using var message = RestoreQueuedMessage(item, protectedRecall);
-        var html = message.HtmlBody ?? MimeText.TextToHtml(message.TextBody ?? "");
-        return (html, message.TextBody ?? MimeText.HtmlToText(html));
+        // Return the actual MIME alternatives. Presentation conversion can split a plain URL at '&'
+        // while linkifying it and hide the complete tracked URL from the final cloud-access check.
+        return (message.HtmlBody ?? "", message.TextBody ?? "");
     }
 
     private MimeMessage RestoreQueuedMessage(OutboxItem item, byte[]? protectedRecall)

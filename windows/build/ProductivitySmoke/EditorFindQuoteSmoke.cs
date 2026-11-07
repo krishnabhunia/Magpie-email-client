@@ -79,6 +79,17 @@ internal static partial class Program
         await Find("alpha", true, 1, 1, 6);
         await script("window.getSelection().removeAllRanges();saved=document.createRange();saved.selectNodeContents(document.body)");
         await Find("alpha", false, 3, 1, 0);
+        using (var fixture = typeof(Program).Assembly.GetManifestResourceStream("ProductivitySmoke.Fixtures.editor-find-unicode.js")
+            ?? throw new InvalidOperationException("Missing Unicode editor-search regression fixture."))
+        using (var reader = new StreamReader(fixture))
+        using (var result = JsonDocument.Parse(await script(await reader.ReadToEndAsync())))
+        {
+            var passed = result.RootElement.ValueKind == JsonValueKind.Object
+                && result.RootElement.TryGetProperty("ok", out var ok) && ok.GetBoolean();
+            Assert(passed, "Unicode search/replace must preserve original UTF-16 ranges: " + result.RootElement);
+            Assert(result.RootElement.GetProperty("assertions").GetInt32() >= 30,
+                "The real editor executed all Unicode find/replace regressions");
+        }
         Console.WriteLine("EDITOR_FIND_PROGRESSION_SMOKE_PASSED");
     }
 

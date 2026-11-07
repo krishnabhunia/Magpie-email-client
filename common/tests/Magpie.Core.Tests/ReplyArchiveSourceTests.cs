@@ -80,6 +80,169 @@ public class ReplyArchiveSourceTests
         Assert.Empty(engine.Store.PendingPostSendArchives());
     }
 
+    [Theory]
+    [InlineData("A")]
+    [InlineData("B")]
+    public async Task Source_thread_merge_keeps_queued_archive_with_the_original_account(string sendingAccount)
+    {
+        using var dir = new TempDir();
+        string? sentFrom = null;
+        using var engine = Engine(dir, (account, _, _) => { sentFrom = account.Id; return Task.CompletedTask; });
+        var original = Folders(engine, "A");
+        var otherAccount = Folders(engine, "B");
+        engine.Store.InsertMessages(new[] { Rows.Make("A", original.Inbox, "merged-thread") });
+        var draft = Reply();
+        draft.AccountId = sendingAccount;
+        var id = engine.QueueSend(draft, DateTimeOffset.Now.AddSeconds(-1), null, archiveAfterSend: true);
+        var mime = engine.Store.GetOutbox().Single().Mime;
+        // Even an outgoing message sent from A must retain B's independent source conversation.
+        var otherDraft = Reply("other-source@example.test");
+        otherDraft.AccountId = "A";
+        otherDraft.ReplyArchiveSource = new ReplyArchiveSource("B", "same-thread");
+        var otherId = engine.QueueSend(otherDraft, DateTimeOffset.Now.AddDays(1), null, archiveAfterSend: true);
+
+        engine.Store.MergeThreads("A", "merged-thread", new[] { "same-thread" });
+
+        var mergedSource = new ReplyArchiveSource("A", "merged-thread");
+        Assert.Equal(mergedSource, engine.Store.GetPostSendArchiveSource(id));
+        Assert.Equal(mergedSource, engine.Store.GetReplyArchiveSource(draft.MessageId));
+        var queued = engine.Store.GetOutbox().Single(item => item.Id == id);
+        Assert.Equal(sendingAccount, queued.AccountId);
+        Assert.Equal("merged-thread", queued.ThreadKey);
+        Assert.Equal(mime, queued.Mime);
+        Assert.Equal(OutboxStatus.Queued, queued.Status);
+        Assert.Equal(new ReplyArchiveSource("B", "same-thread"), engine.Store.GetPostSendArchiveSource(otherId));
+        Assert.Equal(new ReplyArchiveSource("B", "same-thread"), engine.Store.GetReplyArchiveSource(otherDraft.MessageId));
+        Assert.Equal("same-thread", engine.Store.GetOutbox().Single(item => item.Id == otherId).ThreadKey);
+        Assert.Equal(2, engine.Store.GetThreadCopies("A", "merged-thread").Count);
+
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+
+        Assert.Equal(sendingAccount, sentFrom);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "merged-thread"));
+        Assert.Equal(2, engine.Store.GetPendingOps("A").Count(op => op.Kind == PendingOpKind.Move && op.Arg == original.Archive));
+        Assert.Equal(otherAccount.Inbox, engine.Store.GetThreadCopies("B", "same-thread").Single().FolderId);
+        Assert.Empty(engine.Store.GetPendingOps("B"));
+        Assert.Null(engine.Store.GetPostSendArchiveSource(id));
+        Assert.Equal(OutboxStatus.Queued, engine.Store.GetOutbox().Single().Status);
+    }
+
+    [Fact]
+    public void Source_thread_merge_keeps_undo_valid_without_the_context_cache()
+    {
+        using var dir = new TempDir();
+        using var engine = Engine(dir);
+        var original = Folders(engine, "A");
+        var selectedSender = Folders(engine, "B");
+        var id = engine.QueueSend(Reply(), DateTimeOffset.Now.AddDays(1), null, archiveAfterSend: true);
+        Sql(engine.Paths.Database, "DELETE FROM reply_archive_sources");
+
+        engine.Store.MergeThreads("A", "merged-thread", new[] { "same-thread" });
+        engine.Store.MergeThreads("A", "final-thread", new[] { "merged-thread", "final-thread" });
+
+        var recalled = engine.Recall(id)!;
+        Assert.Equal("B", recalled.AccountId);
+        Assert.Equal("final-thread", recalled.ThreadKey);
+        Assert.Equal(new ReplyArchiveSource("A", "final-thread"), recalled.ReplyArchiveSource);
+        Assert.True(engine.CanSendAndArchive(recalled));
+        Assert.Equal(original.Inbox, engine.Store.GetThreadCopies("A", "final-thread").Single().FolderId);
+        Assert.Equal(selectedSender.Inbox, engine.Store.GetThreadCopies("B", "same-thread").Single().FolderId);
+        Assert.Equal(OutboxStatus.Cancelled, engine.Store.GetOutbox(includeDone: true).Single().Status);
+    }
+
+    [Fact]
+    public void Sending_account_thread_merge_does_not_retarget_the_original_archive_or_undo()
+    {
+        using var dir = new TempDir();
+        using var engine = Engine(dir);
+        Folders(engine, "A");
+        Folders(engine, "B");
+        var draft = Reply();
+        var id = engine.QueueSend(draft, DateTimeOffset.Now.AddDays(1), null, archiveAfterSend: true);
+        var ordinary = new Draft
+        {
+            AccountId = "B", Mode = ComposeMode.New, ThreadKey = "same-thread",
+            To = "recipient@example.test", Subject = "Ordinary send", Html = "<p>Body</p>",
+        };
+        var ordinaryId = engine.QueueSend(ordinary, DateTimeOffset.Now.AddDays(1), null);
+
+        engine.Store.MergeThreads("B", "sender-thread", new[] { "same-thread" });
+
+        Assert.Equal(new ReplyArchiveSource("A", "same-thread"), engine.Store.GetPostSendArchiveSource(id));
+        Assert.Equal(new ReplyArchiveSource("A", "same-thread"), engine.Store.GetReplyArchiveSource(draft.MessageId));
+        Assert.Equal("sender-thread", engine.Store.GetOutbox().Single(item => item.Id == ordinaryId).ThreadKey);
+        var recalled = engine.Recall(id)!;
+        Assert.Equal("same-thread", recalled.ThreadKey);
+        Assert.Equal(new ReplyArchiveSource("A", "same-thread"), recalled.ReplyArchiveSource);
+        Assert.True(engine.CanSendAndArchive(recalled));
+        Assert.Single(engine.Store.GetThreadCopies("A", "same-thread"));
+        Assert.Single(engine.Store.GetThreadCopies("B", "sender-thread"));
+        Assert.Empty(engine.Store.GetPendingOps("A"));
+        Assert.Empty(engine.Store.GetPendingOps("B"));
+    }
+
+    [Fact]
+    public async Task Source_thread_merge_preserves_already_sent_archive_after_restart()
+    {
+        using var dir = new TempDir();
+        long id;
+        long archive;
+        long senderInbox;
+        using (var engine = Engine(dir))
+        {
+            engine.Settings.Save(notify: false);
+            archive = Folders(engine, "A").Archive;
+            senderInbox = Folders(engine, "B").Inbox;
+            id = engine.QueueSend(Reply(), DateTimeOffset.Now.AddDays(1), null, archiveAfterSend: true);
+            engine.Store.SetOutboxResult(id, OutboxStatus.Sent);
+            Sql(engine.Paths.Database, "DELETE FROM reply_archive_sources");
+            engine.Store.MergeThreads("A", "merged-thread", new[] { "same-thread" });
+        }
+        using var restarted = Engine(dir, (_, _, _) => throw new InvalidOperationException("Already sent mail must not be sent twice"));
+        Assert.Equal((id, "A", "merged-thread"), restarted.Store.PendingPostSendArchives().Single());
+
+        await restarted.ProcessOutboxAsync(CancellationToken.None);
+
+        Assert.Empty(restarted.Store.GetThreadCopies("A", "merged-thread"));
+        Assert.Contains(restarted.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Equal(senderInbox, restarted.Store.GetThreadCopies("B", "same-thread").Single().FolderId);
+        Assert.Empty(restarted.Store.PendingPostSendArchives());
+        Assert.Equal(OutboxStatus.Sent, restarted.Store.GetOutbox(includeDone: true).Single().Status);
+    }
+
+    [Fact]
+    public void Archive_source_merge_failure_rolls_back_conversation_and_queued_metadata_together()
+    {
+        using var dir = new TempDir();
+        using var engine = Engine(dir);
+        var original = Folders(engine, "A");
+        var draft = Reply();
+        var id = engine.QueueSend(draft, DateTimeOffset.Now.AddDays(1), null, archiveAfterSend: true);
+        var mime = engine.Store.GetOutbox().Single().Mime;
+        engine.Store.AddReminder(new Reminder
+        {
+            AccountId = "A", ThreadKey = "same-thread", After = DateTimeOffset.Now, Due = DateTimeOffset.Now.AddDays(2),
+        });
+        Sql(engine.Paths.Database, """
+            CREATE TRIGGER reject_archive_rekey BEFORE UPDATE OF thread_key ON post_send_archives
+            BEGIN SELECT RAISE(ABORT, 'injected archive-source failure'); END;
+            """);
+
+        var error = Assert.Throws<SqliteException>(() => engine.Store.MergeThreads("A", "merged-thread", new[] { "same-thread" }));
+
+        Assert.Contains("injected archive-source failure", error.Message, StringComparison.Ordinal);
+        Assert.Equal(original.Inbox, engine.Store.GetThreadCopies("A", "same-thread").Single().FolderId);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "merged-thread"));
+        Assert.Equal("same-thread", engine.Store.GetReminders().Single().ThreadKey);
+        Assert.Equal(new ReplyArchiveSource("A", "same-thread"), engine.Store.GetReplyArchiveSource(draft.MessageId));
+        Assert.Equal(new ReplyArchiveSource("A", "same-thread"), engine.Store.GetPostSendArchiveSource(id));
+        var queued = engine.Store.GetOutbox().Single();
+        Assert.Equal("B", queued.AccountId);
+        Assert.Equal("same-thread", queued.ThreadKey);
+        Assert.Equal(mime, queued.Mime);
+        Assert.Equal(OutboxStatus.Queued, queued.Status);
+    }
+
     [Fact]
     public void Local_save_reopen_restart_and_sender_switchback_keep_the_same_source()
     {

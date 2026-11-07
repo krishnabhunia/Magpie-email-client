@@ -71,6 +71,7 @@ public sealed partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private bool _sending;
 
     public string InitialHtml { get; }
+    public bool IsPlainText => _draft.IsPlainText;
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public bool ShowFrom => Accounts.Count > 1;
     public bool ShowSender => SenderChoices.Count > 1 || SelectedSender is { Available: false };

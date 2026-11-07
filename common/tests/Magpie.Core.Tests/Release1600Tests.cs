@@ -1,3 +1,4 @@
+using System.Net;
 using Magpie.Core.CloudFiles;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
@@ -84,9 +85,16 @@ public sealed class Release1600Tests(SecureMailFixtures keys) : IClassFixture<Se
     }
 
     [Theory]
-    [InlineData(MailSecurityFormat.Smime)]
-    [InlineData(MailSecurityFormat.OpenPgp)]
-    public async Task Encrypted_cloud_link_is_rechecked_from_protected_recovery_content_before_smtp(MailSecurityFormat format)
+    [InlineData(MailSecurityFormat.Smime, false, AccountKind.Gmail)]
+    [InlineData(MailSecurityFormat.Smime, true, AccountKind.Gmail)]
+    [InlineData(MailSecurityFormat.OpenPgp, false, AccountKind.Gmail)]
+    [InlineData(MailSecurityFormat.OpenPgp, true, AccountKind.Gmail)]
+    [InlineData(MailSecurityFormat.Smime, false, AccountKind.Microsoft)]
+    [InlineData(MailSecurityFormat.Smime, true, AccountKind.Microsoft)]
+    [InlineData(MailSecurityFormat.OpenPgp, false, AccountKind.Microsoft)]
+    [InlineData(MailSecurityFormat.OpenPgp, true, AccountKind.Microsoft)]
+    public async Task Encrypted_cloud_link_is_rechecked_from_protected_recovery_content_before_smtp(
+        MailSecurityFormat format, bool plainText, AccountKind provider)
     {
         using var dir = new TempDir();
         var sent = 0;
@@ -97,17 +105,15 @@ public sealed class Release1600Tests(SecureMailFixtures keys) : IClassFixture<Se
                 return Task.FromResult(new DeliveryReceiptResult(DeliveryReceiptState.Requested, "250 should not happen"));
             });
         engine.Config.Accounts.Add(SendingAccount());
-        var cloud = new Account { Id = "cloud", Email = "owner@example.test", Kind = AccountKind.Gmail, Enabled = false };
+        var cloud = new Account { Id = "cloud", Email = "owner@example.test", Kind = provider, Enabled = false };
         engine.Config.Accounts.Add(cloud);
         ImportKeys(engine, format);
-        var link = new CloudUploadedFile
-        {
-            AccountId = cloud.Id, AccountEmail = cloud.Email, Provider = cloud.Kind,
-            FileId = "private-project", FileName = "project.pdf", WebUrl = "https://drive.google.com/file/d/private-project/view",
-            Recipients = new[] { SecureMailFixtures.Recipient }, PermissionIds = new() { [SecureMailFixtures.Recipient] = "named-grant" },
-        };
+        var link = QueryLink(cloud);
         engine.Store.RememberCloudFile(link);
-        var draft = ProtectedDraft(format, "<p>Private link <a href=\"" + link.WebUrl + "\">Project</a></p>");
+        var draft = ProtectedDraft(format, plainText ? MimeText.PlainTextToEditorHtml("Private link " + link.WebUrl)
+            : "<p>Private link <a href=\"" + WebUtility.HtmlEncode(link.WebUrl) + "\">Project</a></p>");
+        draft.IsPlainText = plainText;
+        Assert.Equal(link.WebUrl, Assert.Single(engine.Store.CloudFilesIn(draft.Html)).WebUrl);
         var id = engine.QueueSend(draft, DateTimeOffset.UtcNow.AddSeconds(-1), null);
         using var wire = Composer.FromBytes(engine.Store.GetOutbox().Single(o => o.Id == id).Mime);
         Assert.Null(wire.HtmlBody);
@@ -119,9 +125,75 @@ public sealed class Release1600Tests(SecureMailFixtures keys) : IClassFixture<Se
         var failed = engine.Store.GetOutbox().Single(o => o.Id == id);
         Assert.Equal(OutboxStatus.Failed, failed.Status);
         Assert.Contains("account used to share", failed.LastError, StringComparison.OrdinalIgnoreCase);
+        if (plainText)
+        {
+            var body = engine.SecureMail.ReadQueuedBody(failed, engine.Store.SecureOutboxState(id));
+            Assert.Empty(body.Html);
+            Assert.Equal("Private link " + link.WebUrl, body.Text);
+        }
         var recalled = Assert.IsType<Draft>(engine.Recall(id));
-        Assert.Contains(link.WebUrl, recalled.Html);
+        Assert.Contains(link.WebUrl, WebUtility.HtmlDecode(recalled.Html));
+        Assert.Equal(plainText, recalled.IsPlainText);
         Assert.True(recalled.Security.Encrypt && recalled.RequestDeliveryReceipt);
         Assert.Equal(SecureMailFixtures.Sender, recalled.SenderAddress);
     }
+
+    [Theory]
+    [InlineData(MailSecurityFormat.Smime)]
+    [InlineData(MailSecurityFormat.OpenPgp)]
+    public async Task Protected_cloud_link_in_text_alternative_is_checked_when_html_is_also_present(MailSecurityFormat format)
+    {
+        using var dir = new TempDir();
+        var sent = 0;
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendWithDeliveryReceipt: (_, _, _) =>
+            {
+                sent++;
+                return Task.FromResult(new DeliveryReceiptResult(DeliveryReceiptState.Requested, "250 should not happen"));
+            });
+        var account = SendingAccount();
+        engine.Config.Accounts.Add(account);
+        var cloud = new Account { Id = "cloud", Email = "owner@example.test", Kind = AccountKind.Microsoft, Enabled = false };
+        engine.Config.Accounts.Add(cloud);
+        ImportKeys(engine, format);
+        var link = QueryLink(cloud);
+        engine.Store.RememberCloudFile(link);
+        const string html = "<p>HTML summary without the attachment link</p>";
+        var text = "Plain alternative with private link " + link.WebUrl;
+        var draft = ProtectedDraft(format, html);
+        using var original = Composer.Build(draft, account);
+        original.Body = new Multipart("alternative")
+        {
+            new TextPart("plain") { Text = text }, new TextPart("html") { Text = html },
+        };
+        var outgoing = engine.SecureMail.PrepareOutgoing(original, account, draft.Security, DateTimeOffset.UtcNow);
+        using var message = outgoing.Message;
+        var item = new OutboxItem
+        {
+            AccountId = account.Id, Mime = Composer.ToBytes(message), ProtectedSecurityRecall = outgoing.ProtectedRecall,
+            MessageId = Threading.NormalizeId(message.MessageId), Subject = message.Subject ?? "", ThreadKey = "alternative-check",
+            SendAt = DateTimeOffset.UtcNow.AddSeconds(-1), RequestDeliveryReceipt = true,
+        };
+        var id = engine.Store.AddOutbox(item);
+        var restored = engine.SecureMail.ReadQueuedBody(item, engine.Store.SecureOutboxState(id));
+        Assert.Equal(html, restored.Html);
+        Assert.Equal(text, restored.Text);
+        engine.Config.Accounts.Remove(cloud);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(0, sent);
+        var failed = engine.Store.GetOutbox().Single(o => o.Id == id);
+        Assert.Equal(OutboxStatus.Failed, failed.Status);
+        Assert.Contains("account used to share", failed.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(engine.Store.SecureOutboxState(id));
+    }
+
+    private static CloudUploadedFile QueryLink(Account account) => new()
+    {
+        AccountId = account.Id, AccountEmail = account.Email, Provider = account.Kind,
+        FileId = "private-project", ContainerId = account.Kind == AccountKind.Microsoft ? "private-parent" : "",
+        FileName = "project.pdf", WebUrl = account.Kind == AccountKind.Microsoft
+            ? "https://onedrive.live.com/?id=private-project&cid=private-drive"
+            : "https://drive.google.com/file/d/private-project/view?usp=drive_link&resourcekey=private-key",
+        Recipients = new[] { SecureMailFixtures.Recipient }, PermissionIds = new() { [SecureMailFixtures.Recipient] = "named-grant" },
+    };
 }

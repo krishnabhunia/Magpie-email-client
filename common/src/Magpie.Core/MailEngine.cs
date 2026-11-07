@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using Magpie.Core.Ai;
 using Magpie.Core.Auth;
 using Magpie.Core.Mail;
@@ -1796,9 +1797,12 @@ public sealed class MailEngine : IDisposable
                 using var msg = Composer.FromBytes(item.Mime);
                 // Encrypted MIME has no readable body. Its authenticated recovery copy keeps cloud-link
                 // checks effective without persisting decrypted content or modifying the queued message.
-                var body = protectedRecall == null ? msg.HtmlBody ?? msg.TextBody ?? ""
-                    : SecureMail.ReadQueuedBody(item, protectedRecall).Html;
-                await VerifyCloudFileAccessAsync(body, msg.To.ToString(), msg.Cc.ToString(), msg.Bcc.ToString(), ct);
+                var body = protectedRecall == null ? (Html: msg.HtmlBody ?? "", Text: msg.TextBody ?? "")
+                    : SecureMail.ReadQueuedBody(item, protectedRecall);
+                // Check both MIME alternatives. CloudFilesIn decodes HTML once; encode literal plain text
+                // first so query strings and entity-looking URL text remain intact in the combined lookup.
+                var cloudContent = body.Html + "\n" + WebUtility.HtmlEncode(body.Text);
+                await VerifyCloudFileAccessAsync(cloudContent, msg.To.ToString(), msg.Cc.ToString(), msg.Bcc.ToString(), ct);
                 // Consent and provider verification can await the network; re-read mutable account and
                 // key choices immediately before handing the already-protected message to SMTP.
                 account = AccountById(item.AccountId)
