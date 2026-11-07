@@ -393,7 +393,7 @@ public partial class ComposeWindow : Window
                 if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
                     throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
                 var body = how == "appendBody" && expected.Trim().Length > 0 ? expected.TrimEnd() + "\n\n" + insertion : insertion;
-                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+                ReplacePlainBody(body);
                 return;
             }
             if (mode == "captureRewrite")
@@ -416,7 +416,7 @@ public partial class ComposeWindow : Window
                 if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
                     throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
                 var body = mode == "appendBody" ? PlainNewText().TrimEnd() + "\n\n" + text : text;
-                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+                ReplacePlainBody(body);
             }
             else PlainEditor.SelectedText = text;
             return;
@@ -426,9 +426,30 @@ public partial class ComposeWindow : Window
             throw new InvalidOperationException(mode == "replyDraft" ? "Your reply changed. Review the draft and choose Use draft again." : "Your message or selection changed. Select the text and rewrite it again.");
     }
 
+    private void ReplacePlainBody(string body)
+    {
+        var updated = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+        // Assigning Text resets the native undo manager. A selected-text change is one real edit.
+        PlainEditor.BeginChange();
+        try
+        {
+            PlainEditor.SelectAll();
+            PlainEditor.SelectedText = updated;
+            PlainEditor.Select(body.Length, 0);
+        }
+        finally { PlainEditor.EndChange(); }
+        PlainEditor.Focus();
+    }
+
     private async void OnFormat(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
+        if (!_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
+        if (_plain)
+        {
+            if (command == "undo") PlainEditor.Undo();
+            else if (command == "redo") PlainEditor.Redo();
+            return;
+        }
         if (_vm.IsPlainText && command is not ("undo" or "redo")) return;
         if (command is "foreColor" or "hiliteColor") { await ShowColourPaletteAsync(sender, command); return; }
         await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, null)");
@@ -484,17 +505,35 @@ public partial class ComposeWindow : Window
 
     private void OnSendLater(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };
+        var menu = BuildSendLaterMenu((UIElement)sender);
+        menu.IsOpen = true;
+    }
+
+    private ContextMenu BuildSendLaterMenu(UIElement target)
+    {
+        var menu = new ContextMenu { PlacementTarget = target, Placement = PlacementMode.Top };
+        menu.Items.Add(new MenuItem
+        {
+            IsEnabled = false,
+            Header = new TextBlock { Text = ScheduleTime.ExecutionHelp, TextWrapping = TextWrapping.Wrap, MaxWidth = 350 },
+        });
+        menu.Items.Add(new Separator());
         foreach (var p in TimePresets.For(DateTime.Now, sendLater: true))
         {
-            var mi = new MenuItem { Header = $"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}" };
+            var label = $"{p.Label}  ·  {ScheduleTime.Describe(p.When, DateTime.Now)}";
+            var mi = new MenuItem
+            {
+                Header = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
+                ToolTip = ScheduleTime.ExecutionHelp,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(mi, label);
             mi.Click += async (_, _) => await _vm.SendAsync(p.When, null);
             menu.Items.Add(mi);
         }
         var pick = new MenuItem { Header = "Pick date & time…" };
         pick.Click += async (_, _) =>
         {
-            var when = PickTimeDialog.Ask(this, "Send later", "Magpie sends it at this time. Your PC needs to be on with Magpie running (it can be in the tray).", DateTime.Now.AddDays(1).Date.AddHours(8));
+            var when = PickTimeDialog.Ask(this, "Send later", ScheduleTime.ExecutionHelp, DateTime.Now.AddDays(1).Date.AddHours(8));
             if (when != null) await _vm.SendAsync(when, null);
         };
         menu.Items.Add(pick);
@@ -506,7 +545,7 @@ public partial class ComposeWindow : Window
             if (when != null) await _vm.SendAsync(null, when);
         };
         menu.Items.Add(remind);
-        menu.IsOpen = true;
+        return menu;
     }
 
     private void OnAttach(object sender, RoutedEventArgs e)
@@ -535,6 +574,7 @@ public partial class ComposeWindow : Window
     private ContextMenu BuildTemplatesMenu(UIElement placementTarget)
     {
         var menu = new ContextMenu { PlacementTarget = placementTarget, Placement = PlacementMode.Top };
+        var categories = new Dictionary<string, MenuItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in AppServices.Engine.Config.Templates)
         {
             var mi = new MenuItem
@@ -543,7 +583,19 @@ public partial class ComposeWindow : Window
                 ToolTip = string.IsNullOrWhiteSpace(t.Subject) ? "Insert message text at the cursor" : "Subject: " + t.Subject + "\nInsert message text; an existing subject is replaced only after confirmation.",
             };
             mi.Click += async (_, _) => await UseQuickTemplateAsync(t);
-            menu.Items.Add(mi);
+            var category = ComposeTemplates.CategoryName(t.Category);
+            if (category.Length == 0) menu.Items.Add(mi);
+            else
+            {
+                if (!categories.TryGetValue(category, out var group))
+                {
+                    group = new MenuItem { Header = new TextBlock { Text = category } };
+                    System.Windows.Automation.AutomationProperties.SetName(group, "Template category: " + category);
+                    categories.Add(category, group);
+                    menu.Items.Add(group);
+                }
+                group.Items.Add(mi);
+            }
         }
         if (menu.Items.Count > 0) menu.Items.Add(new Separator());
         var quickReplies = new MenuItem
@@ -606,13 +658,22 @@ public partial class ComposeWindow : Window
             }
             var engine = AppServices.Engine;
             var existing = engine.Config.Templates.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            var category = TextPromptDialog.Ask(this, "Template category", "Optional category (leave blank to keep this template at the top level)", existing?.Category ?? "");
+            if (category == null) return;
+            if (category.Trim().Length > 48 || category.Any(char.IsControl))
+            {
+                Ui.Error("Template category", "Enter a category of up to 48 characters on one line.", this);
+                return;
+            }
+            category = ComposeTemplates.CategoryName(category);
             if (existing != null)
             {
                 if (!Ui.Confirm("Replace template", $"A template called '{existing.Name}' already exists. Replace its saved subject and message text?", this)) return;
                 existing.Subject = subject;
                 existing.Body = text;
+                existing.Category = category;
             }
-            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Subject = subject, Body = text });
+            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Category = category, Subject = subject, Body = text });
             engine.Settings.Save();
             MessageBox.Show(this, $"Template '{name}' was saved with its subject and message text. Choose Templates to use it in another message. Existing subjects are kept unless you explicitly choose to replace them.",
                 "Template saved", MessageBoxButton.OK, MessageBoxImage.Information);

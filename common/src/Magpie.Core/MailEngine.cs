@@ -19,8 +19,10 @@ public sealed class MailEngine : IDisposable
     public AppPaths Paths { get; }
     public SettingsStore Settings { get; }
     public SecretVault Vault { get; }
+    public SecureMailService SecureMail { get; }
     public MailStore Store { get; }
     public OAuthService OAuth { get; }
+    public CloudFiles.CloudFilesService CloudFiles { get; }
     public Connector Connector { get; }
     public AiService Ai { get; }
     public HttpClient Http { get; }
@@ -42,6 +44,7 @@ public sealed class MailEngine : IDisposable
     private long _lastDeferredRuleMessage;
     private int _promotePending;
     private readonly Func<Account, MimeMessage, CancellationToken, Task> _sendMessage;
+    private readonly Func<Account, MimeMessage, CancellationToken, Task<DeliveryReceiptResult>> _sendWithDeliveryReceipt;
 
     public event Action<ChangeSet>? Changed;
     public event Action<string, SyncStatus>? StatusChanged;
@@ -70,13 +73,15 @@ public sealed class MailEngine : IDisposable
     }
 
     public MailEngine(AppPaths paths, ISecretProtector protector, HttpMessageHandler? httpHandler = null,
-        Func<Account, MimeMessage, CancellationToken, Task>? sendMessage = null)
+        Func<Account, MimeMessage, CancellationToken, Task>? sendMessage = null,
+        Func<Account, MimeMessage, CancellationToken, Task<DeliveryReceiptResult>>? sendWithDeliveryReceipt = null)
     {
         Paths = paths;
         Log.Init(paths.Logs);
         Settings = new SettingsStore(paths.Settings);
         Settings.Load();
         Vault = new SecretVault(paths.Secrets, protector);
+        SecureMail = new SecureMailService(Path.Combine(paths.Root, SecureMailKeys.FileName), protector);
         Store = new MailStore(paths.Database);
         Http = httpHandler == null ? new HttpClient() : new HttpClient(httpHandler);
         Http.Timeout = TimeSpan.FromMinutes(3);
@@ -92,8 +97,16 @@ public sealed class MailEngine : IDisposable
                 _ => null,
             },
         };
+        // Cloud file bytes/tokens must never follow a provider redirect to an arbitrary host.
+        var cloudHttp = httpHandler == null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            : new HttpClient(httpHandler, disposeHandler: false);
+        cloudHttp.Timeout = TimeSpan.FromMinutes(10);
+        cloudHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Magpie/1.0");
+        CloudFiles = new CloudFiles.CloudFilesService(cloudHttp,
+            new CloudFiles.CloudFilesAuthorization(cloudHttp, Vault, kind => OAuth.ConfigFor(kind), AccountById), ownsHttp: true);
         Connector = new Connector(Vault, OAuth);
         _sendMessage = sendMessage ?? Connector.SendAsync;
+        _sendWithDeliveryReceipt = sendWithDeliveryReceipt ?? Connector.SendWithDeliveryReceiptAsync;
         Ai = new AiService(Http, () => Settings.Current.Ai, id => Vault.Get(SecretVault.AiKeyFor(id))) { SaveSettings = () => Settings.Save(notify: false) };
         Calendar = new Calendar.CalendarService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
         Contacts = new Contacts.ContactsService(Store, Http, () => Accounts, (a, ct) => OAuth.GetAccessTokenAsync(a, ct), OAuth.GrantedScopes);
@@ -130,7 +143,7 @@ public sealed class MailEngine : IDisposable
     public Account? AccountById(string id) => Settings.Current.Accounts.FirstOrDefault(a => a.Id == id);
 
     public IReadOnlyCollection<string> MyAddresses =>
-        Settings.Current.Accounts.Select(a => a.Email.ToLowerInvariant()).Distinct().ToList();
+        Settings.Current.Accounts.SelectMany(SenderIdentities.ForAccount).Select(a => a.Address.ToLowerInvariant()).Distinct().ToList();
 
     public void Start()
     {
@@ -327,6 +340,7 @@ public sealed class MailEngine : IDisposable
     {
         using var operation = _versionOperations.Enter();
         ThrowIfChangingVersion();
+        SecureMail.Keys.RemoveAccount(accountId);
         if (_syncs.TryRemove(accountId, out var s)) { _retiredSyncs.Add(s); s.Dispose(); }
         // Design SY1: the copy notes the removal (other PCs ask before removing it there) and this PC doesn't add it back.
         if (AccountById(accountId) is { } gone)
@@ -349,6 +363,7 @@ public sealed class MailEngine : IDisposable
         Settings.Save();
         Vault.RemovePrefix($"account:{accountId}:");
         OAuth.Forget(accountId);
+        CloudFiles.SignIn?.Forget(accountId);
         Calendar.ForgetAccount(accountId);
         Contacts.ForgetAccount(accountId);
         Store.DeleteAccount(accountId);
@@ -1440,17 +1455,20 @@ public sealed class MailEngine : IDisposable
     public long QueueSend(Draft d, DateTimeOffset sendAt, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         using var operation = _versionOperations.Enter();
+        ValidateCloudFileRecipients(d.Html, d.To, d.Cc, d.Bcc);
         var archiveSource = RestoreReplyArchiveSource(d);
         if (archiveAfterSend && archiveSource == null)
             throw new InvalidOperationException("The original reply account or conversation is unavailable. Send normally, then archive the conversation manually.");
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account to send from.");
-        var msg = Composer.Build(d, account);
+        var outgoing = SecureMail.PrepareOutgoing(Composer.Build(d, account), account, d.Security, sendAt);
+        var msg = outgoing.Message;
         RememberReplyArchiveSource(d);
         var threadKey = string.IsNullOrEmpty(d.ThreadKey) ? "r:" + Threading.NormalizeId(msg.MessageId) : d.ThreadKey;
         var item = new OutboxItem
         {
             AccountId = account.Id,
             Mime = Composer.ToBytes(msg),
+            ProtectedSecurityRecall = outgoing.ProtectedRecall,
             SendAt = sendAt,
             Subject = msg.Subject ?? "",
             ToText = string.Join(", ", msg.To.Mailboxes.Select(m => string.IsNullOrEmpty(m.Name) ? m.Address : m.Name)),
@@ -1459,6 +1477,7 @@ public sealed class MailEngine : IDisposable
             RemindAt = remindIfNoReply,
             ArchiveAfterSend = archiveAfterSend,
             ArchiveSource = archiveAfterSend ? archiveSource : null,
+            RequestDeliveryReceipt = d.RequestDeliveryReceipt,
         };
         Store.AddOutbox(item);
         DropStaleLocalCopies(msg.MessageId, d.LocalDraftId);
@@ -1474,11 +1493,15 @@ public sealed class MailEngine : IDisposable
     {
         using var operation = _versionOperations.Enter();
         var item = Store.GetOutbox().FirstOrDefault(o => o.Id == outboxId);
-        if (item == null || !Store.CancelOutbox(outboxId)) return null;
+        if (item == null) return null;
+        // Restore first: an unavailable protected snapshot must not cancel and lose the scheduled message.
+        var d = SecureMail.RestoreQueuedDraft(item, Store.SecureOutboxState(outboxId));
+        if (!Store.CancelOutbox(outboxId)) return null;
+        Store.ClearSecureOutboxState(outboxId);
         OutboxChanged?.Invoke();
-        var d = Composer.FromMime(Composer.FromBytes(item.Mime), item.AccountId, item.ThreadKey);
         d.Mode = ComposeMode.EditDraft;
         d.ReplyArchiveSource = Store.GetPostSendArchiveSource(outboxId);
+        d.RequestDeliveryReceipt = item.RequestDeliveryReceipt;
         RestoreReplyArchiveSource(d);
         return d;
     }
@@ -1527,7 +1550,7 @@ public sealed class MailEngine : IDisposable
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
         RestoreReplyArchiveSource(d);
-        var msg = Composer.Build(d, account);
+        var msg = Composer.BuildForDraft(d, account);
         RememberReplyArchiveSource(d);
         // Copies on this PC saved after this one (e.g. in another window) are newer: leave those.
         TryCaptureDraftRevision(d, msg);
@@ -1568,7 +1591,7 @@ public sealed class MailEngine : IDisposable
         using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         RestoreReplyArchiveSource(d);
-        var msg = Composer.Build(d, account);
+        var msg = Composer.BuildForDraft(d, account);
         RememberReplyArchiveSource(d);
         var text = MimeText.HtmlToText(d.Html);
         var preview = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
@@ -1599,7 +1622,7 @@ public sealed class MailEngine : IDisposable
         using var operation = _versionOperations.Enter();
         var account = AccountById(draft.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         RestoreReplyArchiveSource(draft);
-        var message = Composer.Build(draft, account);
+        var message = Composer.BuildForDraft(draft, account);
         RememberReplyArchiveSource(draft);
         return Store.SaveDraftRevision(draft, message);
     }
@@ -1725,6 +1748,30 @@ public sealed class MailEngine : IDisposable
     /// <summary>The outbox without the messages themselves — cheap enough to read every second (status bar).</summary>
     public List<OutboxItem> OutboxSummary() => Store.GetOutbox(withMime: false);
 
+    private void ValidateCloudFileRecipients(string body, string to, string cc, string bcc)
+    {
+        foreach (var file in Store.CloudFilesIn(body))
+            if (file.RecipientProblem(to, cc, bcc) is { } problem) throw new InvalidOperationException(problem);
+    }
+
+    /// <summary>Recheck named access without changing it; no token or sharing receipt is written into delivered MIME.</summary>
+    public async Task VerifyCloudFileAccessAsync(string body, string to, string cc, string bcc, CancellationToken ct = default)
+    {
+        // Permission checks can refresh the protected cloud token. Keep that mutation within profile quiescence,
+        // including callers outside the compose window and the background outbox operation.
+        using var operation = _versionOperations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
+        ValidateCloudFileRecipients(body, to, cc, bcc);
+        foreach (var file in Store.CloudFilesIn(body))
+        {
+            var account = AccountById(file.AccountId)
+                ?? throw new InvalidOperationException("The account used to share " + file.FileName + " was removed. Reconnect it or attach the file normally.");
+            await CloudFiles.VerifyAccessAsync(account, file, ct);
+        }
+    }
+
     internal async Task ProcessOutboxAsync(CancellationToken ct)
     {
         using var operation = _versionOperations.Enter();
@@ -1735,19 +1782,40 @@ public sealed class MailEngine : IDisposable
         var now = DateTimeOffset.Now;
         foreach (var item in Store.GetOutbox().Where(o => o.SendAt <= now))
         {
-            if (item.Status == OutboxStatus.Failed && item.Attempts >= 6) continue;
+            if (item.AutomaticRetryExhausted) continue;
             if (item.Status == OutboxStatus.Sending) continue;
             if (!Store.TryClaimOutbox(item.Id)) continue;
             OutboxChanged?.Invoke();
             var account = AccountById(item.AccountId);
             var accepted = false;
+            DeliveryReceiptResult? receipt = null;
             try
             {
                 if (account == null) throw new InvalidOperationException("The account for this message was removed.");
-                var msg = Composer.FromBytes(item.Mime);
-                await _sendMessage(account, msg, ct);
+                var protectedRecall = Store.SecureOutboxState(item.Id);
+                using var msg = Composer.FromBytes(item.Mime);
+                // Encrypted MIME has no readable body. Its authenticated recovery copy keeps cloud-link
+                // checks effective without persisting decrypted content or modifying the queued message.
+                var body = protectedRecall == null ? msg.HtmlBody ?? msg.TextBody ?? ""
+                    : SecureMail.ReadQueuedBody(item, protectedRecall).Html;
+                await VerifyCloudFileAccessAsync(body, msg.To.ToString(), msg.Cc.ToString(), msg.Bcc.ToString(), ct);
+                // Consent and provider verification can await the network; re-read mutable account and
+                // key choices immediately before handing the already-protected message to SMTP.
+                account = AccountById(item.AccountId)
+                    ?? throw new InvalidOperationException("The account for this message was removed.");
+                if (msg.From.Mailboxes.Count() != 1)
+                    throw new InvalidOperationException("The queued message must have exactly one configured sender.");
+                _ = SenderIdentities.Resolve(account, msg.From.Mailboxes.Single().Address);
+                SecureMail.ValidateQueued(item, protectedRecall);
+                msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
+                DeliveryReceipts.RemoveDraftMetadata(msg);
+                if (item.RequestDeliveryReceipt) receipt = await _sendWithDeliveryReceipt(account, msg, ct);
+                else await _sendMessage(account, msg, ct);
                 accepted = true;
-                Store.SetOutboxResult(item.Id, OutboxStatus.Sent);
+                Store.SetOutboxResult(item.Id, OutboxStatus.Sent, deliveryReceipt: receipt);
+                item.Status = OutboxStatus.Sent;
+                item.DeliveryReceipt = receipt;
+                Store.ClearSecureOutboxState(item.Id);
                 Log.Info($"sent '{item.Subject}' from {account.Email}");
                 // Local completion must survive cancellation of the subsequent IMAP cleanup.
                 DropStaleLocalCopies(msg.MessageId, null);
@@ -1778,7 +1846,7 @@ public sealed class MailEngine : IDisposable
                 {
                     // SMTP accepted the message. A failed cleanup must never send it again.
                     Log.Error($"message sent; cleanup failed for '{item.Subject}'", ex);
-                    try { Store.SetOutboxResult(item.Id, OutboxStatus.Sent); }
+                    try { Store.SetOutboxResult(item.Id, OutboxStatus.Sent, deliveryReceipt: receipt); Store.ClearSecureOutboxState(item.Id); }
                     catch (Exception saveError) { Log.Error("could not record the accepted send", saveError); }
                 }
                 else
@@ -1952,5 +2020,6 @@ public sealed class MailEngine : IDisposable
         AccountsCopy.Stop();
         foreach (var s in _syncs.Values) s.Dispose();
         _syncs.Clear();
+        CloudFiles.Dispose();
     }
 }

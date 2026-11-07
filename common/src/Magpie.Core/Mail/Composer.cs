@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Magpie.Core.Models;
+using Magpie.Core.Security;
 using Magpie.Core.Settings;
 using MimeKit;
 using MimeKit.Utils;
@@ -20,6 +21,8 @@ public sealed class DraftAttachmentPosition
 /// <summary>Everything the compose window edits.</summary>
 public sealed class Draft
 {
+    /// <summary>Selected, configured From identity; the authenticated AccountId remains independent.</summary>
+    public string SenderAddress { get; set; } = "";
     public string AccountId { get; set; } = "";
     public ComposeMode Mode { get; set; }
     public string To { get; set; } = "";
@@ -31,6 +34,9 @@ public sealed class Draft
     /// <summary>Normal, High or Low. Kept as text for compatible draft JSON.</summary>
     public string Priority { get; set; } = "Normal";
     public bool RequestReadReceipt { get; set; }
+    /// <summary>Request SMTP success/failure notifications where supported; not a delivery/read confirmation.</summary>
+    public bool RequestDeliveryReceipt { get; set; }
+    public SecureMailOptions Security { get; set; } = new();
     /// <summary>HTML of the editor (new text + quoted original).</summary>
     public string Html { get; set; } = "";
     /// <summary>Send as text/plain only. Formatting is removed explicitly by the composer UI.</summary>
@@ -259,11 +265,21 @@ public static class Composer
         return sb.ToString();
     }
 
-    /// <summary>The final RFC 5322 message.</summary>
+    /// <summary>Saved-draft MIME, including options that must not be transmitted to recipients.</summary>
+    public static MimeMessage BuildForDraft(Draft d, Account account)
+    {
+        var message = Build(d, account);
+        if (d.RequestDeliveryReceipt) message.Headers.Add(DeliveryReceipts.DraftHeader, DeliveryReceipts.DraftRequest);
+        d.Security.WriteDraftHeader(message);
+        return message;
+    }
+
+    /// <summary>The final RFC 5322 message before any optional signing/encryption.</summary>
     public static MimeMessage Build(Draft d, Account account)
     {
         var msg = new MimeMessage();
-        msg.From.Add(new MailboxAddress(account.DisplayName, account.Email));
+        var sender = SenderIdentities.Resolve(account, d.SenderAddress);
+        msg.From.Add(new MailboxAddress(sender.Name, sender.Address));
         // A recipient entered in two fields must get only one copy. The first (To, then Cc,
         // then Bcc) wins, and Bcc-only addresses are never promoted into a visible field.
         var seenRecipients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -296,7 +312,7 @@ public static class Composer
             msg.Headers.Add("X-MSMail-Priority", "Low");
         }
         if (d.RequestReadReceipt)
-            msg.Headers.Add("Disposition-Notification-To", account.Email);
+            msg.Headers.Add("Disposition-Notification-To", sender.Address);
 
         var builder = new BodyBuilder();
         // Pasted pictures arrive as data: URIs, which many mail apps block — send them as inline attachments.
@@ -459,9 +475,12 @@ public static class Composer
     /// <summary>Re-opens an outbox item or server draft for editing.</summary>
     public static Draft FromMime(MimeMessage msg, string accountId, string threadKey)
     {
+        if (SecureMailService.IsProtected(msg.Body))
+            throw new MailSecurityException("Open this signed or encrypted message with Security in the reader. Reopening it as an editable draft would discard its protection.");
         var d = new Draft
         {
             AccountId = accountId,
+            SenderAddress = string.Join(", ", msg.From.Mailboxes.Select(a => a.Address)),
             Mode = ComposeMode.EditDraft,
             To = FormatList(msg.To),
             Cc = FormatList(msg.Cc),
@@ -470,6 +489,8 @@ public static class Composer
             ReplyTo = FormatList(msg.ReplyTo),
             Priority = MailPriorityHeaders.Read(msg.Headers),
             RequestReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
+            RequestDeliveryReceipt = DeliveryReceipts.ReadDraftRequest(msg),
+            Security = SecureMailOptions.FromDraft(msg),
             InReplyTo = string.IsNullOrEmpty(msg.InReplyTo) ? "" : "<" + msg.InReplyTo + ">",
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,

@@ -55,6 +55,7 @@ public sealed class ReaderHover
             case "reply": _reader.Compose(ComposeMode.Reply, id); break;
             case "replyall": _reader.Compose(ComposeMode.ReplyAll, id); break;
             case "forward": _reader.Compose(ComposeMode.Forward, id); break;
+            case "security": _ = _reader.OpenSecurityAsync(id); break;
             case "att": _ = _reader.OpenAttachmentAsync(id, (int)Num(root, "i")); break;
             case "retry": _reader.RetryLoad(); break;
             case "hmopen": Open(root.GetProperty("c").Clone()); break;

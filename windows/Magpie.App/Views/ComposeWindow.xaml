@@ -111,7 +111,14 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="From" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                    <ComboBox Grid.Row="0" Grid.Column="1" svc:Typography.Role="composeAddress" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" Margin="0,0,0,6" AutomationProperties.Name="Sender account" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,6">
+                        <ComboBox svc:Typography.Role="composeAddress" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" AutomationProperties.Name="Sender account" />
+                        <DockPanel Margin="0,5,0,0" Visibility="{Binding HasSenderAliases, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Send as" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="SenderIdentityPicker" ItemsSource="{Binding SenderChoices}" SelectedItem="{Binding SelectedSender, Mode=TwoWay}" DisplayMemberPath="Label"
+                                      AutomationProperties.Name="Send as identity" ToolTip="Use an alias already authorized by your provider. The account above still signs in and sends the message." />
+                        </DockPanel>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="1" Text="To" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
@@ -267,6 +274,7 @@
                                     <Button Style="{StaticResource Button.Ghost}" Content="Compress" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnCompressAttachment" IsEnabled="{Binding CanCompress}" ToolTip="Save a reduced-size picture as a new file and attach it" AutomationProperties.Name="Compress image attachment" />
                                     <Button Style="{StaticResource Button.Ghost}" Content="Open" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnOpenAttachment" ToolTip="Open this file with its usual app" />
                                     <Button Style="{StaticResource Button.Ghost}" Content="Rename" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnRenameAttachment" ToolTip="Change the filename the recipient sees, not the local file" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Cloud link" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnCloudAttach" IsEnabled="{Binding CanUploadCloud}" ToolTip="Upload a private copy, confirm named access, and replace this attachment with a link" AutomationProperties.Name="Upload attachment as cloud link" />
                                     <Button Style="{StaticResource Button.Icon}" Content="↑" Width="22" Height="22" MinHeight="22" Margin="3,0,0,0" ToolTip="Move attachment earlier"
                                             Command="{Binding DataContext.MoveAttachmentUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                     <Button Style="{StaticResource Button.Icon}" Content="↓" Width="22" Height="22" MinHeight="22" Margin="2,0,0,0" ToolTip="Move attachment later"
@@ -299,6 +307,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Style="{StaticResource Button.Ghost}" Content="Recent ▾" Margin="3,0,0,0" Click="OnAttachRecent" />
+                            <Button x:Name="CloudAttachButton" Style="{StaticResource Button.Ghost}" Content="Cloud link…" Margin="3,0,0,0" Click="OnCloudAttach" ToolTip="Upload and share a new Google Drive or OneDrive file with confirmed recipients" AutomationProperties.Name="Upload cloud file link" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Templates" Margin="8,0,0,0" Click="OnTemplates" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Signatures ▾" Margin="4,0,0,0" Click="OnSignatures" ToolTip="Choose a saved signature for this message" />
                             <Button Style="{StaticResource Button.Ghost}" Content="Save draft" Margin="2,0,0,0" Click="OnSaveDraft" />
@@ -396,6 +405,12 @@
                                     <Button DockPanel.Dock="Right" Style="{StaticResource Button.AiChip}" Content="Go" Margin="6,0,0,0" Command="{Binding RewriteCommand}" CommandParameter="Custom" />
                                     <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding CustomRewrite, UpdateSourceTrigger=PropertyChanged}" Tag="Or say how to change it…" MinHeight="30" />
                                 </DockPanel>
+                                <DockPanel Margin="0,8,0,0">
+                                    <Button x:Name="TranslateSelectionButton" DockPanel.Dock="Right" Style="{StaticResource Button.AiChip}" Content="Translate" Margin="6,0,0,0"
+                                            Command="{Binding RewriteCommand}" CommandParameter="Translate" ToolTip="Translate the selected text with your configured AI, then review before applying." />
+                                    <ComboBox x:Name="TranslationLanguagePicker" IsEditable="True" ItemsSource="{Binding TranslationLanguages}" Text="{Binding TranslationLanguage, UpdateSourceTrigger=PropertyChanged}"
+                                              AutomationProperties.Name="Translation target language" />
+                                </DockPanel>
                             </StackPanel>
 
                             <!-- Busy / error -->
@@ -445,6 +460,7 @@
                                     <StackPanel HorizontalAlignment="Center"><TextBlock Text="📎 Drop files here" TextAlignment="Center" FontWeight="SemiBold" /><TextBlock Text="Or use the Attach button" TextAlignment="Center" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" /></StackPanel>
                                 </Border>
                                 <Button Style="{StaticResource Button.Primary}" Content="Browse files…" Click="OnAttach" />
+                                <Button x:Name="StudioCloudAttachButton" Style="{StaticResource Button.Secondary}" Content="Upload &amp; share cloud link…" Click="OnCloudAttach" Margin="0,7,0,0" ToolTip="Choose Google Drive or OneDrive, a file, named people and their access before uploading" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Paste files or screenshot…" Click="OnPasteAttachments" Margin="0,7,0,0" ToolTip="Attach files copied from File Explorer, or save and attach a screenshot from the clipboard" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Remove all attachments" Click="OnClearAttachments" Margin="0,7,0,0" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Insert picture…" Click="OnInsertImage" Margin="0,7,0,0" />
@@ -459,6 +475,7 @@
                             </StackPanel>
                         </TabItem>
                         <TabItem Header="Options">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Margin="10">
                                 <TextBlock Text="Message priority" FontWeight="SemiBold" />
                                 <ComboBox SelectedValuePath="Content" SelectedValue="{Binding Priority, Mode=TwoWay}" Margin="0,6,0,14">
@@ -467,10 +484,20 @@
                                 <TextBlock Text="Reply-To (optional)" FontWeight="SemiBold" />
                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
                                 <CheckBox Content="Request read receipt" IsChecked="{Binding RequestReadReceipt, Mode=TwoWay}" />
+                                <CheckBox x:Name="RequestDeliveryReceiptCheck" Content="Request delivery notification" IsChecked="{Binding RequestDeliveryReceipt, Mode=TwoWay}" Margin="0,9,0,0" ToolTip="{Binding DeliveryReceiptHelp}" AutomationProperties.Name="Request delivery notification from the sending server" />
+                                <TextBlock Text="{Binding DeliveryReceiptHelp}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
                                 <CheckBox Content="Warn before sending outside my email domain" IsChecked="{Binding WarnExternalRecipients, Mode=TwoWay}" Margin="0,9,0,0" ToolTip="Optional for this compose session; useful for work or confidential emails" />
-                                <TextBlock Text="Receipts depend on recipients' mail apps and are not guaranteed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <TextBlock Text="Read receipts depend on recipients' mail apps and are not guaranteed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <TextBlock Text="Message security" FontWeight="SemiBold" Margin="0,18,0,6" />
+                                <ComboBox ItemsSource="{Binding SecurityFormats}" SelectedItem="{Binding SecurityFormat, Mode=TwoWay}" AutomationProperties.Name="Message security method" />
+                                <CheckBox Content="Sign message" IsChecked="{Binding SignMessage, Mode=TwoWay}" Margin="0,8,0,0" />
+                                <CheckBox Content="Encrypt message" IsChecked="{Binding EncryptMessage, Mode=TwoWay}" Margin="0,8,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Manage security keys…" Click="OnSecurityKeys" Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding SecurityNotice}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Send later…" Click="OnSendLater" Margin="0,14,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Provider-managed protection…" Click="OnProviderProtection" Margin="0,9,0,0" ToolTip="Check Gmail confidential mode or Outlook protection on the provider's website" />
                             </StackPanel>
+                            </ScrollViewer>
                         </TabItem>
                     </TabControl>
                 </DockPanel>

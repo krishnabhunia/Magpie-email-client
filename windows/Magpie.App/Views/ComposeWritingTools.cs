@@ -26,7 +26,7 @@ public partial class ComposeWindow
                 return;
             }
             var originalSubject = _vm.Subject;
-            var expanded = ComposeTemplates.Expand(template, _vm.From, _vm.To, originalSubject, DateTimeOffset.Now);
+            var expanded = ComposeTemplates.Expand(template, _vm.TemplateSender, _vm.To, originalSubject, DateTimeOffset.Now);
             var replaceSubject = false;
             if (expanded.WouldReplaceSubject(originalSubject))
             {

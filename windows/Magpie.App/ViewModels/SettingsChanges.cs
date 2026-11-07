@@ -80,7 +80,7 @@ public partial class SettingsViewModel
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Subject = t.Subject, Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Category = ComposeTemplates.CategoryName(t.Category), Subject = t.Subject, Body = t.Body }).ToList();
         c.Ai.Enabled = AiEnabled;
         c.Ai.Summarise = Summarise;
         c.Ai.Draft = Draft;
@@ -116,8 +116,9 @@ public partial class SettingsViewModel
         c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
         c.Updates.IncludePrerelease = IncludePrerelease;
         c.Rules = ProjectRules(new Dictionary<string, MailRule>(_savedRules));
-        c.Accounts = Accounts.Select(a => a.ToAccount()).ToList();
+        c.Accounts = Accounts.Select(a => a.ToAccount(tolerateIncomplete: true)).ToList();
         var keys = ApiKeyChanged || AiConnections.Any(x => x.KeyChanged) || _deletedAiConnections.Count > 0;
-        return JsonSerializer.Serialize(c, AppSettings.Json) + "|keys:" + keys + "|startup:" + StartWithWindows;
+        return JsonSerializer.Serialize(c, AppSettings.Json) + "|keys:" + keys + "|startup:" + StartWithWindows
+            + "|senderInputs:" + JsonSerializer.Serialize(Accounts.Select(a => a.SenderAliasesText));
     }
 }

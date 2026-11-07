@@ -82,7 +82,7 @@ public partial class ComposeViewModel
                 Status = "The subject changed. Review it and choose the template again.";
                 return false;
             }
-            var expanded = ComposeTemplates.Expand(template, From, To, originalSubject, DateTimeOffset.Now);
+            var expanded = ComposeTemplates.Expand(template, TemplateSender, To, originalSubject, DateTimeOffset.Now);
             if (!string.IsNullOrEmpty(expanded.Body)) await EditorCommand!("insert", expanded.Body);
             if (_closed || _queued) return false;
             // A user may change the subject while WebView2 is processing the body insertion: never overwrite that newer edit.

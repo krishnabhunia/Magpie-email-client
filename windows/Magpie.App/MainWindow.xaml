@@ -809,6 +809,8 @@
 
                             <!-- Scheduled (send later) list -->
                             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsScheduledView, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                <TextBlock Text="{Binding ScheduledHelp}" TextWrapping="Wrap" Margin="16,10,14,8" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                 <ItemsControl ItemsSource="{Binding Scheduled}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:ScheduledItem}">
@@ -839,6 +841,7 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                </StackPanel>
                             </ScrollViewer>
 
                             <TextBlock Text="{Binding EmptyText}" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"

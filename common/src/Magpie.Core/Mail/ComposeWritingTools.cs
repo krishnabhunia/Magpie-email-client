@@ -31,6 +31,12 @@ public sealed record ExpandedQuickTemplate(string Subject, string Body)
 
 public static class ComposeTemplates
 {
+    public static string CategoryName(string? name)
+    {
+        var clean = new string((name ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        return clean.Length > 48 ? clean[..48] : clean;
+    }
+
     /// <summary>Old templates have an empty subject and always remain body-only. Both fields insert as plain text.</summary>
     public static ExpandedQuickTemplate Expand(QuickTemplate template, Account? sender, string to, string currentSubject, DateTimeOffset now)
     {

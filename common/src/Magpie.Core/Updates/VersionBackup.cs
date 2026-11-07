@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magpie.Core.Settings;
+using Magpie.Core.Security;
 using Microsoft.Data.Sqlite;
 
 namespace Magpie.Core.Updates;
@@ -33,7 +34,7 @@ public static class VersionBackup
     private const string Metadata = "snapshot.json";
     private const string Pending = "version-restore-pending.json";
     private const string Journal = "version-restore-journal.json";
-    private static readonly string[] ProfileFiles = ["settings.json", "secrets.json", AppPaths.MailFolderFile, "version-pin.txt"];
+    private static readonly string[] ProfileFiles = ["settings.json", "secrets.json", SecureMailKeys.FileName, AppPaths.MailFolderFile, "version-pin.txt"];
     private static readonly object Gate = new();
 
     private sealed record PendingRestore(string SnapshotId, string Version, string InstallKind);

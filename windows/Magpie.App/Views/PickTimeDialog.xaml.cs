@@ -1,4 +1,5 @@
 using System.Windows;
+using Magpie.Core;
 
 namespace Magpie.App.Views;
 
@@ -12,6 +13,9 @@ public partial class PickTimeDialog : Window
         for (int h = 6; h <= 23; h++)
             foreach (var m in new[] { 0, 30 })
                 Time.Items.Add($"{h:00}:{m:00}");
+        Day.SelectedDateChanged += (_, _) => UpdateTimeZoneNote();
+        Time.SelectionChanged += (_, _) => UpdateTimeZoneNote();
+        UpdateTimeZoneNote();
     }
 
     public static DateTimeOffset? Ask(Window owner, string title, string explain, DateTime suggested)
@@ -28,16 +32,39 @@ public partial class PickTimeDialog : Window
 
     private void OnOk(object sender, RoutedEventArgs e)
     {
-        if (Day.SelectedDate is not { } day || Time.SelectedItem is not string t) return;
-        var parts = t.Split(':');
-        var local = day.Date.AddHours(int.Parse(parts[0])).AddMinutes(int.Parse(parts[1]));
-        if (local <= DateTime.Now.AddMinutes(1))
+        if (SelectedWallTime() is not { } local) return;
+        if (!ScheduleTime.TryResolve(local, TimeZoneInfo.Local, out var instant, out var error))
+        {
+            Error.Text = error;
+            Error.Visibility = Visibility.Visible;
+            return;
+        }
+        if (instant <= DateTimeOffset.Now.AddMinutes(1))
         {
             Error.Text = "Pick a time in the future.";
             Error.Visibility = Visibility.Visible;
             return;
         }
-        Result = new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local));
+        Result = instant;
         DialogResult = true;
+    }
+
+    private DateTime? SelectedWallTime()
+    {
+        if (Day.SelectedDate is not { } day || Time.SelectedItem is not string text
+            || !TimeSpan.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var time)) return null;
+        return DateTime.SpecifyKind(day.Date.Add(time), DateTimeKind.Unspecified);
+    }
+
+    private void UpdateTimeZoneNote()
+    {
+        Error.Visibility = Visibility.Collapsed;
+        if (SelectedWallTime() is not { } local)
+        {
+            TimeZoneNote.Text = ScheduleTime.ZoneLabel(DateTimeOffset.Now);
+            return;
+        }
+        TimeZoneNote.Text = ScheduleTime.TryResolve(local, TimeZoneInfo.Local, out var instant, out var error)
+            ? ScheduleTime.ZoneLabel(instant) : "Local time — " + TimeZoneInfo.Local.DisplayName + "\n" + error;
     }
 }

@@ -24,6 +24,8 @@ public sealed class RenderMessage
     public DeleteUrgency DeleteUrgency { get; init; }
     /// <summary>Shown when pointing at the note: the full date and the rule.</summary>
     public string DeleteTip { get; init; } = "";
+    /// <summary>Trusted local SMTP result for a message sent on this PC; never inferred from incoming headers.</summary>
+    public DeliveryReceiptResult? DeliveryReceipt { get; init; }
 }
 
 public sealed class RenderResult
@@ -82,14 +84,14 @@ public static class HtmlRenderer
     private static readonly Regex BgAttr = new(@"\sbackground\s*=\s*(""https?:[^""]*""|'https?:[^']*')", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Sanitises one email body and resolves/blocks images. Returns safe HTML for an iframe srcdoc.</summary>
-    public static (string html, int blocked) SanitizeBody(string html, IReadOnlyDictionary<string, string> inlineImages, bool allowRemote)
+    public static (string html, int blocked) SanitizeBody(string html, IReadOnlyDictionary<string, string> inlineImages, bool allowRemote, bool logFailure = true)
     {
         if (string.IsNullOrWhiteSpace(html)) return ("", 0);
         string clean;
         try { clean = Sanitizer.Sanitize(Unwanted.Replace(html, "")); }
         catch (Exception ex)
         {
-            Log.Warn("sanitizer failed, falling back to text: " + ex.Message);
+            if (logFailure) Log.Warn("sanitizer failed, falling back to text: " + ex.Message);
             clean = MimeText.TextToHtml(MimeText.HtmlToText(html));
         }
 
@@ -204,6 +206,7 @@ public static class HtmlRenderer
             .acts button:hover{background:var(--bg)}
             .body{display:none;padding:0 0 16px 44px}
             .msg.open .body{display:block}
+            .delivery-receipt{font-size:12px;color:var(--muted);padding:8px 10px;margin:0 0 10px;border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere}
             .msg.open .snip{display:none}
             .msg:not(.open) .to{display:none}
             iframe{width:100%;border:0;display:block;min-height:40px}
@@ -342,8 +345,11 @@ public static class HtmlRenderer
             sb.Append($"<button onclick=\"post({{t:'reply',id:{row.Id}}})\">Reply</button>");
             sb.Append($"<button onclick=\"post({{t:'replyall',id:{row.Id}}})\">Reply all</button>");
             sb.Append($"<button onclick=\"post({{t:'forward',id:{row.Id}}})\">Forward</button>");
+            sb.Append($"<button onclick=\"post({{t:'security',id:{row.Id}}})\" title=\"Verify signatures or decrypt in an isolated reader\">Security…</button>");
             sb.Append("</div></div>");
             sb.Append("<div class=\"body\">");
+            if (m.DeliveryReceipt is { } receipt)
+                sb.Append($"<div class=\"delivery-receipt\" role=\"note\">{Esc(receipt.Detail)}</div>");
             if (m.LoadError != null)
                 sb.Append("<div class=\"retry\"><button onclick=\"post({t:'retry'})\">Try again</button></div>");
             if (paper) sb.Append("<div class=\"paper\">");

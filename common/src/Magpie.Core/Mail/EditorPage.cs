@@ -66,6 +66,7 @@ let selectedTableCell = null;
 let isPlainText = false;
 let signatureBoundariesLost = false;
 let quoteFoldingSupported = false;
+let cloudLinkTarget = null;
 let rewrite = null;
 let typography = null;
 let contextualLink=null,linkEditTarget=null,formattingTarget=null,dismissedLink=null,linkBubbleEnabled=false;
@@ -150,6 +151,7 @@ function setHtml(h){
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
   selectedImage=null;selectedTableCell=null;saved=null;
   clipboardPictureTarget=null;
+  cloudLinkTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;
   emojiTarget=null;
   isPlainText=false;signatureBoundariesLost=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
@@ -214,6 +216,7 @@ function setEditorSpellcheck(enabled){
 function setEditorPlainText(enabled,notify){
   const next=!!enabled;
   if(next===isPlainText) return true;
+  cloudLinkTarget=null;
   clipboardPictureTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;
   emojiTarget=null;
@@ -248,6 +251,26 @@ function toggleQuoteFold(){
   ed.classList.toggle('quote-folded');return ed.classList.contains('quote-folded');
 }
 function validEditorRange(range){ return !!range && ed.contains(range.startContainer) && ed.contains(range.endContainer); }
+function captureCloudLink(){
+  cloudLinkTarget=null;
+  if(!validEditorRange(saved))return false;
+  const range=saved.cloneRange();range.collapse(false);
+  cloudLinkTarget={range:range,html:ed.innerHTML,plain:isPlainText};return true;
+}
+function cancelCloudLink(){cloudLinkTarget=null;}
+function insertCloudLink(url,label){
+  const target=cloudLinkTarget;cloudLinkTarget=null;
+  if(!target||target.html!==ed.innerHTML||target.plain!==isPlainText||!validEditorRange(target.range))return false;
+  let parsed;try{parsed=new URL(url);}catch{return false;}
+  if(parsed.protocol!=='https:'||parsed.username||parsed.password||typeof label!=='string'||!label.length)return false;
+  const node=document.createElement('a');node.href=url;node.textContent=label;
+  ed.focus();selectEditorRange(target.range);
+  // Browser edit commands retain native undo/redo; assigning innerHTML or using insertNode would bypass it.
+  const changed=document.execCommand(isPlainText?'insertText':'insertHTML',false,isPlainText?label+': '+url:node.outerHTML);
+  const selection=window.getSelection();
+  if(changed&&selection.rangeCount)saved=selection.getRangeAt(0).cloneRange();
+  if(changed)post({t:'dirty'});return changed;
+}
 function restore(){ if(validEditorRange(saved)){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); return true; } return false; }
 function fmt(c, v){
   if(isPlainText && !['undo','redo','insertText'].includes(c)) return false;
@@ -701,18 +724,38 @@ function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }
 function insertBody(text, replace){
-  const stop=ed.querySelector('.magpie-signature, .magpie-quote'),r=document.createRange();
-  if(replace){
-    r.setStart(ed,0);if(stop) r.setEndBefore(stop);else r.setEnd(ed,ed.childNodes.length);
-    r.deleteContents();r.collapse(true);
+  // Prepare the complete next document offscreen. One native edit supplies Undo/Redo,
+  // while inserting at the whole-document boundary prevents a new paragraph merging into the signature.
+  const next=ed.cloneNode(true),stop=next.querySelector('.magpie-signature, .magpie-quote'),r=document.createRange();
+  const protectedState=Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).map(function(root){
+    return [root].concat(Array.from(root.querySelectorAll('*'))).map(function(node){return protectedFonts.get(node);});
+  });
+  let insertion;
+  if(isPlainText){
+    const current=ed.innerText;
+    insertion=replace?text:current+(current.length?'\n\n':'')+text;
   }else{
-    if(stop) r.setStartBefore(stop);else r.setStart(ed,ed.childNodes.length);r.collapse(true);
+    if(replace){r.setStart(next,0);if(stop)r.setEndBefore(stop);else r.setEnd(next,next.childNodes.length);r.deleteContents();r.collapse(true);}
+    else{if(stop)r.setStartBefore(stop);else r.setStart(next,next.childNodes.length);r.collapse(true);}
+    r.insertNode(r.createContextualFragment(toHtml(text)));
+    insertion=next.innerHTML;
   }
-  const fragment=r.createContextualFragment(toHtml(text)),last=fragment.lastChild;
-  // execCommand can merge a paragraph into the signature at this boundary. Insert the fragment exactly here.
-  r.insertNode(fragment);
-  if(last) r.setStartAfter(last);r.collapse(true);
-  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(r);saved=r.cloneRange();ed.focus();
+  const whole=document.createRange();whole.selectNodeContents(ed);
+  ed.focus();const selection=window.getSelection();selection.removeAllRanges();selection.addRange(whole);
+  if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion))return false;
+  // The replacement nodes retain the original typography-reset records; Undo restores the old nodes,
+  // whose records also remain in the WeakMap, and Redo reuses the replacement nodes.
+  Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).forEach(function(root,index){
+    [root].concat(Array.from(root.querySelectorAll('*'))).forEach(function(node,child){
+      const original=protectedState[index]?.[child];if(original)protectedFonts.set(node,original);
+    });
+  });
+  rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;selectedImage=null;selectedTableCell=null;
+  clipboardPictureTarget=null;hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;emojiTarget=null;
+  const caret=document.createRange(),tail=ed.querySelector('.magpie-signature,.magpie-quote');
+  if(tail)caret.setStartBefore(tail);else{caret.selectNodeContents(ed);caret.collapse(false);}caret.collapse(true);
+  selection.removeAllRanges();selection.addRange(caret);saved=caret.cloneRange();
+  return true;
 }
 function cmd(mode, text){
   if(mode==='replyDraft'){
@@ -740,10 +783,10 @@ function cmd(mode, text){
     if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion)) return false;
   }
   else if (mode === 'replaceBody') {
-    insertBody(text,true);
+    if(!insertBody(text,true))return false;
   }
   else if(mode === 'appendBody') {
-    insertBody(text,false);
+    if(!insertBody(text,false))return false;
   }
   post({t:'dirty'});
   return true;

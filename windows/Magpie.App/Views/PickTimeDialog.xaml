@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterOwner" Title="Pick a time">
     <StackPanel Margin="22,18,22,18">
         <TextBlock x:Name="Heading" Style="{StaticResource Text.Serif}" FontSize="17" />
-        <TextBlock x:Name="Explain" Style="{StaticResource Text.Caption}" Margin="0,6,0,14" />
+        <TextBlock x:Name="Explain" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,14" />
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -15,6 +15,8 @@
             <DatePicker x:Name="Day" SelectedDateFormat="Long" />
             <ComboBox x:Name="Time" Grid.Column="2" />
         </Grid>
+        <TextBlock x:Name="TimeZoneNote" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                   AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
         <TextBlock x:Name="Error" Foreground="{DynamicResource Brush.Danger}" FontSize="12" Margin="0,8,0,0" Visibility="Collapsed" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button Style="{StaticResource Button.Secondary}" Content="Cancel" IsCancel="True" Margin="0,0,8,0" />

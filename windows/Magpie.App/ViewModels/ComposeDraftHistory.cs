@@ -133,6 +133,8 @@ public partial class ComposeViewModel
 
     private void ApplyRevisionContent(Draft revision)
     {
+        RefreshSenderIdentities(revision.SenderAddress);
+        _draft.SenderAddress = revision.SenderAddress;
         To = revision.To;
         Cc = revision.Cc;
         Bcc = revision.Bcc;
@@ -140,6 +142,8 @@ public partial class ComposeViewModel
         ReplyTo = revision.ReplyTo;
         Priority = revision.Priority;
         RequestReadReceipt = revision.RequestReadReceipt;
+        RequestDeliveryReceipt = revision.RequestDeliveryReceipt;
+        RestoreSecurity(revision.Security);
         ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
         _draft.To = To;
         _draft.Cc = Cc;
@@ -148,6 +152,7 @@ public partial class ComposeViewModel
         _draft.ReplyTo = ReplyTo;
         _draft.Priority = Priority;
         _draft.RequestReadReceipt = RequestReadReceipt;
+        _draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
         _draft.Html = revision.Html;
         _draft.IsPlainText = revision.IsPlainText;
         _draft.ComposeStyle = revision.ComposeStyle;

@@ -406,6 +406,7 @@
                                             </DockPanel>
                                         </Expander.Header>
                                         <StackPanel Margin="16,0,16,16">
+                                            <Button Style="{StaticResource Button.Secondary}" Content="Message security keys…" Click="OnSecurityKeys" HorizontalAlignment="Left" Margin="0,0,0,10" />
                                             <TextBlock Text="{Binding Servers}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                             <Grid Margin="0,14,0,0">
                                                 <Grid.ColumnDefinitions>
@@ -428,6 +429,7 @@
                                                     <ColumnDefinition Width="*" />
                                                 </Grid.ColumnDefinitions>
                                                 <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
@@ -480,6 +482,15 @@
                                                             Visibility="{Binding IsImap, Converter={StaticResource BoolToVis}}">
                                                     <TextBox Style="{StaticResource TextBox.Field}" Width="70" Text="{Binding MaxOutgoingMessageMb, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Outgoing message limit in megabytes" />
                                                     <TextBlock Text="MB (1–100, estimated)" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Row="7" Text="Sender aliases" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,12,0,0" />
+                                                <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,12,0,0">
+                                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding SenderAliasesText, UpdateSourceTrigger=PropertyChanged}"
+                                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="58" MaxLength="10000" AutomationProperties.Name="Sender aliases" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,0"
+                                                               Text="One address per line, optionally Name &lt;address@example.com&gt;. Use only aliases already authorized by your provider; adding one here does not create it on the server. Select it under Send as when composing." />
+                                                    <TextBlock Text="{Binding SenderAliasesError}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Danger}"
+                                                               Visibility="{Binding SenderAliasesError, Converter={StaticResource BoolToVis}}" />
                                                 </StackPanel>
                                             </Grid>
                                         </StackPanel>
@@ -1181,6 +1192,8 @@
                                             <StackPanel Margin="16,0,16,16">
                                                 <TextBlock Text="Name" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,0,8" />
+                                                <TextBlock Text="Category (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Category, UpdateSourceTrigger=PropertyChanged}" MaxLength="48" Margin="0,0,0,8" AutomationProperties.Name="Template category" />
                                                 <TextBlock Text="Subject (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Template subject" />
                                                 <TextBlock Text="Message text" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />

@@ -68,6 +68,8 @@ internal static partial class Program
                 return WaitEditorAsync(view.CoreWebView2.ExecuteScriptAsync(script), "script " + ++scriptNumber, State);
             }
             await CheckPlainFallbackWhitespaceAsync();
+            await CheckPlainFallbackAiUndoAsync();
+            await CheckAiApplyUndoAsync(Script);
             await CheckEditorFindProgressionAsync(Script);
             await CheckWindowsQuoteFoldingAsync(Script);
             await CheckPlainEditorWhitespaceRoundTripAsync(Script);
@@ -214,6 +216,7 @@ internal static partial class Program
             await CheckSignatureModesAsync(Script);
             await CheckClipboardEditorAsync(Script);
             await CheckInlineImageEditorAsync(Script);
+            await CheckCloudLinkEditorAsync(Script);
             await CheckEditorWritingToolsAsync(Script);
             // Execute the actual Mac page in the browser too; host capabilities must start disabled.
             ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

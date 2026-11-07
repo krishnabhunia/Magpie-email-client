@@ -69,7 +69,11 @@ internal static partial class Program
                 await CheckComposeWritingToolsAsync(engine, theme);
                 await CheckComposeBusyCloseAsync(theme);
                 await CheckInlineImageInsertionAsync(root, engine, theme);
+                await CheckCloudComposeAsync(root, engine, theme);
                 await CheckComposeReviewCorrectionsAsync(engine, theme);
+                await CheckComposeRemainingFeaturesAsync(engine, theme);
+                await CheckDeliveryReceiptOptionsAsync(engine, theme);
+                CheckScheduleClarity(theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
@@ -99,6 +103,7 @@ internal static partial class Program
             await CheckComposeMessageSizeAsync(root, engine);
             await CheckEditorPageAsync(root);
             await CheckOfficePreviewAsync(root);
+            await CheckSecureMailAsync(root, engine);
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();
