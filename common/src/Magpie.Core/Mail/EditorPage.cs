@@ -731,37 +731,55 @@ function toHtml(t){ return t.replace(/\r\n/g,'\n').split(/\n{2,}/).map(function(
 function inlineHtml(t){ return esc(t).replace(/\r?\n/g,'<br>'); }
 function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n; }
 function insertBody(text, replace){
-  // Prepare the complete next document offscreen. One native edit supplies Undo/Redo,
-  // while inserting at the whole-document boundary prevents a new paragraph merging into the signature.
-  const next=ed.cloneNode(true),stop=next.querySelector('.magpie-signature, .magpie-quote'),r=document.createRange();
-  const protectedState=Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).map(function(root){
-    return [root].concat(Array.from(root.querySelectorAll('*'))).map(function(node){return protectedFonts.get(node);});
-  });
-  let insertion;
-  if(isPlainText){
-    const current=ed.innerText;
-    insertion=replace?text:current+(current.length?'\n\n':'')+text;
-  }else{
-    if(replace){r.setStart(next,0);if(stop)r.setEndBefore(stop);else r.setEnd(next,next.childNodes.length);r.deleteContents();r.collapse(true);}
-    else{if(stop)r.setStartBefore(stop);else r.setStart(next,next.childNodes.length);r.collapse(true);}
-    r.insertNode(r.createContextualFragment(toHtml(text)));
-    insertion=next.innerHTML;
+  // Only generated body text passes through the browser's paste normalizer. The live signature,
+  // quote and existing append-body nodes keep their markup, identity and typography-reset records.
+  const guards=[],selection=window.getSelection();let changed=false,caret=null;
+  function guard(node){
+    if(node.nodeType!==Node.ELEMENT_NODE || guards.some(function(entry){return entry[0]===node;}))return;
+    guards.push([node,node.getAttribute('contenteditable')]);node.setAttribute('contenteditable','false');
   }
-  const whole=document.createRange();whole.selectNodeContents(ed);
-  ed.focus();const selection=window.getSelection();selection.removeAllRanges();selection.addRange(whole);
-  if(!document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion))return false;
-  // The replacement nodes retain the original typography-reset records; Undo restores the old nodes,
-  // whose records also remain in the WeakMap, and Redo reuses the replacement nodes.
-  Array.from(ed.querySelectorAll('.magpie-signature,.magpie-quote')).forEach(function(root,index){
-    [root].concat(Array.from(root.querySelectorAll('*'))).forEach(function(node,child){
-      const original=protectedState[index]?.[child];if(original)protectedFonts.set(node,original);
-    });
-  });
+  try{
+    const range=document.createRange();let insertion;
+    if(isPlainText){
+      const current=ed.innerText;
+      insertion=replace?text:current+(current.length?'\n\n':'')+text;
+      range.selectNodeContents(ed);
+    }else{
+      const stop=ed.querySelector('.magpie-signature,.magpie-quote');
+      ed.querySelectorAll('.magpie-signature,.magpie-quote').forEach(guard);
+      let preceding=null;
+      if(!replace){
+        // Guard untouched preceding subtrees, including siblings outside a nested quote's wrapper.
+        // Never guard an ancestor of the insertion point or move nodes outside the native edit.
+        let branch=stop,parent=stop?stop.parentNode:ed;
+        while(parent){
+          for(let node=branch?branch.previousSibling:parent.lastChild;node;node=node.previousSibling){
+            if(!preceding&&(node.nodeType===Node.ELEMENT_NODE || (node.nodeType===Node.TEXT_NODE&&node.textContent.trim())))preceding=node;
+            guard(node);
+          }
+          if(parent===ed)break;
+          branch=parent;parent=parent.parentNode;
+        }
+      }
+      if(replace){range.setStart(ed,0);if(stop)range.setEndBefore(stop);else range.setEnd(ed,ed.childNodes.length);}
+      else{if(stop)range.setStartBefore(stop);else range.setStart(ed,ed.childNodes.length);range.collapse(true);}
+      // Blink/WebKit consume this marker and create any needed raw-text paragraph break inside
+      // the same undoable edit, without a persistent marker or a wrapper outside native history.
+      insertion=(!replace&&preceding?.nodeType===Node.TEXT_NODE?'<br class="Apple-interchange-newline">':'')+toHtml(text);
+    }
+    ed.focus();selection.removeAllRanges();selection.addRange(range);
+    changed=document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion);
+    if(changed&&selection.rangeCount)caret=selection.getRangeAt(0).cloneRange();
+  }finally{
+    guards.forEach(function(entry){if(entry[1]===null)entry[0].removeAttribute('contenteditable');else entry[0].setAttribute('contenteditable',entry[1]);});
+  }
+  if(!changed)return false;
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;selectedImage=null;selectedTableCell=null;
-  clipboardPictureTarget=null;hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;emojiTarget=null;
-  const caret=document.createRange(),tail=ed.querySelector('.magpie-signature,.magpie-quote');
-  if(tail)caret.setStartBefore(tail);else{caret.selectNodeContents(ed);caret.collapse(false);}caret.collapse(true);
-  selection.removeAllRanges();selection.addRange(caret);saved=caret.cloneRange();
+  clipboardPictureTarget=null;cloudLinkTarget=null;hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;emojiTarget=null;
+  // Keep the native caret inside the generated body; the boundary before an editable signature
+  // can otherwise canonicalize into that signature when the user types next.
+  saved=null;
+  if(caret&&validEditorRange(caret)){caret.collapse(false);selection.removeAllRanges();selection.addRange(caret);saved=caret.cloneRange();}
   return true;
 }
 function cmd(mode, text){

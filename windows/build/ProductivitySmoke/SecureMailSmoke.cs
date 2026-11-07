@@ -81,8 +81,18 @@ internal static partial class Program
                 finally { manager.Close(); }
             }
 
-            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(root, "secure-reader-profile"))
-                .WaitAsync(TimeSpan.FromSeconds(45));
+            Console.WriteLine("SECURE_READER_SMOKE phase=environment creation");
+            CoreWebView2Environment environment;
+            try
+            {
+                environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(root, "secure-reader-profile"))
+                    .WaitAsync(TimeSpan.FromSeconds(45));
+            }
+            catch (Exception ex)
+            {
+                // Do not include exception messages, paths, document contents or key material in diagnostics.
+                throw new InvalidOperationException($"Secure reader environment creation failed; error={ex.GetType().FullName}; hresult=0x{ex.HResult:X8}");
+            }
             var source = Composer.Build(new Draft { AccountId = account.Id, To = account.Email, Subject = "Secure viewer", Html =
                 "<h2 id=\"secure-content\">Private readable fixture</h2><script>window.secretScript=true;</script><img src=\"https://remote.invalid/secret\"><a href=\"https://remote.invalid/link\">External</a>" }, account);
             var outgoing = engine.SecureMail.PrepareOutgoing(source, account, new() { Sign = true, Encrypt = true }, DateTimeOffset.UtcNow);
@@ -95,25 +105,80 @@ internal static partial class Program
             var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             ulong documentNavigation = 0;
             var forbiddenRequests = 0;
+            var phase = "window created";
+            var initialization = "not requested";
+            var navigation = "not requested";
+            var errorType = "none";
+            var errorHResult = "none";
+            var processFailure = "none";
+            string State() => $"phase={phase}; initialization={initialization}; error={errorType}; hresult={errorHResult}; "
+                + $"loaded={web.IsLoaded}; visible={web.IsVisible}; formattedEnabled={((TabItem)readerTabs.Items[0]).IsEnabled}; "
+                + $"plainSelected={((TabItem)readerTabs.Items[1]).IsSelected}; "
+                + $"plainVisible={((TextBox)((TabItem)readerTabs.Items[1]).Content).IsVisible}; "
+                + $"navigation={navigation}; processFailure={processFailure}";
+            void RecordError(Exception? error)
+            {
+                errorType = error?.GetType().FullName ?? "not provided";
+                errorHResult = error == null ? "not provided" : $"0x{error.HResult:X8}";
+            }
+            async Task<T> WaitSecureReaderAsync<T>(Task<T> operation, string nextPhase, int seconds)
+            {
+                phase = nextPhase;
+                Console.WriteLine("SECURE_READER_SMOKE " + State());
+                try { return await operation.WaitAsync(TimeSpan.FromSeconds(seconds)); }
+                catch (TimeoutException ex)
+                {
+                    RecordError(ex);
+                    throw new TimeoutException("Secure reader timed out; " + State());
+                }
+            }
+            reader.Loaded += (_, _) =>
+            {
+                if (initialization == "not requested") initialization = "pending";
+                Console.WriteLine("SECURE_READER_SMOKE " + State());
+            };
             web.CoreWebView2InitializationCompleted += (_, e) =>
             {
-                if (!e.IsSuccess) { ready.TrySetException(e.InitializationException ?? new InvalidOperationException("Secure reader initialization failed")); return; }
-                web.CoreWebView2.NavigationStarting += (_, navigation) => { if (navigation.Uri == SecureMessageWindow.DocumentUri) documentNavigation = navigation.NavigationId; };
-                web.CoreWebView2.NavigationCompleted += (_, navigation) =>
+                initialization = e.IsSuccess ? "succeeded" : "failed";
+                if (!e.IsSuccess)
                 {
-                    if (navigation.NavigationId != documentNavigation || documentNavigation == 0) return;
-                    if (navigation.IsSuccess) ready.TrySetResult(true);
-                    else ready.TrySetException(new InvalidOperationException("Secure document navigation failed: " + navigation.WebErrorStatus));
+                    RecordError(e.InitializationException);
+                    ready.TrySetException(new InvalidOperationException("Secure reader initialization failed; " + State()));
+                    return;
+                }
+                Console.WriteLine("SECURE_READER_SMOKE " + State());
+                web.CoreWebView2.ProcessFailed += (_, failure) =>
+                {
+                    processFailure = failure.ProcessFailedKind.ToString();
+                    Console.Error.WriteLine("SECURE_READER_SMOKE " + State());
+                    ready.TrySetException(new InvalidOperationException("Secure reader process failed; " + State()));
+                };
+                web.CoreWebView2.NavigationStarting += (_, starting) =>
+                {
+                    var document = starting.Uri == SecureMessageWindow.DocumentUri;
+                    if (document) documentNavigation = starting.NavigationId;
+                    navigation = $"starting id={starting.NavigationId}; target={(document ? "memory document" : "other")}";
+                };
+                web.CoreWebView2.NavigationCompleted += (_, completed) =>
+                {
+                    var document = completed.NavigationId == documentNavigation && documentNavigation != 0;
+                    navigation = $"completed id={completed.NavigationId}; target={(document ? "memory document" : "other")}; "
+                        + $"success={completed.IsSuccess}; status={completed.WebErrorStatus}";
+                    Console.WriteLine("SECURE_READER_SMOKE " + State());
+                    if (!document) return;
+                    if (completed.IsSuccess) ready.TrySetResult(true);
+                    else ready.TrySetException(new InvalidOperationException("Secure document navigation failed; " + State()));
                 };
                 web.CoreWebView2.WebResourceResponseReceived += (_, response) =>
                 { if (response.Request.Uri.StartsWith("https://remote.invalid/", StringComparison.Ordinal) && response.Response.StatusCode != 403) forbiddenRequests++; };
             };
-            reader.Show();
             try
             {
-                await ready.Task.WaitAsync(TimeSpan.FromSeconds(45));
+                phase = "show window";
+                reader.Show();
+                await WaitSecureReaderAsync(ready.Task, "memory document readiness", 45);
                 var core = web.CoreWebView2;
-                Task<string> Script(string script) => core.ExecuteScriptAsync(script).WaitAsync(TimeSpan.FromSeconds(20));
+                Task<string> Script(string script) => WaitSecureReaderAsync(core.ExecuteScriptAsync(script), "document assertion", 20);
                 Assert(core.Profile.IsInPrivateModeEnabled, "Decrypted message uses an InPrivate browser profile");
                 Assert(!core.Settings.IsScriptEnabled && !core.Settings.IsWebMessageEnabled && !core.Settings.AreHostObjectsAllowed
                     && !core.Settings.AreDevToolsEnabled && !core.Settings.AreDefaultContextMenusEnabled,
@@ -134,7 +199,8 @@ internal static partial class Program
                     try
                     {
                         core.Navigate(uri);
-                        Assert(await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(20)) && await completed.Task.WaitAsync(TimeSpan.FromSeconds(20)),
+                        Assert(await WaitSecureReaderAsync(cancelled.Task, "blocked navigation start", 20)
+                            && await WaitSecureReaderAsync(completed.Task, "blocked navigation completion", 20),
                             "Secure reader rejects navigation outside its memory document");
                     }
                     finally { core.NavigationStarting -= onNavigation; core.NavigationCompleted -= onCompleted; }
