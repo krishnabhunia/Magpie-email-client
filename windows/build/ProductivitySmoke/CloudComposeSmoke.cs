@@ -243,29 +243,41 @@ internal static partial class Program
             })()
             """;
         static string Bounded(string value) => value.Length <= 7000 ? value : value[..7000] + " [truncated]";
+        // Chromium may preserve this one existing post-anchor separator as NBSP during paste.
+        // Accept only those two complete strings: the filename and every other character stay exact.
+        var textMatches = "(ed.textContent===" + JsonSerializer.Serialize("Selected" + label + " surrounding text")
+            + "||ed.textContent===" + JsonSerializer.Serialize("Selected" + label + "\u00a0surrounding text") + ")";
+        var richPredicate = "ed.querySelector('a')?.href===" + JsonSerializer.Serialize(url)
+            + "&&ed.querySelector('a')?.textContent===" + JsonSerializer.Serialize(label)
+            + "&&" + textMatches + "&&ed.querySelector('em')?.textContent==='text'&&ed.querySelector('q4')===null";
         await script("setEditorPlainText(false,false);setHtml('<p><b>Selected</b> surrounding <em>text</em></p>');findInEditor('Selected',true)");
+        var originalHtml = await script("ed.innerHTML");
         Assert(await script("captureCloudLink()") == "true", "Cloud upload captures the rich-editor insertion position");
         var captured = await script(snapshot);
         await script("window.getSelection().removeAllRanges()");
         var beforeInsert = await script(snapshot);
         var inserted = await script("insertCloudLink(" + JsonSerializer.Serialize(url) + "," + JsonSerializer.Serialize(label) + ")");
         var afterInsert = await script(snapshot);
+        var insertedHtml = await script("ed.innerHTML");
         var contentChecks = await script("({href:ed.querySelector('a')?.href===" + JsonSerializer.Serialize(url)
             + ",label:ed.querySelector('a')?.textContent===" + JsonSerializer.Serialize(label)
-            + ",text:ed.textContent===" + JsonSerializer.Serialize("Selected" + label + " surrounding text")
+            + ",text:" + textMatches
             + ",emphasis:ed.querySelector('em')?.textContent==='text',literal:ed.querySelector('q4')===null})");
-        var richContent = inserted == "true" ? await script("ed.querySelector('a').href===" + JsonSerializer.Serialize(url)
-                + "&&ed.querySelector('a').textContent===" + JsonSerializer.Serialize(label)
-                + "&&ed.textContent===" + JsonSerializer.Serialize("Selected" + label + " surrounding text")
-                + "&&ed.querySelector('em').textContent==='text'&&ed.querySelector('q4')===null") : "not-run";
+        var richContent = inserted == "true" ? await script(richPredicate) : "not-run";
         var diagnostic = "\nInserted: " + inserted + "; strict content predicate: " + richContent + "; checks: " + contentChecks
             + "\nCaptured: " + Bounded(captured) + "\nBefore insertion: " + Bounded(beforeInsert) + "\nAfter insertion: " + Bounded(afterInsert);
-        Console.WriteLine("CLOUD_EDITOR_RICH_DIAGNOSTIC" + diagnostic);
         Assert(inserted == "true" && richContent == "true",
             "Cloud link preserves selected/surrounding rich content and treats the filename as literal text" + diagnostic);
-        Assert(await script("fmt('undo')&&ed.querySelector('a')===null&&ed.textContent==='Selected surrounding text'") == "true"
-            && await script("fmt('redo')&&ed.querySelector('a').href===" + JsonSerializer.Serialize(url)) == "true",
-            "Cloud link insertion participates in the real editor's undo and redo history");
+        var undo = await script("fmt('undo')");
+        var undoneHtml = await script("ed.innerHTML");
+        Assert(undo == "true" && undoneHtml == originalHtml,
+            "Cloud-link Undo restores the exact original rich HTML, including the original separator"
+            + "\nExpected: " + Bounded(originalHtml) + "\nActual: " + Bounded(undoneHtml));
+        var redo = await script("fmt('redo')");
+        var redoneHtml = await script("ed.innerHTML");
+        Assert(redo == "true" && redoneHtml == insertedHtml && await script(richPredicate) == "true",
+            "Cloud-link Redo restores the exact accepted rich HTML and literal filename"
+            + "\nExpected: " + Bounded(insertedHtml) + "\nActual: " + Bounded(redoneHtml));
         await script("captureCloudLink();ed.appendChild(document.createTextNode(' changed'))");
         Assert(await script("insertCloudLink('" + url + "','new.txt')") == "false",
             "A cloud upload cannot insert into an edited rich-body snapshot");
