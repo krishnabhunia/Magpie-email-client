@@ -68,8 +68,13 @@ internal static partial class Program
                 return WaitEditorAsync(view.CoreWebView2.ExecuteScriptAsync(script), "script " + ++scriptNumber, State);
             }
             await CheckPlainFallbackWhitespaceAsync();
-            await CheckPlainFallbackAiUndoAsync();
-            await CheckAiApplyUndoAsync(Script);
+            // The two new AI paths use independent editors; report both failures in the same native run.
+            var aiFailures = new List<Exception>();
+            try { await CheckPlainFallbackAiUndoAsync(); }
+            catch (Exception ex) { aiFailures.Add(new InvalidOperationException("Plain fallback AI Undo smoke failed", ex)); }
+            try { await CheckAiApplyUndoAsync(Script); }
+            catch (Exception ex) { aiFailures.Add(new InvalidOperationException("WebView2 AI Undo smoke failed", ex)); }
+            if (aiFailures.Count > 0) throw new AggregateException("Native AI Undo smoke failed", aiFailures);
             await CheckEditorFindProgressionAsync(Script);
             await CheckWindowsQuoteFoldingAsync(Script);
             await CheckPlainEditorWhitespaceRoundTripAsync(Script);

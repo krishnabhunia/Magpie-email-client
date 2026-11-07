@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -74,25 +75,41 @@ internal static partial class Program
             {
                 RecipientInvoke(window, "UsePlainEditor");
                 var editor = (TextBox)window.FindName("PlainEditor");
+                // WPF clears undo records until the real TextBox template attaches its TextView.
+                // Realize only this fallback control: showing ComposeWindow would initialize WebView2.
+                editor.ApplyTemplate();
+                editor.Measure(new Size(620, 240));
+                editor.Arrange(new Rect(0, 0, 620, 240));
+                editor.UpdateLayout();
+                var contentHost = editor.Template?.FindName("PART_ContentHost", editor);
+                var renderScope = (contentHost as ScrollViewer)?.Content ?? (contentHost as Decorator)?.Child;
+                Assert(renderScope is UIElement, "Fallback fixture realizes the actual TextBox render scope before recording edits"
+                    + PlainFallbackUndoState(editor, ("Initial", editor.Text)));
                 var initial = editor.Text;
                 editor.Select(0, 0);
                 editor.SelectedText = "Earlier typed text. ";
                 var before = editor.Text;
+                Assert(before != initial && editor.CanUndo,
+                    "Earlier typing creates a real native undo entry before applying AI"
+                    + PlainFallbackUndoState(editor, ("Initial", initial), ("Before AI", before)));
                 var expected = (string)RecipientInvoke(window, "PlainNewText")!;
                 var tail = (string)typeof(ComposeWindow).GetField("_plainProtectedTail", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
                 var command = reply ? "replyDraft" : mode;
                 var value = reply ? JsonSerializer.Serialize(new { text = "Generated answer.", expectedNewText = expected, mode }) : "Generated answer.";
                 await (Task)RecipientInvoke(window, "EditorCommandAsync", command, value)!;
                 var after = editor.Text;
+                string State() => "\nCommand=" + command + "; mode=" + mode
+                    + "; changed=" + (after != before) + "; exactTail=" + after.EndsWith(tail, StringComparison.Ordinal)
+                    + PlainFallbackUndoState(editor, ("Initial", initial), ("Before AI", before), ("After AI", after), ("Protected tail", tail), ("Current", editor.Text));
                 Assert(after != before && after.EndsWith(tail, StringComparison.Ordinal) && editor.CanUndo,
-                    "Native fallback AI " + command + " changes only the new body and creates a real undo entry");
+                    "Native fallback AI " + command + " changes only the new body and creates a real undo entry" + State());
                 RecipientInvoke(window, "OnFormat", new Button { Tag = "undo" }, new RoutedEventArgs());
-                Assert(editor.Text == before && editor.CanRedo, "Fallback toolbar Undo restores the exact pre-AI text and protected tail");
+                Assert(editor.Text == before && editor.CanRedo, "Fallback toolbar Undo restores the exact pre-AI text and protected tail" + State());
                 RecipientInvoke(window, "OnFormat", new Button { Tag = "redo" }, new RoutedEventArgs());
-                Assert(editor.Text == after, "Fallback toolbar Redo reapplies the accepted AI change");
+                Assert(editor.Text == after, "Fallback toolbar Redo reapplies the accepted AI change" + State());
                 editor.Undo();
                 editor.Undo();
-                Assert(editor.Text == initial, "Applying AI preserves the earlier typing entry in the native fallback undo manager");
+                Assert(editor.Text == initial, "Applying AI preserves the earlier typing entry in the native fallback undo manager" + State());
             }
             finally
             {
@@ -102,5 +119,21 @@ internal static partial class Program
             }
         }
         Console.WriteLine("PLAIN_FALLBACK_AI_UNDO_SMOKE_PASSED");
+    }
+
+    private static string PlainFallbackUndoState(TextBox editor, params (string Name, string Value)[] texts)
+    {
+        var contentHost = editor.Template?.FindName("PART_ContentHost", editor);
+        var renderScope = (contentHost as ScrollViewer)?.Content ?? (contentHost as Decorator)?.Child;
+        var result = $"\nCanUndo={editor.CanUndo}; CanRedo={editor.CanRedo}; IsUndoEnabled={editor.IsUndoEnabled}; UndoLimit={editor.UndoLimit}; "
+            + $"IsLoaded={editor.IsLoaded}; template={editor.Template?.GetType().Name ?? "null"}; "
+            + $"contentHost={contentHost?.GetType().Name ?? "null"}; renderScope={renderScope?.GetType().Name ?? "null"}";
+        foreach (var (name, value) in texts)
+        {
+            var bounded = value.Length <= 2000 ? value : value[..2000] + " [truncated]";
+            result += "\n" + name + " (length=" + value.Length + "): " + JsonSerializer.Serialize(bounded)
+                + "\n" + name + " codepoints: " + string.Join(" ", value.EnumerateRunes().Take(256).Select(rune => "U+" + rune.Value.ToString("X4")));
+        }
+        return result;
     }
 }
