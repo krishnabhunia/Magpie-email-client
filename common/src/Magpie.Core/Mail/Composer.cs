@@ -320,7 +320,9 @@ public static class Composer
             cal.ContentType.Parameters.Add("method", "REPLY");
             cal.ContentType.Charset = "utf-8";
             cal.ContentTransferEncoding = ContentEncoding.QuotedPrintable;
-            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = plainBody }, cal };
+            var text = new TextPart("plain") { Text = plainBody };
+            if (d.IsPlainText) text.ContentTransferEncoding = ContentEncoding.Base64;
+            msg.Body = new Multipart("alternative") { text, cal };
             return msg;
         }
         if (!d.IsPlainText) builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
@@ -352,6 +354,14 @@ public static class Composer
         foreach (var path in d.AttachmentPaths) AddPath(path);
         for (var i = 0; i < d.CarriedParts.Count; i++) AddPart(i);
         msg.Body = builder.ToMessageBody();
+        if (d.IsPlainText)
+        {
+            // MIME transport terminates unencoded text with a newline. Encoding the authored body keeps that
+            // framing out of the decoded message, including an empty body or one without a final newline.
+            // With no HTML/linked resources, BodyBuilder puts this part first, before any carried attachments.
+            var text = msg.Body is TextPart single ? single : (TextPart)((Multipart)msg.Body)[0];
+            text.ContentTransferEncoding = ContentEncoding.Base64;
+        }
         return msg;
     }
 

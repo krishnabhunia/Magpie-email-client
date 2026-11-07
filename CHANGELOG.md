@@ -52,7 +52,7 @@
 - **Rename and rearrange attachments.** Edit an outgoing filename without changing the file stored on your PC; move any file earlier or later. The chosen names and order survive saving a draft and reopening it.
 - **Live writing statistics.** The footer updates word count, Unicode-aware character count and approximate reading time while you type. Rich-text counts exclude signatures and quoted mail; plain-text counts clearly state that they cover all plain text. Studio retains its optional external-address warning and pre-send review.
 ### Fixed
-- **Plain-text spacing survives saving and sending.** Code indentation, tabs, repeated spaces and intentional blank lines are preserved in outgoing plain-text MIME, reopened drafts, revision restoration and the native editor fallback. Literal markup and URLs remain text.
+- **Plain-text spacing survives saving and sending.** Code indentation, tabs, repeated spaces and intentional blank lines are preserved in outgoing plain-text MIME, reopened drafts, revision restoration and the native editor fallback. Saving or sending does not add a blank line to an empty message or a newline after its final character. Literal markup and URLs remain text.
 - **Attached emails keep their renamed filenames.** Renaming a carried `.eml` now updates the message part's MIME metadata as well as its visible card, including saved/reopened drafts and draft-history restoration.
 - **Find Next advances correctly.** Repeated searches move beyond the current selection, wrap after the last match and preserve message formatting.
 - **Quoted mail stays visible on Mac.** Quote folding is enabled only by a compose host with an expansion control. Windows keeps its fold/expand button; the Mac editor shows the complete original quote.

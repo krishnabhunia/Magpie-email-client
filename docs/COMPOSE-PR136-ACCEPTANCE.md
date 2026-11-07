@@ -51,6 +51,8 @@ The six P2 findings on `d8e59b2` are addressed by the following code paths and r
 
 Send & Archive's reply-source cache is local to this PC, bounded to 5,000 entries and 180 days, and never placed in delivered MIME. A draft opened on another PC, or after its source context expires, can still be sent normally but cannot safely request automatic archiving. Already queued actions retain a separate durable source. Upgrading disables only legacy automatic-archive actions whose original source cannot be proven; their outgoing or scheduled messages remain intact. Removing a source account never redirects its action to the sending account.
 
+The follow-up to the first correction build preserves the authored plain-text body's exact ending through MIME serialization, including empty text and text without a final newline. Only that authored body uses lossless transfer encoding; carried attachments and nested emails retain their existing content and encoding. The strict round-trip assertions remain in place. Attached-email regressions compare serialized nested-message snapshots, including after draft-history restoration, because the original email's own transport can legitimately normalize line endings. Rich-mode comparison normalizes only the platform's line-ending convention.
+
 ## Known limits and remaining acceptance
 
 - Run the exact-head Windows unit tests, application build, native WPF/WebView2 smoke and packaging checks; shared-core changes also require the relevant macOS/Android regressions. Results are recorded on the PR, not inferred from local syntax checks.

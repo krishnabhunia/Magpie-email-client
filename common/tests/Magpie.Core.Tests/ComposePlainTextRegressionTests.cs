@@ -105,6 +105,8 @@ public class ComposePlainTextRegressionTests
             Assert.Null(built.HtmlBody);
             Assert.Equal(expected, Normalize(built.TextBody));
             Assert.DoesNotContain(built.BodyParts, part => part.ContentType.IsMimeType("text", "html"));
+            // SMTP may prepare a message for a server without 8BITMIME support before serializing it.
+            built.Prepare(EncodingConstraint.SevenBit);
             using var saved = Composer.FromBytes(Composer.ToBytes(built));
             Assert.Null(saved.HtmlBody);
             Assert.Equal(expected, Normalize(saved.TextBody));
@@ -132,10 +134,12 @@ public class ComposePlainTextRegressionTests
         Assert.Equal(expected, MimeText.EditorHtmlToPlainText(reopened.Html));
     }
 
-    [Fact]
-    public void Calendar_reply_uses_the_same_whitespace_preserving_plain_body()
+    [Theory]
+    [InlineData("")]
+    [InlineData("  Accepted\tmeeting  ")]
+    [InlineData("\n  Accepted\tmeeting  \n\n\nThanks  \n")]
+    public void Calendar_reply_uses_the_same_whitespace_preserving_plain_body(string expected)
     {
-        const string expected = "\n  Accepted\tmeeting  \n\n\nThanks  \n";
         var draft = PlainDraft(EditorParagraphs(expected));
         draft.CalendarReply = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REPLY\r\nEND:VCALENDAR\r\n";
         using var built = Composer.Build(draft, Sender());
@@ -154,18 +158,20 @@ public class ComposePlainTextRegressionTests
         draft.IsPlainText = false;
         using var built = Composer.Build(draft, Sender());
         Assert.NotNull(built.HtmlBody);
-        Assert.Equal(MimeText.HtmlToText(draft.Html), built.TextBody);
-        Assert.NotEqual(MimeText.EditorHtmlToPlainText(draft.Html), built.TextBody);
+        Assert.Equal(Normalize(MimeText.HtmlToText(draft.Html)), Normalize(built.TextBody));
+        Assert.NotEqual(MimeText.EditorHtmlToPlainText(draft.Html), Normalize(built.TextBody));
     }
 
-    [Fact]
-    public void Local_saved_mime_reopened_draft_and_restored_history_keep_whitespace_and_attachment_bytes()
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n\t  Main  text \n\n\n-- \n  Signature  \n>  Complete quote\t\n\n")]
+    [InlineData("\t  No final newline\t  ")]
+    public void Local_saved_mime_reopened_draft_and_restored_history_keep_whitespace_and_attachment_bytes(string expected)
     {
         using var dir = new TempDir();
         using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector());
         var account = Sender();
         engine.Config.Accounts.Add(account);
-        const string expected = "\n\t  Main  text \n\n\n-- \n  Signature  \n>  Complete quote\t\n\n";
         var draft = PlainDraft(EditorParagraphs(expected));
         var attachmentBytes = new byte[] { 0, 1, 2, 13, 10, 255 };
         draft.CarriedParts.Add(new MimePart("application", "octet-stream")
@@ -198,5 +204,43 @@ public class ComposePlainTextRegressionTests
         using var content = new MemoryStream();
         attachment.Content.DecodeTo(content);
         Assert.Equal(attachmentBytes, content.ToArray());
+    }
+
+    [Fact]
+    public void Preserving_plain_body_framing_does_not_reencode_carried_text_or_nested_email()
+    {
+        const string expected = "\t  Authored body without a final newline  ";
+        var draft = PlainDraft(EditorParagraphs(expected));
+        var textAttachment = new TextPart("plain")
+        {
+            Text = "Original  text\tattachment\n", FileName = "notes.txt",
+            ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+            ContentTransferEncoding = ContentEncoding.SevenBit,
+        };
+        var nested = new MimeMessage
+        {
+            MessageId = "carried-plain-framing@example.test", Subject = "Original attached email",
+            Body = new TextPart("plain") { Text = "Original  message\tcontent", ContentTransferEncoding = ContentEncoding.SevenBit },
+        };
+        var originalNested = Composer.ToBytes(nested);
+        draft.CarriedParts.Add(textAttachment);
+        draft.CarriedParts.Add(new MessagePart("rfc822")
+        {
+            Message = nested, ContentDisposition = new ContentDisposition(ContentDisposition.Attachment) { FileName = "original.eml" },
+        });
+
+        using var built = Composer.Build(draft, Sender());
+        Assert.Equal(expected, Normalize(built.TextBody));
+        Assert.Equal(ContentEncoding.SevenBit, textAttachment.ContentTransferEncoding);
+        Assert.Equal(originalNested, Composer.ToBytes(nested));
+        using var saved = Composer.FromBytes(Composer.ToBytes(built));
+        Assert.Equal(expected, Normalize(saved.TextBody));
+        var attachments = saved.Attachments.ToArray();
+        Assert.Equal(2, attachments.Length);
+        var savedText = Assert.IsType<TextPart>(attachments[0]);
+        Assert.Equal(ContentEncoding.SevenBit, savedText.ContentTransferEncoding);
+        Assert.Equal("Original  text\tattachment\n", Normalize(savedText.Text));
+        var savedNested = Assert.IsType<MessagePart>(attachments[1]);
+        Assert.Equal(originalNested, Composer.ToBytes(Assert.IsType<MimeMessage>(savedNested.Message)));
     }
 }

@@ -38,6 +38,8 @@ internal static partial class Program
             {
                 MessageId = "nested@example.test", Subject = "Nested message", Body = new TextPart("plain") { Text = "Nested body stays intact" },
             };
+            // Serializing MIME legitimately adds its transport newline; preserve this exact snapshot throughout.
+            var originalNestedMime = Composer.ToBytes(nested);
             var carried = new MessagePart("rfc822")
             {
                 Message = nested, ContentDisposition = new ContentDisposition(ContentDisposition.Attachment) { FileName = "original.eml" },
@@ -52,7 +54,7 @@ internal static partial class Program
             Assert(originalItem.Name == "original.eml", "Compose displays a carried message's actual MIME filename (" + theme + ")");
             vm.RenameAttachment(originalItem, "reviewed résumé.eml");
             Assert(originalItem.Name == "reviewed résumé.eml" && carried.ContentDisposition!.FileName == originalItem.Name
-                && carried.ContentType.Name == originalItem.Name && nested.TextBody == "Nested body stays intact",
+                && carried.ContentType.Name == originalItem.Name && originalNestedMime.SequenceEqual(Composer.ToBytes(nested)),
                 "Renaming a carried message changes its displayed and transmitted metadata, not nested content");
             Assert(vm.CanSendAndArchive && draft.ReplyArchiveSource == new ReplyArchiveSource(sourceAccount.Id, original.ThreadKey),
                 "A new reply exposes Send & Archive for its original source account");
@@ -99,7 +101,7 @@ internal static partial class Program
             using var sent = Composer.FromBytes(queued.Mime);
             var sentAttachment = (MessagePart)sent.Attachments.Single();
             Assert(MimeAttachmentNames.Get(sentAttachment) == "reviewed résumé.eml"
-                && sentAttachment.Message.TextBody == "Nested body stays intact",
+                && sentAttachment.Message is { } sentMessage && originalNestedMime.SequenceEqual(Composer.ToBytes(sentMessage)),
                 "The queued MIME preserves both renamed .eml metadata and original nested message content");
             Assert(engine.Store.GetLocalDraft(localId) == null && engine.Store.PendingPostSendArchives().Count == 0,
                 "Queue cleanup removes the local compose draft but does not archive before successful delivery");

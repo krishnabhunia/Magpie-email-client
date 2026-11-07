@@ -38,12 +38,12 @@ public class MimeAttachmentNameDisplayTests
         {
             Body = new Multipart("mixed") { new TextPart("plain") { Text = "Outer body." }, part },
         };
-        var originalBody = Composer.ToBytes(part.Message);
+        var originalBody = Composer.ToBytes(Assert.IsType<MimeMessage>(part.Message));
         var originalPart = Composer.ToBytes(container);
         var listed = Assert.Single(MimeText.ListAttachments(container));
         Assert.Equal(expected, listed.FileName);
         Assert.Equal("message/rfc822", listed.ContentType);
-        Assert.Equal(originalBody, Composer.ToBytes(part.Message));
+        Assert.Equal(originalBody, Composer.ToBytes(Assert.IsType<MimeMessage>(part.Message)));
         Assert.Equal(originalPart, Composer.ToBytes(container));
 
         using var reopened = Composer.FromBytes(originalPart);
@@ -80,13 +80,13 @@ public class MimeAttachmentNameDisplayTests
         {
             Body = new Multipart("mixed") { new TextPart("plain") { Text = "Outer body." }, attached },
         };
-        var original = Composer.ToBytes(attached.Message);
+        var original = Composer.ToBytes(Assert.IsType<MimeMessage>(attached.Message));
         MimeAttachmentNames.Rename(attached, "reviewed-message.eml");
-        Assert.Equal(original, Composer.ToBytes(attached.Message));
+        Assert.Equal(original, Composer.ToBytes(Assert.IsType<MimeMessage>(attached.Message)));
         Assert.Equal("reviewed-message.eml", Assert.Single(MimeText.ListAttachments(container)).FileName);
         using var reopened = Composer.FromBytes(Composer.ToBytes(container));
         Assert.Equal("reviewed-message.eml", Assert.Single(MimeText.ListAttachments(reopened)).FileName);
         var restoredPart = Assert.IsType<MessagePart>(Assert.Single(reopened.Attachments));
-        Assert.Equal(original, Composer.ToBytes(restoredPart.Message));
+        Assert.Equal(original, Composer.ToBytes(Assert.IsType<MimeMessage>(restoredPart.Message)));
     }
 }
