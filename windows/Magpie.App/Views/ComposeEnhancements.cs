@@ -743,28 +743,23 @@ public partial class ComposeWindow
 
     private async void OnInsertImage(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady || Editor.CoreWebView2 == null) return;
+        if (!CanUseRichFormatting || _vm.Sending || _vm.RevisionBusy || _vm.AttachmentOperationBusy) return;
         var picker = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Insert picture into email",
             Filter = "Pictures|*.png;*.jpg;*.jpeg;*.gif|All files|*.*",
         };
         if (picker.ShowDialog(this) != true) return;
-        var extension = System.IO.Path.GetExtension(picker.FileName).ToLowerInvariant();
-        var mime = extension switch { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".gif" => "image/gif", _ => "" };
-        if (mime.Length == 0) { Ui.Error("Insert picture", "Choose a PNG, JPG or GIF image.", this); return; }
-        var file = new FileInfo(picker.FileName);
-        if (file.Length > 8 * 1024 * 1024)
-        {
-            Ui.Error("Insert picture", "This picture is larger than 8 MB. Reduce its size or attach it as a file.", this);
-            return;
-        }
         try
         {
-            var data = "data:" + mime + ";base64," + Convert.ToBase64String(await File.ReadAllBytesAsync(file.FullName));
-            await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('insertImage', {JsonSerializer.Serialize(data)})");
+            await ComposeInlineImageInsertion.InsertAsync(_vm, picker.FileName,
+                async data => await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('insertImage', {JsonSerializer.Serialize(data)})") == "true",
+                () => !_forceClose && IsLoaded && CanUseRichFormatting);
         }
-        catch (Exception ex) { Ui.Error("Insert picture", ex.Message, this); }
+        catch (Exception ex)
+        {
+            if (!_forceClose && IsLoaded) Ui.Error("Insert picture", ex.Message, this);
+        }
     }
 
     private void OnResizeInlineImage(object sender, RoutedEventArgs e)

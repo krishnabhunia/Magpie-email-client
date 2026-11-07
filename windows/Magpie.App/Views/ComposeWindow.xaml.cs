@@ -265,7 +265,7 @@ public partial class ComposeWindow : Window
         _plain = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
-        PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
+        PlainEditor.Text = _vm.IsPlainText ? MimeText.EditorHtmlToPlainText(_vm.InitialHtml) : MimeText.HtmlToText(_vm.InitialHtml);
         SpellCheck.SetIsEnabled(PlainEditor, _spellcheckEnabled);
         var protectedStart = Regex.Match(_vm.InitialHtml, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
         _plainProtectedTail = protectedStart.Success ? MimeText.HtmlToText(_vm.InitialHtml[protectedStart.Index..]).TrimStart() : "";
@@ -296,8 +296,12 @@ public partial class ComposeWindow : Window
             {
                 case "ready":
                     await Editor.CoreWebView2.ExecuteScriptAsync("setNativeAttachmentPaste(true)");
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setQuoteFoldingSupported(true)");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
-                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
+                    // Plain draft p-per-line storage must not acquire the browser's rich paragraph spacing.
+                    var initialEditorHtml = _vm.IsPlainText
+                        ? MimeText.PlainTextToEditorHtml(MimeText.EditorHtmlToPlainText(_vm.InitialHtml)) : _vm.InitialHtml;
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(initialEditorHtml)})");
                     await Editor.CoreWebView2.ExecuteScriptAsync("setLinkBubbleEnabled(true)");
                     if (_vm.IsPlainText)
                         await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
@@ -331,7 +335,7 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        if (_plain) return ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (_plain) return _vm.IsPlainText ? MimeText.PlainTextToEditorHtml(PlainEditor.Text) : ComposeViewModel.TextToParagraphs(PlainEditor.Text);
         if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
         return JsonSerializer.Deserialize<string>(json) ?? "";

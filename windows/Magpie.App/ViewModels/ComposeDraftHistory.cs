@@ -157,7 +157,7 @@ public partial class ComposeViewModel
         _draft.AttachmentOrder = revision.CarriedParts.Select((_, index) => new DraftAttachmentPosition { CarriedIndex = index }).ToList();
         Attachments.Clear();
         foreach (var part in revision.CarriedParts)
-            Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "attached message", Carried = true, Part = part });
+            Attachments.Add(new AttachmentItem { Path = MimeAttachmentNames.Get(part) ?? "attached message", Carried = true, Part = part });
         OnPropertyChanged(nameof(IsPlainText));
         OnPropertyChanged(nameof(AttachmentSummary));
     }

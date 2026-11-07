@@ -136,12 +136,14 @@ public partial class ComposeViewModel : ObservableObject
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public string AttachmentSummary => FullMessageSizeSummary;
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
+    public bool CanSendAndArchive => _e.CanSendAndArchive(_draft);
     public string ProviderLabel => _e.Ai.ProviderLabel;
 
 
     public ComposeViewModel(Draft draft, string? prefillText)
     {
         _draft = draft;
+        _e.RestoreReplyArchiveSource(draft);
         foreach (var a in _e.Accounts) Accounts.Add(a);
         From = Accounts.FirstOrDefault(a => a.Id == draft.AccountId) ?? Accounts.FirstOrDefault();
         To = draft.To;
@@ -159,7 +161,7 @@ public partial class ComposeViewModel : ObservableObject
             Attachments.Add(item);
         }
         foreach (var part in draft.CarriedParts)
-            Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "forwarded message", Carried = true, Part = part });
+            Attachments.Add(new AttachmentItem { Path = MimeAttachmentNames.Get(part) ?? "forwarded message", Carried = true, Part = part });
         if (draft.AttachmentOrder.Count > 0)
         {
             var arranged = new List<AttachmentItem>();
@@ -416,6 +418,7 @@ public partial class ComposeViewModel : ObservableObject
 
     public void RefreshAi()
     {
+        OnPropertyChanged(nameof(CanSendAndArchive));
         ShowDraftAi = _e.Ai.IsVisible(AiFeature.Draft);
         ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
         RefreshReplyAi();
@@ -431,13 +434,15 @@ public partial class ComposeViewModel : ObservableObject
     [RelayCommand] private void ShowCc() => SetRecipientRowVisible("cc", true);
     [RelayCommand] private void OpenAiSettings() => Views.SettingsWindow.Open("AI");
 
-    /// <summary>Claim clipboard attachment work before its first await; a closing/queued draft cannot accept it.</summary>
+    /// <summary>Claim picture attachment work before its first await; a closing/queued draft cannot accept it.</summary>
     public bool TryBeginAttachmentOperation()
     {
         if (_closed || _queued || Sending || RevisionBusy || AttachmentOperationBusy) return false;
         AttachmentOperationBusy = true;
         return true;
     }
+
+    public bool CanCompleteAttachmentOperation => AttachmentOperationBusy && !_closed && !_queued && !Sending && !RevisionBusy;
 
     public void AddAttachments(IEnumerable<string> paths)
     {
@@ -470,7 +475,8 @@ public partial class ComposeViewModel : ObservableObject
 
     public void RenameAttachment(AttachmentItem attachment, string outgoingName)
     {
-        if (attachment.Part is MimeKit.MimePart part) part.FileName = outgoingName;
+        if (!Attachments.Contains(attachment) || !ComposeSafety.ValidAttachmentName(outgoingName)) return;
+        if (attachment.Part != null) MimeAttachmentNames.Rename(attachment.Part, outgoingName);
         attachment.Rename(outgoingName);
         MarkEdited();
         InvalidateReplyContext();
@@ -537,6 +543,11 @@ public partial class ComposeViewModel : ObservableObject
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
         if (AttachmentOperationBusy) { Status = "Finish attaching the picture, then review and press Send."; return; }
         if (Sending || _queued || RevisionBusy) return;
+        if (archiveAfterSend && !CanSendAndArchive)
+        {
+            Status = "The original reply account or conversation is unavailable. Send normally, then archive the conversation manually.";
+            return;
+        }
         StopReplyDraft(clear: true);
         DiscardPreview();
         Sending = true;

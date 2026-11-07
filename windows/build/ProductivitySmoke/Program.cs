@@ -68,6 +68,8 @@ internal static partial class Program
                 CheckClipboardPictureControls(theme);
                 await CheckComposeWritingToolsAsync(engine, theme);
                 await CheckComposeBusyCloseAsync(theme);
+                await CheckInlineImageInsertionAsync(root, engine, theme);
+                await CheckComposeReviewCorrectionsAsync(engine, theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);

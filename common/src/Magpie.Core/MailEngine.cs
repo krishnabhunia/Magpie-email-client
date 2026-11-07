@@ -1439,11 +1439,13 @@ public sealed class MailEngine : IDisposable
     /// </summary>
     public long QueueSend(Draft d, DateTimeOffset sendAt, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
-        if (archiveAfterSend && d.Mode is not (ComposeMode.Reply or ComposeMode.ReplyAll))
-            throw new InvalidOperationException("Send & Archive is available only when replying to a conversation.");
         using var operation = _versionOperations.Enter();
+        var archiveSource = RestoreReplyArchiveSource(d);
+        if (archiveAfterSend && archiveSource == null)
+            throw new InvalidOperationException("The original reply account or conversation is unavailable. Send normally, then archive the conversation manually.");
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account to send from.");
         var msg = Composer.Build(d, account);
+        RememberReplyArchiveSource(d);
         var threadKey = string.IsNullOrEmpty(d.ThreadKey) ? "r:" + Threading.NormalizeId(msg.MessageId) : d.ThreadKey;
         var item = new OutboxItem
         {
@@ -1456,6 +1458,7 @@ public sealed class MailEngine : IDisposable
             ThreadKey = threadKey,
             RemindAt = remindIfNoReply,
             ArchiveAfterSend = archiveAfterSend,
+            ArchiveSource = archiveAfterSend ? archiveSource : null,
         };
         Store.AddOutbox(item);
         DropStaleLocalCopies(msg.MessageId, d.LocalDraftId);
@@ -1475,7 +1478,43 @@ public sealed class MailEngine : IDisposable
         OutboxChanged?.Invoke();
         var d = Composer.FromMime(Composer.FromBytes(item.Mime), item.AccountId, item.ThreadKey);
         d.Mode = ComposeMode.EditDraft;
+        d.ReplyArchiveSource = Store.GetPostSendArchiveSource(outboxId);
+        RestoreReplyArchiveSource(d);
         return d;
+    }
+
+    /// <summary>
+    /// Rehydrate only locally recorded or explicitly prepared reply identity. MIME account headers and the
+    /// current From selection are not proof of which conversation the user chose to archive.
+    /// </summary>
+    public ReplyArchiveSource? RestoreReplyArchiveSource(Draft draft)
+    {
+        var source = ValidReplyArchiveSource(draft);
+        // Retain conflicting evidence so repeated validation cannot turn a rejected source into an accepted one.
+        if (source != null) draft.ReplyArchiveSource = source;
+        return source;
+    }
+
+    public bool CanSendAndArchive(Draft draft) => ValidReplyArchiveSource(draft) != null;
+
+    private ReplyArchiveSource? ValidReplyArchiveSource(Draft draft)
+    {
+        var source = Store.GetReplyArchiveSource(draft.MessageId);
+        if (source != null && draft.ReplyArchiveSource != null && source != draft.ReplyArchiveSource)
+            return null;
+        source ??= draft.ReplyArchiveSource;
+        if (draft.Mode is not (ComposeMode.Reply or ComposeMode.ReplyAll or ComposeMode.EditDraft)
+            || source is not { IsValid: true } || AccountById(source.AccountId) == null
+            || !string.Equals(source.ThreadKey, draft.ThreadKey, StringComparison.Ordinal))
+            return null;
+        return source;
+    }
+
+    private void RememberReplyArchiveSource(Draft draft)
+    {
+        if (ValidReplyArchiveSource(draft) is not { } source) return;
+        if (!Store.RememberReplyArchiveSource(draft.MessageId, source))
+            throw new InvalidOperationException("The saved reply source changed. Reopen the original conversation before using Send & Archive.");
     }
 
     /// <summary>Saves the message in the account's Drafts folder on the server (replacing the draft it was opened from).</summary>
@@ -1487,7 +1526,9 @@ public sealed class MailEngine : IDisposable
         ct.ThrowIfCancellationRequested();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
         if (!_syncs.TryGetValue(account.Id, out var sync)) throw new InvalidOperationException("This account is not connected.");
+        RestoreReplyArchiveSource(d);
         var msg = Composer.Build(d, account);
+        RememberReplyArchiveSource(d);
         // Copies on this PC saved after this one (e.g. in another window) are newer: leave those.
         TryCaptureDraftRevision(d, msg);
         var cutoff = d.LocalDraftId is { } lid ? Store.GetLocalDraft(lid)?.Updated : null;
@@ -1526,7 +1567,9 @@ public sealed class MailEngine : IDisposable
     {
         using var operation = _versionOperations.Enter();
         var account = AccountById(d.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
+        RestoreReplyArchiveSource(d);
         var msg = Composer.Build(d, account);
+        RememberReplyArchiveSource(d);
         var text = MimeText.HtmlToText(d.Html);
         var preview = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
         var local = new LocalDraft
@@ -1555,7 +1598,9 @@ public sealed class MailEngine : IDisposable
     {
         using var operation = _versionOperations.Enter();
         var account = AccountById(draft.AccountId) ?? throw new InvalidOperationException("Choose an account first.");
+        RestoreReplyArchiveSource(draft);
         var message = Composer.Build(draft, account);
+        RememberReplyArchiveSource(draft);
         return Store.SaveDraftRevision(draft, message);
     }
 
@@ -1583,12 +1628,13 @@ public sealed class MailEngine : IDisposable
         return l == null ? null : DraftFromLocal(l);
     }
 
-    private static Draft DraftFromLocal(LocalDraft l)
+    private Draft DraftFromLocal(LocalDraft l)
     {
         var d = Composer.FromMime(Composer.FromBytes(l.Mime), l.AccountId, l.ThreadKey);
         d.Mode = ComposeMode.EditDraft;
         d.SourceDraftRow = l.SourceDraftRow;
         d.LocalDraftId = l.Id;
+        RestoreReplyArchiveSource(d);
         return d;
     }
 
@@ -1757,6 +1803,12 @@ public sealed class MailEngine : IDisposable
             ct.ThrowIfCancellationRequested();
             try
             {
+                if (!new ReplyArchiveSource(accountId, threadKey).IsValid || AccountById(accountId) == null)
+                {
+                    // Account removal must not redirect a delayed action to the current sending account.
+                    Store.FinishPostSendArchive(outboxId);
+                    continue;
+                }
                 var inbox = Store.GetFolders(accountId).Where(f => f.Role == FolderRole.Inbox)
                     .Select(f => f.Id).ToHashSet();
                 var fromFolders = Store.GetThreadCopies(accountId, threadKey)

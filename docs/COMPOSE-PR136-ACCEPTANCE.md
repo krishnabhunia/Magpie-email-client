@@ -10,7 +10,7 @@ Design: [CW2 hybrid composer](designs/CW2-compose-hybrid.md)
 
 Core acceptance: [Issue #132](https://github.com/krishnabhunia/Magpie-email-client/issues/132)
 
-Record updated: 6 November 2026. No merge to `main` is authorized.
+Record updated: 7 November 2026. No merge to `main` is authorized.
 
 This record distinguishes implementation and automated coverage from completed human acceptance. The PR contains the latest exact-head build results; an earlier green build does not validate a later commit.
 
@@ -35,6 +35,21 @@ This record distinguishes implementation and automated coverage from completed h
 The core acceptance list in Issue #132 contains 42 items (A1–A6, B1–B16, C1–C5, D1–D9 and E1–E6). The continuation audit found and connected the remaining D5 quick-reply entry point; the other listed core items have implemented code paths. This is an implementation audit, not a claim that every platform/provider or human interaction has passed acceptance.
 
 The continuation also prevents queueing a stale message when fields change during asynchronous send preparation. Review rejects edits made while reading or measuring the message instead of mixing old and new values. Sending, closing or discarding cannot race an active clipboard picture save. MIME text-attachment smoke expectations use decoded snapshot bytes because MIME serialization may normalize line endings; separate binary fixtures verify exact preservation.
+
+## Six review corrections
+
+The six P2 findings on `d8e59b2` are addressed by the following code paths and regression fixtures. A test's presence is not a passed execution; the final-head results are recorded on the PR after Continuous Integration completes.
+
+| Review finding | Correction | Regression coverage |
+|---|---|---|
+| Plain-text MIME collapses whitespace | A lossless, inert editor-text conversion preserves spaces, tabs and blank lines without changing rich-mode extraction. Draft reopen, history restore and native fallback use the same representation. | `ComposePlainTextRegressionTests.cs`; `EditorFindQuoteSmoke.cs` tests real WebView2 and native fallback round-trips |
+| Renaming an attached email changes only its card | Generic MIME-entity filename updates cover carried message parts and binary parts; an explicit `.eml` filename is not given another extension. | `MimeAttachmentNamesTests.cs`, `MimeAttachmentNameDisplayTests.cs`; native compose review smoke |
+| Find Next selects the same match | Compare each match start with the previous selection's collapsed end and wrap only after the final match. | Real WebView2 progression, wrapping, adjacent matches, stale selection and formatting tests in `EditorFindQuoteSmoke.cs` |
+| Mac quotes are folded without an expansion control | Folding is an opt-in host capability: Windows enables it; the Mac page keeps the complete quote visible. | Actual Windows and `ForMac` editor page smoke, both themes, unchanged outgoing quote HTML |
+| Send & Archive follows a changed From account | Capture the original account/thread separately from the sender, validate that identity and persist it locally for draft reopen and durable queued actions. Unknown or conflicting sources fail closed for this optional action. | `ReplyArchiveSourceTests.cs`; native compose review smoke for From switching, availability and renamed attachments |
+| File-picker image reading races Send or Close | Claim the attachment operation before reading; retain it through the editor acknowledgement; bound reads; reject stale/closed editors and release the claim after failure or cancellation. | `InlineImageInsertionSmoke.cs` delayed-read/acknowledgement, send/close, failure/cancellation, size-limit and real WebView2 insertion tests |
+
+Send & Archive's reply-source cache is local to this PC, bounded to 5,000 entries and 180 days, and never placed in delivered MIME. A draft opened on another PC, or after its source context expires, can still be sent normally but cannot safely request automatic archiving. Already queued actions retain a separate durable source. Upgrading disables only legacy automatic-archive actions whose original source cannot be proven; their outgoing or scheduled messages remain intact. Removing a source account never redirects its action to the sending account.
 
 ## Known limits and remaining acceptance
 

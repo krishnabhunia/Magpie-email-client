@@ -161,6 +161,8 @@ public sealed class OutboxItem
     public string ThreadKey { get; set; } = "";
     /// <summary>Reply-only request: archive the Inbox conversation after successful SMTP acceptance, never during Undo Send.</summary>
     public bool ArchiveAfterSend { get; set; }
+    /// <summary>The original conversation's account/thread, not necessarily the outgoing sender account.</summary>
+    public ReplyArchiveSource? ArchiveSource { get; set; }
     /// <summary>"Remind me if nobody replies by" — set when scheduling.</summary>
     public DateTimeOffset? RemindAt { get; set; }
     public DateTimeOffset Created { get; set; }

@@ -65,6 +65,7 @@ let selectedImage = null;
 let selectedTableCell = null;
 let isPlainText = false;
 let signatureBoundariesLost = false;
+let quoteFoldingSupported = false;
 let rewrite = null;
 let typography = null;
 let contextualLink=null,linkEditTarget=null,formattingTarget=null,dismissedLink=null,linkBubbleEnabled=false;
@@ -153,8 +154,8 @@ function setHtml(h){
   emojiTarget=null;
   isPlainText=false;signatureBoundariesLost=false;ed.contentEditable='true';ed.classList.remove('magpie-plain-text');
   ed.innerHTML = h && h.length ? h : '<p><br></p>';
-  // Fold only in the editor's view. getHtml() still serializes the full quote.
-  ed.classList.toggle('quote-folded',!!ed.querySelector('.magpie-quote'));
+  // Only hosts with an expansion control may fold quotes. Serialization always keeps the full quote.
+  ed.classList.toggle('quote-folded',quoteFoldingSupported&&!!ed.querySelector('.magpie-quote'));
   typography=null;
   const r = document.createRange();
   const first = ed.firstChild || ed;
@@ -237,8 +238,13 @@ function setEditorPlainText(enabled,notify){
   if(notify!==false)post({t:'dirty'});
   return true;
 }
+function setQuoteFoldingSupported(enabled){
+  quoteFoldingSupported=enabled===true;
+  if(!quoteFoldingSupported)ed.classList.remove('quote-folded');
+  return quoteFoldingSupported;
+}
 function toggleQuoteFold(){
-  if(!ed.querySelector('.magpie-quote')) return false;
+  if(!quoteFoldingSupported||isPlainText||!ed.querySelector('.magpie-quote')) return false;
   ed.classList.toggle('quote-folded');return ed.classList.contains('quote-folded');
 }
 function validEditorRange(range){ return !!range && ed.contains(range.startContainer) && ed.contains(range.endContainer); }
@@ -645,8 +651,11 @@ function findInEditor(query,matchCase){
   if(!matches) return {count:-1,index:0};
   if(!matches.length) return {count:0,index:0};
   // Search from the end of the current selection, wrapping back to the first hit.
+  // Compare starts against an end-collapsed copy; START_TO_END compares the opposite pair of endpoints.
+  const after=validEditorRange(saved)?saved.cloneRange():null;
+  if(after)after.collapse(false);
   const index=matches.findIndex(function(range){
-    return !saved || range.compareBoundaryPoints(Range.START_TO_END,saved)>=0;
+    return !after || range.compareBoundaryPoints(Range.START_TO_START,after)>=0;
   });
   const selected=index>=0?index:0;
   selectEditorRange(matches[selected]);

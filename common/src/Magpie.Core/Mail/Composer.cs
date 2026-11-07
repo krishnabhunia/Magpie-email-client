@@ -47,6 +47,8 @@ public sealed class Draft
     public string InReplyTo { get; set; } = "";
     public string References { get; set; } = "";
     public string ThreadKey { get; set; } = "";
+    /// <summary>Trusted local origin of a reply; independent of the selected sending account and never a MIME header.</summary>
+    public ReplyArchiveSource? ReplyArchiveSource { get; set; }
     /// <summary>AW1 (Q85): the message being forwarded (its row on this PC), so the AI note reads that email.</summary>
     public long? ForwardOfRow { get; set; }
     /// <summary>Local row of the server draft this came from (deleted after sending).</summary>
@@ -158,6 +160,7 @@ public static class Composer
         var sig = SignatureHtml(account, reply: true);
         if (mode is ComposeMode.Reply or ComposeMode.ReplyAll)
         {
+            d.ReplyArchiveSource = new ReplyArchiveSource(original.AccountId, original.ThreadKey);
             (d.To, d.Cc) = ReplyRecipients(original, mode == ComposeMode.ReplyAll, myAddresses, isMine);
             d.Subject = Threading.ReplySubject(original.Subject);
             var mid = original.MessageId;
@@ -308,6 +311,8 @@ public static class Composer
             }
             catch { return m.Value; }
         });
+        // Plain-editor whitespace is message content, not rich-HTML preview formatting.
+        var plainBody = d.IsPlainText ? MimeText.EditorHtmlToPlainText(d.Html) : MimeText.HtmlToText(d.Html);
         if (!string.IsNullOrEmpty(d.CalendarReply))
         {
             // An invite answer: plain text + the iCalendar reply, as alternatives (what calendar servers expect).
@@ -315,11 +320,11 @@ public static class Composer
             cal.ContentType.Parameters.Add("method", "REPLY");
             cal.ContentType.Charset = "utf-8";
             cal.ContentTransferEncoding = ContentEncoding.QuotedPrintable;
-            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
+            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = plainBody }, cal };
             return msg;
         }
         if (!d.IsPlainText) builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
-        builder.TextBody = MimeText.HtmlToText(d.Html);
+        builder.TextBody = plainBody;
         // Preserve the visible order even when local files and forwarded MIME parts
         // are interleaved. Older drafts without an order retain paths-then-parts.
         var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -460,7 +465,8 @@ public static class Composer
             IsPlainText = msg.HtmlBody == null,
         };
         var html = msg.HtmlBody;
-        if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");
+        if (string.IsNullOrEmpty(html))
+            html = d.IsPlainText ? MimeText.PlainTextToEditorHtml(msg.TextBody) : MimeText.TextToHtml(msg.TextBody ?? "");
         var m = Regex.Match(html, @"<body[^>]*>(.*)</body>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         var inlined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var inner = m.Success ? RetainBodyTypography(html, m.Groups[1].Value) : html;

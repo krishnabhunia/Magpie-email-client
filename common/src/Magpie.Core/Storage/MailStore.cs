@@ -46,6 +46,7 @@ public sealed partial class MailStore
         }.ToString();
         Migrate();
         EnsurePostSendArchiveSchema();
+        EnsureReplyArchiveSourceSchema();
         EnsureProductivitySchema();
         EnsureSavedContactsSchema();   // design B4
         EnsureDraftRevisionSchema();
@@ -261,7 +262,7 @@ public sealed partial class MailStore
             using var c = Open();
             using var tx = c.BeginTransaction();
             Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from", "saved_contacts", "draft_revisions" })
+            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from", "saved_contacts", "draft_revisions", "reply_archive_sources", "post_send_archives" })
                 Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
             tx.Commit();
         }
@@ -1062,12 +1063,21 @@ public sealed partial class MailStore
         Exec(c, """
             CREATE TABLE IF NOT EXISTS post_send_archives(
               outbox_id INTEGER PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE,
-              account_id TEXT NOT NULL, thread_key TEXT NOT NULL);
+              account_id TEXT NOT NULL, thread_key TEXT NOT NULL, source_verified INTEGER NOT NULL DEFAULT 0);
             """);
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('post_send_archives') WHERE name='source_verified'")) == 0)
+            Exec(c, "ALTER TABLE post_send_archives ADD COLUMN source_verified INTEGER NOT NULL DEFAULT 0");
+        // Older versions recorded the selected sender, not the reply's original account. Its provenance cannot
+        // be recovered safely. Disable only that optional action; the scheduled/outgoing message is unchanged.
+        // The default also fails closed if an older version is used again and queues another legacy action.
+        Exec(c, "DELETE FROM post_send_archives WHERE source_verified<>1");
     }
 
     public long AddOutbox(OutboxItem o)
     {
+        if (o.ArchiveAfterSend && (o.ArchiveSource is not { IsValid: true }
+            || !string.Equals(o.ArchiveSource.ThreadKey, o.ThreadKey, StringComparison.Ordinal)))
+            throw new InvalidOperationException("The original reply account and conversation must be identified before queueing Send & Archive.");
         using var c = Open();
         using var tx = c.BeginTransaction();
         using var cmd = c.CreateCommand();
@@ -1090,10 +1100,10 @@ public sealed partial class MailStore
         {
             using var archive = c.CreateCommand();
             archive.Transaction = tx;
-            archive.CommandText = "INSERT INTO post_send_archives(outbox_id,account_id,thread_key) VALUES($id,$a,$t)";
+            archive.CommandText = "INSERT INTO post_send_archives(outbox_id,account_id,thread_key,source_verified) VALUES($id,$a,$t,1)";
             archive.Parameters.AddWithValue("$id", o.Id);
-            archive.Parameters.AddWithValue("$a", o.AccountId);
-            archive.Parameters.AddWithValue("$t", o.ThreadKey);
+            archive.Parameters.AddWithValue("$a", o.ArchiveSource!.AccountId);
+            archive.Parameters.AddWithValue("$t", o.ArchiveSource.ThreadKey);
             archive.ExecuteNonQuery();
         }
         tx.Commit();
@@ -1106,7 +1116,7 @@ public sealed partial class MailStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT p.outbox_id,p.account_id,p.thread_key FROM post_send_archives p
-            JOIN outbox o ON o.id=p.outbox_id WHERE o.status=3 ORDER BY p.outbox_id
+            JOIN outbox o ON o.id=p.outbox_id WHERE o.status=3 AND p.source_verified=1 ORDER BY p.outbox_id
             """;
         var items = new List<(long, string, string)>();
         using var r = cmd.ExecuteReader();
@@ -1118,6 +1128,19 @@ public sealed partial class MailStore
     {
         using var c = Open();
         Exec(c, "DELETE FROM post_send_archives WHERE outbox_id=$id", ("$id", outboxId));
+    }
+
+    /// <summary>The source remains available for Undo even if the composer deleted its local draft or the context cache was pruned.</summary>
+    public ReplyArchiveSource? GetPostSendArchiveSource(long outboxId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT account_id,thread_key FROM post_send_archives WHERE outbox_id=$id AND source_verified=1";
+        cmd.Parameters.AddWithValue("$id", outboxId);
+        using var row = cmd.ExecuteReader();
+        if (!row.Read()) return null;
+        var source = new ReplyArchiveSource(row.GetString(0), row.GetString(1));
+        return source.IsValid ? source : null;
     }
 
     /// <param name="withMime">false = leave the message itself out (status bar, counts: cheap to read often).</param>

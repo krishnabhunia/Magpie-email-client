@@ -331,6 +331,7 @@ public sealed partial class MailStore
         public string InReplyTo { get; set; } = "";
         public string References { get; set; } = "";
         public string ThreadKey { get; set; } = "";
+        public ReplyArchiveSource? ReplyArchiveSource { get; set; }
         public string CalendarReply { get; set; } = "";
 
         public static DraftRevisionState Capture(Draft draft) => new()
@@ -339,12 +340,14 @@ public sealed partial class MailStore
             Subject = draft.Subject ?? "", Html = draft.Html ?? "", Priority = draft.Priority ?? "Normal",
             RequestReadReceipt = draft.RequestReadReceipt, IsPlainText = draft.IsPlainText,
             ComposeStyle = draft.ComposeStyle?.Clone(), InReplyTo = draft.InReplyTo ?? "", References = draft.References ?? "",
-            ThreadKey = draft.ThreadKey ?? "", CalendarReply = draft.CalendarReply ?? "",
+            ThreadKey = draft.ThreadKey ?? "", ReplyArchiveSource = draft.ReplyArchiveSource,
+            CalendarReply = draft.CalendarReply ?? "",
         };
 
         public bool IsSupported() => Version == 1 && To != null && Cc != null && Bcc != null && ReplyTo != null
             && Subject != null && Html != null && Priority != null && InReplyTo != null && References != null
-            && ThreadKey != null && CalendarReply != null;
+            && ThreadKey != null && CalendarReply != null
+            && (ReplyArchiveSource == null || (ReplyArchiveSource.IsValid && ReplyArchiveSource.ThreadKey == ThreadKey));
 
         public void RestoreFields(Draft draft)
         {
@@ -353,6 +356,7 @@ public sealed partial class MailStore
             draft.RequestReadReceipt = RequestReadReceipt; draft.IsPlainText = IsPlainText;
             draft.ComposeStyle = ComposeStyle?.Clone(); draft.InReplyTo = InReplyTo; draft.References = References;
             draft.ThreadKey = ThreadKey; draft.CalendarReply = CalendarReply;
+            draft.ReplyArchiveSource = ReplyArchiveSource;
         }
     }
 

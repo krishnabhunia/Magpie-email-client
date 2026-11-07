@@ -73,6 +73,7 @@ public class Release1500Tests
         var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
         var original = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-1") }));
         var draft = new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = original.ThreadKey,
+            ReplyArchiveSource = new ReplyArchiveSource("A", original.ThreadKey),
             To = "recipient@test.local", Subject = "Re: Hello", Html = "<p>Reply</p>" };
 
         var outboxId = engine.QueueSend(draft, DateTimeOffset.Now.AddHours(1), null, archiveAfterSend: true);
@@ -100,6 +101,7 @@ public class Release1500Tests
         var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
         engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-2") });
         var queued = engine.QueueSend(new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = "thread-2",
+            ReplyArchiveSource = new ReplyArchiveSource("A", "thread-2"),
             To = "recipient@test.local", Subject = "Reply", Html = "<p>Reply</p>" }, DateTimeOffset.Now.AddSeconds(-1), null, true);
         await engine.ProcessOutboxAsync(CancellationToken.None);
         Assert.Equal(OutboxStatus.Failed, engine.Store.GetOutbox().Single(o => o.Id == queued).Status);

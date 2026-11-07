@@ -67,6 +67,10 @@ internal static partial class Program
             {
                 return WaitEditorAsync(view.CoreWebView2.ExecuteScriptAsync(script), "script " + ++scriptNumber, State);
             }
+            await CheckPlainFallbackWhitespaceAsync();
+            await CheckEditorFindProgressionAsync(Script);
+            await CheckWindowsQuoteFoldingAsync(Script);
+            await CheckPlainEditorWhitespaceRoundTripAsync(Script);
             const string original = "<p>My own opening.</p><div class=\"magpie-signature\"><p>Regards, Example User</p></div><div class=\"magpie-quote\"><blockquote>Original quoted message</blockquote></div>";
             await Script("setHtml(" + JsonSerializer.Serialize(original) + ")");
             await Script(EditorPage.TypographyScript(new TypographySettings(), false));
@@ -209,7 +213,15 @@ internal static partial class Program
             await CheckEmojiPickerAsync(root, Script);
             await CheckSignatureModesAsync(Script);
             await CheckClipboardEditorAsync(Script);
+            await CheckInlineImageEditorAsync(Script);
             await CheckEditorWritingToolsAsync(Script);
+            // Execute the actual Mac page in the browser too; host capabilities must start disabled.
+            ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            navigation = "pending Mac editor page";
+            view.CoreWebView2.NavigateToString(EditorPage.ForMac);
+            await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
+            await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
+            Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }
