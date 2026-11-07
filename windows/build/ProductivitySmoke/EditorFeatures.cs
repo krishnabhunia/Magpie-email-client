@@ -72,6 +72,8 @@ internal static partial class Program
             var aiFailures = new List<Exception>();
             try { await CheckPlainFallbackAiUndoAsync(); }
             catch (Exception ex) { aiFailures.Add(new InvalidOperationException("Plain fallback AI Undo smoke failed", ex)); }
+            try { await ProbeAiBodyBoundaryCandidatesAsync(Script); }
+            catch (Exception ex) { aiFailures.Add(new InvalidOperationException("Temporary AI native probe matrix failed", ex)); }
             try { await CheckAiApplyUndoAsync(Script); }
             catch (Exception ex) { aiFailures.Add(new InvalidOperationException("WebView2 AI Undo smoke failed", ex)); }
             try { await CheckAiBodyBoundaryStateAsync(Script); }
