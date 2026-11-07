@@ -39,7 +39,7 @@ public sealed class Draft
     public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
     /// <summary>Names sent to recipients without changing the files on disk.</summary>
-    public Dictionary<string, string> AttachmentNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> AttachmentNames { get; set; } = new(StringComparer.Ordinal);
     /// <summary>Order of both new and forwarded attachments, including interleaving.</summary>
     public List<DraftAttachmentPosition> AttachmentOrder { get; set; } = new();
     /// <summary>Attachments carried over from the original (forward), as raw MIME parts.</summary>
@@ -329,7 +329,9 @@ public static class Composer
         builder.TextBody = plainBody;
         // Preserve the visible order even when local files and forwarded MIME parts
         // are interleaved. Older drafts without an order retain paths-then-parts.
-        var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // A path differing only by case can identify a different file on a case-sensitive volume.
+        // The Windows picker deduplicates its own selections; shared MIME code must never discard distinct paths.
+        var addedPaths = new HashSet<string>(StringComparer.Ordinal);
         var addedParts = new HashSet<int>();
         void AddPath(string path)
         {
@@ -346,7 +348,7 @@ public static class Composer
         }
         foreach (var entry in d.AttachmentOrder)
         {
-            if (entry.Path is { } path && d.AttachmentPaths.Contains(path, StringComparer.OrdinalIgnoreCase)) AddPath(path);
+            if (entry.Path is { } path && d.AttachmentPaths.Contains(path, StringComparer.Ordinal)) AddPath(path);
             else if (entry.CarriedIndex is { } index) AddPart(index);
         }
         // Never discard an attachment just because an old or partially restored
