@@ -17,7 +17,8 @@ internal static partial class Program
         var cases = new[]
         {
             (Name: "delete-table-rich", Html: Surround(grid), Cell: "drop", Action: "deleteTable", Rows: 0, Columns: 0, Second: "", Role: ""),
-            (Name: "delete-row-rich", Html: Surround(grid), Cell: "drop", Action: "deleteRow", Rows: 2, Columns: 2, Second: "deleteRow", Role: ""),
+            // Native foreColor uses this stable declaration order when restoring the styled ancestor.
+            (Name: "delete-row-rich", Html: Surround(grid.Replace("style='color:purple;font-size:21px'", "style='font-size: 21px; color: purple;'", StringComparison.Ordinal)), Cell: "drop", Action: "deleteRow", Rows: 2, Columns: 2, Second: "deleteRow", Role: ""),
             (Name: "delete-column-raw-neighbors", Html: Surround("<table data-table-fixture><tbody><tr><td data-cell='drop'>Delete first column</td><td data-cell='keep' data-table-keep>" + rich + "</td><td>Right top</td></tr><tr><td>Delete lower</td><td>Middle lower</td><td>Right lower</td></tr></tbody></table>", true), Cell: "drop", Action: "deleteColumn", Rows: 2, Columns: 2, Second: "deleteColumn", Role: ""),
             (Name: "delete-merged-anchor-row", Html: Surround("<table data-table-fixture><tbody><tr><td rowspan='2' data-cell='keep' data-table-keep>" + rich + "</td><td>Delete row mate</td></tr><tr><td>Surviving lower cell</td></tr></tbody></table>"), Cell: "keep", Action: "deleteRow", Rows: 1, Columns: 2, Second: "", Role: ""),
             (Name: "delete-merged-column", Html: Surround("<table data-table-fixture><tbody><tr><td colspan='2' data-cell='keep' data-table-keep>" + rich + "</td><td>Right top</td></tr><tr><td>Delete lower</td><td>Retained middle</td><td>Right lower</td></tr></tbody></table>"), Cell: "keep", Action: "deleteColumn", Rows: 2, Columns: 2, Second: "", Role: ""),
