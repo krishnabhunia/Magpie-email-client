@@ -62,22 +62,31 @@ def github_refs(repository: str, base: str, token: str) -> list[dict]:
 def reserve(base: str, event: dict, repository: str, token: str) -> str:
     pr = event.get("pull_request", {})
     head = pr.get("head", {}).get("sha", "")
-    refs = github_refs(repository, base, token)
-    try:
-        return from_event(base, event, repository, refs)
-    except ValueError as error:
-        if "No reserved beta tag" not in str(error):
-            raise
-    numbers = [int(match[1]) for item in refs
-               if (match := re.fullmatch(rf"refs/tags/v{re.escape(base)}-beta([0-9]{{3}})", item.get("ref", "")))]
-    if 0 in numbers:
-        raise ValueError("beta000 is not a valid release")
-    serial = max(numbers, default=0) + 1
-    if serial > 999:
-        raise ValueError("beta999 exhausted; advance the stable version")
-    tag = f"v{base}-beta{serial:03d}"
-    github_api(repository, "git/refs", token, {"ref": f"refs/tags/{tag}", "sha": head})
-    return tag[1:]
+    # GitHub's tag creation is atomic. Different PRs can reserve in parallel:
+    # a 422 means another PR won the serial, so re-read and reserve the next.
+    for _ in range(12):
+        refs = github_refs(repository, base, token)
+        try:
+            return from_event(base, event, repository, refs)
+        except ValueError as error:
+            if "No reserved beta tag" not in str(error):
+                raise
+        numbers = [int(match[1]) for item in refs
+                   if (match := re.fullmatch(rf"refs/tags/v{re.escape(base)}-beta([0-9]{{3}})", item.get("ref", "")))]
+        if 0 in numbers:
+            raise ValueError("beta000 is not a valid release")
+        serial = max(numbers, default=0) + 1
+        if serial > 999:
+            raise ValueError("beta999 exhausted; advance the stable version")
+        tag = f"v{base}-beta{serial:03d}"
+        try:
+            github_api(repository, "git/refs", token, {"ref": f"refs/tags/{tag}", "sha": head})
+        except urllib.error.HTTPError as error:
+            if error.code != 422:
+                raise
+            continue
+        return tag[1:]
+    raise ValueError("Could not reserve a beta tag after concurrent reservations")
 
 
 def main() -> int:

@@ -167,6 +167,8 @@ public sealed class TagDef
 public sealed class QuickTemplate
 {
     public string Name { get; set; } = "";
+    /// <summary>Optional subject; missing/empty in older settings means a body-only template.</summary>
+    public string Subject { get; set; } = "";
     public string Body { get; set; } = "";
 }
 
@@ -209,7 +211,7 @@ public enum CountsMode { UnreadAndTotal = 0, UnreadOnly = 1, Off = 2 }
 /// <summary>Light or dark look (design B1). MatchWindows follows the Windows "app mode" setting.</summary>
 public enum ThemeMode { MatchWindows = 0, Light = 1, Dark = 2 }
 
-/// <summary>One reading-pane toolbar button (design C3). <see cref="Id"/> is one of <see cref="Appearance.ToolbarIds"/>.</summary>
+/// <summary>One customizable toolbar button. Id belongs to the reading-pane or compose toolbar catalog.</summary>
 public sealed class ToolbarButton
 {
     public string Id { get; set; } = "";
@@ -222,6 +224,21 @@ public sealed class Appearance
     /// <summary>Every button the toolbar can show, in default order; the first <see cref="DefaultVisible"/> are on.</summary>
     public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "setaside", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
     public const int DefaultVisible = 8;
+    /// <summary>Reorderable rich-text entries in Compose → More. The destructive plain-text switch stays fixed at the top.</summary>
+    public static readonly string[] ComposeMoreIds =
+    {
+        "quote", "rule", "superscript", "subscript", "alignRight", "justify", "paragraph", "language",
+        "spellcheck", "ltr", "rtl", "pastePlain", "find", "replace", "shortcuts",
+    };
+    public static readonly IReadOnlyDictionary<string, string> ComposeMoreNames = new Dictionary<string, string>
+    {
+        ["quote"] = "Block quote", ["rule"] = "Horizontal line", ["superscript"] = "Superscript",
+        ["subscript"] = "Subscript", ["alignRight"] = "Align right", ["justify"] = "Justify",
+        ["paragraph"] = "Paragraph style", ["language"] = "Writing language", ["spellcheck"] = "Spellcheck",
+        ["ltr"] = "Left-to-right paragraph", ["rtl"] = "Right-to-left paragraph",
+        ["pastePlain"] = "Paste without formatting", ["find"] = "Find text", ["replace"] = "Find and replace",
+        ["shortcuts"] = "Keyboard shortcuts",
+    };
 
     public ThemeMode Theme { get; set; } = ThemeMode.MatchWindows;
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.IconAndName;
@@ -231,6 +248,10 @@ public sealed class Appearance
     /// <summary>The message list's right-click menu follows the toolbar's order.</summary>
     public bool MenuFollowsToolbar { get; set; } = true;
     public List<ToolbarButton> Toolbar { get; set; } = DefaultToolbar();
+    /// <summary>Compose toolbar command order and visibility; Attach and More are always available.</summary>
+    public List<ToolbarButton> ComposeToolbar { get; set; } = ComposeToolbarCatalog.DefaultButtons();
+    /// <summary>Compose → More rich-text item order. Missing entries from older settings are appended.</summary>
+    public List<string> ComposeMoreOrder { get; set; } = ComposeMoreIds.ToList();
     public FolderHoverSettings FolderHover { get; set; } = new();
     public RowActionsSettings RowActions { get; set; } = new();
     /// <summary>Design DD1: how an email's auto-delete date shows (pointing at a row, on the row, in the reading pane).</summary>
@@ -251,6 +272,12 @@ public sealed class Appearance
         Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
         foreach (var id in ToolbarIds)
             if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+        ComposeToolbar = ComposeToolbarCatalog.Normalise(ComposeToolbar);
+        ComposeMoreOrder ??= ComposeMoreIds.ToList();
+        var composeSeen = new HashSet<string>(StringComparer.Ordinal);
+        ComposeMoreOrder = ComposeMoreOrder.Where(id => id != null && ComposeMoreIds.Contains(id) && composeSeen.Add(id)).ToList();
+        foreach (var id in ComposeMoreIds)
+            if (composeSeen.Add(id)) ComposeMoreOrder.Add(id);
         (FolderHover ??= new()).Normalise();
         (RowActions ??= new()).Normalise();
         (DeleteDates ??= new()).Normalise();
@@ -262,6 +289,8 @@ public sealed class Appearance
     {
         Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
         Toolbar = Toolbar.Select(b => new ToolbarButton { Id = b.Id, Visible = b.Visible }).ToList(),
+        ComposeToolbar = ComposeToolbarCatalog.Normalise(ComposeToolbar),
+        ComposeMoreOrder = (ComposeMoreOrder ?? ComposeMoreIds.ToList()).ToList(),
         FolderHover = FolderHover.Clone(), RowActions = RowActions.Clone(), DeleteDates = DeleteDates.Clone(),
         Splash = Splash, SplashAccounts = SplashAccounts,
     };
@@ -334,6 +363,24 @@ public sealed class WindowPlacement
     /// <summary>Snaps a dragged width: below the minimum → rail; otherwise clamped to the allowed range.</summary>
     public static (double width, bool rail) SnapSidebar(double dragged) =>
         dragged < SidebarMin ? (SidebarDefault, true) : (Math.Clamp(dragged, SidebarMin, SidebarMax), false);
+}
+
+/// <summary>Last compose-window dimensions and monitor position, independent of the inbox window.</summary>
+public sealed class ComposeWindowPlacement
+{
+    public bool HasSavedPlacement { get; set; }
+    public double Left { get; set; }
+    public double Top { get; set; }
+    public double Width { get; set; } = 980;
+    public double Height { get; set; } = 720;
+    public bool Maximized { get; set; }
+
+    public void Normalise()
+    {
+        Width = double.IsFinite(Width) ? Math.Clamp(Width, 640, 4000) : 980;
+        Height = double.IsFinite(Height) ? Math.Clamp(Height, 460, 3000) : 720;
+        if (!double.IsFinite(Left) || !double.IsFinite(Top)) HasSavedPlacement = false;
+    }
 }
 
 /// <summary>Folder details on hover (design H2).</summary>
@@ -465,6 +512,7 @@ public sealed class AppSettings
 
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
+    public ComposeWindowPlacement ComposeWindow { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
     public TypographySettings Typography { get; set; } = new();
@@ -545,11 +593,13 @@ public sealed class SettingsStore
         {
             a.Signature ??= "";
             a.SignatureHtml ??= "";
+            a.MaxOutgoingMessageMb = a.MaxOutgoingMessageMb <= 0 ? 25 : Math.Min(a.MaxOutgoingMessageMb, 100);
             // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
             if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
         }
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
+        (s.ComposeWindow ??= new()).Normalise();
         s.Sidebar ??= new();
         s.Sidebar.Normalise();
         s.Appearance ??= new();

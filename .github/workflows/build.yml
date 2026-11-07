@@ -16,11 +16,6 @@ permissions:
   issues: write         # close the [Q..] issues a release ships
   actions: read         # read successful platform artifacts from independent workflow runs
 
-# One release job at a time for pushes to main.
-concurrency:
-  group: magpie-build-${{ github.ref == 'refs/heads/main' && 'release' || 'beta-serial' }}
-  cancel-in-progress: false
-
 env:
   PYTHONUTF8: "1"
 
@@ -122,6 +117,11 @@ jobs:
 
   package:
     needs: version
+    # Do not hold a global beta-version lock while waiting up to 35 minutes
+    # for independent platform builds. Serialize only publication to main.
+    concurrency:
+      group: magpie-package-${{ github.ref == 'refs/heads/main' && 'release' || github.run_id }}
+      cancel-in-progress: false
     # A Mac-only or Android-only change gets its standalone artifact, without a Windows build.
     # No new combined release is needed for a change that did not build Windows.
     if: needs.version.result == 'success' && (needs.version.outputs.windows == 'true' || needs.version.outputs.macos == 'true' || needs.version.outputs.android == 'true')

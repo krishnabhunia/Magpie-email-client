@@ -224,6 +224,7 @@ public sealed partial class ThreadItem : ObservableObject
     public string DateTip { get; }
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
+    public bool IsHighPriority => Row.HighPriority || Row.Latest.IsHighPriority;
     public bool HasAttachments => Row.HasAttachments;
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
     /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>

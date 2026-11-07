@@ -45,8 +45,11 @@ public sealed partial class MailStore
             Pooling = true,
         }.ToString();
         Migrate();
+        EnsurePostSendArchiveSchema();
+        EnsureReplyArchiveSourceSchema();
         EnsureProductivitySchema();
         EnsureSavedContactsSchema();   // design B4
+        EnsureDraftRevisionSchema();
     }
 
     private SqliteConnection Open()
@@ -259,7 +262,7 @@ public sealed partial class MailStore
             using var c = Open();
             using var tx = c.BeginTransaction();
             Exec(c, "DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE account_id=$a)", ("$a", accountId));
-            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from", "saved_contacts" })
+            foreach (var t in new[] { "messages", "folders", "pending_ops", "outbox", "reminders", "summaries", "events", "cal_events", "cal_calendars", "trash_from", "saved_contacts", "draft_revisions", "reply_archive_sources", "post_send_archives" })
                 Exec(c, $"DELETE FROM {t} WHERE account_id=$a", ("$a", accountId));
             tx.Commit();
         }
@@ -327,7 +330,17 @@ public sealed partial class MailStore
         using var tx = c.BeginTransaction();
         foreach (var o in others.Where(o => o != keep))
         {
-            foreach (var t in new[] { "messages", "reminders", "outbox" })
+            // Send & Archive is tied to the original conversation, which may belong to a different
+            // account than From. Keep Undo's thread key in step with that verified source; a merge in
+            // the sending account must not retarget it. Ordinary outgoing mail remains account-scoped.
+            Exec(c, """
+                UPDATE outbox SET thread_key=$k
+                WHERE (account_id=$a AND thread_key=$o AND NOT EXISTS
+                    (SELECT 1 FROM post_send_archives p WHERE p.outbox_id=outbox.id AND p.source_verified=1))
+                  OR id IN (SELECT outbox_id FROM post_send_archives
+                    WHERE account_id=$a AND thread_key=$o AND source_verified=1)
+                """, ("$k", keep), ("$a", accountId), ("$o", o));
+            foreach (var t in new[] { "messages", "reminders", "reply_archive_sources", "post_send_archives" })
                 Exec(c, "UPDATE " + t + " SET thread_key=$k WHERE account_id=$a AND thread_key=$o", ("$k", keep), ("$a", accountId), ("$o", o));
             Exec(c, "DELETE FROM summaries WHERE account_id=$a AND thread_key IN ($o,$k)", ("$a", accountId), ("$o", o), ("$k", keep));
         }
@@ -384,12 +397,36 @@ public sealed partial class MailStore
         using var c = Open();
         using var tx = c.BeginTransaction();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "UPDATE messages SET flags=$fl WHERE folder_id=$f AND uid=$u";
+        // A flags FETCH can race a header-only priority refresh: retain metadata from the latest stored row.
+        cmd.CommandText = "UPDATE messages SET flags=(flags & $meta) | ($fl & ~$meta) WHERE folder_id=$f AND uid=$u";
+        cmd.Parameters.AddWithValue("$meta", (int)Mail.MailPriorityHeaders.MetadataFlags);
         var pf = cmd.Parameters.Add("$fl", SqliteType.Integer);
         cmd.Parameters.AddWithValue("$f", folderId);
         var pu = cmd.Parameters.Add("$u", SqliteType.Integer);
         foreach (var (uid, flags) in changes) { pf.Value = (int)flags; pu.Value = uid; cmd.ExecuteNonQuery(); }
         tx.Commit();
+    }
+
+    /// <summary>Update only sender-priority metadata, never overwriting pending read/pin changes.</summary>
+    public int UpdateMessagePriorities(long folderId, IEnumerable<(long uid, bool high)> priorities)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET flags=(flags & ~$meta) | $priority WHERE folder_id=$f AND uid=$u AND (flags & $meta)<>$priority";
+        cmd.Parameters.AddWithValue("$meta", (int)Mail.MailPriorityHeaders.MetadataFlags);
+        cmd.Parameters.AddWithValue("$f", folderId);
+        var pu = cmd.Parameters.Add("$u", SqliteType.Integer);
+        var pp = cmd.Parameters.Add("$priority", SqliteType.Integer);
+        var changed = 0;
+        foreach (var (uid, high) in priorities)
+        {
+            pu.Value = uid;
+            pp.Value = (int)(MessageFlags.PriorityKnown | (high ? MessageFlags.HighPriority : MessageFlags.None));
+            changed += cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
+        return changed;
     }
 
     public void DeleteUids(long folderId, IEnumerable<long> uids)
@@ -476,6 +513,7 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$aside", AsideMs);
         cmd.Parameters.AddWithValue("$gate", GateMs);
+        cmd.Parameters.AddWithValue("$priority", (int)MessageFlags.HighPriority);
         var snooze = q.SetAside ? "m.snooze_until = $aside"
             : q.Snoozed ? "m.snooze_until IS NOT NULL AND m.snooze_until > $now AND m.snooze_until < $gate"
             : "(m.snooze_until IS NULL OR m.snooze_until <= $now)";
@@ -524,7 +562,8 @@ public sealed partial class MailStore
                 GROUP_CONCAT(CASE WHEN m.from_name<>'' THEN m.from_name ELSE m.from_addr END, '|') OVER (PARTITION BY m.account_id, m.thread_key) AS people,
                 MIN(CASE WHEN (m.flags & 2)=0 THEN m.delete_at END) OVER (PARTITION BY m.account_id, m.thread_key) AS del_at,
                 FIRST_VALUE(CASE WHEN (m.flags & 2)=0 AND m.delete_at IS NOT NULL THEN m.delete_rule ELSE '' END) OVER (
-                  PARTITION BY m.account_id, m.thread_key ORDER BY (CASE WHEN (m.flags & 2)=0 AND m.delete_at IS NOT NULL THEN 0 ELSE 1 END), m.delete_at) AS del_rule
+                  PARTITION BY m.account_id, m.thread_key ORDER BY (CASE WHEN (m.flags & 2)=0 AND m.delete_at IS NOT NULL THEN 0 ELSE 1 END), m.delete_at) AS del_rule,
+                MAX(CASE WHEN (m.flags & $priority)<>0 THEN 1 ELSE 0 END) OVER (PARTITION BY m.account_id, m.thread_key) AS high_priority
               FROM {source}
             )
             SELECT * FROM f WHERE {string.Join(" AND ", outer)}
@@ -536,6 +575,7 @@ public sealed partial class MailStore
         using var r = cmd.ExecuteReader();
         var delAt = r.GetOrdinal("del_at");
         var delRule = r.GetOrdinal("del_rule");
+        var highPriority = r.GetOrdinal("high_priority");
         while (r.Read())
         {
             var m = ReadMsg(r);
@@ -544,6 +584,7 @@ public sealed partial class MailStore
             {
                 ThreadKey = m.ThreadKey, AccountId = m.AccountId, Latest = m,
                 Count = r.GetInt32(26), UnreadCount = r.GetInt32(27), Flagged = r.GetInt32(28) != 0, HasAttachments = r.GetInt32(29) != 0,
+                HighPriority = r.GetInt32(highPriority) != 0,
                 Participants = string.Join(", ", people.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(FirstName).Distinct().Take(4)),
                 SnoozeUntil = m.SnoozeUntil,
                 DeleteAt = r.IsDBNull(delAt) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(delAt)),
@@ -633,7 +674,8 @@ public sealed partial class MailStore
     public void SetLocalFlags(long rowId, MessageFlags flags)
     {
         using var c = Open();
-        Exec(c, "UPDATE messages SET flags=$f WHERE id=$id", ("$f", (int)flags), ("$id", rowId));
+        Exec(c, "UPDATE messages SET flags=(flags & $meta) | ($f & ~$meta) WHERE id=$id",
+            ("$meta", (int)Mail.MailPriorityHeaders.MetadataFlags), ("$f", (int)flags), ("$id", rowId));
     }
 
     public void DeleteRow(long rowId)
@@ -984,6 +1026,14 @@ public sealed partial class MailStore
 
     public LocalDraft? GetLocalDraft(long id) => GetLocalDrafts().FirstOrDefault(d => d.Id == id);
 
+    /// <summary>Read only the serialized message length, without loading attachment BLOBs into the UI.</summary>
+    public long? GetLocalDraftMimeSize(long id)
+    {
+        using var c = Open();
+        var value = Scalar(c, "SELECT length(mime) FROM local_drafts WHERE id=$id", ("$id", id));
+        return value is null or DBNull ? null : Convert.ToInt64(value);
+    }
+
     /// <summary>Local drafts that are new messages (not newer copies of a server draft, which is counted already).</summary>
     public int CountLocalDrafts()
     {
@@ -1016,10 +1066,32 @@ public sealed partial class MailStore
 
     // ───────────────────────── outbox ─────────────────────────
 
-    public long AddOutbox(OutboxItem o)
+    /// <summary>Separate durable queue keeps the optional post-send action across restart without modifying the mail schema version.</summary>
+    private void EnsurePostSendArchiveSchema()
     {
         using var c = Open();
+        Exec(c, """
+            CREATE TABLE IF NOT EXISTS post_send_archives(
+              outbox_id INTEGER PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE,
+              account_id TEXT NOT NULL, thread_key TEXT NOT NULL, source_verified INTEGER NOT NULL DEFAULT 0);
+            """);
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('post_send_archives') WHERE name='source_verified'")) == 0)
+            Exec(c, "ALTER TABLE post_send_archives ADD COLUMN source_verified INTEGER NOT NULL DEFAULT 0");
+        // Older versions recorded the selected sender, not the reply's original account. Its provenance cannot
+        // be recovered safely. Disable only that optional action; the scheduled/outgoing message is unchanged.
+        // The default also fails closed if an older version is used again and queues another legacy action.
+        Exec(c, "DELETE FROM post_send_archives WHERE source_verified<>1");
+    }
+
+    public long AddOutbox(OutboxItem o)
+    {
+        if (o.ArchiveAfterSend && (o.ArchiveSource is not { IsValid: true }
+            || !string.Equals(o.ArchiveSource.ThreadKey, o.ThreadKey, StringComparison.Ordinal)))
+            throw new InvalidOperationException("The original reply account and conversation must be identified before queueing Send & Archive.");
+        using var c = Open();
+        using var tx = c.BeginTransaction();
         using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created)
             VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c) RETURNING id
@@ -1034,7 +1106,51 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$ra", (object?)o.RemindAt?.ToUnixTimeMilliseconds() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         o.Id = Convert.ToInt64(cmd.ExecuteScalar());
+        if (o.ArchiveAfterSend)
+        {
+            using var archive = c.CreateCommand();
+            archive.Transaction = tx;
+            archive.CommandText = "INSERT INTO post_send_archives(outbox_id,account_id,thread_key,source_verified) VALUES($id,$a,$t,1)";
+            archive.Parameters.AddWithValue("$id", o.Id);
+            archive.Parameters.AddWithValue("$a", o.ArchiveSource!.AccountId);
+            archive.Parameters.AddWithValue("$t", o.ArchiveSource.ThreadKey);
+            archive.ExecuteNonQuery();
+        }
+        tx.Commit();
         return o.Id;
+    }
+
+    public List<(long OutboxId, string AccountId, string ThreadKey)> PendingPostSendArchives()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT p.outbox_id,p.account_id,p.thread_key FROM post_send_archives p
+            JOIN outbox o ON o.id=p.outbox_id WHERE o.status=3 AND p.source_verified=1 ORDER BY p.outbox_id
+            """;
+        var items = new List<(long, string, string)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) items.Add((r.GetInt64(0), r.GetString(1), r.GetString(2)));
+        return items;
+    }
+
+    public void FinishPostSendArchive(long outboxId)
+    {
+        using var c = Open();
+        Exec(c, "DELETE FROM post_send_archives WHERE outbox_id=$id", ("$id", outboxId));
+    }
+
+    /// <summary>The source remains available for Undo even if the composer deleted its local draft or the context cache was pruned.</summary>
+    public ReplyArchiveSource? GetPostSendArchiveSource(long outboxId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT account_id,thread_key FROM post_send_archives WHERE outbox_id=$id AND source_verified=1";
+        cmd.Parameters.AddWithValue("$id", outboxId);
+        using var row = cmd.ExecuteReader();
+        if (!row.Read()) return null;
+        var source = new ReplyArchiveSource(row.GetString(0), row.GetString(1));
+        return source.IsValid ? source : null;
     }
 
     /// <param name="withMime">false = leave the message itself out (status bar, counts: cheap to read often).</param>

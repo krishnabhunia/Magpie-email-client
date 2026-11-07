@@ -84,7 +84,12 @@ internal static class Program
         using var parent = WindowsStartup.Acquire(false, false, test.MutexName, test.StartedEvent);
         Assert(parent.OwnsInstance, "The parent owns the isolated single-instance mutex");
         using var started = WindowsStartup.CreateAcknowledgement(test.StartedEvent);
+        using var entered = WindowsStartup.CreateAcknowledgement(test.BlockedEntryEvent);
         using var child = Child.Start(test.SelectedExe, "blocked", test);
+        // A new case deliberately uses an empty single-file extraction directory. Wait for the managed
+        // fixture separately so cold bundle extraction is not charged to the acknowledgement protocol.
+        // The parent owns the mutex during BOTH waits; neither signal grants the child profile access.
+        child.ExpectManagedEntry(entered);
         Assert(started.WaitOne(TimeSpan.FromSeconds(25)), "The child acknowledges startup while the parent still owns the mutex");
         child.ExpectExit(OwnershipTimeoutExit);
         Assert(parent.OwnsInstance, "The parent kept ownership until the child timed out");
@@ -94,6 +99,7 @@ internal static class Program
 
     private static int BlockedChild(TestCase test)
     {
+        using (var entered = EventWaitHandle.OpenExisting(test.BlockedEntryEvent)) entered.Set();
         using var startup = WindowsStartup.Acquire(true, false, test.MutexName, test.StartedEvent, TimeSpan.FromSeconds(2));
         if (!startup.OwnsInstance) return OwnershipTimeoutExit;
         // Like Program.Main, profile initialization is reachable only after ownership. A broken gate makes this
@@ -360,6 +366,7 @@ internal static class Program
     private sealed record TestCase(string Root, string MutexName, string StartedEvent, string RestoreAttemptEvent, string SelectedExe)
     {
         public string File => Path.Combine(Root, "case.json");
+        public string BlockedEntryEvent => MutexName + ".ManagedEntry";
         public string Profile => Path.Combine(Root, "profile");
         public string Exe => Path.Combine(Root, "app", "Magpie.exe");
         public string Report(string name) => Path.Combine(Root, name + ".txt");
@@ -380,6 +387,7 @@ internal static class Program
         private readonly Task<string> _output;
         private readonly Task<string> _error;
         private readonly string _mode;
+        private bool _outputWritten;
         private Child(Process process, string mode)
         {
             _process = process; _mode = mode;
@@ -399,18 +407,58 @@ internal static class Program
             start.Environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = Path.Combine(test.Root, "bundle");
             return new Child(Process.Start(start) ?? throw new InvalidOperationException("The fixture child did not start."), mode);
         }
+        public void ExpectManagedEntry(EventWaitHandle entered)
+        {
+            var elapsed = Stopwatch.StartNew();
+            while (!entered.WaitOne(TimeSpan.FromMilliseconds(100)))
+            {
+                if (_process.HasExited)
+                    throw new InvalidOperationException("The " + _mode + " fixture exited with " + _process.ExitCode
+                        + " before reaching its managed ownership gate.");
+                if (elapsed.Elapsed >= TimeSpan.FromSeconds(60))
+                    throw new TimeoutException("The " + _mode + " fixture did not reach its managed ownership gate within 60 seconds"
+                        + "; child process " + _process.Id + " is still running. The acknowledgement check has not begun.");
+            }
+            Console.WriteLine("LIFECYCLE_CHILD_MANAGED_ENTRY mode=" + _mode + "; elapsed_ms=" + elapsed.ElapsedMilliseconds);
+        }
         public void ExpectExit(int code, int seconds = 30)
         {
             if (!_process.WaitForExit(checked(seconds * 1000))) throw new TimeoutException("The " + _mode + " fixture did not finish.");
+            WriteOutput();
+            Assert(_process.ExitCode == code, _mode + " exited with " + _process.ExitCode + "; expected " + code);
+        }
+        private void WriteOutput()
+        {
+            if (_outputWritten) return;
             var output = _output.GetAwaiter().GetResult();
             var error = _error.GetAwaiter().GetResult();
+            _outputWritten = true;
             if (output.Length > 0) Console.Write(output);
             if (error.Length > 0) Console.Error.Write(error);
-            Assert(_process.ExitCode == code, _mode + " exited with " + _process.ExitCode + "; expected " + code);
         }
         public void Dispose()
         {
-            try { if (!_process.HasExited) { _process.Kill(entireProcessTree: true); _process.WaitForExit(5000); } }
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    Console.Error.WriteLine("LIFECYCLE_CHILD_ABORT mode=" + _mode + "; pid=" + _process.Id);
+                    _process.Kill(entireProcessTree: true);
+                    _process.WaitForExit(5000);
+                }
+                if (!_outputWritten && _process.HasExited)
+                {
+                    Console.Error.WriteLine("LIFECYCLE_CHILD_EXIT mode=" + _mode + "; exit_code=" + _process.ExitCode);
+                    // Preserve bootstrap/protocol diagnostics on an assertion failure as well as success.
+                    // A broken process pipe must not hang fixture cleanup or hide the original assertion.
+                    try
+                    {
+                        if (Task.WaitAll([_output, _error], TimeSpan.FromSeconds(5))) WriteOutput();
+                        else Console.Error.WriteLine("Child output did not finish draining during cleanup.");
+                    }
+                    catch (Exception ex) { Console.Error.WriteLine("Child output cleanup: " + ex.Message); }
+                }
+            }
             finally { _process.Dispose(); }
         }
     }

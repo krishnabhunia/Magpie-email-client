@@ -10,6 +10,13 @@ namespace Magpie.Core.Mail;
 
 public enum ComposeMode { New, Reply, ReplyAll, Forward, EditDraft }
 
+/// <summary>One attachment's position. Paths and forwarded MIME parts are stored separately.</summary>
+public sealed class DraftAttachmentPosition
+{
+    public string? Path { get; set; }
+    public int? CarriedIndex { get; set; }
+}
+
 /// <summary>Everything the compose window edits.</summary>
 public sealed class Draft
 {
@@ -18,17 +25,30 @@ public sealed class Draft
     public string To { get; set; } = "";
     public string Cc { get; set; } = "";
     public string Bcc { get; set; } = "";
+    /// <summary>Optional address for replies to this message (not the sender account).</summary>
+    public string ReplyTo { get; set; } = "";
     public string Subject { get; set; } = "";
+    /// <summary>Normal, High or Low. Kept as text for compatible draft JSON.</summary>
+    public string Priority { get; set; } = "Normal";
+    public bool RequestReadReceipt { get; set; }
     /// <summary>HTML of the editor (new text + quoted original).</summary>
     public string Html { get; set; } = "";
+    /// <summary>Send as text/plain only. Formatting is removed explicitly by the composer UI.</summary>
+    public bool IsPlainText { get; set; }
     /// <summary>New-text font captured by the composer. Existing inline formatting in Html takes precedence.</summary>
     public TextStyle? ComposeStyle { get; set; }
     public List<string> AttachmentPaths { get; set; } = new();
+    /// <summary>Names sent to recipients without changing the files on disk.</summary>
+    public Dictionary<string, string> AttachmentNames { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>Order of both new and forwarded attachments, including interleaving.</summary>
+    public List<DraftAttachmentPosition> AttachmentOrder { get; set; } = new();
     /// <summary>Attachments carried over from the original (forward), as raw MIME parts.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public List<MimeEntity> CarriedParts { get; set; } = new();
     public string InReplyTo { get; set; } = "";
     public string References { get; set; } = "";
     public string ThreadKey { get; set; } = "";
+    /// <summary>Trusted local origin of a reply; independent of the selected sending account and never a MIME header.</summary>
+    public ReplyArchiveSource? ReplyArchiveSource { get; set; }
     /// <summary>AW1 (Q85): the message being forwarded (its row on this PC), so the AI note reads that email.</summary>
     public long? ForwardOfRow { get; set; }
     /// <summary>Local row of the server draft this came from (deleted after sending).</summary>
@@ -140,6 +160,7 @@ public static class Composer
         var sig = SignatureHtml(account, reply: true);
         if (mode is ComposeMode.Reply or ComposeMode.ReplyAll)
         {
+            d.ReplyArchiveSource = new ReplyArchiveSource(original.AccountId, original.ThreadKey);
             (d.To, d.Cc) = ReplyRecipients(original, mode == ComposeMode.ReplyAll, myAddresses, isMine);
             d.Subject = Threading.ReplySubject(original.Subject);
             var mid = original.MessageId;
@@ -243,9 +264,17 @@ public static class Composer
     {
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress(account.DisplayName, account.Email));
-        msg.To.AddRange(ParseAddresses(d.To));
-        msg.Cc.AddRange(ParseAddresses(d.Cc));
-        msg.Bcc.AddRange(ParseAddresses(d.Bcc));
+        // A recipient entered in two fields must get only one copy. The first (To, then Cc,
+        // then Bcc) wins, and Bcc-only addresses are never promoted into a visible field.
+        var seenRecipients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in ParseAddresses(d.To).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.To.Add(address);
+        foreach (var address in ParseAddresses(d.Cc).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.Cc.Add(address);
+        foreach (var address in ParseAddresses(d.Bcc).Mailboxes)
+            if (seenRecipients.Add(address.Address)) msg.Bcc.Add(address);
+        if (!string.IsNullOrWhiteSpace(d.ReplyTo))
+            msg.ReplyTo.AddRange(ParseAddresses(d.ReplyTo));
         msg.Subject = d.Subject ?? "";
         msg.Date = DateTimeOffset.Now;
         var domain = account.Email.Contains('@') ? account.Email.Split('@')[1] : "magpie.local";
@@ -254,10 +283,24 @@ public static class Composer
         if (!string.IsNullOrWhiteSpace(d.InReplyTo)) msg.InReplyTo = d.InReplyTo.Trim().Trim('<', '>');
         foreach (var r in Threading.ParseReferences(d.References)) msg.References.Add(r);
         msg.Headers.Add("X-Mailer", "Magpie 1.0");
+        if (string.Equals(d.Priority, "High", StringComparison.OrdinalIgnoreCase))
+        {
+            msg.Headers.Add("X-Priority", "1 (Highest)");
+            msg.Headers.Add("Importance", "high");
+            msg.Headers.Add("X-MSMail-Priority", "High");
+        }
+        else if (string.Equals(d.Priority, "Low", StringComparison.OrdinalIgnoreCase))
+        {
+            msg.Headers.Add("X-Priority", "5 (Lowest)");
+            msg.Headers.Add("Importance", "low");
+            msg.Headers.Add("X-MSMail-Priority", "Low");
+        }
+        if (d.RequestReadReceipt)
+            msg.Headers.Add("Disposition-Notification-To", account.Email);
 
         var builder = new BodyBuilder();
         // Pasted pictures arrive as data: URIs, which many mail apps block — send them as inline attachments.
-        var inner = DataImage.Replace(d.Html, m =>
+        var inner = d.IsPlainText ? d.Html : DataImage.Replace(d.Html, m =>
         {
             try
             {
@@ -268,6 +311,8 @@ public static class Composer
             }
             catch { return m.Value; }
         });
+        // Plain-editor whitespace is message content, not rich-HTML preview formatting.
+        var plainBody = d.IsPlainText ? MimeText.EditorHtmlToPlainText(d.Html) : MimeText.HtmlToText(d.Html);
         if (!string.IsNullOrEmpty(d.CalendarReply))
         {
             // An invite answer: plain text + the iCalendar reply, as alternatives (what calendar servers expect).
@@ -275,14 +320,50 @@ public static class Composer
             cal.ContentType.Parameters.Add("method", "REPLY");
             cal.ContentType.Charset = "utf-8";
             cal.ContentTransferEncoding = ContentEncoding.QuotedPrintable;
-            msg.Body = new Multipart("alternative") { new TextPart("plain") { Text = MimeText.HtmlToText(d.Html) }, cal };
+            var text = new TextPart("plain") { Text = plainBody };
+            if (d.IsPlainText) text.ContentTransferEncoding = ContentEncoding.Base64;
+            msg.Body = new Multipart("alternative") { text, cal };
             return msg;
         }
-        builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
-        builder.TextBody = MimeText.HtmlToText(d.Html);
-        foreach (var path in d.AttachmentPaths.Where(File.Exists)) builder.Attachments.Add(path);
-        foreach (var part in d.CarriedParts) builder.Attachments.Add(part);
+        if (!d.IsPlainText) builder.HtmlBody = WrapHtml(inner, d.ComposeStyle);
+        builder.TextBody = plainBody;
+        // Preserve the visible order even when local files and forwarded MIME parts
+        // are interleaved. Older drafts without an order retain paths-then-parts.
+        // A path differing only by case can identify a different file on a case-sensitive volume.
+        // The Windows picker deduplicates its own selections; shared MIME code must never discard distinct paths.
+        var addedPaths = new HashSet<string>(StringComparer.Ordinal);
+        var addedParts = new HashSet<int>();
+        void AddPath(string path)
+        {
+            if (!addedPaths.Add(path)) return;
+            if (!File.Exists(path)) throw new FileNotFoundException("An attached file is missing. Choose it again before sending.", path);
+            var attachment = builder.Attachments.Add(path);
+            if (attachment is MimePart mime && d.AttachmentNames.TryGetValue(path, out var alias)
+                && ComposeSafety.ValidAttachmentName(alias)) mime.FileName = alias;
+        }
+        void AddPart(int index)
+        {
+            if (index < 0 || index >= d.CarriedParts.Count || !addedParts.Add(index)) return;
+            builder.Attachments.Add(d.CarriedParts[index]);
+        }
+        foreach (var entry in d.AttachmentOrder)
+        {
+            if (entry.Path is { } path && d.AttachmentPaths.Contains(path, StringComparer.Ordinal)) AddPath(path);
+            else if (entry.CarriedIndex is { } index) AddPart(index);
+        }
+        // Never discard an attachment just because an old or partially restored
+        // draft has no corresponding AttachmentOrder entry.
+        foreach (var path in d.AttachmentPaths) AddPath(path);
+        for (var i = 0; i < d.CarriedParts.Count; i++) AddPart(i);
         msg.Body = builder.ToMessageBody();
+        if (d.IsPlainText)
+        {
+            // MIME transport terminates unencoded text with a newline. Encoding the authored body keeps that
+            // framing out of the decoded message, including an empty body or one without a final newline.
+            // With no HTML/linked resources, BodyBuilder puts this part first, before any carried attachments.
+            var text = msg.Body is TextPart single ? single : (TextPart)((Multipart)msg.Body)[0];
+            text.ContentTransferEncoding = ContentEncoding.Base64;
+        }
         return msg;
     }
 
@@ -386,13 +467,18 @@ public static class Composer
             Cc = FormatList(msg.Cc),
             Bcc = FormatList(msg.Bcc),
             Subject = msg.Subject ?? "",
+            ReplyTo = FormatList(msg.ReplyTo),
+            Priority = MailPriorityHeaders.Read(msg.Headers),
+            RequestReadReceipt = !string.IsNullOrWhiteSpace(msg.Headers["Disposition-Notification-To"]),
             InReplyTo = string.IsNullOrEmpty(msg.InReplyTo) ? "" : "<" + msg.InReplyTo + ">",
             References = string.Join(" ", msg.References.Select(r => "<" + r + ">")),
             ThreadKey = threadKey,
             MessageId = msg.MessageId ?? "",
+            IsPlainText = msg.HtmlBody == null,
         };
         var html = msg.HtmlBody;
-        if (string.IsNullOrEmpty(html)) html = MimeText.TextToHtml(msg.TextBody ?? "");
+        if (string.IsNullOrEmpty(html))
+            html = d.IsPlainText ? MimeText.PlainTextToEditorHtml(msg.TextBody) : MimeText.TextToHtml(msg.TextBody ?? "");
         var m = Regex.Match(html, @"<body[^>]*>(.*)</body>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         var inlined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var inner = m.Success ? RetainBodyTypography(html, m.Groups[1].Value) : html;
