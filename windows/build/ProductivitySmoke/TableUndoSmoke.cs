@@ -162,6 +162,24 @@ internal static partial class Program
                     await History("undo", after, "afterNodes", "Undo of later typing preserves the table edit");
                     await History("undo", before, "originalNodes", "the next Undo restores the deleted content after later typing");
                     await History("redo", after, "afterNodes", "Redo still restores the exact accepted table after later typing");
+                    if (fixture.Name == "delete-row-rich")
+                    {
+                        await script("(()=>{const range=document.createRange();range.selectNodeContents(ed.querySelector('[data-table-keep] a'));selectEditorRange(range);})()");
+                        var colored = await script("fmt('foreColor','#0055aa')");
+                        var formatted = await Html();
+                        Assert(colored == "true" && formatted != after,
+                            fixture.Name + ": later native color formatting changes retained cell text\nBefore HTML: " + Bounded(after) + "\nFormatted HTML: " + Bounded(formatted));
+                        // Native formatting may introduce a span/font node. Track that actual result
+                        // separately while keeping exact HTML and identity checks for both states.
+                        await script("window.tableUndoState.formattedNodes=window.tableUndoNodes(window.tableUndoCurrent())");
+                        await History("undo", after, "afterNodes", "Undo of later formatting preserves the accepted table");
+                        await History("redo", formatted, "formattedNodes", "Redo of formatting on an already-connected table preserves the user's color");
+                        await History("undo", after, "afterNodes", "the formatting Undo restores the table's original accepted styles");
+                        await History("undo", before, "originalNodes", "the preceding table Undo still restores exact original content after formatting");
+                        await History("redo", after, "afterNodes", "table Redo restores exact table styles before replaying later formatting");
+                        await History("redo", formatted, "formattedNodes", "formatting Redo after table reconnection restores its exact final HTML");
+                        await History("undo", after, "afterNodes", "restore the baseline table result before the existing second deletion");
+                    }
                     if (fixture.Second.Length > 0)
                     {
                         // Do not open another menu or assign selectedTableCell: use the real rebound cell.

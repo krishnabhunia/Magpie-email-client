@@ -72,6 +72,7 @@ let typography = null;
 let contextualLink=null,linkEditTarget=null,formattingTarget=null,dismissedLink=null,linkBubbleEnabled=false;
 let emojiTarget=null;
 const protectedFonts = new WeakMap();
+let tableStyleHistory=[];
 function fontCss(style){ return 'font-family:' + JSON.stringify(style.family) + ';font-size:' + style.size + 'px;font-weight:400'; }
 function applyFont(el, style, normal){ el.style.fontFamily=style.family; el.style.fontSize=style.size+'px'; if(normal!==false) el.style.fontWeight='400'; }
 function applyProtectedFont(el, style){
@@ -150,6 +151,7 @@ function setHtml(h,bodySectionsLost){
   // Whole-draft restoration invalidates every range or node captured from the previous DOM.
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
   selectedImage=null;selectedTableCell=null;saved=null;
+  tableStyleHistory=[];
   clipboardPictureTarget=null;
   cloudLinkTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;dismissedLink=null;
@@ -245,6 +247,7 @@ function setEditorSpellcheck(enabled){
 function setEditorPlainText(enabled,notify){
   const next=!!enabled;
   if(next===isPlainText) return true;
+  tableStyleHistory=[];
   cloudLinkTarget=null;
   clipboardPictureTarget=null;
   hideLinkBubble();linkEditTarget=null;formattingTarget=null;
@@ -627,6 +630,26 @@ function editSpannedTable(action,cell,table,quiet){
   }
   return true;
 }
+function restoreTableStylesOnInput(event){
+  const undo=event.inputType==='historyUndo',redo=event.inputType==='historyRedo';
+  // A new edit discards native Redo entries. Retain older, temporarily detached tables that
+  // still belong to Undo, but release replacements whose own insertion was already undone.
+  if(!undo&&!redo)tableStyleHistory=tableStyleHistory.filter(function(entry){return !entry.undone;});
+  tableStyleHistory.forEach(function(entry){
+    const connected=ed.contains(entry.root);
+    if(redo&&!entry.connected&&connected){
+      // Native Redo has completed its style-normalizing subcommands. Repair only this table's
+      // reattachment; formatting/typing on an already connected table must remain untouched.
+      entry.nodes.forEach(function(item){
+        if(!entry.root.contains(item.node))return;
+        if(item.style===null)item.node.removeAttribute('style');else item.node.setAttribute('style',item.style);
+      });
+    }
+    if(undo&&entry.connected&&!connected)entry.undone=true;
+    if(connected)entry.undone=false;
+    entry.connected=connected;
+  });
+}
 function deleteTableNative(action,cell,table){
   // Plan only the affected table off-document. The browser owns the one deletion/replacement
   // transaction, including its original nodes and all earlier/later native editing history.
@@ -662,6 +685,7 @@ function deleteTableNative(action,cell,table){
   const selectionBefore=window.getSelection(),rangesBefore=[];
   for(let index=0;index<selectionBefore.rangeCount;index++)rangesBefore.push(selectionBefore.getRangeAt(index).cloneRange());
   const savedBefore=saved?.cloneRange()||null;
+  const replayNodes=[];
   let changed=false,replacement=null,selectionCell=null;
   function guard(node,block){
     if(node.nodeType!==Node.ELEMENT_NODE)return;
@@ -704,6 +728,7 @@ function deleteTableNative(action,cell,table){
         // planned attributes on its new nodes so Undo/Redo and protected-font reset keep them.
         if(plannedStyles[index]===null)node.removeAttribute('style');else node.setAttribute('style',plannedStyles[index]);
         if(records[index])protectedFonts.set(node,{...records[index]});
+        replayNodes.push({node:node,style:plannedStyles[index]});
       });
     }
   }finally{
@@ -718,6 +743,12 @@ function deleteTableNative(action,cell,table){
     rangesBefore.forEach(function(range){if(validEditorRange(range))selection.addRange(range);});
     saved=savedBefore&&validEditorRange(savedBefore)?savedBefore:null;
     return false;
+  }
+  if(replacement&&ed.contains(replacement)){
+    // Register only after native insertion and exact attribute restoration have completed.
+    tableStyleHistory.push({root:replacement,nodes:replayNodes,connected:true,undone:false});
+    // Chromium retains at most 1,000 native actions; keep the same bound for these node records.
+    if(tableStyleHistory.length>1000)tableStyleHistory.shift();
   }
   selectedTableCell=selectionCell||(replacement?.querySelector('td,th'))||null;
   selectedImage=null;rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
@@ -992,7 +1023,7 @@ function cmd(mode, text){
   post({t:'dirty'});
   return true;
 }
-ed.addEventListener('input', function(){ post({t:'dirty'});inspectMention(); });
+ed.addEventListener('input', function(event){ restoreTableStylesOnInput(event);post({t:'dirty'});inspectMention(); });
 let nativeAttachmentPaste=false;
 let clipboardPictureTarget=null;
 function setNativeAttachmentPaste(enabled){nativeAttachmentPaste=!!enabled;}
