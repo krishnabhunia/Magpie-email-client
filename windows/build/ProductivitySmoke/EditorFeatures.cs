@@ -87,7 +87,14 @@ internal static partial class Program
                 await Script("setQuoteFoldingSupported(" + initialQuoteFoldingSupport + ")");
             }
             if (aiFailures.Count > 0) throw new AggregateException("Native AI Undo smoke failed", aiFailures);
-            await CheckEditorFindProgressionAsync(Script);
+            // Both fixtures initialize their own document. Run them independently so one failure
+            // cannot hide the native history or cross-inline search result in the same CI run.
+            var editingFailures = new List<Exception>();
+            try { await CheckEditorFindProgressionAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Editor search smoke failed", ex)); }
+            try { await CheckTableUndoAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Table deletion Undo smoke failed", ex)); }
+            if (editingFailures.Count > 0) throw new AggregateException("Native editor editing smoke failed", editingFailures);
             await CheckWindowsQuoteFoldingAsync(Script);
             await CheckPlainEditorWhitespaceRoundTripAsync(Script);
             const string original = "<p>My own opening.</p><div class=\"magpie-signature\"><p>Regards, Example User</p></div><div class=\"magpie-quote\"><blockquote>Original quoted message</blockquote></div>";

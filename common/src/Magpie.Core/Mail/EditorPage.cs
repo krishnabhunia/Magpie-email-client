@@ -540,7 +540,7 @@ function editMergedTableCell(action,cell,table){
   }else return false;
   post({t:'dirty'});return true;
 }
-function editSpannedTable(action,cell,table){
+function editSpannedTable(action,cell,table,quiet){
   // Reflow the logical grid while moving the original DOM nodes. Never flatten or clone
   // merged content; its formatting, links and inline pictures remain attached to that node.
   const layout=tableGrid(table),selected=layout?.positions.get(cell);
@@ -561,7 +561,7 @@ function editSpannedTable(action,cell,table){
       else if(entry.row+entry.height>boundary) entry.height++;
     }
   }else if(action==='deleteRow'){
-    if(rows.length===1){table.remove();post({t:'dirty'});return true;}
+    if(rows.length===1){table.remove();if(!quiet)post({t:'dirty'});return true;}
     const removed=selected.row;
     rows.splice(removed,1);
     for(const entry of anchors){
@@ -580,7 +580,7 @@ function editSpannedTable(action,cell,table){
       else if(entry.col+entry.width>boundary) entry.width++;
     }
   }else if(action==='deleteColumn'){
-    if(columns===1){table.remove();post({t:'dirty'});return true;}
+    if(columns===1){table.remove();if(!quiet)post({t:'dirty'});return true;}
     const removed=selected.col;
     columns--;
     for(const entry of anchors){
@@ -621,7 +621,106 @@ function editSpannedTable(action,cell,table){
     }
   }
   parent.replaceChildren(...rows);
-  if(!ed.contains(selectedTableCell)) selectedTableCell=table.querySelector('td,th');
+  if(!quiet){
+    if(!ed.contains(selectedTableCell)) selectedTableCell=table.querySelector('td,th');
+    post({t:'dirty'});
+  }
+  return true;
+}
+function deleteTableNative(action,cell,table){
+  // Plan only the affected table off-document. The browser owns the one deletion/replacement
+  // transaction, including its original nodes and all earlier/later native editing history.
+  const holder=document.createElement('div'),copy=table.cloneNode(true);
+  holder.appendChild(copy);
+  const originalNodes=[table].concat(Array.from(table.querySelectorAll('*')));
+  const copiedNodes=[copy].concat(Array.from(copy.querySelectorAll('*')));
+  const origins=new Map(copiedNodes.map(function(node,index){return [node,originalNodes[index]];}));
+  const copiedCell=copiedNodes[originalNodes.indexOf(cell)],row=cell.parentElement;
+  const rowIndex=Array.from(table.rows).indexOf(row),column=Array.from(row.cells).indexOf(cell);
+  if(action!=='deleteTable'&&(rowIndex<0||column<0||!copiedCell))return false;
+  if(action==='deleteTable') copy.remove();
+  else if(copy.querySelector('[rowspan],[colspan]')){
+    if(!editSpannedTable(action,copiedCell,copy,true))return false;
+  }else if(action==='deleteRow'){
+    if(copy.rows.length===1)copy.remove();else copy.rows[rowIndex].remove();
+  }else if(action==='deleteColumn'){
+    if(row.cells.length===1)copy.remove();
+    else Array.from(copy.rows).forEach(function(tr){if(tr.cells[column])tr.cells[column].remove();});
+  }else return false;
+
+  const remaining=copy.parentNode===holder;
+  const nextCell=remaining?(copy.contains(copiedCell)?copiedCell:copy.querySelector('td,th')):null;
+  const plannedNodes=remaining?[copy].concat(Array.from(copy.querySelectorAll('*'))):[];
+  const records=plannedNodes.map(function(node){return protectedFonts.get(origins.get(node));});
+  // Temporary provenance lives only on the inserted nodes, never on the live original table.
+  // Native Undo keeps those same nodes; removing the attributes does not replace its references.
+  let marker='data-magpie-table-edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+  while(ed.querySelector('['+marker+']'))marker+='x';
+  plannedNodes.forEach(function(node,index){node.setAttribute(marker,String(index));});
+  const nextIndex=plannedNodes.indexOf(nextCell),guards=[],guarded=new Map();
+  const selectionBefore=window.getSelection(),rangesBefore=[];
+  for(let index=0;index<selectionBefore.rangeCount;index++)rangesBefore.push(selectionBefore.getRangeAt(index).cloneRange());
+  const savedBefore=saved?.cloneRange()||null;
+  let changed=false,replacement=null,selectionCell=null;
+  function guard(node,block){
+    if(node.nodeType!==Node.ELEMENT_NODE)return;
+    let entry=guarded.get(node);
+    if(!entry){
+      entry={node:node,editable:node.getAttribute('contenteditable'),style:node.getAttribute('style'),block:false};
+      guarded.set(node,entry);guards.push(entry);node.setAttribute('contenteditable','false');
+    }
+    if(block&&!entry.block){
+      const display=getComputedStyle(node).display;
+      if(display.startsWith('inline')||display==='contents'){
+        const style=document.createElement('span').style;
+        style.cssText=entry.style||'';style.setProperty('display','block','important');
+        node.setAttribute('style',style.cssText);entry.block=true;
+      }
+    }
+    node.querySelectorAll('[contenteditable]').forEach(function(child){
+      if(guarded.has(child))return;
+      const childEntry={node:child,editable:child.getAttribute('contenteditable'),style:child.getAttribute('style'),block:false};
+      guarded.set(child,childEntry);guards.push(childEntry);
+      child.setAttribute('contenteditable','false');
+    });
+  }
+  try{
+    // A table is one atomic selected object. Do not let native selection enter its first cell
+    // or normalize a neighboring paragraph, signature or quote while replacing it.
+    guard(table,false);
+    for(let branch=table;branch&&branch!==ed;branch=branch.parentNode){
+      Array.from(branch.parentNode.childNodes).forEach(function(node){if(node!==branch)guard(node,true);});
+    }
+    const range=document.createRange();range.selectNode(table);
+    ed.focus();const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+    changed=document.execCommand(remaining?'insertHTML':'delete',false,remaining?copy.outerHTML:null);
+    if(changed&&remaining){
+      ed.querySelectorAll('['+marker+']').forEach(function(node){
+        const index=Number(node.getAttribute(marker));
+        if(index===0)replacement=node;
+        if(index===nextIndex)selectionCell=node;
+        if(records[index])protectedFonts.set(node,{...records[index]});
+      });
+    }
+  }finally{
+    ed.querySelectorAll('['+marker+']').forEach(function(node){node.removeAttribute(marker);});
+    guards.forEach(function(entry){
+      if(entry.editable===null)entry.node.removeAttribute('contenteditable');else entry.node.setAttribute('contenteditable',entry.editable);
+      if(entry.block){if(entry.style===null)entry.node.removeAttribute('style');else entry.node.setAttribute('style',entry.style);}
+    });
+  }
+  if(!changed){
+    const selection=window.getSelection();selection.removeAllRanges();
+    rangesBefore.forEach(function(range){if(validEditorRange(range))selection.addRange(range);});
+    saved=savedBefore&&validEditorRange(savedBefore)?savedBefore:null;
+    return false;
+  }
+  selectedTableCell=selectionCell||(replacement?.querySelector('td,th'))||null;
+  selectedImage=null;rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;
+  clipboardPictureTarget=null;cloudLinkTarget=null;hideLinkBubble();linkEditTarget=null;
+  formattingTarget=null;dismissedLink=null;emojiTarget=null;
+  const selection=window.getSelection();
+  saved=selection.rangeCount&&validEditorRange(selection.getRangeAt(0))?selection.getRangeAt(0).cloneRange():null;
   post({t:'dirty'});return true;
 }
 function editTable(action){
@@ -629,7 +728,7 @@ function editTable(action){
   if(!cell||!ed.contains(cell)) return false;
   const row=cell.parentElement,table=cell.closest('table');
   if(!row||!table) return false;
-  if(action==='deleteTable'){table.remove();post({t:'dirty'});return true;}
+  if(['deleteTable','deleteRow','deleteColumn'].includes(action)) return deleteTableNative(action,cell,table);
   if(['mergeRight','mergeDown','splitCell'].includes(action)) return editMergedTableCell(action,cell,table);
   // Use a logical cell grid when rows or columns are merged; preserve the original cell nodes.
   if(table.querySelector('[rowspan],[colspan]')) return editSpannedTable(action,cell,table);
@@ -641,18 +740,11 @@ function editTable(action){
     row.parentNode.insertBefore(created,action==='insertRowBefore'?row:row.nextSibling);
     selectedTableCell=created.cells[Math.min(column,created.cells.length-1)];
   }
-  else if(action==='deleteRow'){
-    if(rows.length===1)table.remove();else row.remove();
-  }
   else if(action==='insertColumnBefore'||action==='insertColumnAfter'){
     for(const tr of rows){
       const td=document.createElement('td');td.setAttribute('style','border:1px solid #B8C0C8;padding:5px');td.appendChild(document.createElement('br'));
       const at=column+(action==='insertColumnAfter'?1:0);tr.insertBefore(td,tr.cells[at]||null);
     }
-  }
-  else if(action==='deleteColumn'){
-    if(row.cells.length===1)table.remove();
-    else for(const tr of rows){if(tr.cells[column])tr.cells[column].remove();}
   }
   else return false;
   post({t:'dirty'});return true;
@@ -684,19 +776,48 @@ function editorSearchPattern(query,matchCase){
 function editorMatches(query, matchCase){
   const pattern=editorSearchPattern(query,matchCase),matches=[];
   if(!pattern) return matches;
-  const walker=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);
-  while(walker.nextNode()){
-    const node=walker.currentNode;
-    if(!node.nodeValue || node.parentElement?.closest('[contenteditable="false"]')
-       || (ed.classList.contains('quote-folded') && node.parentElement?.closest('.magpie-quote'))) continue;
+  // Match contiguous inline text, retaining original UTF-16 offsets for native DOM ranges.
+  // Separators end a run instead of inventing characters that a replacement could consume.
+  let parts=[],length=0;
+  function flush(){
+    if(!parts.length)return true;
+    const text=parts.map(part=>part.node.nodeValue).join('');let index=0;
     pattern.lastIndex=0;
-    for(let match;(match=pattern.exec(node.nodeValue))!==null;){
-      const range=document.createRange();range.setStart(node,match.index);range.setEnd(node,match.index+match[0].length);
+    for(let match;(match=pattern.exec(text))!==null;){
+      const start=match.index,end=start+match[0].length;
+      while(parts[index].end<=start)index++;
+      const first=parts[index];
+      while(parts[index].end<end)index++;
+      const last=parts[index],range=document.createRange();
+      range.setStart(first.node,start-first.start);range.setEnd(last.node,end-last.start);
       matches.push(range);
-      if(matches.length>2000) return null;
+      if(matches.length>2000)return false;
     }
+    parts=[];length=0;return true;
   }
-  return matches;
+  const folded=ed.classList.contains('quote-folded'),pending=[{node:ed,visible:true}];
+  while(pending.length){
+    const entry=pending.pop(),node=entry.node;
+    if(entry.end){if(!flush())return null;continue;}
+    if(node.nodeType===Node.TEXT_NODE){
+      if(!entry.visible){if(!flush())return null;continue;}
+      if(node.nodeValue.length){parts.push({node:node,start:length,end:length+node.nodeValue.length});length+=node.nodeValue.length;}
+      continue;
+    }
+    if(node.nodeType!==Node.ELEMENT_NODE)continue;
+    const style=getComputedStyle(node);
+    const skipped=node.hidden||style.display==='none'||node.getAttribute('contenteditable')?.toLowerCase()==='false'
+      || (folded&&node.classList.contains('magpie-quote'))
+      || /^(br|hr|img|video|audio|object|iframe|input|textarea|select|button|canvas|svg|math|script|style|template|noscript)$/.test(node.localName);
+    if(skipped){if(!flush())return null;continue;}
+    const visible=style.visibility!=='hidden'&&style.visibility!=='collapse';
+    const boundary=node!==ed&&(style.display!=='inline'&&style.display!=='contents'||!visible);
+    if(boundary){if(!flush())return null;pending.push({end:true});}
+    // Hidden visibility can be overridden by a visible descendant; display:none and readonly
+    // subtrees above are excluded entirely. Neither kind can join the text on its two sides.
+    for(let i=node.childNodes.length-1;i>=0;i--)pending.push({node:node.childNodes[i],visible:visible});
+  }
+  return flush()?matches:null;
 }
 function selectEditorRange(range){
   ed.focus();const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
@@ -720,12 +841,15 @@ function findInEditor(query,matchCase){
   return {count:matches.length,index:selected+1};
 }
 function replaceFoundText(query,replacement,matchCase){
-  const pattern=editorSearchPattern(query,matchCase);
-  if(!pattern || !saved || saved.collapsed || typeof replacement!=='string') return false;
-  const selected=saved.toString(),match=pattern.exec(selected);
-  if(!match || match.index!==0 || match[0].length!==selected.length) return false;
-  if(!ed.contains(saved.commonAncestorContainer)) return false;
-  ed.focus();restore();
+  if(!validEditorRange(saved)||saved.collapsed||typeof replacement!=='string')return false;
+  const matches=editorMatches(query,matchCase),selected=saved.toString();
+  // A manually selected string spanning a hidden, readonly or block boundary is not a Find match.
+  // Parent-element endpoints may enclose the same text plus empty structure: replace only the
+  // eligible text range, preserving that structure rather than requiring identical endpoint nodes.
+  const match=matches?.find(range=>range.toString()===selected
+    &&range.compareBoundaryPoints(Range.START_TO_START,saved)>=0&&range.compareBoundaryPoints(Range.END_TO_END,saved)<=0);
+  if(!match)return false;
+  selectEditorRange(match);
   if(!document.execCommand('insertText',false,replacement)) return false;
   post({t:'dirty'});return true;
 }
