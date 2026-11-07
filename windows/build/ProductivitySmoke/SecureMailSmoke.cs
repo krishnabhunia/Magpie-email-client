@@ -47,13 +47,15 @@ internal static partial class Program
                     Assert(draft.Security.Format == MailSecurityFormat.OpenPgp && draft.Security.Sign && draft.Security.Encrypt && vm.Dirty,
                         "Security options update the editable draft and mark it dirty");
                     vm.SecurityFormat = "S/MIME";
-                    var studio = (Border)compose.FindName("StudioPanel"); studio.Visibility = Visibility.Visible;
-                    var tabs = ((DockPanel)studio.Child).Children.OfType<TabControl>().Single(); tabs.SelectedIndex = tabs.Items.Count - 1;
-                    Flush(compose);
-                    var optionsPanel = (StackPanel)((ScrollViewer)((TabItem)tabs.Items[tabs.Items.Count - 1]).Content).Content;
-                    Assert(optionsPanel.Children.OfType<CheckBox>().Any(c => Equals(c.Content, "Sign message") && c.IsChecked == true)
-                        && optionsPanel.Children.OfType<CheckBox>().Any(c => Equals(c.Content, "Encrypt message") && c.IsChecked == true),
-                        "Native compose security checkboxes reflect selected options in both themes");
+                    var options = RealizeComposeOptions(compose);
+                    var sign = options.Content.Children.OfType<CheckBox>().Single(c => Equals(c.Content, "Sign message"));
+                    var encrypt = options.Content.Children.OfType<CheckBox>().Single(c => Equals(c.Content, "Encrypt message"));
+                    Assert(options.Studio.Visibility == Visibility.Visible && options.Options.IsSelected
+                        && ReferenceEquals(sign.DataContext, vm) && ReferenceEquals(encrypt.DataContext, vm)
+                        && sign.IsChecked == true && encrypt.IsChecked == true,
+                        $"Native compose security checkboxes reflect selected options in both themes; dark={dark}, "
+                        + $"studio={options.Studio.Visibility}, tab={options.Tabs.SelectedIndex}, selectedOptions={options.Options.IsSelected}, "
+                        + $"vmSign={vm.SignMessage}, vmEncrypt={vm.EncryptMessage}; " + ComposeOptionState(sign, vm) + "; " + ComposeOptionState(encrypt, vm));
                     var size = await vm.MeasureDraftSizeAsync();
                     var protectedMessage = engine.SecureMail.PrepareOutgoing(Composer.Build(draft, account), account, draft.Security, DateTimeOffset.UtcNow);
                     Assert(size.Bytes > 0 && SecureMailService.IsProtected(protectedMessage.Message.Body), "Message-size review builds actual protected MIME");
