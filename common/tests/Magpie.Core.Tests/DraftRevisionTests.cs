@@ -121,6 +121,7 @@ public class DraftRevisionTests
         Assert.Equal(new int?[] { 0, 1 }, restored.AttachmentOrder.Select(a => a.CarriedIndex));
         var localPart = Assert.IsAssignableFrom<MimePart>(restored.CarriedParts[1]);
         using var content = new MemoryStream();
+        Assert.NotNull(localPart.Content);
         localPart.Content.DecodeTo(content);
         Assert.Equal("original local attachment", Encoding.UTF8.GetString(content.ToArray()));
         // Rebuilding never reads the now-missing source path; the snapshot owns its attachments.

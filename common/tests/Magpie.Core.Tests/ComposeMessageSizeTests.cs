@@ -31,7 +31,9 @@ public sealed class ComposeMessageSizeTests
         Assert.Equal(Composer.ToBytes(message).LongLength, size.Bytes);
         Assert.True(size.Bytes > 4096 + 8192);
         Assert.Equal(size, ComposeSafety.MeasureEncodedMessage(message));
-        Assert.True(((MimePart)draft.CarriedParts[0]).Content.Stream.CanRead);
+        var carried = Assert.IsType<MimePart>(draft.CarriedParts[0]);
+        Assert.NotNull(carried.Content);
+        Assert.True(carried.Content.Stream?.CanRead == true);
     }
 
     [Fact]

@@ -34,9 +34,13 @@ internal static partial class Program
             var observed = await script("(()=>{const images=ed.querySelectorAll('img');return {count:images.length,"
                 + "source:images[0]?.src,text:ed.textContent,codes:Array.from(ed.textContent).map(c=>c.codePointAt(0)),html:getHtml()};})()");
             using var result = JsonDocument.Parse(observed);
+            // Chromium preserves the space immediately before an inserted image as NBSP. Only that known
+            // boundary may differ; do not trim or normalize any other message character or whitespace.
+            var actualText = result.RootElement.GetProperty("text").GetString();
+            var browserPreservedSpace = text[..15] + "\u00a0" + text[16..];
             Assert(result.RootElement.GetProperty("count").GetInt32() == 1
                     && result.RootElement.GetProperty("source").GetString() == "data:image/png;base64," + Convert.ToBase64String(png)
-                    && result.RootElement.GetProperty("text").GetString() == text,
+                    && (actualText == text || actualText == browserPreservedSpace),
                 "File-picker inline image reaches the actual editor without deleting surrounding message text: " + observed);
         }
         finally

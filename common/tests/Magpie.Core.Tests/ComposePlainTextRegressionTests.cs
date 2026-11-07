@@ -12,7 +12,7 @@ public class ComposePlainTextRegressionTests
         Id = "plain-account", Email = "sender@example.test", DisplayName = "Plain Sender", Enabled = false,
     };
 
-    private static string Normalize(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string Normalize(string? text) => Assert.IsType<string>(text).Replace("\r\n", "\n").Replace('\r', '\n');
 
     // Independent fixture for EditorPage.getHtml() in plain mode: every visible line becomes one escaped p,
     // including empty first/last lines. Do not use Composer.TextToParagraphs: that older rich helper trims lines.
@@ -202,6 +202,7 @@ public class ComposePlainTextRegressionTests
         Assert.Equal(expected, Normalize(rebuilt.TextBody));
         var attachment = Assert.IsType<MimePart>(Assert.Single(rebuilt.Attachments));
         using var content = new MemoryStream();
+        Assert.NotNull(attachment.Content);
         attachment.Content.DecodeTo(content);
         Assert.Equal(attachmentBytes, content.ToArray());
     }
