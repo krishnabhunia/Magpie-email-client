@@ -160,6 +160,17 @@ function setHtml(h,bodySectionsLost){
   // part of the loaded document, never as a temporary node added/removed around an undoable edit.
   const protectedStart=ed.querySelector('.magpie-signature,.magpie-quote');
   if(protectedStart){
+    // Loose text after the protected boundary needs a stable element for native-edit guards.
+    // Leave these spans unstyled and in the loaded document, including through Undo/Redo.
+    for(let branch=protectedStart;branch&&branch!==ed;branch=branch.parentNode){
+      for(let node=branch===protectedStart?branch:branch.nextSibling;node;){
+        const next=node.nextSibling;
+        if(node.nodeType===Node.TEXT_NODE&&node.nodeValue.length){
+          const span=document.createElement('span');node.replaceWith(span);span.appendChild(node);
+        }
+        node=next;
+      }
+    }
     const walker=document.createTreeWalker(ed,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
     let node,hasAuthorPosition=false;
     while((node=walker.nextNode())&&node!==protectedStart){
@@ -751,10 +762,30 @@ function topChild(n){ while(n && n.parentNode !== ed) n = n.parentNode; return n
 function insertBody(text, replace){
   // Only generated body text passes through the browser's paste normalizer. The live signature
   // and quote keep their markup, identity and typography-reset records.
-  const guards=[],selection=window.getSelection();let changed=false,caret=null;
-  function guard(node){
-    if(node.nodeType!==Node.ELEMENT_NODE || guards.some(function(entry){return entry[0]===node;}))return;
-    guards.push([node,node.getAttribute('contenteditable')]);node.setAttribute('contenteditable','false');
+  const guards=[],guarded=new Map(),selection=window.getSelection();let changed=false,caret=null;
+  function guard(node,block){
+    if(node.nodeType!==Node.ELEMENT_NODE)return;
+    let entry=guarded.get(node);
+    if(!entry){
+      entry={node:node,editable:node.getAttribute('contenteditable'),style:node.getAttribute('style'),block:false};
+      guarded.set(node,entry);guards.push(entry);node.setAttribute('contenteditable','false');
+    }
+    if(block&&!entry.block){
+      const display=getComputedStyle(node).display;
+      if(display.startsWith('inline')||display==='contents'){
+        // Build the temporary rule off-document. Mutating the live CSSOM can leave style=""
+        // after removing an originally absent style attribute, breaking exact native Undo.
+        const style=document.createElement('span').style;
+        style.cssText=entry.style||'';style.setProperty('display','block','important');
+        node.setAttribute('style',style.cssText);entry.block=true;
+      }
+    }
+  }
+  function guardTail(node){
+    if(node.nodeType!==Node.ELEMENT_NODE)return;
+    guard(node,true);
+    // Explicit descendants can re-enable editing beneath a noneditable ancestor.
+    node.querySelectorAll('[contenteditable]').forEach(function(child){guard(child,false);});
   }
   try{
     const range=document.createRange();let insertion;
@@ -764,7 +795,11 @@ function insertBody(text, replace){
       range.selectNodeContents(ed);
     }else{
       const stop=ed.querySelector('.magpie-signature,.magpie-quote');
-      ed.querySelectorAll('.magpie-signature,.magpie-quote').forEach(guard);
+      ed.querySelectorAll('.magpie-signature,.magpie-quote').forEach(function(node){guard(node,false);});
+      // Protect the entire retained tail, including siblings outside a nested quote wrapper.
+      for(let branch=stop;branch&&branch!==ed;branch=branch.parentNode){
+        for(let node=branch===stop?branch:branch.nextSibling;node;node=node.nextSibling)guardTail(node);
+      }
       if(replace){range.setStart(ed,0);if(stop)range.setEndBefore(stop);else range.setEnd(ed,ed.childNodes.length);}
       else{if(stop)range.setStartBefore(stop);else range.setStart(ed,ed.childNodes.length);range.collapse(true);}
       // Keep the author body editable: guarding both sides leaves no native caret position.
@@ -776,7 +811,10 @@ function insertBody(text, replace){
     changed=document.execCommand(isPlainText?'insertText':'insertHTML',false,insertion);
     if(changed&&selection.rangeCount)caret=selection.getRangeAt(0).cloneRange();
   }finally{
-    guards.forEach(function(entry){if(entry[1]===null)entry[0].removeAttribute('contenteditable');else entry[0].setAttribute('contenteditable',entry[1]);});
+    guards.forEach(function(entry){
+      if(entry.editable===null)entry.node.removeAttribute('contenteditable');else entry.node.setAttribute('contenteditable',entry.editable);
+      if(entry.block){if(entry.style===null)entry.node.removeAttribute('style');else entry.node.setAttribute('style',entry.style);}
+    });
   }
   if(!changed)return false;
   rewrite=null;mentionRange=null;mentionToken='';mentionMenuOpen=false;selectedImage=null;selectedTableCell=null;

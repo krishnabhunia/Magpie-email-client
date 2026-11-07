@@ -12,7 +12,7 @@ These complete the original compose checklist's timezone/offline clarity and rev
 
 ## AI apply and Undo
 
-- A reviewed rich-editor AI insertion or replacement is one native browser editing transaction over the writable body only. The signature and quote are protected during that command, keeping their live nodes, exact markup and typography-reset records. The author body stays editable; native paragraph separation keeps appended text apart from its existing formatting. A signature-only or quote-only draft starts with a persistent blank author paragraph.
+- A reviewed rich-editor AI insertion or replacement is one native browser editing transaction over the writable body only. The entire retained tail, including nested editable descendants and unmarked text after the quote, is protected during that command. Its live nodes, exact markup and typography-reset records remain intact. Loose tail text receives an unstyled persistent span when loaded; temporary edit guards restore every original attribute. The author body stays editable; native paragraph separation keeps appended text apart from its existing formatting. A signature-only or quote-only draft starts with a persistent blank author paragraph.
 - Native Undo returns the exact preceding document; Redo reapplies the accepted result. Later manual typing has its own undo entry. Signature/quote markup, folding and typography-reset records are retained.
 - The native text-box fallback groups a selected-text replacement instead of assigning its `Text` property, preserving its real Undo/Redo history. Its toolbar Undo and Redo actions now reach that history too.
 - Whole-body AI application requires known signature and quote boundaries. When plain-text conversion or imported content makes those boundaries unavailable, Magpie keeps the message unchanged and offers selected-text rewriting. This restriction survives saving, history, scheduling and Undo Send; restoring a known rich revision restores body editing. A live fallback window can still use its exact original protected tail.
@@ -26,7 +26,7 @@ These complete the original compose checklist's timezone/offline clarity and rev
 | Forward/backward clock-change rejection; correct daylight/standard offsets | `ScheduleTimeTests.cs` with isolated synthetic zones |
 | Six-attempt exhaustion and explicit manual retry | `ScheduleTimeTests.cs` with a fake sender |
 | Preset/dialog labels, accessible time-zone text and exhausted-retry copy | `ScheduleClaritySmoke.cs`, light and dark themes |
-| Rich AI append/replace, exact protected markup and node identity, native Undo/Redo and later typing; nested, empty, inline and raw-text body boundaries | `AiApplyUndoSmoke.cs`, actual WebView2 in light/dark modes |
+| Rich AI append/replace, exact protected markup and node identity, native Undo/Redo and later typing; 14 boundary fixtures covering nested/inherited-style raw tails, tails outside wrappers, empty bodies, inline images, trailing breaks and explicitly editable tail descendants; inherited tail typography and save/reopen idempotence | `AiApplyUndoSmoke.cs`: ordinary rich cases in light/dark modes, 28 boundary cases in actual WebView2 |
 | Plain WebView2 and native fallback AI Undo/Redo; earlier typing preserved | `AiApplyUndoSmoke.cs` |
 
 The Linux environment can execute core tests, check editor JavaScript syntax and compile the native fixtures. Actual WebView2/WPF execution is required in Windows CI; cross-compilation does not establish that those UI regressions passed.

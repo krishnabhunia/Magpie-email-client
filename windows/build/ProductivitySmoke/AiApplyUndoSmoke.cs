@@ -95,37 +95,66 @@ internal static partial class Program
 
     private static async Task CheckAiBodyBoundariesAsync(Func<string, Task<string>> script)
     {
-        const string tail = "<div class=\"magpie-signature\" contenteditable=\"true\"><p style=\"font-family:Georgia;font-size:24px\">Signature <b>stays</b></p></div><div class=\"magpie-quote\"><blockquote>Original quote</blockquote><p>Older hidden paragraph</p></div><p style=\"color:navy\">Unmarked tail stays too.</p>";
+        const string protectedTail = "<div class='magpie-signature' contenteditable='true'><p style='font-family:Georgia;font-size:24px'>Signature <b>stays</b></p></div><div class='magpie-quote'><blockquote>Original quote</blockquote><p>Older hidden paragraph</p></div>";
+        const string tailParagraph = "<p style='color:navy'>Unmarked tail stays too.</p>";
+        const string author = "<p data-ai-existing style='color:purple;font-family:Georgia'><b>Existing opening.</b></p>";
+        const string pixel = "<img alt='Inline image' width='16' height='16' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>";
         var cases = new[]
         {
-            (Name: "nested protected roots", Html: "<section><p data-ai-existing style=\"color:purple;font-family:Georgia\"><b>Nested opening.</b></p>" + tail + "</section>"),
-            (Name: "empty body", Html: tail),
-            (Name: "nested empty body", Html: "<section>" + tail + "</section>"),
-            (Name: "raw text before tail", Html: "Unwrapped opening." + tail),
-            (Name: "raw text without tail", Html: "Unwrapped opening."),
-            (Name: "styled inline before tail", Html: "<span data-ai-existing contenteditable=\"true\" style=\"font-family:Georgia;font-size:22px\"><b>Inline opening.</b></span>" + tail),
-            (Name: "formatted body without tail", Html: "<p data-ai-existing style=\"color:purple;font-family:Georgia\"><b>Formatted opening.</b></p>")
+            (Name: "marked-tail-only", Html: author + protectedTail),
+            (Name: "nested-editable-tail", Html: "<section>" + author + protectedTail + tailParagraph + "</section>"),
+            (Name: "empty-body", Html: protectedTail + tailParagraph),
+            (Name: "nested-empty-body", Html: "<section>" + protectedTail + tailParagraph + "</section>"),
+            (Name: "raw-author-before-tail", Html: "Unwrapped opening." + protectedTail + tailParagraph),
+            (Name: "raw-author-no-tail", Html: "Unwrapped opening."),
+            (Name: "styled-inline-author", Html: "<span data-ai-existing contenteditable='true' style='font-family:Georgia;font-size:22px'><b>Inline opening.</b></span>" + protectedTail + tailParagraph),
+            (Name: "formatted-author-no-tail", Html: author),
+            (Name: "nested-raw-tail", Html: "<section style='font-family:Georgia;font-size:21px;font-weight:600;letter-spacing:0.4px;color:teal;line-height:1.6'>" + author + protectedTail + "Raw tail stays too.</section>"),
+            (Name: "raw-tail-outside-wrapper", Html: "<section>" + author + protectedTail + "</section>Raw outside tail stays too."),
+            (Name: "editable-tail-outside-wrapper", Html: "<section>" + author + protectedTail + "</section>" + tailParagraph),
+            (Name: "empty-no-tail", Html: "<p><br></p>"),
+            (Name: "inline-image-trailing-br", Html: "<p data-ai-existing style='font-family:Georgia'>Image opening." + pixel + "<br></p>" + protectedTail + tailParagraph),
+            (Name: "editable-tail-descendants", Html: "<section>" + author
+                + "<div class='magpie-signature' contenteditable='true'><p style='font-family:Georgia;font-size:24px'><span contenteditable=''>Signature <b contenteditable='true'>stays</b></span></p></div>"
+                + "<div class='magpie-quote'><blockquote>Original quote</blockquote><p>Older hidden paragraph</p></div>"
+                + "<p style='color:navy'><span contenteditable='plaintext-only' style='font-style:italic'>Unmarked editable tail stays too.</span></p></section>")
         };
         await script("window.aiRenderedBody=()=>{const range=document.createRange(),stop=ed.querySelector('.magpie-signature,.magpie-quote'),selection=window.getSelection(),previous=[];range.selectNodeContents(ed);if(stop)range.setEndBefore(stop);for(let index=0;index<selection.rangeCount;index++)previous.push(selection.getRangeAt(index).cloneRange());try{selection.removeAllRanges();selection.addRange(range);return selection.toString();}finally{selection.removeAllRanges();previous.forEach(item=>selection.addRange(item));}};");
-        const string snapshot = "window.aiTailNodes=()=>{const stop=ed.querySelector('.magpie-signature,.magpie-quote'),nodes=[];if(!stop)return nodes;const walk=document.createTreeWalker(ed,NodeFilter.SHOW_ALL);let seen=false,node;while(node=walk.nextNode()){if(node===stop)seen=true;if(seen)nodes.push(node);}return nodes;};window.aiTailBefore=window.aiTailNodes().map(node=>[node,node.nodeType===Node.ELEMENT_NODE?node.outerHTML:node.nodeValue]);window.aiBodyBefore=Array.from(ed.querySelectorAll('[data-ai-existing]')).map(node=>[node,node.outerHTML]);";
+        await script("""
+            window.aiTailNodes=()=>{const stop=ed.querySelector('.magpie-signature,.magpie-quote'),nodes=[];if(!stop)return nodes;const walk=document.createTreeWalker(ed,NodeFilter.SHOW_ALL);let seen=false,node;while(node=walk.nextNode()){if(node===stop)seen=true;if(seen)nodes.push(node);}return nodes;};
+            window.aiTailStyles=()=>window.aiTailNodes().filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>{
+              const style=getComputedStyle(node.parentElement),properties=['font-family','font-size','font-weight','font-style','font-stretch','font-variant','font-feature-settings','font-kerning','line-height','letter-spacing','word-spacing','color','text-transform','white-space','direction','writing-mode','text-align','text-indent','tab-size','word-break','overflow-wrap'];
+              return [node.nodeValue,properties.map(name=>style.getPropertyValue(name))];
+            });
+            """);
+        const string snapshot = "window.aiTailBefore=window.aiTailNodes().map(node=>[node,node.nodeType===Node.ELEMENT_NODE?node.outerHTML:node.nodeValue]);window.aiBodyBefore=Array.from(ed.querySelectorAll('[data-ai-existing]')).map(node=>[node,node.outerHTML]);window.aiTailStylesBefore=JSON.stringify(window.aiTailStyles());";
         const string tailUnchanged = "(()=>{const nodes=window.aiTailNodes();return nodes.length===window.aiTailBefore.length&&nodes.every((node,index)=>node===window.aiTailBefore[index][0]&&(node.nodeType===Node.ELEMENT_NODE?node.outerHTML:node.nodeValue)===window.aiTailBefore[index][1]);})()";
+        const string tailStylesUnchanged = "JSON.stringify(window.aiTailStyles())===window.aiTailStylesBefore";
         static string Bounded(string value) => value.Length <= 4000 ? value : value[..4000] + " [truncated]";
         // Rendered selection text distinguishes a real paragraph break from adjacent inline text.
         // Break counts vary by block tag; the separate HTML and node checks remain byte-for-byte exact.
         static string Rendered(string value) => Regex.Replace((JsonSerializer.Deserialize<string>(value) ?? "").Replace("\r\n", "\n"), "\n+", "\n").Trim();
+        async Task CheckReopen(string stage)
+        {
+            var html = await script("ed.innerHTML");
+            var visible = await script("ed.innerText");
+            var styles = await script("JSON.stringify(window.aiTailStyles())");
+            await script("setHtml(getHtml(),false)");
+            var reopened = await script("ed.innerHTML");
+            Assert(reopened == html && await script("ed.innerText") == visible
+                && await script("JSON.stringify(window.aiTailStyles())") == styles,
+                stage + ": reopening serialized HTML is idempotent and preserves visible text and inherited tail typography"
+                + "\nSaved HTML: " + Bounded(html) + "\nReopened HTML: " + Bounded(reopened));
+        }
         foreach (var fixture in cases)
         foreach (var mode in new[] { "appendBody", "replaceBody" })
         {
             await script("setDark(false);setQuoteFoldingSupported(true);setHtml(" + JsonSerializer.Serialize(fixture.Html) + ")");
+            // A deliberate whole-document reload creates fresh nodes. Establish the live-node Undo
+            // baseline only afterward; normalization must not accumulate extra wrappers or paragraphs.
+            await CheckReopen(fixture.Name + ", " + mode + ", before AI");
             if (fixture.Name.Contains("empty", StringComparison.Ordinal))
-            {
-                var loaded = await script("ed.innerHTML");
-                await script("setHtml(ed.innerHTML)");
-                var reopened = await script("ed.innerHTML");
-                Assert(reopened == loaded && await script("getNewText()") == "\"\"",
-                    "A protected-only draft has an editable empty body without accumulating paragraphs on reopen"
-                    + "\nLoaded HTML: " + Bounded(loaded) + "\nReopened HTML: " + Bounded(reopened));
-            }
+                Assert(await script("getNewText()") == "\"\"", fixture.Name + ": reopening an empty body does not add author text");
             await script(snapshot);
             var before = await script("ed.innerHTML");
             var expected = JsonSerializer.Deserialize<string>(await script("getNewText()"))!;
@@ -136,26 +165,28 @@ internal static partial class Program
             var body = JsonSerializer.Deserialize<string>(await script("getNewText()"))!;
             var visibleBody = Rendered(await script("window.aiRenderedBody()"));
             var retainedTail = await script(tailUnchanged);
+            var retainedStyles = await script(tailStylesUnchanged);
             var retainedBody = await script("window.aiBodyBefore.every(entry=>ed.contains(entry[0])&&entry[0].outerHTML===entry[1])");
             var expectedBody = (mode == "appendBody" && visibleBefore.Length > 0 ? visibleBefore + "\n" : "")
                 + "Generated boundary answer.\nSecond boundary paragraph.";
             var bodyMatches = visibleBody == expectedBody;
             var details = "\nFixture: " + fixture.Name + "; mode=" + mode + "; changed=" + changed + "; retained tail=" + retainedTail
-                + "; retained body=" + retainedBody + "\nBefore HTML: " + Bounded(before) + "\nAfter HTML: " + Bounded(after)
+                + "; retained body=" + retainedBody + "; retained tail styles=" + retainedStyles + "\nBefore HTML: " + Bounded(before) + "\nAfter HTML: " + Bounded(after)
                 + "\nNative command: " + Bounded(await script("JSON.stringify(window.aiBodyEditDiagnostics)"))
                 + "\nBefore getNewText: " + JsonSerializer.Serialize(expected) + "\nAfter getNewText: " + JsonSerializer.Serialize(body)
                 + "\nExpected rendered body: " + JsonSerializer.Serialize(expectedBody) + "\nActual rendered body: " + JsonSerializer.Serialize(visibleBody);
-            Assert(changed == "true" && after != before && retainedTail == "true" && bodyMatches
+            Assert(changed == "true" && after != before && retainedTail == "true" && retainedStyles == "true" && bodyMatches
                 && (mode != "appendBody" || retainedBody == "true") && !after.Contains("Apple-interchange-newline", StringComparison.Ordinal),
                 "AI edits only the body at empty, nested, inline and unwrapped boundaries with exact guard restoration" + details);
             var undo = await script("fmt('undo')");
             var undone = await script("ed.innerHTML");
-            Assert(undo == "true" && undone == before && await script(tailUnchanged) == "true",
+            Assert(undo == "true" && undone == before && await script(tailUnchanged) == "true" && await script(tailStylesUnchanged) == "true",
                 "One boundary-case Undo restores exact original HTML and the same tail nodes" + details + "\nUndo HTML: " + Bounded(undone));
             var redo = await script("fmt('redo')");
             var redone = await script("ed.innerHTML");
-            Assert(redo == "true" && redone == after && await script(tailUnchanged) == "true",
+            Assert(redo == "true" && redone == after && await script(tailUnchanged) == "true" && await script(tailStylesUnchanged) == "true",
                 "One boundary-case Redo restores the accepted body without touching tail nodes" + details + "\nRedo HTML: " + Bounded(redone));
+            await CheckReopen(fixture.Name + ", " + mode + ", after native Redo");
         }
         Console.WriteLine("AI_BODY_BOUNDARIES_NATIVE_UNDO_SMOKE_PASSED");
     }
