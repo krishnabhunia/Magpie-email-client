@@ -7,6 +7,14 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 16.1.0 (8 Nov 2026)
+<!-- closes: #146 -->
+### Changed
+- **Review template values before inserting.** Templates now show the expanded subject and message text before anything changes. Choose whether to replace an existing subject, then insert exactly what was reviewed. Use `{company}` or `{{company}}` for the sending account's company, and either single or double braces for the other variables. Missing values remain visible so you can fill them in.
+- **Attach an existing email directly.** Studio → Files has an explicit .eml picker for saved email messages.
+### Fixed
+- **Keep two differently capitalised attachment filenames distinct.** The Windows compose list now preserves their original order and outgoing names through draft editing, saving and optimized-image replacement on case-sensitive folders.
+
 ## 16.0.0 (7 Nov 2026)
 <!-- closes: #133 #134 #135 #144 -->
 ### New

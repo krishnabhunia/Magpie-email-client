@@ -4,6 +4,18 @@ using Magpie.Core.Settings;
 
 namespace Magpie.App.ViewModels;
 
+/// <summary>Exact values the author saw before choosing to insert a template.</summary>
+public sealed record ReviewedQuickTemplate(
+    string Name,
+    ExpandedQuickTemplate Expanded,
+    string Subject,
+    string To,
+    string? AccountId,
+    string? SenderAddress,
+    string? SenderName,
+    string? SenderCompany,
+    int EditVersion);
+
 public partial class ComposeViewModel
 {
     private ComposeWritingStatistics _writingStatistics = ComposeWritingStatistics.Measure("");
@@ -71,6 +83,34 @@ public partial class ComposeViewModel
         _writingStatisticsTimer = null;
     }
 
+    /// <summary>Capture one expansion context for the preview and eventual insertion.</summary>
+    public ReviewedQuickTemplate ReviewTemplate(QuickTemplate template)
+    {
+        var sender = TemplateSender;
+        var subject = Subject;
+        var to = To;
+        return new ReviewedQuickTemplate(template.Name,
+            ComposeTemplates.Expand(template, sender, to, subject, DateTimeOffset.Now), subject, to,
+            From?.Id, sender?.Email, sender?.DisplayName, sender?.Company, _edits);
+    }
+
+    /// <summary>Insert exactly the text that was approved in the preview, if the draft is still the same.</summary>
+    public Task<bool> InsertReviewedTemplateAsync(ReviewedQuickTemplate review, bool replaceSubject)
+    {
+        return InsertWritingTextAsync(async () =>
+        {
+            var sender = TemplateSender;
+            if (_edits != review.EditVersion || Subject != review.Subject || To != review.To
+                || From?.Id != review.AccountId || sender?.Email != review.SenderAddress
+                || sender?.DisplayName != review.SenderName || sender?.Company != review.SenderCompany)
+            {
+                Status = "The draft or sender details changed after the template preview. Review the template again.";
+                return false;
+            }
+            return await InsertExpandedTemplateAsync(review.Expanded, review.Subject, replaceSubject);
+        }, "Reviewed template inserted. Check the message before sending.");
+    }
+
     /// <summary>Insert body text at the current selection; fill a blank subject, but never replace one without approval.</summary>
     public Task<bool> InsertTemplateAsync(QuickTemplate template, bool replaceSubject = false, string? expectedSubject = null)
     {
@@ -83,12 +123,17 @@ public partial class ComposeViewModel
                 return false;
             }
             var expanded = ComposeTemplates.Expand(template, TemplateSender, To, originalSubject, DateTimeOffset.Now);
-            if (!string.IsNullOrEmpty(expanded.Body)) await EditorCommand!("insert", expanded.Body);
-            if (_closed || _queued) return false;
-            // A user may change the subject while WebView2 is processing the body insertion: never overwrite that newer edit.
-            if (string.Equals(Subject, originalSubject, StringComparison.Ordinal)) Subject = expanded.SubjectFor(originalSubject, replaceSubject);
-            return true;
+            return await InsertExpandedTemplateAsync(expanded, originalSubject, replaceSubject);
         }, "Template inserted. Review the message before sending.");
+    }
+
+    private async Task<bool> InsertExpandedTemplateAsync(ExpandedQuickTemplate expanded, string originalSubject, bool replaceSubject)
+    {
+        if (!string.IsNullOrEmpty(expanded.Body)) await EditorCommand!("insert", expanded.Body);
+        if (_closed || _queued) return false;
+        // A user may change the subject while WebView2 is processing the body insertion: never overwrite that newer edit.
+        if (string.Equals(Subject, originalSubject, StringComparison.Ordinal)) Subject = expanded.SubjectFor(originalSubject, replaceSubject);
+        return true;
     }
 
     /// <summary>Insert a configured canned reply literally; never expand tokens, replace message fields, or send.</summary>

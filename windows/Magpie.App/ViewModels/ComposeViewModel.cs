@@ -183,7 +183,7 @@ public partial class ComposeViewModel : ObservableObject
             foreach (var position in draft.AttachmentOrder)
             {
                 var item = position.Path != null
-                    ? Attachments.FirstOrDefault(a => !a.Carried && string.Equals(a.Path, position.Path, StringComparison.OrdinalIgnoreCase))
+                    ? Attachments.FirstOrDefault(a => !a.Carried && string.Equals(a.Path, position.Path, StringComparison.Ordinal))
                     : position.CarriedIndex is { } index && index >= 0 && index < draft.CarriedParts.Count
                         ? Attachments.FirstOrDefault(a => ReferenceEquals(a.Part, draft.CarriedParts[index])) : null;
                 if (item != null && !arranged.Contains(item)) arranged.Add(item);
@@ -465,7 +465,7 @@ public partial class ComposeViewModel : ObservableObject
         var added = new List<string>();
         foreach (var p in paths.Where(File.Exists))
         {
-            if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
+            if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.Ordinal))) continue;
             var fi = new FileInfo(p);
             var limit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
             if (ComposeSafety.EstimatedEncodedBytes(new[] { fi.Length }) > limit && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)} before email encoding. It may exceed this account's {HtmlRenderer.FormatSize(limit)} message-size guidance after encoding. Attach anyway?"))
@@ -503,7 +503,7 @@ public partial class ComposeViewModel : ObservableObject
     {
         var index = Attachments.IndexOf(original);
         if (index < 0 || original.Carried || !File.Exists(copyPath)) return;
-        if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, copyPath, StringComparison.OrdinalIgnoreCase))) return;
+        if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, copyPath, StringComparison.Ordinal))) return;
         Attachments[index] = new AttachmentItem { Path = copyPath };
         MarkEdited();
         OnPropertyChanged(nameof(AttachmentSummary));
@@ -548,7 +548,7 @@ public partial class ComposeViewModel : ObservableObject
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
         _draft.AttachmentNames = Attachments.Where(a => !a.Carried && !string.Equals(a.Name, Path.GetFileName(a.Path), StringComparison.Ordinal))
-            .ToDictionary(a => a.Path, a => a.Name, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(a => a.Path, a => a.Name, StringComparer.Ordinal);
         _draft.AttachmentOrder = Attachments.Select(a => a.Carried
             ? new DraftAttachmentPosition { CarriedIndex = _draft.CarriedParts.IndexOf(a.Part!) }
             : new DraftAttachmentPosition { Path = a.Path }).ToList();

@@ -47,6 +47,34 @@ public sealed class ComposeWritingToolsTests
     }
 
     [Fact]
+    public void Approved_single_brace_variables_include_the_senders_company_and_keep_legacy_templates()
+    {
+        var sender = new Account { Email = "owner@example.test", DisplayName = "Owner", Company = "Magpie India" };
+        var template = new QuickTemplate
+        {
+            Subject = "Follow-up with {company} on {date}",
+            Body = "Hi {first_name},\nYour contact is {{sender_name}} at {{company}}.\nPlease review {unknown}.",
+        };
+        var expanded = ComposeTemplates.Expand(template, sender, "Krishna Bhunia <krishna@example.test>", "Original", Now);
+        Assert.Equal("Follow-up with Magpie India on 06 Nov 2026", expanded.Subject);
+        Assert.Equal("Hi Krishna,\nYour contact is Owner at Magpie India.\nPlease review {unknown}.", expanded.Body);
+        Assert.Empty(ComposeSafety.UnresolvedQuickTemplateVariables(expanded.Subject + "\n" + expanded.Body));
+    }
+
+    [Fact]
+    public void Missing_company_and_recipient_values_remain_visible_for_review()
+    {
+        var template = new QuickTemplate
+        {
+            Body = "{company} | {{company}} | {first_name} | {{first_name}} | {{{company}}} | {unknown}",
+        };
+        var expanded = ComposeTemplates.Expand(template, new Account { Company = "" }, "", "", Now);
+        Assert.Equal(template.Body, expanded.Body);
+        Assert.Equal(new[] { "{company}", "{{company}}", "{first_name}", "{{first_name}}" },
+            ComposeSafety.UnresolvedQuickTemplateVariables(expanded.Body));
+    }
+
+    [Fact]
     public void Template_fills_only_blank_subjects_without_confirmation()
     {
         var expanded = new ExpandedQuickTemplate("Saved subject", "Saved text");

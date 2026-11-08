@@ -6,11 +6,11 @@ namespace Magpie.Core.Mail;
 /// <summary>Pure checks for the compose screen. No network or mailbox mutations.</summary>
 public static partial class ComposeSafety
 {
-    /// <summary>Supported quick-template placeholders. Unavailable values remain visible for the author to fill.</summary>
+    /// <summary>Supported quick-template placeholders. Single braces also work; unavailable values remain visible.</summary>
     public const string QuickTemplateVariableHelp =
-        "{{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}}, {{time}}";
+        "{{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{company}}, {{subject}}, {{date}}, {{time}} (or single braces, e.g. {company})";
 
-    [GeneratedRegex(@"\{\{(first_name|last_name|full_name|recipient_email|sender_name|sender_email|subject|date|time)\}\}",
+    [GeneratedRegex(@"(?<!\{)(?:\{\{(?<double>first_name|last_name|full_name|recipient_email|sender_name|sender_email|company|subject|date|time)\}\}|\{(?<single>first_name|last_name|full_name|recipient_email|sender_name|sender_email|company|subject|date|time)\})(?!\})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex QuickTemplateVariables();
 
@@ -28,14 +28,21 @@ public static partial class ComposeSafety
             ["recipient_email"] = recipient?.Address ?? "",
             ["sender_name"] = sender?.DisplayName ?? "",
             ["sender_email"] = sender?.Email ?? "",
+            ["company"] = sender?.Company ?? "",
             ["subject"] = subject,
             ["date"] = now.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
             ["time"] = now.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
         };
         return QuickTemplateVariables().Replace(text, match =>
-            values.TryGetValue(match.Groups[1].Value, out var value) && !string.IsNullOrWhiteSpace(value)
+            values.TryGetValue(match.Groups["double"].Success ? match.Groups["double"].Value : match.Groups["single"].Value, out var value)
+                && !string.IsNullOrWhiteSpace(value)
                 ? value : match.Value);
     }
+
+    /// <summary>Variables without a value remain as literal text, so the preview can flag them before insertion.</summary>
+    public static IReadOnlyList<string> UnresolvedQuickTemplateVariables(string text) =>
+        QuickTemplateVariables().Matches(text ?? "").Select(match => match.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
     /// <summary>Newest attachments first, no duplicates, with a short local-history limit.</summary>
     public static IReadOnlyList<string> RecentAttachmentPaths(IEnumerable<string> newest, IEnumerable<string> previous, int maximum = 12) =>
