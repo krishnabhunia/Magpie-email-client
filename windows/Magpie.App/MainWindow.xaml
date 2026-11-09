@@ -116,7 +116,7 @@
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
-                    <Button Style="{StaticResource Button.TitleBar}" Content="&#xE946;" Click="OnWhatsNew" ToolTip="What's New — full implementation details for the installed release" AutomationProperties.Name="What's New" />
+                    <!-- The separate What's New button became the Info window's What's new tab → Full release notes (one ⓘ, Krishna 9 Nov 2026). -->
                     <!-- Only a newer GitHub release shows this action; Settings keeps manual update checking available. -->
                     <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
                         <Grid.Style>
@@ -177,6 +177,29 @@
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="4,1">
                                     <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Brush.TitleBar.Hover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <!-- Design BT1 A: a small Beta chip on a test version -->
+                    <Border x:Name="BetaChip" Margin="2,2,0,0" VerticalAlignment="Center" CornerRadius="4" Padding="5,0,5,1" BorderThickness="1"
+                            Background="{DynamicResource Brush.Warning.Subtle}" BorderBrush="{DynamicResource Brush.Warning}"
+                            Visibility="{Binding IsBetaBuild, Converter={StaticResource BoolToVis}}" ToolTip="A test version made from a pull request">
+                        <TextBlock Text="Beta" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.TitleBar.Text}" />
+                    </Border>
+                    <!-- Design IN1: the Info window (also F1) -->
+                    <Button x:Name="InfoButton" Content="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="13" Click="OnInfoClick" Margin="4,2,0,0"
+                            VerticalAlignment="Center" Cursor="Hand" WindowChrome.IsHitTestVisibleInChrome="True" Focusable="True"
+                            ToolTip="Info (F1)" AutomationProperties.Name="Info" Foreground="{DynamicResource Brush.TitleBar.Muted}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="4,2">
+                                    <TextBlock Text="{TemplateBinding Content}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}" />
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">

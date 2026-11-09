@@ -70,7 +70,7 @@ public static class VersionPin
     }
 
     /// <summary>
-    /// Runs once the running version has started successfully. Before 17.0.1 every version change, also an update to
+    /// Runs once the running version has started successfully. Before 18.2.1 every version change, also an update to
     /// a newer version, pinned that version and switched Auto update off, so no newer release was offered again.
     /// Clears such a pin and switches automatic checks back on when <paramref name="running"/> was reached by moving
     /// forward: the newest history entry into it (failed or cancelled ones aside) is a successful "Update" from an

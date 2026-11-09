@@ -157,7 +157,7 @@ public partial class App : Application
         var historyComplete = true;
         try { UpdateHistory.CompleteStartup(AppPaths.Default(), UpdateService.Current); }
         catch (Exception ex) { historyComplete = false; Log.Error("could not record version startup completion", ex); }
-        // Before 17.0.1 an update to a newer version pinned it and switched Auto update off: undo that once
+        // Before 18.2.1 an update to a newer version pinned it and switched Auto update off: undo that once
         // (not while the history is incomplete: a rollback's entry may still be unmarked).
         try
         {

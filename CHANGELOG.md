@@ -7,13 +7,40 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 17.0.1 (9 Nov 2026)
+## 18.2.1 (9 Nov 2026)
 <!-- closes: #149 -->
 ### Fixed
 - **Magpie keeps looking for updates after you update it.** Updating to a newer version in the version manager used to pin that version and switch Auto update off, so the "Update to vx.y.z" button never came back after a restart. Now only going back to an older version pins it; moving forward keeps your Auto update choice and ends any pin from an earlier roll back. A copy left pinned by an earlier update gets its automatic checks back the first time this version starts.
 - **A pin left behind by an older version no longer stays.** When Magpie runs a newer version than the one pinned (for example after the installer was run following a roll back), the old pin is cleared and automatic checks resume.
 - **Cancelling a roll back no longer stops update checks.** Cancelling the download or install of an older version left Magpie thinking that version was on offer, so it stopped checking for updates until the next start.
 - **Magpie for Mac finds a new stable version behind many test versions.** It read only the 20 newest GitHub releases, so a stable release followed by many test versions was never offered. It now reads all of them, as the Windows app does.
+
+## 18.2.0 (9 Nov 2026)
+<!-- closes: #132 -->
+### Changed
+- **Writing emails settings.** Settings → General → **Writing emails** decides how every new message window starts: check spelling while you write, fold the quoted message in replies, ask when you forget an attachment, always ask for a read receipt, and what a pasted picture does (ask each time, put it in the message, or save and attach it). Every switch starts as Magpie works today.
+- **Replies go to.** Each account in Settings → Accounts can have one **Replies go to** address. New messages, replies and forwards from that account start with it as Reply-To; you can still change it while writing, and changing From swaps it for the new account's own unless you typed one yourself. Reopened drafts keep what they had.
+
+## 18.1.0 (9 Nov 2026)
+<!-- closes: #142 -->
+### Changed
+- **The version manager is back to how it was before 14.1.0** (Krishna, 5 Nov 2026). The From → To confirm screen, the "skips the latest stable" note, the Updates / Version history tabs and the "On this PC" marks are removed: you choose Update (newer) or Roll back (older) in the drop-down again, and a short Yes/No question confirms the exact version. Everything else stays — choosing exact stable or beta versions, compatibility checks, backups, the version pin, permanent beta tags and **View full implementation details**.
+- Windows only; the Mac app is unchanged.
+
+## 18.0.0 (9 Nov 2026)
+<!-- closes: #138 -->
+### New
+- **Info window.** The **ⓘ** next to the version at the top of the window (or **F1**; on the Mac also ⌘I and Magpie → Magpie Info…, and **Info** in Settings → About) opens **Magpie · Info** with four tabs:
+  - **This build** — the version, Beta or Stable, the pull request it was made from, the commit, when it was built, its GitHub tag, the download's name and how it is installed. A test version says "This is a test build. It is beta 007 of Magpie 18.0.0, made from a pull request."
+  - **What's implemented** — every feature with the version it arrived in, searchable, with filters for what is new in this version, Windows only and also on the Mac.
+  - **What's new** — this version's lines from the changelog (for a test version: the version being tested), with **Full release notes** on Windows (the installed release's full implementation details) and a link to all releases.
+  - **Under the hood** — what this copy is made with (.NET, the window toolkit, the mail and storage libraries), where it keeps your data, and how it updates, with **Open data folder** and **Open log file**.
+- **Copy build info** puts two lines on the clipboard (version, pull request, commit, build time; Windows or macOS version, how it is installed, .NET) — and the feedback email in Settings → About Me now carries the same lines.
+### Changed
+- **One ⓘ in the title bar.** The separate What's New button is gone: its full release notes are now in Info → What's new → **Full release notes**.
+- **Beta chip.** A test version shows a small **Beta** chip next to its version in the title bar.
+### Fixed
+- **A portable copy of a test version stays portable.** `Magpie_18.0.0-beta007.exe` (and the older long test names) taken from the zip now keeps its data next to it like `Magpie_18.0.0.exe` does, instead of using the profile folders.
 
 ## 17.0.0 (9 Nov 2026)
 <!-- closes: #78 -->

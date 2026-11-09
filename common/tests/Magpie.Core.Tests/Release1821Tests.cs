@@ -5,8 +5,8 @@ using Magpie.Core.Updates;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>17.0.1: updating to a newer version keeps update checks running; the Mac finds a stable release behind many betas.</summary>
-public sealed class Release1701Tests
+/// <summary>18.2.1: updating to a newer version keeps update checks running; the Mac finds a stable release behind many betas.</summary>
+public sealed class Release1821Tests
 {
     private static AppVersion V(string v) => AppVersion.TryParse(v)!;
 

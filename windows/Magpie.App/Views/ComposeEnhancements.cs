@@ -22,7 +22,8 @@ public partial class ComposeWindow
     private bool _restoreAiRail;
     private bool _restoreAiPanel;
     private bool _studioRestoreAiPanel;
-    private bool _spellcheckEnabled = true;
+    // Design CW1: Settings → General → Writing emails decides how each window starts; More → Spellcheck still switches it.
+    private bool _spellcheckEnabled = AppServices.Engine.Config.Compose.CheckSpelling;
 
     private bool CanChangeComposeSignature => CanUseRichFormatting && !_vm.Sending && !_vm.RevisionBusy && !_vm.AttachmentOperationBusy;
 
@@ -237,6 +238,17 @@ public partial class ComposeWindow
         StudioPanel.Visibility = Visibility.Collapsed;
         StudioModeButton.Content = "Studio";
         _studioRestoreAiPanel = false;
+    }
+
+    /// <summary>Design CW1 (E2): with "Fold the quoted message in replies" off, a newly loaded message shows its quote open.
+    /// Folding stays available through the Show / Hide quoted message button either way.</summary>
+    private async Task ApplyQuoteFoldDefaultAsync()
+    {
+        if (_plain || Editor.CoreWebView2 == null) return;
+        var folded = await Editor.CoreWebView2.ExecuteScriptAsync("ed.classList.contains('quote-folded')") == "true";
+        if (folded && !AppServices.Engine.Config.Compose.FoldQuotedText)
+            folded = await Editor.CoreWebView2.ExecuteScriptAsync("toggleQuoteFold()") == "true";
+        QuoteToggleButton.Content = folded ? "Show quoted message" : "Hide quoted message";
     }
 
     private async void OnToggleQuote(object sender, RoutedEventArgs e)

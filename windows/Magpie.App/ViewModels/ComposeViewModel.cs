@@ -429,6 +429,13 @@ public partial class ComposeViewModel : ObservableObject
     partial void OnBccChanged(string value) { NotifyRecipientVisibility(); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
     partial void OnPriorityChanged(string value) => MarkEdited();
     partial void OnReplyToChanged(string value) => MarkEdited();
+    /// <summary>Design CW1 (A5): a Reply-To that is still the old account's "Replies go to" follows the new From.</summary>
+    partial void OnFromChanged(Account? oldValue, Account? newValue)
+    {
+        if (!_constructed || _restoringRevision || oldValue == null || ReferenceEquals(oldValue, newValue)) return;
+        var next = ComposeDefaults.ReplyToAfterFromChange(ReplyTo, oldValue, newValue);
+        if (next != ReplyTo) ReplyTo = next;
+    }
     partial void OnRequestReadReceiptChanged(bool value) => MarkEdited();
     partial void OnRequestDeliveryReceiptChanged(bool value) => MarkEdited();
 
@@ -626,7 +633,7 @@ public partial class ComposeViewModel : ObservableObject
             }
             var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
             if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
-            if (ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
+            if (_e.Config.Compose.AttachmentCheck && ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Did you forget an attachment?", "Your message refers to an attachment, but no files are attached. Send anyway?")) return;
             if (string.IsNullOrWhiteSpace(newText) && Attachments.Count == 0 &&
                 !Ui.Confirm("Empty message", "The message has no new text or attachments. Send anyway?")) return;

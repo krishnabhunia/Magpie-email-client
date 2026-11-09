@@ -3,7 +3,9 @@
 import unittest
 import urllib.error
 
-from ci_version import from_event, reserve
+import datetime as dt
+
+from ci_version import build_details, from_event, reserve
 from unittest.mock import patch
 
 
@@ -73,6 +75,38 @@ class IndependentCiVersionTests(unittest.TestCase):
              patch("ci_version.github_api", side_effect=[collision, None]) as api:
             self.assertEqual(reserve("11.0.0", event(), REPO, "token"), "11.0.0-beta003")
             self.assertEqual(api.call_count, 2)
+
+
+
+class BuildDetailsTests(unittest.TestCase):
+    """Design IN1: the Info window's build details written by `ci_version.py --github-env`."""
+
+    NOW = dt.datetime(2026, 11, 9, 6, 30, 5, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
+
+    def test_own_pr_build_names_its_pr_head_commit_and_tag(self):
+        ev = event()
+        ev["pull_request"]["number"] = 139
+        details = build_details("17.0.0-beta004", ev, REPO, SHA_B, self.NOW)
+        self.assertEqual(details, {
+            "VERSION": "17.0.0-beta004",
+            "MAGPIE_SOURCE_PR": "139",
+            "MAGPIE_SOURCE_COMMIT": SHA_A,
+            "MAGPIE_BUILD_TIME_UTC": "2026-11-09T01:00:05Z",
+            "MAGPIE_RELEASE_TAG": "v17.0.0-beta004",
+        })
+
+    def test_main_push_has_no_pr_and_uses_the_pushed_commit(self):
+        details = build_details("17.0.0", {}, REPO, SHA_B.upper(), self.NOW)
+        self.assertEqual(details["MAGPIE_SOURCE_PR"], "")
+        self.assertEqual(details["MAGPIE_SOURCE_COMMIT"], SHA_B)
+        self.assertEqual(details["MAGPIE_RELEASE_TAG"], "v17.0.0")
+
+    def test_fork_pr_is_not_called_ours_and_bad_sha_is_left_out(self):
+        ev = event(own=False)
+        ev["pull_request"]["number"] = 5
+        details = build_details("17.0.0", ev, REPO, "not-a-sha", self.NOW)
+        self.assertEqual(details["MAGPIE_SOURCE_PR"], "")
+        self.assertEqual(details["MAGPIE_SOURCE_COMMIT"], "")
 
 
 if __name__ == "__main__":

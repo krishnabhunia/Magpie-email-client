@@ -514,6 +514,8 @@ public sealed class AppSettings
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
     public ComposeWindowPlacement ComposeWindow { get; set; } = new();
+    /// <summary>Design CW1: Settings → General → Writing emails.</summary>
+    public ComposeDefaults Compose { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
     public Appearance Appearance { get; set; } = new();
     public TypographySettings Typography { get; set; } = new();
@@ -598,12 +600,14 @@ public sealed class SettingsStore
             a.Signature ??= "";
             a.SignatureHtml ??= "";
             a.MaxOutgoingMessageMb = a.MaxOutgoingMessageMb <= 0 ? 25 : Math.Min(a.MaxOutgoingMessageMb, 100);
+            a.ReplyTo = ComposeDefaults.CleanReplyTo(a.ReplyTo);
             // 1.2.0: the plain-text signature becomes the rich one, once (afterwards Signature mirrors it as text).
             if (a.SignatureHtml.Length == 0 && a.Signature.Trim().Length > 0) a.SignatureHtml = Mail.Composer.LegacySignatureHtml(a.Signature);
         }
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         (s.ComposeWindow ??= new()).Normalise();
+        (s.Compose ??= new()).Normalise();
         s.Sidebar ??= new();
         s.Sidebar.Normalise();
         s.Appearance ??= new();

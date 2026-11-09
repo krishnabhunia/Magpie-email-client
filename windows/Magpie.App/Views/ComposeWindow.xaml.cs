@@ -48,6 +48,7 @@ public partial class ComposeWindow : Window
                 var (body, mime) = await e.LoadAsync(original, mode == ComposeMode.Forward, CancellationToken.None);
                 d = Composer.Prepare(mode, account, original, body, e.MyAddresses, mime);
             }
+            StartFresh(d);
             Show(d, prefill);
         }
         catch (Exception ex)
@@ -65,7 +66,9 @@ public partial class ComposeWindow : Window
         if (AppServices.Updates?.IsProfileFrozen == true) return;
         var account = AppServices.Engine.Accounts.FirstOrDefault(a => a.Enabled);
         if (account == null) return;
-        var window = new ComposeWindow(new Draft { AccountId = account.Id, Mode = ComposeMode.New }, null);
+        var fresh = new Draft { AccountId = account.Id, Mode = ComposeMode.New };
+        StartFresh(fresh);
+        var window = new ComposeWindow(fresh, null);
         if (!window._vm.ShowDraftAi) { window._vm.Detach(); return; }
         window._vm.AiPanelOpen = true;
         window.Show();
@@ -84,6 +87,7 @@ public partial class ComposeWindow : Window
             var d = Composer.Prepare(ComposeMode.Forward, account, original, body, e.MyAddresses, mime);
             d.CarriedParts = new List<MimeKit.MimeEntity> { part };
             d.Html = "<p><br></p>" + Composer.SignatureHtml(account, reply: false);
+            StartFresh(d);
             Show(d, null);
         }
         catch (Exception ex)
@@ -126,7 +130,16 @@ public partial class ComposeWindow : Window
         var body = query["body"];
         d.Html = (string.IsNullOrEmpty(body) ? "<p><br></p>" : ComposeViewModel.TextToParagraphs(body))
                  + Composer.SignatureHtml(e.AccountById(d.AccountId), reply: false);
+        StartFresh(d);
         Show(d, null);
+    }
+
+    /// <summary>Design CW1: a message started now (not a reopened draft) gets the account's "Replies go to" and,
+    /// when Settings → General → Writing emails says so, a read-receipt request.</summary>
+    private static void StartFresh(Draft d)
+    {
+        var e = AppServices.Engine;
+        Magpie.Core.Settings.ComposeDefaults.ApplyToNew(d, e.AccountById(d.AccountId), e.Config.Compose);
     }
 
     private static void Show(Draft d, string? prefill)
@@ -307,8 +320,10 @@ public partial class ComposeWindow : Window
                     await Editor.CoreWebView2.ExecuteScriptAsync("setLinkBubbleEnabled(true)");
                     if (_vm.IsPlainText)
                         await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setEditorSpellcheck({(_spellcheckEnabled ? "true" : "false")})");
                     QuoteToggleButton.Visibility = _vm.InitialHtml.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
                         ? Visibility.Visible : Visibility.Collapsed;
+                    await ApplyQuoteFoldDefaultAsync();
                     _editorReady = true;
                     UpdatePlainTextControls();
                     await ApplyEditorTypographyAsync();

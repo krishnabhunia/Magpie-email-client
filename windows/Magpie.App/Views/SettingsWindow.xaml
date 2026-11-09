@@ -272,6 +272,55 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Writing emails (design CW1: B16 / C3 / C4 / D2 / E2 / E3) -->
+                        <TextBlock Text="WRITING EMAILS" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowWriting" Style="{StaticResource Card}" Padding="22,6">
+                            <StackPanel>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ComposeCheckSpelling, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Check spelling while I write" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="How each new message window starts; More → Spellcheck still switches it for one message." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ComposeFoldQuote, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Fold the quoted message in replies" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Off: replies and forwards open with the original email showing. Show / Hide quoted message works either way; the full quote is always sent." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ComposeAttachmentCheck, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Ask when I forget an attachment" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="At Send, when your new text mentions an attachment and nothing is attached." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ComposeAlwaysReadReceipt, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Always ask for a read receipt" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="New messages, replies and forwards start with Request a read receipt ticked. The recipient's app decides whether to send one." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
+                                    <DockPanel>
+                                        <ComboBox DockPanel.Dock="Right" Width="200" ItemsSource="{Binding PastedPictureChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                  SelectedValue="{Binding ComposePastedPicture, Mode=TwoWay}" AutomationProperties.Name="A pasted picture" />
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="A pasted picture" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="What Ctrl+V does with a picture from the clipboard. Saving still asks where to keep the file; in plain text it is always attached." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Gatekeeper (design B7) -->
                         <TextBlock Text="GATEKEEPER" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border x:Name="RowGatekeeper" Style="{StaticResource Card}" Padding="22,6">
@@ -437,6 +486,7 @@
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Your name" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                                                 <TextBox Grid.Column="1" svc:Typography.Role="accountName" Style="{StaticResource TextBox.Field}" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
@@ -491,6 +541,16 @@
                                                                Text="One address per line, optionally Name &lt;address@example.com&gt;. Use only aliases already authorized by your provider; adding one here does not create it on the server. Select it under Send as when composing." />
                                                     <TextBlock Text="{Binding SenderAliasesError}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Danger}"
                                                                Visibility="{Binding SenderAliasesError, Converter={StaticResource BoolToVis}}" />
+                                                </StackPanel>
+                                                <!-- Design CW1 (A5): Reply-To for new messages from this account -->
+                                                <TextBlock Grid.Row="8" Text="Replies go to" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,12,0,0" />
+                                                <StackPanel Grid.Row="8" Grid.Column="1" Margin="0,12,0,0">
+                                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" MaxLength="320"
+                                                             Tag="Empty = to this address" AutomationProperties.Name="Replies go to" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,0"
+                                                               Text="Put in the Reply-To of every new message, reply and forward from this account; you can still change it while writing. Leave it empty to get replies at the sender address." />
+                                                    <TextBlock Text="{Binding ReplyToError}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Danger}"
+                                                               Visibility="{Binding ReplyToError, Converter={StaticResource BoolToVis}}" />
                                                 </StackPanel>
                                             </Grid>
                                         </StackPanel>
@@ -1641,8 +1701,13 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock svc:Typography.Role="settingsTitle" Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Text="A local-first mail app for Windows." Style="{StaticResource Text.Caption}" />
-                                <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
-                                        Command="{Binding GoCommand}" CommandParameter="Updates" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
+                                            Command="{Binding GoCommand}" CommandParameter="Updates" />
+                                    <!-- Design IN1 -->
+                                    <Button x:Name="AboutInfo" Style="{StaticResource Button.Link}" Content="Info" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
+                                            Margin="16,0,0,0" Click="OnInfo" ToolTip="This build, what's implemented, what's new, under the hood" AutomationProperties.Name="Info" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                         <!-- About Me (design A1): the same block as in Krishna's Android apps -->

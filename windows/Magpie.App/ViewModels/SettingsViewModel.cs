@@ -17,12 +17,13 @@ public partial class EditableAccount : ObservableObject
 {
     public Account Original { get; private set; }
     /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
-    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; SenderAliasesText = SenderIdentities.Format(saved.SenderAliases); }
+    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; SenderAliasesText = SenderIdentities.Format(saved.SenderAliases); ReplyTo = saved.ReplyTo; }
     public EditableAccount(Account a)
     {
         Original = a;
         _displayName = a.DisplayName;
         _senderAliasesText = SenderIdentities.Format(a.SenderAliases);
+        _replyTo = a.ReplyTo;
         _phone = a.Phone;
         _jobTitle = a.JobTitle;
         _company = a.Company;
@@ -53,6 +54,9 @@ public partial class EditableAccount : ObservableObject
             catch (FormatException ex) { return ex.Message; }
         }
     }
+    /// <summary>Design CW1 (A5): "Replies go to" for new messages, replies and forwards from this account.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ReplyToError))] private string _replyTo;
+    public string ReplyToError => ComposeDefaults.ReplyToProblem(ReplyTo);
     /// <summary>Design AC1: your details for this account.</summary>
     [ObservableProperty] private string _phone;
     [ObservableProperty] private string _jobTitle;
@@ -95,6 +99,7 @@ public partial class EditableAccount : ObservableObject
         a.DisplayName = DisplayName.Trim();
         try { a.SenderAliases = SenderIdentities.Parse(SenderAliasesText, a.Email); }
         catch (FormatException) when (tolerateIncomplete) { a.SenderAliases = new(); }
+        a.ReplyTo = ReplyToError.Length == 0 ? ReplyTo.Trim() : tolerateIncomplete ? ReplyTo.Trim() : Original.ReplyTo;
         a.Phone = Phone.Trim();
         a.JobTitle = JobTitle.Trim();
         a.Company = Company.Trim();
@@ -114,6 +119,7 @@ public partial class EditableAccount : ObservableObject
     }
 
     public bool Changed => SenderAliasesText.Trim() != SenderIdentities.Format(Original.SenderAliases).Trim()
+                           || ReplyTo.Trim() != Original.ReplyTo
                            || DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
                            || !SignatureVariants.Select(s => (s.Name.Trim(), s.Html))
                                .SequenceEqual((Original.SignatureVariants ?? new()).Select(s => (s.Name, s.Html)))
@@ -238,6 +244,24 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _syncIntervalMinutes;
     [ObservableProperty] private bool _closeToTray;
     [ObservableProperty] private bool _startWithWindows;
+    // Design CW1: General → Writing emails
+    [ObservableProperty] private bool _composeCheckSpelling;
+    [ObservableProperty] private bool _composeFoldQuote;
+    [ObservableProperty] private bool _composeAttachmentCheck;
+    [ObservableProperty] private bool _composeAlwaysReadReceipt;
+    [ObservableProperty] private PastedPictureChoice _composePastedPicture;
+    public List<Choice<PastedPictureChoice>> PastedPictureChoices { get; } = new()
+    {
+        new(PastedPictureChoice.Ask, "Ask each time"),
+        new(PastedPictureChoice.Inline, "Put it in the message"),
+        new(PastedPictureChoice.Attach, "Save and attach it"),
+    };
+    /// <summary>Settings → General → Writing emails, as Apply would save it.</summary>
+    private ComposeDefaults ComposeDefaultsToSave() => new()
+    {
+        CheckSpelling = ComposeCheckSpelling, FoldQuotedText = ComposeFoldQuote, AttachmentCheck = ComposeAttachmentCheck,
+        AlwaysReadReceipt = ComposeAlwaysReadReceipt, PastedPicture = ComposePastedPicture,
+    };
     public ObservableCollection<EditableTag> Tags { get; } = new();
     public int[] UndoChoices { get; } = { 0, 5, 10, 20, 30 };
     public int[] IntervalChoices { get; } = { 1, 2, 5, 10, 15, 30, 60 };
@@ -378,6 +402,9 @@ public partial class SettingsViewModel : ObservableObject
         body.AppendLine("Windows: " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
         body.AppendLine("Machine: " + Environment.MachineName + " · .NET " + Environment.Version);
         body.AppendLine("Accounts: " + _e.Accounts.Count);
+        body.AppendLine();
+        body.AppendLine("Build info:");   // design IN1: the same two lines as Info → Copy build info
+        body.AppendLine(Views.InfoWindow.CopyText());
         if (kind is "Bug found" or "Crash / error report")
         {
             var tail = Log.Tail(20);
@@ -412,6 +439,8 @@ public partial class SettingsViewModel : ObservableObject
         ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
         ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
+        ("Writing emails", "General", "Spelling, folded quotes, the forgotten-attachment question, read receipts and pasted pictures", "compose writing email spelling spellcheck quote quoted fold forgot attachment read receipt pasted paste picture screenshot clipboard", "RowWriting"),
+        ("Replies go to", "Accounts", "The Reply-To put in new messages, replies and forwards from an account", "reply to reply-to replies go to address answer account", "RowAccounts"),
         ("Start-up screen", "General", "The card you see while Magpie opens: every time, only after an update, or never", "splash start-up startup screen logo loading launch opening steps accounts", "RowSplash"),
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
         ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
@@ -449,6 +478,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Check automatically", "Updates", "Pause or resume checks; choose and confirm every version change", "auto update automatic check pause resume daily version pin", "RowUpdateSwitches"),
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
+        ("Info", "About", "This build, what's implemented, what's new, under the hood, Copy build info", "info build version beta test commit pull request features implemented changelog what's new under the hood copy build info f1", "AboutInfo"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
         ("Auto-delete rules", "Rules", "Emails from a sender or domain go to Trash a set time after they arrive; OTP delete after 24 hours", "auto delete autodelete otp codes expire trash timer clean up old", "RowAutoDelete"),
         ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),
@@ -798,6 +828,12 @@ public partial class SettingsViewModel : ObservableObject
         _syncIntervalMinutes = c.SyncIntervalMinutes;
         _closeToTray = c.CloseToTray;
         _startWithWindows = StartupRegistration.IsEnabled();
+        var compose = c.Compose ?? new ComposeDefaults();
+        _composeCheckSpelling = compose.CheckSpelling;
+        _composeFoldQuote = compose.FoldQuotedText;
+        _composeAttachmentCheck = compose.AttachmentCheck;
+        _composeAlwaysReadReceipt = compose.AlwaysReadReceipt;
+        _composePastedPicture = compose.PastedPicture;
         _notifications = c.Notifications;
         _gatekeeper = c.Gatekeeper.Enabled;
         foreach (var b in c.Gatekeeper.Blocked) Blocked.Add(b);
@@ -1056,6 +1092,12 @@ public partial class SettingsViewModel : ObservableObject
                 Ui.Error("Sender aliases", account.Email + ": " + account.SenderAliasesError);
                 return false;
             }
+            if (account.ReplyToError.Length > 0)
+            {
+                Page = "Accounts";
+                Ui.Error("Replies go to", account.Email + ": " + account.ReplyToError);
+                return false;
+            }
             if (account.SignatureVariants.Any(s => s.Name.Trim().Length is 0 or > 100)
                 || account.SignatureVariants.GroupBy(s => s.Name.Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
             {
@@ -1078,6 +1120,7 @@ public partial class SettingsViewModel : ObservableObject
         c.RemoteImages = RemoteImages;
         c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;
+        c.Compose = ComposeDefaultsToSave();
         c.SyncIntervalMinutes = SyncIntervalMinutes;
         c.CloseToTray = CloseToTray;
         c.Notifications = Notifications;
