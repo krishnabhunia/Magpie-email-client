@@ -272,58 +272,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Writing emails (design CW1) -->
-                        <TextBlock Text="WRITING EMAILS" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
-                        <Border x:Name="RowCompose" Style="{StaticResource Card}" Padding="0">
-                            <StackPanel>
-                                <Border Style="{StaticResource FeatureRow}">
-                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding CheckSpelling, Mode=TwoWay}">
-                                        <StackPanel>
-                                            <TextBlock Text="Check spelling while I write" FontWeight="Medium" FontSize="13.5" />
-                                            <TextBlock Text="Misspelt words get a red underline; right-click one for suggestions or to add it to the dictionary. The languages are the ones set in Windows → Time &amp; language." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </CheckBox>
-                                </Border>
-                                <Border Style="{StaticResource FeatureRow}">
-                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding FoldQuote, Mode=TwoWay}">
-                                        <StackPanel>
-                                            <TextBlock Text="Fold the quoted text in replies" FontWeight="Medium" FontSize="13.5" />
-                                            <TextBlock Text="A reply starts with the earlier email folded to one line; click it to show and edit it." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </CheckBox>
-                                </Border>
-                                <Border Style="{StaticResource FeatureRow}">
-                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AttachmentCheck, Mode=TwoWay}">
-                                        <StackPanel>
-                                            <TextBlock Text="Ask when I forget an attachment" FontWeight="Medium" FontSize="13.5" />
-                                            <TextBlock Text="If the message says “attached”, “enclosed” or “PFA” and there is no file, Magpie asks before sending." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </CheckBox>
-                                </Border>
-                                <Border Style="{StaticResource FeatureRow}">
-                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AlwaysReadReceipt, Mode=TwoWay}">
-                                        <StackPanel>
-                                            <TextBlock Text="Always ask for a read receipt" FontWeight="Medium" FontSize="13.5" />
-                                            <TextBlock Text="Every new message asks the other person's mail app to say when it was opened (their app decides). You can switch it off per message in Options ▾." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </CheckBox>
-                                </Border>
-                                <Border Style="{StaticResource FeatureRow}" BorderThickness="0">
-                                    <DockPanel>
-                                        <ComboBox DockPanel.Dock="Right" Width="220" SelectedValue="{Binding PastePicture, Mode=TwoWay}" SelectedValuePath="Tag">
-                                            <ComboBoxItem Content="Ask every time" Tag="{x:Static set:PastePictureChoice.Ask}" />
-                                            <ComboBoxItem Content="Put it in the message" Tag="{x:Static set:PastePictureChoice.InMessage}" />
-                                            <ComboBoxItem Content="Attach it as a file" Tag="{x:Static set:PastePictureChoice.AttachFile}" />
-                                        </ComboBox>
-                                        <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="A pasted picture" FontWeight="Medium" FontSize="13.5" />
-                                            <TextBlock Text="What happens when you paste a screenshot or a copied picture into a message." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </DockPanel>
-                                </Border>
-                            </StackPanel>
-                        </Border>
-
                         <!-- Gatekeeper (design B7) -->
                         <TextBlock Text="GATEKEEPER" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
                         <Border x:Name="RowGatekeeper" Style="{StaticResource Card}" Padding="22,6">
@@ -458,6 +406,7 @@
                                             </DockPanel>
                                         </Expander.Header>
                                         <StackPanel Margin="16,0,16,16">
+                                            <Button Style="{StaticResource Button.Secondary}" Content="Message security keys…" Click="OnSecurityKeys" HorizontalAlignment="Left" Margin="0,0,0,10" />
                                             <TextBlock Text="{Binding Servers}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text.Tertiary}" />
                                             <Grid Margin="0,14,0,0">
                                                 <Grid.ColumnDefinitions>
@@ -527,15 +476,21 @@
                                                     <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
                                                                Text="Older emails are still listed and download when you open them. A longer time fetches the older emails in the background; a shorter one keeps what is already downloaded." />
                                                 </StackPanel>
-                                                <!-- Design CW1 (A5, C2) -->
-                                                <TextBlock Grid.Row="6" Text="Replies go to" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,10,0,0" />
-                                                <TextBox Grid.Row="6" Grid.Column="1" Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Margin="0,10,0,0"
-                                                         Tag="Optional — a Reply-To address put into every new message from this account" ToolTip="Shown in the Reply-To row of a new message; leave empty for none" />
-                                                <TextBlock Grid.Row="7" Text="Attachment limit" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                                <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,8,0,0">
-                                                    <TextBox Style="{StaticResource TextBox.Field}" Width="80" Text="{Binding AttachmentLimitMb, UpdateSourceTrigger=PropertyChanged}" ToolTip="MB; 0 = the usual limit for this kind of account" />
-                                                    <TextBlock Text="MB" VerticalAlignment="Center" Margin="8,0,0,0" />
-                                                    <TextBlock Text="{Binding AttachmentLimitHint}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                                <TextBlock Grid.Row="6" Text="Send size limit" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,10,0,0"
+                                                           Visibility="{Binding IsImap, Converter={StaticResource BoolToVis}}" />
+                                                <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0"
+                                                            Visibility="{Binding IsImap, Converter={StaticResource BoolToVis}}">
+                                                    <TextBox Style="{StaticResource TextBox.Field}" Width="70" Text="{Binding MaxOutgoingMessageMb, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Outgoing message limit in megabytes" />
+                                                    <TextBlock Text="MB (1–100, estimated)" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Row="7" Text="Sender aliases" Style="{StaticResource Text.Caption}" VerticalAlignment="Top" Margin="0,12,0,0" />
+                                                <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,12,0,0">
+                                                    <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding SenderAliasesText, UpdateSourceTrigger=PropertyChanged}"
+                                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="58" MaxLength="10000" AutomationProperties.Name="Sender aliases" />
+                                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,5,0,0"
+                                                               Text="One address per line, optionally Name &lt;address@example.com&gt;. Use only aliases already authorized by your provider; adding one here does not create it on the server. Select it under Send as when composing." />
+                                                    <TextBlock Text="{Binding SenderAliasesError}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Danger}"
+                                                               Visibility="{Binding SenderAliasesError, Converter={StaticResource BoolToVis}}" />
                                                 </StackPanel>
                                             </Grid>
                                         </StackPanel>
@@ -1143,27 +1098,6 @@
                                 <TextBlock Text="Add an account first." Style="{StaticResource Text.Caption}" Visibility="{Binding Accounts.Count, Converter={StaticResource EqualsToVis}, ConverterParameter=0}" />
 
                                 <StackPanel Visibility="{Binding SignatureAccount, Converter={StaticResource BoolToVis}}">
-                                    <!-- Design CW1 (D3): several signatures per account; the default goes into new messages -->
-                                    <DockPanel Margin="0,4,0,10">
-                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Secondary}" Content="+ New signature" FontWeight="Normal" MinHeight="28" Padding="10,2" FontSize="12.5" Command="{Binding AddSignatureCommand}" />
-                                        <ItemsControl ItemsSource="{Binding SignatureAccount.Signatures}" Focusable="False">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="{x:Type vm:EditableSignature}">
-                                                    <RadioButton Style="{StaticResource Button.Chip}" GroupName="SigPick" Margin="0,0,6,6" FontSize="12.5" Padding="12,4"
-                                                                 IsChecked="{Binding IsSelectedSignature, Mode=OneWay}"
-                                                                 Command="{Binding DataContext.PickSignatureCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <TextBlock Text="{Binding Name}" />
-                                                            <TextBlock Text=" · default" Visibility="{Binding IsDefault, Converter={StaticResource BoolToVis}}" Opacity="0.7" />
-                                                        </StackPanel>
-                                                    </RadioButton>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </DockPanel>
                                     <!-- Design B6, fixed 29 Sep 2026: a preview here; the signature is written in its own window
                                          (SignatureEditorWindow, a normal WebView2 like the compose window) -->
                                     <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="8" Padding="12,10" MinHeight="70"
@@ -1185,14 +1119,31 @@
                                                 ToolTip="Copies the signature set in Gmail (Settings → Signature) for this address" />
                                         <TextBlock Text="{Binding SignatureStatus}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="360" />
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                        <Button Style="{StaticResource Button.Link}" Content="Rename" FontSize="12" Command="{Binding RenameSignatureCommand}" />
-                                        <Button Style="{StaticResource Button.Link}" Content="Use for new messages (default)" FontSize="12" Margin="14,0,0,0" Command="{Binding MakeDefaultSignatureCommand}" />
-                                        <Button Style="{StaticResource Button.Link}" Content="Remove" FontSize="12" Margin="14,0,0,0" Foreground="{DynamicResource Brush.Danger}" Command="{Binding RemoveSignatureCommand}"
-                                                IsEnabled="{Binding SignatureAccount.CanRemoveSignature}" />
-                                    </StackPanel>
                                     <CheckBox Content="Add to new messages" IsChecked="{Binding SignatureAccount.SignatureOnNew, Mode=TwoWay}" Margin="0,12,0,4" />
                                     <CheckBox Content="Add to replies and forwards (above the quoted text)" IsChecked="{Binding SignatureAccount.SignatureOnReplies, Mode=TwoWay}" />
+                                    <TextBlock Text="ADDITIONAL SIGNATURES" Style="{StaticResource Text.SectionCaps}" Margin="0,18,0,8" />
+                                    <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                               Text="Save multiple rich signatures for this account, then choose one from the compose window. The signature above stays the automatic default." />
+                                    <ItemsControl ItemsSource="{Binding SignatureAccount.SignatureVariants}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:EditableNamedSignature}">
+                                                <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                                                    <StackPanel>
+                                                        <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,5"
+                                                                 AutomationProperties.Name="Additional signature name" />
+                                                        <TextBlock Style="{StaticResource Text.Caption}" Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="65" />
+                                                        <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                                            <Button Style="{StaticResource Button.Secondary}" Content="Edit rich signature…" Tag="{Binding}" Click="OnEditNamedSignature" />
+                                                            <Button Style="{StaticResource Button.Ghost}" Content="Remove" Margin="8,0,0,0"
+                                                                    Command="{Binding DataContext.RemoveNamedSignatureCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource Button.Secondary}" Content="+ Add another signature" Margin="0,4,0,0" HorizontalAlignment="Left"
+                                            Command="{Binding AddNamedSignatureCommand}" />
                                     <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
                                                Text="Pictures are sent inside the email, so they show even when the other person blocks pictures from the internet. Changes apply when you press Save." />
                                 </StackPanel>
@@ -1222,7 +1173,9 @@
 
                     <StackPanel Visibility="{Binding Page, Converter={StaticResource EqualsToVis}, ConverterParameter=Templates}">
                         <TextBlock svc:Typography.Role="settingsTitle" Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
-                        <TextBlock Text="Text you insert often. Use them from the Templates button in a new message." Style="{StaticResource Text.Caption}" Margin="0,4,0,20" />
+                        <TextBlock Text="Reusable subject and message text. Use them from Templates in a compose window. Leave Subject empty for a body-only template; an existing message subject is never replaced without confirmation." TextWrapping="Wrap" Style="{StaticResource Text.Caption}" Margin="0,4,0,8" />
+                        <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,14"
+                                   Text="Variables: {first_name}, {last_name}, {full_name}, {recipient_email}, {sender_name}, {sender_email}, {company}, {subject}, {date}, {time}. Double braces also work (for example {{first_name}}). Company comes from the sending account's details; recipient names require a named To address. You'll preview the filled values before insertion; unavailable values stay as placeholders." />
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditableTemplate}">
@@ -1239,6 +1192,11 @@
                                             <StackPanel Margin="16,0,16,16">
                                                 <TextBlock Text="Name" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Margin="0,0,0,8" />
+                                                <TextBlock Text="Category (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Category, UpdateSourceTrigger=PropertyChanged}" MaxLength="48" Margin="0,0,0,8" AutomationProperties.Name="Template category" />
+                                                <TextBlock Text="Subject (optional)" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
+                                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Template subject" />
+                                                <TextBlock Text="Message text" Style="{StaticResource Text.Caption}" Margin="0,0,0,5" />
                                                 <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
                                                          MinHeight="70" VerticalContentAlignment="Top" />
                                             </StackPanel>
@@ -1410,41 +1368,65 @@
                             </StackPanel>
                         </Grid>
 
-                        <!-- Compose toolbar (design CW1, B15) -->
-                        <TextBlock Text="NEW MESSAGE TOOLBAR" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
-                        <Border x:Name="RowComposeToolbar" Style="{StaticResource Card}" Padding="0">
+                        <!-- Main compose-toolbar visibility/order and responsive groups (B15 / CW1). -->
+                        <TextBlock Text="COMPOSE TOOLBAR" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border x:Name="RowComposeToolbar" Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="14,10,14,4"
-                                           Text="The formatting buttons in a new message. Hidden ones are still in its More ▾ menu; when the window is narrow the right-most buttons fold into More ▾ by themselves." />
-                                <ItemsControl ItemsSource="{Binding ComposeToolbarRows}" AlternationCount="2" Focusable="False">
+                                <TextBlock Text="Choose the buttons above your message" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,10"
+                                           Text="Untick a button to hide it; use the arrows to change its position. Adjacent formatting groups move into More tools when the window is narrow. Attach files and More always stay available. Apply saves the layout for open and new compose windows." />
+                                <ItemsControl ItemsSource="{Binding ComposeToolbarRows}" Focusable="False">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="{x:Type vm:EditableComposeButton}">
-                                            <Border x:Name="Row" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="14,4,10,4">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="76" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <CheckBox IsChecked="{Binding Visible, Mode=TwoWay}" VerticalAlignment="Center" AutomationProperties.Name="{Binding ShowLabel}" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="13" />
-                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                                                        <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0" FontWeight="Normal"
-                                                                Command="{Binding DataContext.MoveComposeUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                                AutomationProperties.Name="{Binding UpLabel}" ToolTip="{Binding UpLabel}" />
-                                                        <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0" FontWeight="Normal"
-                                                                Command="{Binding DataContext.MoveComposeDownCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                                AutomationProperties.Name="{Binding DownLabel}" ToolTip="{Binding DownLabel}" />
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                            <DataTemplate.Triggers>
-                                                <Trigger Property="ItemsControl.AlternationIndex" Value="1">
-                                                    <Setter TargetName="Row" Property="Background" Value="{DynamicResource Brush.Row.Alt}" />
-                                                </Trigger>
-                                            </DataTemplate.Triggers>
+                                        <DataTemplate DataType="{x:Type vm:EditableComposeToolbarButton}">
+                                            <Grid Margin="0,3">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding Visible, Mode=TwoWay}" IsEnabled="{Binding CanHide}"
+                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding ShowLabel}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Note}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0"
+                                                            Command="{Binding DataContext.MoveComposeToolbarUpCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding UpLabel}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0"
+                                                            Command="{Binding DataContext.MoveComposeToolbarDownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding DownLabel}" />
+                                                </StackPanel>
+                                            </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <Button Style="{StaticResource Button.Secondary}" Content="Reset to default" HorizontalAlignment="Left" Margin="14,10,14,12" FontWeight="Normal" Command="{Binding ResetComposeToolbarCommand}" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Reset compose toolbar" HorizontalAlignment="Left" Margin="0,12,0,0"
+                                        Command="{Binding ResetComposeToolbarCommand}" ToolTip="Restore these buttons without changing the separate Compose More menu order" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Compose → More menu order (B15) -->
+                        <TextBlock Text="COMPOSE MORE MENU" Style="{StaticResource Text.SectionCaps}" Margin="0,26,0,10" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Arrange the rich-text commands in Compose → More" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,10"
+                                           Text="Use the arrows to set your preferred order. The plain-text switch stays at the top; changes take effect after Save. Reset to default also restores this list." />
+                                <ItemsControl ItemsSource="{Binding ComposeMoreRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:EditableComposeMenuItem}">
+                                            <Grid Margin="0,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="80" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↑" Width="30" MinHeight="26" Padding="0" Margin="0,0,4,0"
+                                                            Command="{Binding DataContext.MoveComposeMoreUpCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding UpLabel}" />
+                                                    <Button Style="{StaticResource Button.Secondary}" Content="↓" Width="30" MinHeight="26" Padding="0"
+                                                            Command="{Binding DataContext.MoveComposeMoreDownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" AutomationProperties.Name="{Binding DownLabel}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </Border>
 

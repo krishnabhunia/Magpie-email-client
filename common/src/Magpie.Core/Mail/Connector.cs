@@ -52,7 +52,7 @@ public sealed class Connector
 
     public async Task<SmtpClient> OpenSmtpAsync(Account a, CancellationToken ct, string? passwordOverride = null)
     {
-        var client = new SmtpClient { Timeout = 90_000, ServerCertificateValidationCallback = ValidateCertificate };
+        var client = new DeliveryReceiptSmtpClient { Timeout = 90_000, ServerCertificateValidationCallback = ValidateCertificate };
         try
         {
             await client.ConnectAsync(a.SmtpHost, a.SmtpPort, Map(a.SmtpSecurity), ct);
@@ -126,8 +126,26 @@ public sealed class Connector
 
     public async Task SendAsync(Account a, MimeMessage msg, CancellationToken ct)
     {
+        ComposeBodySafety.RemoveDraftMetadata(msg);
+        msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
         using var smtp = await OpenSmtpAsync(a, ct);
+        DeliveryReceipts.RemoveDraftMetadata(msg);
         await smtp.SendAsync(msg, ct);
+        await DisconnectAfterSendAsync(smtp);
+    }
+
+    public async Task<DeliveryReceiptResult> SendWithDeliveryReceiptAsync(Account a, MimeMessage msg, CancellationToken ct)
+    {
+        ComposeBodySafety.RemoveDraftMetadata(msg);
+        msg.Headers.RemoveAll(SecureMailOptions.DraftHeader);
+        using var smtp = (DeliveryReceiptSmtpClient)await OpenSmtpAsync(a, ct);
+        var result = await smtp.SendWithReceiptAsync(msg, ct);
+        await DisconnectAfterSendAsync(smtp);
+        return result;
+    }
+
+    private static async Task DisconnectAfterSendAsync(SmtpClient smtp)
+    {
         // The server has accepted the message. A failing QUIT (dropped connection, app closing) must not make the
         // outbox treat it as failed — that would send it again on retry.
         try

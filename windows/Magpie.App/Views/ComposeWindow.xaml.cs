@@ -10,7 +10,6 @@ using Magpie.App.ViewModels;
 using Magpie.Core;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
-using Magpie.Core.Settings;
 using Microsoft.Web.WebView2.Core;
 
 namespace Magpie.App.Views;
@@ -22,12 +21,14 @@ public partial class ComposeWindow : Window
     private bool _plain;
     private bool _forceClose;
     private TextBox? _suggestTarget;
-    private readonly bool _foldQuote;
-    /// <summary>WebView2 couldn't start: the plain editor is the only editor (design CW1: the plain-text switch stays off).</summary>
-    private bool _noWebView;
+    private bool _mentionSuggesting;
+    private int _plainMentionIndex = -1;
+    private string _plainMentionToken = "";
     private readonly bool _preserveDraftFormatting;
     private readonly Action _settingsChanged;
     private string _plainProtectedTail = "";
+    // Only this live fallback window knows the exact tail captured before rich sections were flattened.
+    private bool _plainBodySectionsKnown;
 
     // ───────────────────────── opening ─────────────────────────
 
@@ -143,48 +144,37 @@ public partial class ComposeWindow : Window
         InitializeComponent();
         _vm = new ComposeViewModel(draft, prefill);
         DataContext = _vm;
+        InitializeComposeToolbar();
         _vm.GetHtml = GetHtmlAsync;
         _vm.GetNewText = GetNewTextAsync;
+        _vm.GetWritingText = GetWritingTextAsync;
         _vm.ChooseReplyInsertion = () => Task.FromResult(ReplyInsertionDialog.Ask(this));
         _vm.FocusAnswerBox = () => Dispatcher.BeginInvoke(new Action(ReplyAi.FocusAnswer), System.Windows.Threading.DispatcherPriority.Input);
         _vm.EditorCommand = EditorCommandAsync;
-        _vm.AskForgotAttachment = AskForgotAttachmentAsync;
-        _vm.AskOverLimit = AskOverLimitAsync;
+        _vm.RestoreRevisionEditor = RestoreRevisionEditorAsync;
+        InitializeClipboardPaste();
         _preserveDraftFormatting = draft.Mode == ComposeMode.EditDraft;
-        // Design CW1 (E2): replies start with the quoted message folded; forwards and re-opened drafts don't.
-        _foldQuote = draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll && AppServices.Engine.Config.Compose.FoldQuote;
-        WireRecipientBoxes();
-        _settingsChanged = () => Ui.Post(() => _ = ApplyEditorTypographyAsync());
+        _settingsChanged = () => Ui.Post(() => { ApplyComposeToolbarLayout(); _ = ApplyEditorTypographyAsync(); });
         AppServices.Engine.Settings.Changed += _settingsChanged;
         _vm.CloseRequested += () => { _forceClose = true; Close(); };
         StateChanged += (_, _) => MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "" : "";
         Loaded += async (_, _) => await InitEditorAsync();
+        Loaded += (_, _) => RefreshAllRecipientChips();
         Closing += OnClosing;
-        Closed += (_, _) => { _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
+        Closed += (_, _) => { SaveComposePlacement(); _vm.Detach(); ThemeManager.Changed -= OnThemeChanged; AppServices.Engine.Settings.Changed -= _settingsChanged; };
         Editor.DefaultBackgroundColor = ThemeManager.WebBackground;
         ThemeManager.Changed += OnThemeChanged;
         _vm.PropertyChanged += (_, a) =>
         {
+            if (a.PropertyName == nameof(ComposeViewModel.AiPanelOpen)) OnAiPanelVisibilityChanged();
             if (!_editorReady && a.PropertyName is nameof(ComposeViewModel.To) or nameof(ComposeViewModel.Cc)
                     or nameof(ComposeViewModel.Bcc) or nameof(ComposeViewModel.Subject))
                 _typedBeforeReady = true;
         };
         PreviewKeyDown += (_, e) =>
         {
-            var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-            var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             if (e.Key == Key.A && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && _vm.ShowAiRail)
             { e.Handled = true; _vm.ToggleAiPanelCommand.Execute(null); }
-            // Design CW1 (E4): the same keys as inside the editor page, for when the focus is in a header field.
-            else if (ctrl && !shift && e.Key == Key.S) { e.Handled = true; OnSaveDraft(this, new RoutedEventArgs()); }
-            else if (ctrl && !shift && e.Key == Key.F && !ReplyAi.HasKeyboardFocus) { e.Handled = true; OpenFind(false); }
-            else if (ctrl && !shift && e.Key == Key.H && !ReplyAi.HasKeyboardFocus) { e.Handled = true; OpenFind(true); }
-            else if (ctrl && e.Key == Key.OemQuestion) { e.Handled = true; ComposePopups.Shortcuts(this); }
-            else if (ctrl && shift && e.Key == Key.O) { e.Handled = true; OnAttach(this, new RoutedEventArgs()); }
-            else if (ctrl && shift && e.Key == Key.C && !ToBox.HasFocusWithin && !CcBox.HasFocusWithin && !BccBox.HasFocusWithin) { e.Handled = true; OnEditorKey("cc"); }
-            else if (ctrl && shift && e.Key == Key.B) { e.Handled = true; OnEditorKey("bcc"); }
-            else if (e.Key == Key.Enter && ctrl && (Keyboard.Modifiers & ModifierKeys.Alt) != 0) { e.Handled = true; _ = _vm.SendAndArchiveAsync(); }
-            else if (e.Key == Key.Escape && FindBar.Visibility == Visibility.Visible && FindBar.IsKeyboardFocusWithin) { e.Handled = true; OnFindClose(this, new RoutedEventArgs()); }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0 && ReplyAi.HasKeyboardFocus)
             {
                 // AW1: Ctrl+Enter in the AI draft panel rewrites the draft; it never sends the email from there.
@@ -192,16 +182,56 @@ public partial class ComposeWindow : Window
                 if (_vm.GenerateReplyDraftCommand.CanExecute(null)) _ = _vm.GenerateReplyDraftCommand.ExecuteAsync(null);
             }
             else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; _ = _vm.SendAsync(null, null); }
-            else if (e.Key == Key.Escape && !SuggestPopup.IsOpen && !MentionPopup.IsOpen) { e.Handled = true; Close(); }
+            else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(false); }
+            else if (e.Key == Key.H && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowFindReplace(true); }
+            else if (e.Key == Key.Oem2 && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; ShowComposeShortcuts(); }
+            else if (e.Key == Key.Escape && FormattingItems.IsOverflowOpen) { e.Handled = true; FormattingItems.IsOverflowOpen = false; }
+            else if (e.Key == Key.Escape && FindReplacePanel.Visibility == Visibility.Visible) { e.Handled = true; HideFindReplace(); }
+            else if (e.Key == Key.Escape && !SuggestPopup.IsOpen) { e.Handled = true; Close(); }
         };
-        if (Application.Current.MainWindow is { IsVisible: true } main)
+        RestoreComposePlacement();
+    }
+
+    private void RestoreComposePlacement()
+    {
+        var placement = AppServices.Engine.Config.ComposeWindow;
+        Width = placement.Width;
+        Height = placement.Height;
+        if (placement.HasSavedPlacement && placement.Left > SystemParameters.VirtualScreenLeft - 50
+            && placement.Top > SystemParameters.VirtualScreenTop - 50
+            && placement.Left < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 100
+            && placement.Top < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 100)
+        {
+            Left = placement.Left;
+            Top = placement.Top;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+        }
+        else if (Application.Current.MainWindow is { IsVisible: true } main)
         {
             Left = main.Left + 80;
             Top = main.Top + 60;
             WindowStartupLocation = WindowStartupLocation.Manual;
         }
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        RestorePlacement();   // design CW1 (E5): the last size and place win over the offset above
+        if (placement.Maximized) WindowState = WindowState.Maximized;
+    }
+
+    private void SaveComposePlacement()
+    {
+        try
+        {
+            var placement = AppServices.Engine.Config.ComposeWindow;
+            var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+            if (bounds.Width < MinWidth || bounds.Height < MinHeight) return;
+            placement.Left = bounds.Left;
+            placement.Top = bounds.Top;
+            placement.Width = bounds.Width;
+            placement.Height = bounds.Height;
+            placement.Maximized = WindowState == WindowState.Maximized;
+            placement.HasSavedPlacement = true;
+            AppServices.Engine.Settings.Save(notify: false);
+        }
+        catch (Exception ex) { Log.Warn("save compose placement: " + ex.Message); }
     }
 
     private async Task InitEditorAsync()
@@ -233,16 +263,28 @@ public partial class ComposeWindow : Window
 
     private void UsePlainEditor()
     {
+        _plainBodySectionsKnown = !_vm.BodySectionsLost;
+        _vm.SupportsRichDraftRestore = false;
         _plain = true;
-        _noWebView = true;
         Editor.Visibility = Visibility.Collapsed;
         PlainEditor.Visibility = Visibility.Visible;
-        PlainEditor.Text = MimeText.HtmlToText(_vm.InitialHtml);
-        _plainProtectedTail = ProtectedTail(_vm.InitialHtml);
-        PlainEditor.TextChanged += OnPlainChanged;
+        PlainEditor.Text = _vm.IsPlainText ? MimeText.EditorHtmlToPlainText(_vm.InitialHtml) : MimeText.HtmlToText(_vm.InitialHtml);
+        SpellCheck.SetIsEnabled(PlainEditor, _spellcheckEnabled);
+        _plainProtectedTail = ComposeBodySafety.CapturePlainProtectedTail(_vm.InitialHtml);
+        PlainEditor.TextChanged += (_, _) => _vm.MarkEdited();
+        PlainEditor.TextChanged += (_, _) => InspectPlainMention();
+        PlainEditor.PreviewKeyDown += (_, e) =>
+        {
+            if (!_mentionSuggesting || !SuggestPopup.IsOpen) return;
+            if (e.Key is not (Key.Up or Key.Down or Key.Enter or Key.Tab or Key.Escape)) return;
+            e.Handled = true;
+            HandleMentionKey(e.Key.ToString());
+        };
         PlainEditor.SelectionChanged += (_, _) => _vm.SelectedText = PlainEditor.SelectedText;
         _editorReady = true;
+        UpdatePlainTextControls();
         _ = ApplyEditorTypographyAsync();
+        _ = _vm.CaptureDraftRevisionAsync();
         _ = _vm.ReplyEditorReadyAsync();
     }
 
@@ -255,35 +297,39 @@ public partial class ComposeWindow : Window
             switch (root.GetProperty("t").GetString())
             {
                 case "ready":
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setNativeAttachmentPaste(true)");
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setQuoteFoldingSupported(true)");
                     await Editor.CoreWebView2.ExecuteScriptAsync($"setDark({(ThemeManager.IsDark ? "true" : "false")})");
-                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
+                    // Plain draft p-per-line storage must not acquire the browser's rich paragraph spacing.
+                    var initialEditorHtml = _vm.IsPlainText
+                        ? MimeText.PlainTextToEditorHtml(MimeText.EditorHtmlToPlainText(_vm.InitialHtml)) : _vm.InitialHtml;
+                    await Editor.CoreWebView2.ExecuteScriptAsync($"setHtml({JsonSerializer.Serialize(initialEditorHtml)}, {(_vm.BodySectionsLost ? "true" : "false")})");
+                    await Editor.CoreWebView2.ExecuteScriptAsync("setLinkBubbleEnabled(true)");
+                    if (_vm.IsPlainText)
+                        await Editor.CoreWebView2.ExecuteScriptAsync("setEditorPlainText(true,false)");
+                    QuoteToggleButton.Visibility = _vm.InitialHtml.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
+                        ? Visibility.Visible : Visibility.Collapsed;
                     _editorReady = true;
+                    UpdatePlainTextControls();
                     await ApplyEditorTypographyAsync();
-                    // Design CW1: spelling, folded quote, the paste question, the toolbar
-                    await Editor.CoreWebView2.ExecuteScriptAsync($"setSpell({(AppServices.Engine.Config.Compose.CheckSpelling ? "true" : "false")})");
-                    await Editor.CoreWebView2.ExecuteScriptAsync($"setAskPaste({(AppServices.Engine.Config.Compose.PastePicture != PastePictureChoice.InMessage ? "true" : "false")})");
-                    if (_foldQuote) await Editor.CoreWebView2.ExecuteScriptAsync("foldQuote()");
-                    BuildToolbar();
-                    if (_vm.PlainText) { _vm.PlainText = false; await SwitchPlainTextAsync(true, ask: false); }
                     // Loading the initial HTML isn't an edit, but anything typed in To/Subject meanwhile is.
                     if (_vm.StartsUnsaved || _typedBeforeReady) _vm.MarkEdited(); else _vm.Dirty = false;
-                    if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Input.Focus();
+                    if (!string.IsNullOrWhiteSpace(_vm.To)) Editor.Focus(); else ToBox.Focus();
+                    await _vm.CaptureDraftRevisionAsync();
                     await _vm.ReplyEditorReadyAsync();
                     break;
                 case "dirty": _vm.MarkEdited(); break;
+                case "clipboardPaste": await PasteClipboardAttachmentAsync(showEmptyMessage: false); break;
                 case "sel": _vm.SelectedText = root.GetProperty("text").GetString() ?? ""; break;
                 case "send": await _vm.SendAsync(null, null); break;
                 case "link": OnLink(this, new RoutedEventArgs()); break;
-                // Design CW1
-                case "state": ApplyEditorState(root); break;
-                case "linkat": ShowLinkBubble(root); break;
-                case "img": ShowPictureBubble(root); break;
-                case "table": ShowTableMenu(root); break;
-                case "mention": ShowMentions(root); break;
-                case "stats": _vm.UpdateStats(root.GetProperty("text").GetString() ?? ""); _ = RefreshSizeAsync(); break;   // pasted / deleted pictures count
-                case "pastepics": OnPastedPictures(root.GetProperty("data").EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()); break;
-                case "pastefiles": OnPastedFiles(); break;
-                case "key": OnEditorKey(root.GetProperty("k").GetString() ?? ""); break;
+                case "find": ShowFindReplace(false); break;
+                case "replace": ShowFindReplace(true); break;
+                case "tableMenu": ShowTableContextMenu(); break;
+                case "shortcuts": ShowComposeShortcuts(); break;
+                case "mention": await ShowMentionSuggestionsAsync(root.GetProperty("q").GetString() ?? ""); break;
+                case "mentionClosed": if (_mentionSuggesting) HideMentionSuggestions(); break;
+                case "mentionKey": HandleMentionKey(root.GetProperty("key").GetString() ?? ""); break;
             }
         }
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
@@ -291,11 +337,15 @@ public partial class ComposeWindow : Window
 
     private async Task<string> GetHtmlAsync()
     {
-        // The plain editor holds the message once it is in use — an emptied body stays empty. Before any editor is ready
-        // (a save racing the page load) the message is still what it was opened with.
-        if (_plain) return ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        if (_plain)
+        {
+            // The saved paragraph representation cannot reconstruct this window's original protected tail.
+            _vm.BodySectionsLost = true;
+            return _vm.IsPlainText ? MimeText.PlainTextToEditorHtml(PlainEditor.Text) : ComposeViewModel.TextToParagraphs(PlainEditor.Text);
+        }
         if (!_editorReady) return _vm.InitialHtml;
         var json = await Editor.CoreWebView2.ExecuteScriptAsync("getHtml()");
+        if (await Editor.CoreWebView2.ExecuteScriptAsync("getBodySectionsLost()") == "true") _vm.BodySectionsLost = true;
         return JsonSerializer.Deserialize<string>(json) ?? "";
     }
 
@@ -318,13 +368,6 @@ public partial class ComposeWindow : Window
         catch (Exception ex) { Log.Warn("editor typography: " + ex.Message); }
     }
 
-    /// <summary>The signature + quoted part of <paramref name="html"/> as plain text (the plain editor never lets AI drafts or templates touch it).</summary>
-    private static string ProtectedTail(string html)
-    {
-        var protectedStart = Regex.Match(html, "<(?:div|blockquote)\\b[^>]*class=[\"'][^\"']*\\bmagpie-(?:signature|quote)\\b", RegexOptions.IgnoreCase);
-        return protectedStart.Success ? MimeText.HtmlToText(html[protectedStart.Index..]).TrimStart() : "";
-    }
-
     private string PlainNewText()
     {
         var text = PlainEditor.Text;
@@ -344,9 +387,15 @@ public partial class ComposeWindow : Window
 
     private async Task EditorCommandAsync(string mode, string text)
     {
+        if (ComposeBodySafety.IsFullBodyCommand(mode))
+        {
+            var safe = _plain
+                ? _plainBodySectionsKnown && (_plainProtectedTail.Length == 0 || PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
+                : !_vm.BodySectionsLost && await Editor.CoreWebView2.ExecuteScriptAsync("canReplaceBody()") == "true";
+            if (!safe) throw new InvalidOperationException(ComposeBodySafety.RestrictionReason);
+        }
         if (_plain)
         {
-            if (mode == "signature") throw new InvalidOperationException("Switch back to rich text to change the signature.");
             if (mode == "replyDraft")
             {
                 using var payload = JsonDocument.Parse(text);
@@ -359,7 +408,7 @@ public partial class ComposeWindow : Window
                 if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
                     throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
                 var body = how == "appendBody" && expected.Trim().Length > 0 ? expected.TrimEnd() + "\n\n" + insertion : insertion;
-                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+                ReplacePlainBody(body);
                 return;
             }
             if (mode == "captureRewrite")
@@ -382,14 +431,9 @@ public partial class ComposeWindow : Window
                 if (_plainProtectedTail.Length > 0 && !PlainEditor.Text.EndsWith(_plainProtectedTail, StringComparison.Ordinal))
                     throw new InvalidOperationException("The signature or quoted message changed. Keep writing manually to preserve it.");
                 var body = mode == "appendBody" ? PlainNewText().TrimEnd() + "\n\n" + text : text;
-                PlainEditor.Text = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+                ReplacePlainBody(body);
             }
             else PlainEditor.SelectedText = text;
-            return;
-        }
-        if (mode == "signature")
-        {
-            await Editor.CoreWebView2.ExecuteScriptAsync($"setSignature({JsonSerializer.Serialize(text)})");
             return;
         }
         var result = await Editor.CoreWebView2.ExecuteScriptAsync($"cmd({JsonSerializer.Serialize(mode)}, {JsonSerializer.Serialize(text)})");
@@ -397,38 +441,114 @@ public partial class ComposeWindow : Window
             throw new InvalidOperationException(mode == "replyDraft" ? "Your reply changed. Review the draft and choose Use draft again." : "Your message or selection changed. Select the text and rewrite it again.");
     }
 
+    private void ReplacePlainBody(string body)
+    {
+        var updated = body + (_plainProtectedTail.Length > 0 ? "\n\n" + _plainProtectedTail : "");
+        // Assigning Text resets the native undo manager. A selected-text change is one real edit.
+        PlainEditor.BeginChange();
+        try
+        {
+            PlainEditor.SelectAll();
+            PlainEditor.SelectedText = updated;
+            PlainEditor.Select(body.Length, 0);
+        }
+        finally { PlainEditor.EndChange(); }
+        PlainEditor.Focus();
+    }
+
     private async void OnFormat(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)})");
+        if (!_editorReady || (sender as FrameworkElement)?.Tag is not string command) return;
+        if (_plain)
+        {
+            if (command == "undo") PlainEditor.Undo();
+            else if (command == "redo") PlainEditor.Redo();
+            return;
+        }
+        if (_vm.IsPlainText && command is not ("undo" or "redo")) return;
+        if (command is "foreColor" or "hiliteColor") { await ShowColourPaletteAsync(sender, command); return; }
+        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt({JsonSerializer.Serialize(command)}, null)");
     }
 
     private async void OnLink(object sender, RoutedEventArgs e)
     {
-        if (_plain || !_editorReady) return;
-        var url = TextPromptDialog.Ask(this, "Insert link", "Web address", "https://");
-        if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "mailto")) { Ui.Error("Insert link", "That doesn't look like a web address.", this); return; }
-        await Editor.CoreWebView2.ExecuteScriptAsync($"fmt('createLink', {JsonSerializer.Serialize(u.ToString())})");
+        if (!CanUseRichFormatting) return;
+        try
+        {
+            if (await Editor.CoreWebView2.ExecuteScriptAsync("captureLinkSelection()") != "true") return;
+            var current = JsonSerializer.Deserialize<string>(await Editor.CoreWebView2.ExecuteScriptAsync("selectedLinkUrl()")) ?? "";
+            var url = TextPromptDialog.Ask(this, current.Length > 0 ? "Edit link" : "Insert link", "Web address (http, https or mailto)", current.Length > 0 ? current : "https://")?.Trim();
+            if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
+            if (!ComposeSafety.ValidComposeLink(url)) { Ui.Error("Insert link", "Use an http, https or mailto address.", this); return; }
+            var changed = await Editor.CoreWebView2.ExecuteScriptAsync($"setSelectedLink({JsonSerializer.Serialize(url)})");
+            if (changed != "true") Ui.Error("Edit link", "The address is invalid or the selected text changed. Select the link or text and try again.", this);
+        }
+        catch (Exception ex) { Log.Warn("compose link: " + ex.Message); }
+        finally
+        {
+            try { if (Editor.CoreWebView2 != null) await Editor.CoreWebView2.ExecuteScriptAsync("cancelLinkSelection()"); }
+            catch (Exception ex) { Log.Warn("close compose link: " + ex.Message); }
+        }
+    }
+
+    private async void OnRemoveLink(object sender, RoutedEventArgs e)
+    {
+        if (!CanUseRichFormatting) return;
+        await Editor.CoreWebView2.ExecuteScriptAsync("removeSelectedLink()");
+    }
+
+    private void ShowComposeShortcuts()
+    {
+        MessageBox.Show(this,
+            "Ctrl+Enter — Send (or rewrite when the AI panel is focused)\n"
+            + "Ctrl+K — Insert or edit a link\n"
+            + "Ctrl+F — Find text in this message\nCtrl+H — Find and replace\n"
+            + "Ctrl+B — Bold\nCtrl+I — Italic\nCtrl+U — Underline\n"
+            + "Ctrl+Z — Undo\nCtrl+Y — Redo\n"
+            + "Ctrl+V — Paste text or files; choose inline/attachment for pictures\n"
+            + "Ctrl+Shift+A — Open AI assistant when available\n"
+            + "Ctrl+/ — Show this shortcut sheet\n"
+            + "Esc — Close the compose window (asks about unsaved changes)",
+            "Compose keyboard shortcuts", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ───────────────────────── send / schedule / draft ─────────────────────────
 
     private async void OnSend(object sender, RoutedEventArgs e) => await _vm.SendAsync(null, null);
 
+    private async void OnSendAndArchive(object sender, RoutedEventArgs e) => await _vm.SendAsync(null, null, archiveAfterSend: true);
+
     private void OnSendLater(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };
+        var menu = BuildSendLaterMenu((UIElement)sender);
+        menu.IsOpen = true;
+    }
+
+    private ContextMenu BuildSendLaterMenu(UIElement target)
+    {
+        var menu = new ContextMenu { PlacementTarget = target, Placement = PlacementMode.Top };
+        menu.Items.Add(new MenuItem
+        {
+            IsEnabled = false,
+            Header = new TextBlock { Text = ScheduleTime.ExecutionHelp, TextWrapping = TextWrapping.Wrap, MaxWidth = 350 },
+        });
+        menu.Items.Add(new Separator());
         foreach (var p in TimePresets.For(DateTime.Now, sendLater: true))
         {
-            var mi = new MenuItem { Header = $"{p.Label}  ·  {TimePresets.Describe(p.When, DateTime.Now)}" };
+            var label = $"{p.Label}  ·  {ScheduleTime.Describe(p.When, DateTime.Now)}";
+            var mi = new MenuItem
+            {
+                Header = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
+                ToolTip = ScheduleTime.ExecutionHelp,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(mi, label);
             mi.Click += async (_, _) => await _vm.SendAsync(p.When, null);
             menu.Items.Add(mi);
         }
         var pick = new MenuItem { Header = "Pick date & time…" };
         pick.Click += async (_, _) =>
         {
-            var when = PickTimeDialog.Ask(this, "Send later", "Magpie sends it at this time. Your PC needs to be on with Magpie running (it can be in the tray).", DateTime.Now.AddDays(1).Date.AddHours(8));
+            var when = PickTimeDialog.Ask(this, "Send later", ScheduleTime.ExecutionHelp, DateTime.Now.AddDays(1).Date.AddHours(8));
             if (when != null) await _vm.SendAsync(when, null);
         };
         menu.Items.Add(pick);
@@ -440,12 +560,24 @@ public partial class ComposeWindow : Window
             if (when != null) await _vm.SendAsync(null, when);
         };
         menu.Items.Add(remind);
-        menu.IsOpen = true;
+        return menu;
     }
 
     private void OnAttach(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "Attach files" };
+        if (dlg.ShowDialog(this) == true) _vm.AddAttachments(dlg.FileNames);
+    }
+
+    private void OnAttachEmail(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Multiselect = true,
+            Title = "Attach a saved email",
+            Filter = "Email messages (*.eml)|*.eml",
+            DefaultExt = ".eml",
+        };
         if (dlg.ShowDialog(this) == true) _vm.AddAttachments(dlg.FileNames);
     }
 
@@ -462,45 +594,161 @@ public partial class ComposeWindow : Window
 
     private void OnTemplates(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Top };
-        foreach (var t in AppServices.Engine.Config.Templates)
-        {
-            var mi = new MenuItem { Header = t.Name };
-            mi.Click += (_, _) => _vm.InsertTemplate(t);
-            menu.Items.Add(mi);
-        }
-        // Design CW1 (D5): quick replies are here too
-        var quick = _vm.QuickReplies;
-        if (quick.Count > 0)
-        {
-            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem { Header = "Quick replies", IsEnabled = false });
-            foreach (var q in quick)
-            {
-                var mi = new MenuItem { Header = q.Length > 48 ? q[..48] + "…" : q };
-                var text = q;
-                mi.Click += (_, _) => _vm.InsertQuickReply(text);
-                menu.Items.Add(mi);
-            }
-        }
-        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-        var saveAs = new MenuItem { Header = "Save this message as a template…" };
-        saveAs.Click += (_, _) => OnSaveAsTemplate();
-        menu.Items.Add(saveAs);
-        var manage = new MenuItem { Header = "Manage templates…" };
-        manage.Click += (_, _) => SettingsWindow.Open("Templates");
-        menu.Items.Add(manage);
+        var menu = BuildTemplatesMenu((UIElement)sender);
         menu.IsOpen = true;
     }
 
+    private ContextMenu BuildTemplatesMenu(UIElement placementTarget)
+    {
+        var menu = new ContextMenu { PlacementTarget = placementTarget, Placement = PlacementMode.Top };
+        var categories = new Dictionary<string, MenuItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in AppServices.Engine.Config.Templates)
+        {
+            var mi = new MenuItem
+            {
+                Header = t.Name,
+                ToolTip = string.IsNullOrWhiteSpace(t.Subject) ? "Insert message text at the cursor" : "Subject: " + t.Subject + "\nInsert message text; an existing subject is replaced only after confirmation.",
+            };
+            mi.Click += async (_, _) => await UseQuickTemplateAsync(t);
+            var category = ComposeTemplates.CategoryName(t.Category);
+            if (category.Length == 0) menu.Items.Add(mi);
+            else
+            {
+                if (!categories.TryGetValue(category, out var group))
+                {
+                    group = new MenuItem { Header = new TextBlock { Text = category } };
+                    System.Windows.Automation.AutomationProperties.SetName(group, "Template category: " + category);
+                    categories.Add(category, group);
+                    menu.Items.Add(group);
+                }
+                group.Items.Add(mi);
+            }
+        }
+        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var quickReplies = new MenuItem
+        {
+            Header = "Quick replies",
+            ToolTip = "Insert a saved reply at the cursor as editable text. This never sends the message.",
+        };
+        foreach (var reply in AppServices.Engine.Config.QuickReplies ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(reply)) continue;
+            // A TextBlock keeps underscores literal instead of treating them as menu access keys.
+            var item = new MenuItem
+            {
+                Header = new TextBlock
+                {
+                    Text = reply.Replace('\r', ' ').Replace('\n', ' '),
+                    MaxWidth = 340, TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+                ToolTip = reply,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(item, "Insert quick reply: " + reply);
+            item.Click += async (_, _) => await UseQuickReplyAsync(reply);
+            quickReplies.Items.Add(item);
+        }
+        if (quickReplies.Items.Count == 0)
+            quickReplies.Items.Add(new MenuItem { Header = "No quick replies configured", IsEnabled = false });
+        quickReplies.Items.Add(new Separator());
+        var manageReplies = new MenuItem { Header = "Manage quick replies…" };
+        manageReplies.Click += (_, _) => SettingsWindow.Open("Signatures");
+        quickReplies.Items.Add(manageReplies);
+        menu.Items.Add(quickReplies);
+        menu.Items.Add(new Separator());
+        var saveCurrent = new MenuItem { Header = "Save subject and message text as template…" };
+        saveCurrent.Click += OnSaveCurrentAsTemplate;
+        menu.Items.Add(saveCurrent);
+        var manage = new MenuItem { Header = "Manage templates…" };
+        manage.Click += (_, _) => SettingsWindow.Open("Templates");
+        menu.Items.Add(manage);
+        return menu;
+    }
+
+    private async void OnSaveCurrentAsTemplate(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var text = _vm.GetNewText != null ? await _vm.GetNewText() : "";
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Ui.Error("Save as template", "Write some message text before saving it as a reusable template.", this);
+                return;
+            }
+            var subject = _vm.Subject;
+            var name = TextPromptDialog.Ask(this, "Save as template", "Template name (subject + new message text; excludes signature, quoted email and attachments)", subject);
+            if (name == null) return;
+            name = name.Trim();
+            if (name.Length is 0 or > 100)
+            {
+                Ui.Error("Save as template", "Enter a template name between 1 and 100 characters.", this);
+                return;
+            }
+            var engine = AppServices.Engine;
+            var existing = engine.Config.Templates.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            var category = TextPromptDialog.Ask(this, "Template category", "Optional category (leave blank to keep this template at the top level)", existing?.Category ?? "");
+            if (category == null) return;
+            if (category.Trim().Length > 48 || category.Any(char.IsControl))
+            {
+                Ui.Error("Template category", "Enter a category of up to 48 characters on one line.", this);
+                return;
+            }
+            category = ComposeTemplates.CategoryName(category);
+            if (existing != null)
+            {
+                if (!Ui.Confirm("Replace template", $"A template called '{existing.Name}' already exists. Replace its saved subject and message text?", this)) return;
+                existing.Subject = subject;
+                existing.Body = text;
+                existing.Category = category;
+            }
+            else engine.Config.Templates.Add(new Magpie.Core.Settings.QuickTemplate { Name = name, Category = category, Subject = subject, Body = text });
+            engine.Settings.Save();
+            MessageBox.Show(this, $"Template '{name}' was saved with its subject and message text. Choose Templates to use it in another message. Existing subjects are kept unless you explicitly choose to replace them.",
+                "Template saved", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) { Ui.Error("Save as template", ex.Message, this); }
+    }
+
     private async void OnSaveDraft(object sender, RoutedEventArgs e) => await _vm.SaveDraftAsync();
+
+    private async void OnSaveEml(object sender, RoutedEventArgs e)
+    {
+        var proposedName = string.Join("-", (_vm.Subject ?? "").Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (string.IsNullOrWhiteSpace(proposedName)) proposedName = "Magpie-message";
+        if (proposedName.Length > 80) proposedName = proposedName[..80];
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save message as .eml",
+            FileName = proposedName + ".eml",
+            DefaultExt = ".eml",
+            Filter = "Email message|*.eml",
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(this) == true) await _vm.ExportEmlAsync(dialog.FileName);
+    }
+
+    private async void OnDiscardChanges(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this,
+                "Discard the unsaved changes in this window?\n\nIf you opened a saved draft, its previously saved version will be kept.",
+                "Discard changes", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (!await _vm.DiscardAsync()) return;
+        _forceClose = true;
+        Close();
+    }
 
     private bool _asking;
     private bool _typedBeforeReady;
 
     private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_forceClose || !_vm.Dirty) return;
+        if (_forceClose) return;
+        if (_vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy)
+        {
+            e.Cancel = true;
+            _vm.Status = "Wait for the current send, attachment or restore operation to finish before closing.";
+            return;
+        }
+        if (!_vm.Dirty) return;
         e.Cancel = true;
         if (await AskToKeepAsync("Keep this message as a draft?\n\nYes — keep it (it goes to your Drafts folder; if you are offline it waits on this PC and uploads later).\nNo — discard it."))
         {
@@ -528,12 +776,17 @@ public partial class ComposeWindow : Window
         finally { _asking = false; }
     }
 
-    /// <summary>Has content that would be lost if the window closed now.</summary>
-    public bool HasUnsavedContent => !_forceClose && _vm.Dirty;
+    /// <summary>Has unsaved content or an in-flight operation that must settle before app exit or Windows logoff.</summary>
+    public bool HasUnsavedContent => !_forceClose && (_vm.Dirty || _vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy);
 
     /// <summary>Called when Magpie quits: asks about an unsent message first. False = the user cancelled quitting.</summary>
     public async Task<bool> CloseForExitAsync()
     {
+        if (!_forceClose && (_vm.AttachmentOperationBusy || _vm.Sending || _vm.RevisionBusy))
+        {
+            _vm.Status = "Wait for the current send, attachment or restore operation to finish before closing.";
+            return false;
+        }
         if (!_forceClose && _vm.Dirty && !await AskToKeepAsync("Magpie is closing. Keep this message as a draft?\n\nYes — keep it (Drafts, or on this PC if offline).\nNo — discard it."))
             return false;
         _forceClose = true;
@@ -551,25 +804,20 @@ public partial class ComposeWindow : Window
 
     private void OnAddressChanged(object sender, TextChangedEventArgs e)
     {
-        if (sender is not TextBox box || !box.IsKeyboardFocusWithin) return;
+        if (sender is not TextBox box || _vm == null) return;
+        UpdateRecipientValidation(box);
+        if (!box.IsKeyboardFocusWithin) { RefreshRecipientChips(box); return; }
+        if (_mentionSuggesting) HideMentionSuggestions();
         var token = LastToken(box.Text);
-        if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { CloseSuggestions(); return; }
+        if (token.Length < 2 || token.Contains('<') || token.Contains('@') && token.EndsWith('>')) { SuggestPopup.IsOpen = false; return; }
         var hits = AppServices.Engine.Contacts.Suggest(token);
-        if (hits.Count == 0) { CloseSuggestions(); return; }
+        if (hits.Count == 0) { SuggestPopup.IsOpen = false; return; }
         SuggestList.ItemsSource = hits;
         SuggestList.SelectedIndex = 0;
         _suggestTarget = box;
-        var owner = BoxOf(box);
-        SuggestPopup.PlacementTarget = (UIElement?)owner ?? box;
-        SuggestPopup.Width = Math.Max(320, owner?.ActualWidth ?? box.ActualWidth);
+        SuggestPopup.PlacementTarget = box;
+        SuggestPopup.Width = Math.Max(320, box.ActualWidth);
         SuggestPopup.IsOpen = true;
-        if (owner != null) owner.SuggestionsOpen = true;
-    }
-
-    private void CloseSuggestions()
-    {
-        SuggestPopup.IsOpen = false;
-        foreach (var b in new[] { ToBox, CcBox, BccBox, ReplyToBox }) b.SuggestionsOpen = false;
     }
 
     private void OnAddressKey(object sender, KeyEventArgs e)
@@ -591,7 +839,7 @@ public partial class ComposeWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                CloseSuggestions();
+                SuggestPopup.IsOpen = false;
                 e.Handled = true;
                 break;
         }
@@ -606,23 +854,108 @@ public partial class ComposeWindow : Window
 
     private void OnAddressLostFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (SuggestList.IsKeyboardFocusWithin || SuggestPopup.IsMouseOver) return;   // picking a suggestion: the pick replaces the typed text
-        var wasOpen = SuggestPopup.IsOpen;
-        CloseSuggestions();
-        // The box skipped its own commit while the list was open; the focus went elsewhere, so commit now.
-        if (wasOpen && sender is TextBox input) BoxOf(input)?.CommitInput();
+        if (!SuggestList.IsKeyboardFocusWithin && !SuggestPopup.IsMouseOver) SuggestPopup.IsOpen = false;
+        if (!SuggestPopup.IsOpen && sender is TextBox box) RefreshRecipientChips(box);
     }
 
-    /// <summary>Design CW1 (A1): the picked person becomes a chip in the field the user was typing in.</summary>
-    private void AcceptSuggestion()
+    private async void AcceptSuggestion()
     {
-        if (_suggestTarget == null || SuggestList.SelectedItem is not ContactSuggestion contact) { CloseSuggestions(); return; }
-        var entry = Composer.FormatAddress(contact.Name, contact.Address);
-        var owner = BoxOf(_suggestTarget);
-        CloseSuggestions();
-        if (owner != null) owner.AddChip(entry);
-        else { _suggestTarget.Text = entry + ", "; _suggestTarget.CaretIndex = _suggestTarget.Text.Length; }
+        if (_mentionSuggesting)
+        {
+            if (SuggestList.SelectedItem is not ContactSuggestion suggested) { HideMentionSuggestions(); return; }
+            var inserted = false;
+            if (_plain)
+            {
+                var end = _plainMentionIndex + _plainMentionToken.Length;
+                if (_plainMentionIndex >= 0 && end <= PlainEditor.Text.Length
+                    && PlainEditor.Text.Substring(_plainMentionIndex, _plainMentionToken.Length) == _plainMentionToken)
+                {
+                    PlainEditor.Select(_plainMentionIndex, _plainMentionToken.Length);
+                    PlainEditor.SelectedText = "@" + (string.IsNullOrWhiteSpace(suggested.Name) ? suggested.Address : suggested.Name) + " ";
+                    inserted = true;
+                }
+            }
+            else if (_editorReady && Editor.CoreWebView2 != null)
+            {
+                try
+                {
+                    inserted = await Editor.CoreWebView2.ExecuteScriptAsync($"insertMention({JsonSerializer.Serialize(string.IsNullOrWhiteSpace(suggested.Name) ? suggested.Address : suggested.Name)}, {JsonSerializer.Serialize(suggested.Address)})") == "true";
+                }
+                catch (Exception ex) { Log.Warn("insert mention: " + ex.Message); }
+            }
+            HideMentionSuggestions();
+            if (inserted)
+            {
+                var result = ComposeSafety.AddMentionRecipient(_vm.To, _vm.Cc, _vm.Bcc, suggested.Name, suggested.Address);
+                if (result.Added)
+                {
+                    _vm.To = result.To;
+                    RefreshRecipientChips(ToBox);
+                }
+                _vm.MarkEdited();
+            }
+            if (_plain) PlainEditor.Focus(); else Editor.Focus();
+            return;
+        }
+        if (_suggestTarget == null || SuggestList.SelectedItem == null) { SuggestPopup.IsOpen = false; return; }
+        if (SuggestList.SelectedItem is not ContactSuggestion contact) { SuggestPopup.IsOpen = false; return; }
+        var text = _suggestTarget.Text;
+        var i = text.LastIndexOfAny(new[] { ',', ';' });
+        var head = i >= 0 ? text[..(i + 1)] + " " : "";
+        var entry = string.IsNullOrEmpty(contact.Name) ? contact.Address : $"{(contact.Name.Contains(',') ? "\"" + contact.Name + "\"" : contact.Name)} <{contact.Address}>";
+        _suggestTarget.Text = head + entry + ", ";
+        _suggestTarget.CaretIndex = _suggestTarget.Text.Length;
+        SuggestPopup.IsOpen = false;
         _suggestTarget.Focus();
+    }
+
+    private async Task ShowMentionSuggestionsAsync(string query)
+    {
+        if (query.Length < 2 || query.Length > 64) { HideMentionSuggestions(); return; }
+        var hits = AppServices.Engine.Contacts.Suggest(query);
+        if (hits.Count == 0) { HideMentionSuggestions(); return; }
+        _mentionSuggesting = true;
+        _suggestTarget = null;
+        SuggestList.ItemsSource = hits;
+        SuggestList.SelectedIndex = 0;
+        SuggestPopup.PlacementTarget = FormattingToolbar;
+        SuggestPopup.Width = Math.Max(320, Math.Min(450, FormattingToolbar.ActualWidth));
+        SuggestPopup.IsOpen = true;
+        if (!_plain && Editor.CoreWebView2 != null)
+            await Editor.CoreWebView2.ExecuteScriptAsync("setMentionSuggestionsOpen(true)");
+    }
+
+    private void InspectPlainMention()
+    {
+        if (!_plain || !_editorReady || PlainEditor.CaretIndex > PlainEditor.Text.Length) return;
+        var before = PlainEditor.Text[..PlainEditor.CaretIndex];
+        var match = Regex.Match(before, @"(?:^|\s)@([\p{L}\p{N}._-]{2,64})$");
+        if (!match.Success) { if (_mentionSuggesting) HideMentionSuggestions(); return; }
+        _plainMentionIndex = match.Index + match.Length - match.Groups[1].Length - 1;
+        _plainMentionToken = "@" + match.Groups[1].Value;
+        _ = ShowMentionSuggestionsAsync(match.Groups[1].Value);
+    }
+
+    private void HandleMentionKey(string key)
+    {
+        if (!_mentionSuggesting || !SuggestPopup.IsOpen) return;
+        switch (key)
+        {
+            case "ArrowDown": case "Down": SuggestList.SelectedIndex = Math.Min(SuggestList.Items.Count - 1, SuggestList.SelectedIndex + 1); break;
+            case "ArrowUp": case "Up": SuggestList.SelectedIndex = Math.Max(0, SuggestList.SelectedIndex - 1); break;
+            case "Enter": case "Tab": AcceptSuggestion(); break;
+            case "Escape": HideMentionSuggestions(); break;
+        }
+    }
+
+    private void HideMentionSuggestions()
+    {
+        _mentionSuggesting = false;
+        _plainMentionIndex = -1;
+        _plainMentionToken = "";
+        SuggestPopup.IsOpen = false;
+        if (!_plain && _editorReady && Editor.CoreWebView2 != null)
+            _ = Editor.CoreWebView2.ExecuteScriptAsync("setMentionSuggestionsOpen(false)");
     }
 
     // ───────────────────────── chrome ─────────────────────────

@@ -710,6 +710,12 @@
                                                 </StackPanel>
                                             </DockPanel>
                                             <DockPanel Grid.Row="1" Margin="0,2,0,0">
+                                                <!-- D1: sender priority is distinct from the user's pinned state. -->
+                                                <TextBlock x:Name="HighPriorityBadge" DockPanel.Dock="Left" Text="!" FontSize="14" FontWeight="Bold"
+                                                           Foreground="{DynamicResource Brush.Danger}" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}"
+                                                           AutomationProperties.Name="High priority message"
+                                                           ToolTip="Contains a message marked high priority by its sender" ty:Typography.Role="listBadges" />
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                                     <TextBlock Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0" VerticalAlignment="Center"
                                                                ToolTip="Arrived" Visibility="{Binding ShowDeleteDay, Converter={StaticResource BoolToVis}}"  ty:Typography.Role="listDate" />
@@ -721,9 +727,6 @@
                                                     </Border>
                                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0"
                                                                Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" ToolTip="Has attachments" />
-                                                    <!-- Design CW1 (D1): the sender marked it High priority -->
-                                                    <TextBlock Text="!" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource Brush.Danger}" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                               Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}" ToolTip="Marked High priority by the sender" />
                                                     <TextBlock Text="&#xE718;" FontFamily="{StaticResource Font.Icons}" FontSize="11" Foreground="{DynamicResource Brush.Accent.Text}" Margin="6,0,0,0"
                                                                Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}" ToolTip="Pinned" />
                                                 </StackPanel>
@@ -806,6 +809,8 @@
 
                             <!-- Scheduled (send later) list -->
                             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsScheduledView, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                <TextBlock Text="{Binding ScheduledHelp}" TextWrapping="Wrap" Margin="16,10,14,8" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                 <ItemsControl ItemsSource="{Binding Scheduled}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:ScheduledItem}">
@@ -836,6 +841,7 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                </StackPanel>
                             </ScrollViewer>
 
                             <TextBlock Text="{Binding EmptyText}" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"

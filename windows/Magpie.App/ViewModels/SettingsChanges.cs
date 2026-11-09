@@ -27,7 +27,7 @@ public partial class SettingsViewModel
         _changeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _changeTimer.Tick += (_, _) => { _changeTimer.Stop(); HasChanges = Snapshot() != _baseline; };
         PropertyChanged += (_, e) => { if (e.PropertyName != null && !_quiet.Contains(e.PropertyName)) NoteChange(); };
-        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, ComposeToolbarRows, AiConnections, QuickReplyList, RuleList })
+        foreach (var list in new INotifyCollectionChanged[] { Tags, Accounts, Templates, HoverLines, RowActions, ToolbarRows, ComposeToolbarRows, ComposeMoreRows, AiConnections, QuickReplyList, RuleList })
             Track(list);
         _baseline = Snapshot();
         HasChanges = false;
@@ -55,7 +55,7 @@ public partial class SettingsViewModel
     {
         if (item is INotifyPropertyChanged n) n.PropertyChanged += (_, _) => NoteChange();
         if (item is EditableRule r) { Track(r.Conditions); Track(r.Actions); }
-        if (item is EditableAccount a) Track(a.Signatures);   // design CW1: several signatures per account
+        if (item is EditableAccount a) Track(a.SignatureVariants);
     }
 
     /// <summary>The settings as Apply would save them now, as text (plus the things that aren't in settings.json).</summary>
@@ -80,7 +80,7 @@ public partial class SettingsViewModel
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Category = ComposeTemplates.CategoryName(t.Category), Subject = t.Subject, Body = t.Body }).ToList();
         c.Ai.Enabled = AiEnabled;
         c.Ai.Summarise = Summarise;
         c.Ai.Draft = Draft;
@@ -103,6 +103,8 @@ public partial class SettingsViewModel
         {
             Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeToolbar = ComposeToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeMoreOrder = ComposeMoreRows.Select(r => r.Id).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
@@ -110,13 +112,13 @@ public partial class SettingsViewModel
             Splash = Splash, SplashAccounts = SplashAccounts,
         };
         c.Appearance.Normalise();
-        c.Compose = ComposeToSave(c.Compose);
         c.Updates.AutoUpdate = AutoUpdate;
         c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
         c.Updates.IncludePrerelease = IncludePrerelease;
         c.Rules = ProjectRules(new Dictionary<string, MailRule>(_savedRules));
-        c.Accounts = Accounts.Select(a => a.ToAccount()).ToList();
+        c.Accounts = Accounts.Select(a => a.ToAccount(tolerateIncomplete: true)).ToList();
         var keys = ApiKeyChanged || AiConnections.Any(x => x.KeyChanged) || _deletedAiConnections.Count > 0;
-        return JsonSerializer.Serialize(c, AppSettings.Json) + "|keys:" + keys + "|startup:" + StartWithWindows;
+        return JsonSerializer.Serialize(c, AppSettings.Json) + "|keys:" + keys + "|startup:" + StartWithWindows
+            + "|senderInputs:" + JsonSerializer.Serialize(Accounts.Select(a => a.SenderAliasesText));
     }
 }

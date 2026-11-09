@@ -12,11 +12,12 @@ public static class PreviewWindow
 {
     private const string Host = "preview.magpie.local";
 
-    public static void Show(Window? owner, string path, string name)
+    public static void Show(Window? owner, string path, string name, Action? onClosed = null, bool allowExternalOpen = true)
     {
         var w = new Window { Title = name + " — Magpie", Width = 900, Height = 700, MinWidth = 420, MinHeight = 320 };
         w.Style = (Style)Application.Current.FindResource("Window.Dialog");
         w.ResizeMode = ResizeMode.CanResize;
+        if (onClosed != null) w.Closed += (_, _) => onClosed();
         if (owner is { IsVisible: true }) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
         else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
@@ -24,6 +25,7 @@ public static class PreviewWindow
         var bar = new DockPanel { Margin = new Thickness(16, 10, 16, 10) };
         var open = new Button { Content = "Open in its app", Style = (Style)Application.Current.FindResource("Button.Secondary"), Margin = new Thickness(8, 0, 0, 0) };
         open.Click += (_, _) => AttachmentDialog.Show(path, name);
+        if (!allowExternalOpen) open.Visibility = Visibility.Collapsed;
         var close = new Button { Content = "Close", Style = (Style)Application.Current.FindResource("Button.Secondary"), IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
         close.Click += (_, _) => w.Close();
         DockPanel.SetDock(close, Dock.Right);
@@ -40,7 +42,12 @@ public static class PreviewWindow
         {
             try
             {
-                if (!await WebHost.InitAsync(web, scripts: true)) { AttachmentDialog.Show(path, name); w.Close(); return; }
+                if (!await WebHost.InitAsync(web, scripts: true))
+                {
+                    if (allowExternalOpen) AttachmentDialog.Show(path, name);
+                    else Ui.Error("Preview unavailable", "The embedded preview engine is unavailable on this PC.", w);
+                    w.Close(); return;
+                }
                 var core = web.CoreWebView2;
                 core.SetVirtualHostNameToFolderMapping(Host, Path.GetDirectoryName(path)!, CoreWebView2HostResourceAccessKind.Allow);
                 var url = $"https://{Host}/{Uri.EscapeDataString(Path.GetFileName(path))}";
@@ -57,8 +64,9 @@ public static class PreviewWindow
             catch (Exception ex)
             {
                 Log.Warn("preview: " + ex.Message);
+                if (!allowExternalOpen) Ui.Error("Preview unavailable", "This attachment could not be previewed inside Magpie.", w);
                 w.Close();
-                AttachmentDialog.Show(path, name);
+                if (allowExternalOpen) AttachmentDialog.Show(path, name);
             }
         };
         w.Show();

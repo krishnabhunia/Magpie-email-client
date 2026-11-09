@@ -39,7 +39,7 @@ public sealed record ReaderPage(string Key, string Fingerprint, string Html, int
                 ImageKeys = m.InlineImages.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase),
                 Images = m.InlineImages.Where(p => m.Body == null || !m.Body.Images.TryGetValue(p.Key, out var stored) || stored != p.Value)
                     .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase),
-                m.IsMine, m.LoadingText, m.LoadError,
+                m.IsMine, m.LoadingText, m.LoadError, m.DeliveryReceipt,
             }),
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));

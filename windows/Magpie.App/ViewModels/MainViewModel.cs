@@ -224,9 +224,8 @@ public sealed partial class ThreadItem : ObservableObject
     public string DateTip { get; }
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
+    public bool IsHighPriority => Row.HighPriority || Row.Latest.IsHighPriority;
     public bool HasAttachments => Row.HasAttachments;
-    /// <summary>Design CW1 (D1): the sender marked the latest email High / urgent.</summary>
-    public bool IsHighPriority => Row.Latest.Flags.HasFlag(MessageFlags.HighPriority);
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
     /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>
     public long? LocalDraftId { get; init; }
@@ -266,8 +265,11 @@ public sealed class ScheduledItem
     public string Subject => string.IsNullOrWhiteSpace(Item.Subject) ? "(no subject)" : Item.Subject;
     public string To => "To: " + Item.ToText;
     public string When => Item.Status == OutboxStatus.Failed
-        ? $"Not sent yet — {Item.LastError}"
-        : "Sends " + TimePresets.Describe(Item.SendAt, DateTime.Now);
+        ? $"Not sent yet — {Item.LastError}. " + (Item.AutomaticRetryExhausted
+            ? "Automatic retries paused. Choose Send now to retry."
+            : "Next attempt " + ScheduleTime.Describe(Item.SendAt, DateTime.Now))
+        : "Scheduled for " + ScheduleTime.Describe(Item.SendAt, DateTime.Now)
+            + (Item.RequestDeliveryReceipt ? " · delivery notification requested" : "");
     public bool Failed => Item.Status == OutboxStatus.Failed;
 }
 
@@ -364,6 +366,7 @@ public partial class MainViewModel : ObservableObject
     public bool IsInbox => Current?.Kind == NavKind.Inbox;
     public bool ShowCategories => IsInbox && _e.Config.SmartInbox && string.IsNullOrWhiteSpace(SearchText);
     public bool IsScheduledView => Current?.Kind == NavKind.Scheduled;
+    public string ScheduledHelp => ScheduleTime.ExecutionHelp;
 
     // ───────────────────────── calendar (design B2) ─────────────────────────
 
@@ -1304,7 +1307,7 @@ public partial class MainViewModel : ObservableObject
     private void CancelScheduled(ScheduledItem? s)
     {
         if (s == null) return;
-        var d = RecallToDraft(s.Item.Id);
+        var d = _e.Recall(s.Item.Id);
         if (d != null) Views.ComposeWindow.OpenDraft(d);
         ReloadList();
     }
@@ -1335,7 +1338,7 @@ public partial class MainViewModel : ObservableObject
 
     public void ShowScheduled(long outboxId, DateTimeOffset when, string subject)
     {
-        AddToast(new UndoToast(outboxId, $"\"{Shorten(subject, 30)}\" scheduled for {TimePresets.Describe(when, DateTime.Now)}",
+        AddToast(new UndoToast(outboxId, $"\"{Shorten(subject, 30)}\" scheduled for {ScheduleTime.Describe(when, DateTime.Now)}",
             DateTimeOffset.Now.AddSeconds(8), showCountdown: false));
     }
 
@@ -1391,47 +1394,6 @@ public partial class MainViewModel : ObservableObject
         toast.EditAction();
     }
 
-    /// <summary>Outbox ids taken back before they went (Undo, or Cancel &amp; edit in Scheduled) — design CW1 D6: Send &amp; Archive
-    /// then leaves the conversation alone.</summary>
-    private readonly HashSet<long> _recalled = new();
-
-    /// <summary>Every way of taking a queued message back goes through here, so a pending Send &amp; Archive is always cancelled with it.
-    /// Returns the draft to reopen, or null when the message already went (then the archive still happens).</summary>
-    private Draft? RecallToDraft(long outboxId)
-    {
-        var d = _e.Recall(outboxId);
-        if (d != null) _recalled.Add(outboxId);
-        return d;
-    }
-
-    /// <summary>Design CW1 (D6): the folders Send &amp; Archive archives from — the view the user replied from, or, when that view
-    /// isn't this account's (another account, Sent, Drafts), the account's Inbox and its other synced mail folders.</summary>
-    public List<long> ArchiveFoldersFor(string accountId)
-    {
-        var fromView = ActionFoldersFor(accountId);
-        var folders = _e.Folders(accountId);
-        var excluded = fromView.Count == 0 || fromView.All(id => folders.Any(f => f.Id == id && f.Role is FolderRole.Sent or FolderRole.Drafts or FolderRole.Trash or FolderRole.Junk or FolderRole.Archive));
-        if (!excluded) return fromView;
-        return folders.Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.Trash or FolderRole.Junk or FolderRole.Archive or FolderRole.All or FolderRole.Flagged or FolderRole.Important))
-            .Select(f => f.Id).ToList();
-    }
-
-    /// <summary>Design CW1 (D6): archives the conversation once the undo window has passed, unless the send was undone.
-    /// <paramref name="folders"/> were decided when Send was pressed, so changing the view meanwhile changes nothing.</summary>
-    public void ArchiveAfterUndo(long outboxId, int undoSeconds, string accountId, string threadKey, List<long> folders)
-    {
-        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(0, undoSeconds) + 1) };
-        timer.Tick += async (_, _) =>
-        {
-            timer.Stop();
-            if (_recalled.Remove(outboxId)) return;
-            if (folders.Count == 0) return;
-            try { await _e.ArchiveAsync(accountId, threadKey, folders); }
-            catch (Exception ex) { Log.Warn("send & archive: " + ex.Message); }
-        };
-        timer.Start();
-    }
-
     [RelayCommand]
     private void UndoSend(UndoToast? toast)
     {
@@ -1445,7 +1407,7 @@ public partial class MainViewModel : ObservableObject
             catch (Exception ex) { Log.Error("undo", ex); Ui.Error("Undo", ex.Message); }
             return;
         }
-        var d = RecallToDraft(toast.OutboxId);
+        var d = _e.Recall(toast.OutboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
     }
@@ -1476,7 +1438,7 @@ public partial class MainViewModel : ObservableObject
         var toast = Toasts.FirstOrDefault(t => t.OutboxId == outboxId);
         if (toast?.UndoAction != null) { UndoSend(toast); return; }   // e.g. an invite answer: its own undo
         if (toast != null) { Toasts.Remove(toast); RefreshToasts(); }
-        var d = RecallToDraft(outboxId);
+        var d = _e.Recall(outboxId);
         if (d == null) { Ui.Error("Undo", "Too late — the message has already been sent."); return; }
         Views.ComposeWindow.OpenDraft(d);
     }

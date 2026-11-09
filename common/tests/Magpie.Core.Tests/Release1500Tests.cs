@@ -1,422 +1,584 @@
-using System.Text.Json;
 using Magpie.Core.Mail;
+using Magpie.Core.Contacts;
 using Magpie.Core.Models;
-using Magpie.Core.Settings;
+using System.IO.Compression;
+using System.Xml;
 using MimeKit;
+using Magpie.Core.Settings;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>CW1 (15.0.0): the full compose window (Q90) — headers, recipients, attachments, signatures, settings, editor page.</summary>
+/// <summary>CW1: recipient safety, attachments and delivery options for the compose redesign.</summary>
 public class Release1500Tests
 {
-    private static Account Gmail() => new() { Email = "k@gmail.com", DisplayName = "Krishna", Kind = AccountKind.Gmail };
-
-    // ───────────────────────── D1 / D2 / A5 / B16: what goes out ─────────────────────────
-
     [Fact]
-    public void High_priority_sets_the_three_headers_and_normal_sets_none()
+    public void Compose_more_order_is_normalised_and_cloned_independently()
     {
-        var high = Composer.Build(new Draft { To = "a@b.com", Subject = "x", Html = "<p>hi</p>", Priority = MailPriority.High }, Gmail());
-        Assert.StartsWith("1", high.Headers["X-Priority"]);
-        Assert.Equal("High", high.Headers["Importance"]);
-        Assert.Equal("High", high.Headers["X-MSMail-Priority"]);
-        var low = Composer.Build(new Draft { To = "a@b.com", Html = "<p>hi</p>", Priority = MailPriority.Low }, Gmail());
-        Assert.StartsWith("5", low.Headers["X-Priority"]);
-        Assert.Equal("Low", low.Headers["Importance"]);
-        var normal = Composer.Build(new Draft { To = "a@b.com", Html = "<p>hi</p>" }, Gmail());
-        Assert.Null(normal.Headers["X-Priority"]);
-        Assert.Null(normal.Headers["Importance"]);
+        var appearance = new Appearance
+        {
+            ComposeMoreOrder = new List<string> { "find", "quote", "find", "unrecognised" },
+        };
+        appearance.Normalise();
+        Assert.Equal(Appearance.ComposeMoreIds.Length, appearance.ComposeMoreOrder.Count);
+        Assert.Equal(new[] { "find", "quote" }, appearance.ComposeMoreOrder.Take(2));
+        Assert.All(Appearance.ComposeMoreIds, id => Assert.Contains(id, appearance.ComposeMoreOrder));
+
+        var copy = appearance.Clone();
+        copy.ComposeMoreOrder.Reverse();
+        Assert.Equal("find", appearance.ComposeMoreOrder[0]);
+        Assert.NotEqual(appearance.ComposeMoreOrder[0], copy.ComposeMoreOrder[0]);
     }
 
     [Fact]
-    public void Read_receipt_and_reply_to_go_out_only_when_set()
+    public void Mention_adds_valid_contact_to_to_and_preserves_existing_recipients()
     {
-        var msg = Composer.Build(new Draft { To = "a@b.com", Html = "<p>hi</p>", ReadReceipt = true, ReplyTo = "Work <me@work.example>" }, Gmail());
-        Assert.Contains("k@gmail.com", msg.Headers["Disposition-Notification-To"]);
-        Assert.Equal("me@work.example", msg.ReplyTo.Mailboxes.Single().Address);
-        var plain = Composer.Build(new Draft { To = "a@b.com", Html = "<p>hi</p>" }, Gmail());
-        Assert.Null(plain.Headers["Disposition-Notification-To"]);
-        Assert.Empty(plain.ReplyTo);
-    }
-
-    [Fact]
-    public void Plain_text_message_has_no_html_part()
-    {
-        var msg = Composer.Build(new Draft { To = "a@b.com", Html = "<p>Hello <b>there</b></p>", PlainText = true }, Gmail());
-        Assert.Null(msg.HtmlBody);
-        Assert.Contains("Hello there", msg.TextBody);
-        var rich = Composer.Build(new Draft { To = "a@b.com", Html = "<p>Hello <b>there</b></p>" }, Gmail());
-        Assert.Contains("<b>there</b>", rich.HtmlBody);
-    }
-
-    [Fact]
-    public void Priority_receipt_reply_to_and_plain_text_come_back_when_a_draft_is_reopened()
-    {
-        var d = new Draft { To = "a@b.com", Subject = "s", Html = "<p>hi</p>", Priority = MailPriority.High, ReadReceipt = true, ReplyTo = "me@work.example" };
-        var again = Composer.FromMime(Composer.FromBytes(Composer.ToBytes(Composer.Build(d, Gmail()))), "acc", "t");
-        Assert.Equal(MailPriority.High, again.Priority);
-        Assert.True(again.ReadReceipt);
-        Assert.Equal("me@work.example", again.ReplyTo);
-        Assert.False(again.PlainText);
-        var plain = Composer.FromMime(Composer.FromBytes(Composer.ToBytes(Composer.Build(new Draft { To = "a@b.com", Html = "<p>hi</p>", PlainText = true }, Gmail()))), "acc", "t");
-        Assert.True(plain.PlainText);
-    }
-
-    [Fact]
-    public void Plain_text_draft_keeps_its_signature_and_quote_boundaries_but_the_sent_message_is_text_only()
-    {
-        var html = "<p>new words</p><div class=\"magpie-signature\"><br><p>Me</p></div><div class=\"magpie-quote\"><p>On x, Ann wrote:</p><blockquote><p>q</p></blockquote></div>";
-        var d = new Draft { To = "a@b.com", Subject = "s", Html = html, PlainText = true };
-        // Saved as a draft: both parts + the flag, so reopening finds the protected blocks and stays plain text.
-        var draft = Composer.Build(d, Gmail(), forDraft: true);
-        Assert.NotNull(draft.HtmlBody);
-        Assert.Equal("yes", draft.Headers[Composer.PlainTextDraftHeader]);
-        var again = Composer.FromMime(Composer.FromBytes(Composer.ToBytes(draft)), "acc", "t");
-        Assert.True(again.PlainText);
-        Assert.Contains("magpie-signature", again.Html);
-        Assert.Contains("magpie-quote", again.Html);
-        // Sent: text only, no flag header.
-        var sent = Composer.Build(d, Gmail());
-        Assert.Null(sent.HtmlBody);
-        Assert.False(sent.Headers.Contains(Composer.PlainTextDraftHeader));
-        Assert.Contains("new words", sent.TextBody);
+        var added = ComposeSafety.AddMentionRecipient("first@example.com", "", "", "Ananya Roy", "ananya@example.com");
+        Assert.True(added.Added);
+        Assert.Contains("first@example.com", added.To);
+        var recipient = Composer.ParseAddresses(added.To).Mailboxes.Last();
+        Assert.Equal("Ananya Roy", recipient.Name);
+        Assert.Equal("ananya@example.com", recipient.Address);
     }
 
     [Theory]
-    [InlineData("1 (Highest)", "", "", MailPriority.High)]
-    [InlineData("2", "", "", MailPriority.High)]
-    [InlineData("3 (Normal)", "", "", MailPriority.Normal)]
-    [InlineData("5 (Lowest)", "", "", MailPriority.Low)]
-    [InlineData("", "high", "", MailPriority.High)]
-    [InlineData("", "", "Low", MailPriority.Low)]
-    [InlineData("", "", "", MailPriority.Normal)]
-    [InlineData("urgent", "", "", MailPriority.Normal)]
-    public void Received_priority_is_read_from_any_of_the_three_headers(string x, string imp, string ms, MailPriority expected)
+    [InlineData("ANANYA@example.com", "", "", "ananya@example.com")]
+    [InlineData("", "ananya@example.com", "", "ananya@example.com")]
+    [InlineData("", "", "ananya@example.com", "ananya@example.com")]
+    [InlineData("first@example.com", "", "", "invalid address")]
+    public void Mention_never_duplicates_existing_addresses_or_adds_invalid_addresses(
+        string to, string cc, string bcc, string address)
     {
-        Assert.Equal(expected, Composer.PriorityOf(x, imp, ms));
-        Assert.Equal(expected == MailPriority.High, Composer.IsHighPriority(x, imp, ms));
+        var result = ComposeSafety.AddMentionRecipient(to, cc, bcc, "Ananya", address);
+        Assert.False(result.Added);
+        Assert.Equal(to, result.To);
     }
 
     [Fact]
-    public void High_priority_flag_survives_a_flag_update_from_the_server()
+    public void Editor_supports_safe_dom_mentions_and_arrow_key_selection()
     {
-        var merged = AccountSync.Merge(MessageFlags.HighPriority | MessageFlags.Seen, MailKit.MessageFlags.Flagged);
-        Assert.True(merged.HasFlag(MessageFlags.HighPriority));
-        Assert.True(merged.HasFlag(MessageFlags.Flagged));
-        Assert.False(merged.HasFlag(MessageFlags.Seen));
+        Assert.Contains("function insertMention(name,address)", EditorPage.Html);
+        Assert.Contains("post({t:'mention',q:match[1]})", EditorPage.Html);
+        Assert.Contains("post({t:'mentionKey',key:e.key})", EditorPage.Html);
     }
 
     [Fact]
-    public void Eml_export_is_the_same_message_send_would_build()
+    public async Task Send_and_archive_moves_inbox_thread_only_after_successful_smtp_acceptance()
     {
-        var d = new Draft { To = "a@b.com", Bcc = "secret@b.com", Subject = "File", Html = "<p>hi</p>" };
-        var msg = MimeMessage.Load(new MemoryStream(Composer.ToEml(d, Gmail())));
-        Assert.Equal("File", msg.Subject);
-        Assert.Equal("secret@b.com", msg.Bcc.Mailboxes.Single().Address);
+        using var dir = new TempDir();
+        var accepted = 0;
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => { accepted++; return Task.CompletedTask; });
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        var original = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-1") }));
+        var draft = new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = original.ThreadKey,
+            ReplyArchiveSource = new ReplyArchiveSource("A", original.ThreadKey),
+            To = "recipient@test.local", Subject = "Re: Hello", Html = "<p>Reply</p>" };
+
+        var outboxId = engine.QueueSend(draft, DateTimeOffset.Now.AddHours(1), null, archiveAfterSend: true);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+        Assert.NotNull(engine.Recall(outboxId));
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
+
+        engine.QueueSend(draft, DateTimeOffset.Now.AddSeconds(-1), null, archiveAfterSend: true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(1, accepted);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-1"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
     }
 
-    // ───────────────────────── A6 / C2 / C3 / D8 ─────────────────────────
-
     [Fact]
-    public void Duplicates_in_a_field_are_merged_keeping_the_first_spelling()
+    public async Task Send_and_archive_keeps_inbox_on_failed_delivery_and_retries_pending_archive_after_restart()
     {
-        Assert.Equal("Anita <a@x.com>, b@x.com", Composer.MergeDuplicates("Anita <a@x.com>; b@x.com, A@X.COM, b@x.com"));
-        Assert.Equal("", Composer.MergeDuplicates(""));
-        Assert.Equal(3, Composer.VisibleRecipients("a@x.com, b@x.com", "B@x.com, c@x.com"));
-        Assert.Equal(20, Composer.ManyRecipients);
+        using var dir = new TempDir();
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => throw new IOException("SMTP unavailable"));
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-2") });
+        var queued = engine.QueueSend(new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = "thread-2",
+            ReplyArchiveSource = new ReplyArchiveSource("A", "thread-2"),
+            To = "recipient@test.local", Subject = "Reply", Html = "<p>Reply</p>" }, DateTimeOffset.Now.AddSeconds(-1), null, true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(OutboxStatus.Failed, engine.Store.GetOutbox().Single(o => o.Id == queued).Status);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-2")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+
+        // Simulate a successful delivery recorded before a crash, with only the post-send action left.
+        engine.Store.SetOutboxResult(queued, OutboxStatus.Sent);
+        Assert.Single(engine.Store.PendingPostSendArchives());
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-2"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
     }
 
     [Fact]
-    public void Attachment_limit_follows_the_kind_of_account_unless_set()
+    public void Quick_templates_expand_only_known_variables_with_current_compose_context()
     {
-        Assert.Equal(25L * 1024 * 1024, Composer.AttachmentLimit(Gmail()));
-        Assert.Equal(20L * 1024 * 1024, Composer.AttachmentLimit(new Account { Kind = AccountKind.Microsoft }));
-        Assert.Equal(25L * 1024 * 1024, Composer.AttachmentLimit(new Account { Kind = AccountKind.Imap }));
-        Assert.Equal(40L * 1024 * 1024, Composer.AttachmentLimit(new Account { Kind = AccountKind.Imap, AttachmentLimitMb = 40 }));
-        Assert.Equal(25L * 1024 * 1024, Composer.AttachmentLimit(null));
+        var sender = new Account { DisplayName = "Krishna Bhunia", Email = "krishna@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate(
+            "Hi {{first_name}} {{last_name}} / {{full_name}} ({{recipient_email}}), from {{sender_name}} {{sender_email}}; {{subject}} on {{date}} at {{time}}. {{custom}}",
+            sender, "Ananya Roy <ananya@example.com>", "Project update", new DateTimeOffset(2026, 11, 5, 14, 25, 0, TimeSpan.FromHours(5.5)));
+        Assert.Contains("Hi Ananya Roy / Ananya Roy (ananya@example.com)", expanded);
+        Assert.Contains("from Krishna Bhunia krishna@example.com; Project update", expanded);
+        Assert.Contains("05 Nov 2026 at 14:25", expanded);
+        Assert.EndsWith("{{custom}}", expanded);
     }
 
     [Fact]
-    public void Attached_bytes_count_files_carried_parts_and_inline_pictures()
+    public void Quick_templates_leave_missing_recipient_name_visible_and_never_expand_recursively()
     {
-        var tmp = Path.GetTempFileName();
-        try
+        var sender = new Account { DisplayName = "{{sender_email}}", Email = "me@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate("{{FIRST_NAME}} {{recipient_email}} {{sender_name}}", sender,
+            "unknown@example.com", "", DateTimeOffset.Now);
+        Assert.Equal("{{FIRST_NAME}} unknown@example.com {{sender_email}}", expanded);
+    }
+
+    [Fact]
+    public void Accounts_clone_named_signatures_independently_and_old_default_remains()
+    {
+        var original = new Account
         {
-            File.WriteAllBytes(tmp, new byte[1000]);
-            var html = "<p>x</p><img src=\"data:image/png;base64," + Convert.ToBase64String(new byte[300]) + "\">";
-            var total = Composer.AttachedBytes(new[] { tmp, "C:\\missing\\file.bin" }, new long[] { 50 }, html);
-            Assert.Equal(1000 + 50 + 300, total);
-        }
-        finally { File.Delete(tmp); }
+            SignatureHtml = "<p>Best wishes</p>",
+            SignatureVariants = new List<NamedSignature> { new() { Name = "Formal", Html = "<p>Regards</p>" } },
+        };
+        var copy = original.Clone();
+        copy.SignatureVariants[0].Name = "Casual";
+        Assert.Equal("Formal", original.SignatureVariants[0].Name);
+        Assert.Contains("Best wishes", Composer.SignatureHtml(original, reply: false));
+        Assert.Contains("replaceSignatureBlock(blockHtml)", EditorPage.Html);
     }
 
     [Theory]
-    [InlineData("Please find the numbers attached.", true)]
-    [InlineData("See the attachment for details", true)]
-    [InlineData("PFA the invoice", true)]
-    [InlineData("I enclosed the form", true)]
-    [InlineData("I will attach it tomorrow", true)]
-    [InlineData("Nothing to see here", false)]
-    [InlineData("", false)]
-    public void Forgot_attachment_check_looks_for_the_usual_words(string text, bool expected) => Assert.Equal(expected, Composer.MentionsAttachment(text));
+    [InlineData("photo.JPG", "image")]
+    [InlineData("receipt.pdf", "pdf")]
+    [InlineData("notes.md", "text")]
+    [InlineData("transaction.csv", "text")]
+    [InlineData("notes.docx", "office")]
+    [InlineData("budget.xlsx", "office")]
+    [InlineData("deck.pptx", "office")]
+    [InlineData("document.docx", "office")]
+    [InlineData("dangerous.exe", "none")]
+    [InlineData("evil.pdf.exe", "none")]
+    public void Compose_preview_only_accepts_known_safe_types(string file, string type) =>
+        Assert.Equal(type, ComposeSafety.AttachmentPreviewKind(file));
+
+    [Theory]
+    [InlineData("report.pdf", "application/pdf", "pdf")]
+    [InlineData("photo.jpg", "image/jpeg", "image")]
+    [InlineData("notes.txt", "text/plain", "text")]
+    [InlineData("data.json", "application/json", "text")]
+    [InlineData("photo.jpg", "application/x-msdownload", "none")]
+    [InlineData("archive.zip", "application/zip", "none")]
+    [InlineData("report.pdf", "text/html", "none")]
+    [InlineData("contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "office")]
+    [InlineData("budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "none")]
+    [InlineData("contract.docx", "application/zip", "none")]
+    public void Forwarded_preview_requires_approved_type_and_filename(string file, string mime, string expected) =>
+        Assert.Equal(expected, ComposeSafety.ForwardedAttachmentPreviewKind(file, mime));
 
     [Fact]
-    public void Word_count_counts_words_not_punctuation()
+    public void Word_preview_extracts_text_only_from_a_valid_open_xml_package()
     {
-        Assert.Equal(0, Composer.WordCount(""));
-        Assert.Equal(4, Composer.WordCount("Hello, world — it's 2026!"));
-        Assert.Equal(3, Composer.WordCount("one\ntwo\n\nthree"));
+        using var stream = WordPackage("""
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body><w:p><w:r><w:t>Hello </w:t><w:t>Krishna</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:body></w:document>
+            """);
+        var preview = OfficeTextPreview.ReadWordDocument(stream);
+        Assert.Contains("Hello Krishna", preview);
+        Assert.Contains("Second paragraph", preview);
+        Assert.DoesNotContain("<w:", preview);
     }
 
-    // ───────────────────────── B9 / D3 / D4 ─────────────────────────
+    [Fact]
+    public void Word_preview_rejects_xml_with_dtd()
+    {
+        using var stream = WordPackage("<!DOCTYPE doc [<!ENTITY example 'unsafe'>]><doc>&example;</doc>");
+        Assert.ThrowsAny<XmlException>(() => OfficeTextPreview.ReadWordDocument(stream));
+    }
 
     [Fact]
-    public void Picture_file_becomes_an_inline_image_and_is_sent_as_cid()
+    public void PowerPoint_preview_extracts_slide_text_in_numeric_order()
     {
-        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
+        const string slideNamespace = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        using var stream = OfficePackage(
+            ("ppt/slides/slide10.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Ten</a:t></a:p></a:slide>"),
+            ("ppt/slides/slide2.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Two</a:t></a:p></a:slide>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "deck.pptx");
+        Assert.True(preview.IndexOf("[Slide 2]", StringComparison.Ordinal) < preview.IndexOf("[Slide 10]", StringComparison.Ordinal));
+        Assert.Contains("Two", preview);
+        Assert.Contains("Ten", preview);
+    }
+
+    [Fact]
+    public void Excel_preview_extracts_shared_and_inline_strings_without_formulas()
+    {
+        const string sheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        using var stream = OfficePackage(
+            ("xl/sharedStrings.xml", $"<sst xmlns=\"{sheetNamespace}\"><si><t>Transaction</t></si></sst>"),
+            ("xl/worksheets/sheet1.xml", $"<worksheet xmlns=\"{sheetNamespace}\"><sheetData><row r=\"1\">" +
+                "<c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\"><v>125</v></c>" +
+                "<c r=\"C1\" t=\"inlineStr\"><is><t>Pending</t></is></c></row></sheetData></worksheet>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "budget.xlsx");
+        Assert.Contains("A1: Transaction", preview);
+        Assert.Contains("B1: 125", preview);
+        Assert.Contains("C1: Pending", preview);
+    }
+
+    private static MemoryStream WordPackage(string documentXml) => OfficePackage(("word/document.xml", documentXml));
+
+    private static MemoryStream OfficePackage(params (string Path, string Xml)[] entries)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (path, xml) in entries)
+            {
+                var entry = archive.CreateEntry(path);
+                using var output = new StreamWriter(entry.Open());
+                output.Write(xml);
+            }
+        }
+        stream.Position = 0;
+        return stream;
+    }
+
+    [Theory]
+    [InlineData("photo.jpg", true)]
+    [InlineData("photo.PNG", true)]
+    [InlineData("scan.bmp", true)]
+    [InlineData("animation.gif", false)]
+    [InlineData("document.pdf", false)]
+    [InlineData("dangerous.jpg.exe", false)]
+    public void Only_static_picture_formats_can_be_compressed(string file, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.CanCompressImage(file));
+
+    [Theory]
+    [InlineData("https://example.com", true)]
+    [InlineData("http://example.com/page", true)]
+    [InlineData("mailto:hello@example.com", true)]
+    [InlineData("javascript:alert(1)", false)]
+    [InlineData("file:///C:/secret.txt", false)]
+    [InlineData("data:text/html,hello", false)]
+    [InlineData("not a link", false)]
+    public void Compose_link_editor_rejects_unsafe_schemes(string link, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidComposeLink(link));
+
+    [Fact]
+    public void Shared_editor_includes_safe_link_edit_and_image_resize_commands()
+    {
+        Assert.Contains("function setSelectedLink(url)", EditorPage.Html);
+        Assert.Contains("function removeSelectedLink()", EditorPage.Html);
+        Assert.Contains("function resizeSelectedImage(percent)", EditorPage.Html);
+        Assert.Contains("[25,50,75,100].includes(percent)", EditorPage.Html);
+        Assert.Contains("function setWritingDirection(direction)", EditorPage.Html);
+        Assert.Contains("function setWritingLanguage(language)", EditorPage.Html);
+        Assert.Contains("post({t:'shortcuts'})", EditorPage.Html);
+        Assert.Contains("function findInEditor(query,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceFoundText(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceAllInEditor(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("post({t:'find'})", EditorPage.Html);
+        Assert.Contains("post({t:'replace'})", EditorPage.Html);
+        Assert.Contains("function toggleQuoteFold()", EditorPage.Html);
+        Assert.Contains("ed.classList.toggle('quote-folded'", EditorPage.Html);
+        Assert.Contains("function insertTableGrid(rows,cols)", EditorPage.Html);
+        Assert.Contains("function editTable(action)", EditorPage.Html);
+        Assert.Contains("function tableGrid(table)", EditorPage.Html);
+        Assert.Contains("function editMergedTableCell(action,cell,table)", EditorPage.Html);
+        Assert.Contains("action==='mergeRight'||action==='mergeDown'", EditorPage.Html);
+        Assert.Contains("action==='splitCell'", EditorPage.Html);
+        Assert.Contains("post({t:'tableMenu'})", EditorPage.Html);
+        Assert.Contains("function setEditorSpellcheck(enabled)", EditorPage.Html);
+        Assert.Contains("function setParagraphStyle(style)", EditorPage.Html);
+        Assert.Contains("['p','h1','h2','h3','pre'].includes(style)", EditorPage.Html);
+        Assert.Contains("function setEditorPlainText(enabled,notify)", EditorPage.Html);
+        Assert.Contains("ed.contentEditable='plaintext-only'", EditorPage.Html);
+    }
+
+    [Fact]
+    public void Plain_text_draft_sends_only_text_plain_and_remains_plain_after_reopening()
+    {
+        var account = new Account { Email = "sender@example.com" };
+        var draft = new Draft
+        {
+            To = "recipient@example.com", Subject = "Plain text", IsPlainText = true,
+            Html = "<p>Hello <b>there</b></p><p>Next line</p>",
+        };
+        var outgoing = Composer.Build(draft, account);
+        Assert.Null(outgoing.HtmlBody);
+        Assert.Contains("Hello there", outgoing.TextBody);
+        Assert.Contains("Next line", outgoing.TextBody);
+        var reopened = Composer.FromMime(outgoing, "account-one", "");
+        Assert.True(reopened.IsPlainText);
+        Assert.Contains("Hello", reopened.Html);
+    }
+
+    [Fact]
+    public void Compose_message_can_be_exported_and_loaded_as_eml()
+    {
+        var account = new Account { Email = "sender@example.com", DisplayName = "Sender" };
+        var draft = new Draft { To = "recipient@example.com", Subject = "Export test", Html = "<p>Export me</p>" };
+        var mime = Composer.Build(draft, account);
+        using var stream = new MemoryStream();
+        mime.WriteTo(stream);
+        stream.Position = 0;
+        var loaded = MimeMessage.Load(stream);
+        Assert.Equal("Export test", loaded.Subject);
+        Assert.Equal("recipient@example.com", loaded.To.Mailboxes.Single().Address);
+    }
+
+    [Fact]
+    public void Duplicate_recipients_are_detected_across_all_fields()
+    {
+        var repeated = ComposeSafety.DuplicateRecipients("Ananya <A@Example.com>, b@example.com", "a@example.com", "B@EXAMPLE.COM, hidden@example.com");
+        Assert.Equal(new[] { "A@Example.com", "b@example.com" }, repeated, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Moving_large_visible_recipient_list_to_bcc_keeps_all_people_private()
+    {
+        var to = string.Join(", ", Enumerable.Range(1, 21).Select(i => $"person{i}@example.com"));
+        const string cc = "person22@example.com";
+        const string bcc = "private@example.com, PERSON2@example.com";
+        Assert.Equal(22, ComposeSafety.VisibleRecipientCount(to, cc));
+
+        var rearranged = ComposeSafety.MoveVisibleRecipientsToBcc(to, cc, bcc);
+        var recipients = Composer.ParseAddresses(rearranged.To).Mailboxes
+            .Concat(Composer.ParseAddresses(rearranged.Cc).Mailboxes)
+            .Concat(Composer.ParseAddresses(rearranged.Bcc).Mailboxes).ToArray();
+        Assert.Single(Composer.ParseAddresses(rearranged.To).Mailboxes);
+        Assert.Empty(Composer.ParseAddresses(rearranged.Cc).Mailboxes);
+        Assert.Equal(23, recipients.Length);
+        Assert.Equal(23, recipients.Select(address => address.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Contains(recipients, address => address.Address == "private@example.com");
+        Assert.Contains(recipients, address => address.Address == "person22@example.com");
+    }
+
+    [Fact]
+    public void Dragging_a_recipient_between_fields_preserves_name_and_does_not_duplicate()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("Ananya <a@example.com>, b@example.com", "manager@example.com",
+            "private@example.com", "a@example.com", "to", "bcc");
+        Assert.True(result.Moved);
+        Assert.Equal("b@example.com", Composer.ParseAddresses(result.To).Mailboxes.Single().Address);
+        Assert.Equal("manager@example.com", Composer.ParseAddresses(result.Cc).Mailboxes.Single().Address);
+        Assert.Contains(Composer.ParseAddresses(result.Bcc).Mailboxes, mailbox => mailbox.Address == "a@example.com" && mailbox.Name == "Ananya");
+
+        var repeated = ComposeSafety.MoveRecipientBetweenFields(result.To, result.Cc, result.Bcc,
+            "manager@example.com", "cc", "bcc");
+        Assert.True(repeated.Moved);
+        var duplicate = ComposeSafety.MoveRecipientBetweenFields(repeated.To, repeated.Cc, repeated.Bcc,
+            "a@example.com", "bcc", "to");
+        Assert.True(duplicate.Moved);
+        Assert.Single(Composer.ParseAddresses(duplicate.To).Mailboxes, m => m.Address == "a@example.com");
+    }
+
+    [Fact]
+    public void Dragging_recipients_never_discards_invalid_address_text()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("valid@example.com", "not-an-address", "",
+            "valid@example.com", "to", "bcc");
+        Assert.False(result.Moved);
+        Assert.Equal("not-an-address", result.Cc);
+        Assert.Equal("valid@example.com", result.To);
+    }
+
+    [Fact]
+    public void Saved_quick_templates_remain_available_after_settings_serialization()
+    {
+        var templates = new List<Magpie.Core.Settings.QuickTemplate>
+        {
+            new() { Name = "Client update", Body = "Here is the latest status." },
+        };
+        var restored = System.Text.Json.JsonSerializer.Deserialize<List<Magpie.Core.Settings.QuickTemplate>>(
+            System.Text.Json.JsonSerializer.Serialize(templates));
+        Assert.Equal("Client update", restored!.Single().Name);
+        Assert.Equal("Here is the latest status.", restored!.Single().Body);
+    }
+
+    [Fact]
+    public void Compose_window_placement_defaults_and_invalid_sizes_are_safe()
+    {
+        var placement = new Magpie.Core.Settings.ComposeWindowPlacement
+        {
+            HasSavedPlacement = true, Left = double.NaN, Top = 20,
+            Width = double.PositiveInfinity, Height = 30,
+        };
+        placement.Normalise();
+        Assert.False(placement.HasSavedPlacement);
+        Assert.Equal(980, placement.Width);
+        Assert.Equal(460, placement.Height);
+    }
+
+    [Theory]
+    [InlineData(AccountKind.Gmail, 0, 25_000_000L)]
+    [InlineData(AccountKind.Microsoft, 0, 20_000_000L)]
+    [InlineData(AccountKind.Imap, 12, 12_000_000L)]
+    [InlineData(AccountKind.Imap, 0, 25_000_000L)]
+    [InlineData(AccountKind.Imap, 150, 100_000_000L)]
+    public void Compose_message_limit_is_provider_aware_and_advisory(AccountKind kind, int configuredMb, long expectedBytes)
+    {
+        var account = new Account { Kind = kind, MaxOutgoingMessageMb = configuredMb };
+        Assert.Equal(expectedBytes, ComposeSafety.SuggestedOutgoingLimitBytes(account));
+    }
+
+    [Fact]
+    public void Recent_attachment_history_deduplicates_and_keeps_newest_files_first()
+    {
+        var paths = ComposeSafety.RecentAttachmentPaths(new[] { "C:/new.pdf", "C:/OLD.pdf" },
+            new[] { "c:/old.pdf", "C:/older.docx", "C:/third.txt" }, maximum: 3);
+        Assert.Equal(new[] { "C:/new.pdf", "C:/OLD.pdf", "C:/older.docx" }, paths);
+    }
+
+    [Theory]
+    [InlineData("Please find the attached report", true)]
+    [InlineData("See the attachment", true)]
+    [InlineData("We can meet tomorrow", false)]
+    public void Missing_attachment_language_is_detected(string body, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.MentionsAttachment(body));
+
+    [Fact]
+    public void Encoded_size_includes_base64_expansion()
+    {
+        Assert.True(ComposeSafety.EstimatedEncodedBytes(new[] { 20_000_000L }) > 25_000_000L);
+        Assert.True(ComposeSafety.EstimatedEncodedBytes(new[] { 2_000L, 3_000L }) > 5_000);
+    }
+
+    [Fact]
+    public void Missing_attachments_are_not_silently_dropped_on_send()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft { AccountId = account.Id, To = "to@example.com", Subject = "Report", Html = "<p>Hello</p>" };
+        draft.AttachmentPaths.Add(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pdf"));
+        Assert.Single(ComposeSafety.MissingFiles(draft.AttachmentPaths));
+        Assert.Throws<FileNotFoundException>(() => Composer.Build(draft, account));
+    }
+
+    [Fact]
+    public void Mime_message_deduplicates_and_keeps_bcc_private()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft
+        {
+            To = "first@example.com", Cc = "FIRST@example.com, second@example.com",
+            Bcc = "second@example.com, secret@example.com", ReplyTo = "replies@example.com",
+            Subject = "Review", Priority = "High", RequestReadReceipt = true, Html = "<p>Hi</p>",
+        };
+        var msg = Composer.Build(draft, account);
+        Assert.Single(msg.To.Mailboxes);
+        Assert.Single(msg.Cc.Mailboxes);
+        Assert.Single(msg.Bcc.Mailboxes);
+        Assert.Equal("secret@example.com", msg.Bcc.Mailboxes.Single().Address);
+        Assert.Equal("replies@example.com", msg.ReplyTo.Mailboxes.Single().Address);
+        Assert.Equal("high", msg.Headers["Importance"]);
+        Assert.Equal(account.Email, msg.Headers["Disposition-Notification-To"]);
+    }
+
+    [Fact]
+    public void Delivery_options_survive_mime_draft_round_trip()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft
+        {
+            To = "client@example.com", ReplyTo = "replies@example.com", Priority = "Low",
+            RequestReadReceipt = true, Html = "<p>Report attached separately.</p>",
+        };
+        var message = Composer.Build(draft, account);
+        var restored = Composer.FromMime(message, account.Id, "thread");
+
+        Assert.Equal(draft.ReplyTo, restored.ReplyTo);
+        Assert.Equal(draft.Priority, restored.Priority);
+        Assert.True(restored.RequestReadReceipt);
+    }
+
+    [Fact]
+    public void External_recipient_check_uses_sender_domain_and_deduplicates()
+    {
+        var external = ComposeSafety.ExternalRecipients("me@work.example", "one@work.example, customer@outside.example",
+            "CUSTOMER@OUTSIDE.EXAMPLE", "private@another.example");
+        Assert.Equal(new[] { "customer@outside.example", "private@another.example" }, external, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Word_count_and_reading_estimate_are_available_for_review()
+    {
+        Assert.Equal(6, ComposeSafety.WordCount("Hello Krishna, I've attached two files."));
+        Assert.Equal(2, ComposeSafety.EstimatedReadingMinutes(205));
+    }
+
+    [Theory]
+    [InlineData("report.pdf", true)]
+    [InlineData("quarterly report (final).xlsx", true)]
+    [InlineData("../../data.txt", false)]
+    [InlineData("folder\\data.txt", false)]
+    [InlineData("report?.pdf", false)]
+    [InlineData("bad\nfile.pdf", false)]
+    [InlineData("renamed.", false)]
+    public void Outgoing_attachment_names_are_checked(string name, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidAttachmentName(name));
+
+    [Fact]
+    public void Interleaved_attachment_order_and_names_survive_saving_as_mime()
+    {
+        var first = Path.Combine(Path.GetTempPath(), "magpie-compose-first-" + Guid.NewGuid() + ".txt");
+        var second = Path.Combine(Path.GetTempPath(), "magpie-compose-second-" + Guid.NewGuid() + ".txt");
         try
         {
-            File.WriteAllBytes(tmp, new byte[] { 137, 80, 78, 71, 1, 2, 3 });
-            var html = Composer.PictureHtml(tmp);
-            Assert.StartsWith("<img src=\"data:image/png;base64,", html);
-            Assert.True(Composer.IsPicture(tmp));
-            Assert.False(Composer.IsPicture("a.docx"));
-            var msg = Composer.Build(new Draft { To = "a@b.com", Html = "<p>pic</p>" + html }, Gmail());
-            Assert.Contains("cid:", msg.HtmlBody);
-            Assert.Contains(msg.BodyParts.OfType<MimePart>(), p => p.ContentType.MediaType == "image");
-            Assert.Throws<InvalidOperationException>(() => Composer.PictureHtml("x.docx"));
+            File.WriteAllText(first, "first");
+            File.WriteAllText(second, "second");
+            var forwarded = new MimePart("application", "pdf")
+            {
+                FileName = "forward.pdf",
+                Content = new MimeContent(new MemoryStream(new byte[] { 1, 2, 3 })),
+            };
+            var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+            var draft = new Draft
+            {
+                To = "client@example.com", Html = "<p>Hello</p>",
+                AttachmentPaths = new List<string> { first, second },
+                AttachmentNames = new Dictionary<string, string> { [first] = "renamed-first.txt" },
+                CarriedParts = new List<MimeEntity> { forwarded },
+                AttachmentOrder = new List<DraftAttachmentPosition>
+                {
+                    new() { CarriedIndex = 0 }, new() { Path = second }, new() { Path = first },
+                },
+            };
+
+            var message = Composer.Build(draft, account);
+            var names = message.Attachments.OfType<MimePart>().Select(part => part.FileName).ToArray();
+            Assert.Equal(new[] { "forward.pdf", Path.GetFileName(second), "renamed-first.txt" }, names);
+            var reopened = Composer.FromMime(message, account.Id, "thread");
+            Assert.Equal(names, reopened.CarriedParts.OfType<MimePart>().Select(part => part.FileName));
         }
-        finally { File.Delete(tmp); }
-    }
-
-    [Fact]
-    public void Signature_can_be_swapped_or_removed_in_the_html()
-    {
-        var html = "<p>Hi</p><div class=\"magpie-signature\"><br><p>Old</p></div><div class=\"magpie-quote\"><p>On x wrote:</p></div>";
-        var swapped = Composer.ReplaceSignature(html, "<p>New</p>");
-        Assert.Contains("<p>New</p>", swapped);
-        Assert.DoesNotContain("Old", swapped);
-        Assert.Contains("magpie-quote", swapped);
-        var removed = Composer.ReplaceSignature(html, "");
-        Assert.DoesNotContain("magpie-signature", removed);
-        Assert.Contains("magpie-quote", removed);
-        var added = Composer.ReplaceSignature("<p>Hi</p><div class=\"magpie-quote\"><p>q</p></div>", "<p>S</p>");
-        Assert.True(added.IndexOf("magpie-signature", StringComparison.Ordinal) < added.IndexOf("magpie-quote", StringComparison.Ordinal));
-        Assert.EndsWith("</div>", Composer.ReplaceSignature("<p>Hi</p>", "<p>S</p>"));
-    }
-
-    [Fact]
-    public void Pasted_picture_types_map_to_fixed_extensions_and_never_to_a_path()
-    {
-        Assert.Equal("png", Composer.PastedPictureExtension("image/png"));
-        Assert.Equal("jpg", Composer.PastedPictureExtension("IMAGE/JPEG"));
-        Assert.Equal("webp", Composer.PastedPictureExtension("image/webp;charset=binary"));
-        Assert.Null(Composer.PastedPictureExtension("image/x\\..\\..\\Startup\\p.cmd"));
-        Assert.Null(Composer.PastedPictureExtension("image/svg+xml"));
-        Assert.Null(Composer.PastedPictureExtension("text/html"));
-        Assert.Null(Composer.PastedPictureExtension(null));
-        var dir = Path.Combine(Path.GetTempPath(), "magpie-paste-test");
-        Assert.True(Composer.IsInside(dir, Path.Combine(dir, "picture-1.png")));
-        Assert.False(Composer.IsInside(dir, Path.Combine(dir, "..", "picture-1.png")));
-        Assert.False(Composer.IsInside(dir, Path.Combine(dir, "sub", "picture-1.png")));
-    }
-
-    [Fact]
-    public void Quote_header_encodes_the_senders_name_and_address()
-    {
-        var row = Rows.Make("acc", 1, "t1");
-        row.FromName = "<img src=x onerror=\"alert(1)\">";
-        row.FromAddress = "a@b.c";
-        var q = Composer.QuoteBlock(row, new MessageBody { Html = "<p>x</p>" });
-        Assert.DoesNotContain("<img", q);
-        Assert.Contains("&lt;img src=x onerror=", q);
-        row.FromName = "";
-        row.FromAddress = "<b>a@b.c</b>";
-        Assert.DoesNotContain("<b>", Composer.QuoteBlock(row, null));
-    }
-
-    [Fact]
-    public void Editor_shortcuts_yield_to_keys_the_app_took_and_font_size_touches_only_the_selection()
-    {
-        // Mac: the menu bar's ⌘ keys are taken by MacMenus.KeyForwardScript (preventDefault) before the editor sees them.
-        Assert.Contains("if(e.defaultPrevented) return;", EditorPage.ForMac);
-        // Font size: elements that were already size 7 / xxx-large (reopened draft, quote) are left alone.
-        Assert.Contains("before=new Set(ed.querySelectorAll(sel))", EditorPage.Html);
-        Assert.Contains("if(before.has(el)) return;", EditorPage.Html);
-    }
-
-    [Fact]
-    public void Recipient_entries_are_quoted_so_names_with_separators_stay_one_recipient()
-    {
-        Assert.Equal("a@b.com", Composer.FormatAddress("", "a@b.com"));
-        Assert.Equal("a@b.com", Composer.FormatAddress("a@b.com", "a@b.com"));
-        Assert.Equal("Ann <a@b.com>", Composer.FormatAddress("Ann", "a@b.com"));
-        foreach (var name in new[] { "Sales; Support", "Bhunia, Krishna", "Ann \"Boss\" Lee" })
+        finally
         {
-            var entry = Composer.FormatAddress(name, "a@b.com");
-            var pieces = Composer.SplitAddresses(entry);
-            Assert.Single(pieces);
-            Assert.Empty(Composer.InvalidAddresses(entry));
-            var (n, a) = Composer.NameAndAddress(pieces[0]);
-            Assert.Equal(name, n);
-            Assert.Equal("a@b.com", a);
+            if (File.Exists(first)) File.Delete(first);
+            if (File.Exists(second)) File.Delete(second);
         }
     }
 
     [Fact]
-    public void Pasting_several_pictures_sends_them_all_at_once()
+    public void Contact_picker_groups_include_only_group_members()
     {
-        Assert.Contains("post({t:'pastepics', data:", EditorPage.Html);
-        Assert.DoesNotContain("t:'pastepic'", EditorPage.Html);
-        Assert.Contains("pics.forEach(", EditorPage.Html);
-    }
-
-    [Fact]
-    public void Signature_swap_leaves_the_other_persons_signature_in_the_quote_alone()
-    {
-        // A reply to a message Magpie sent: the quote carries their signature block; the writer has none yet.
-        var quote = "<div class=\"magpie-quote\"><p>On x, Ann wrote:</p><blockquote><p>Hello</p><div class=\"magpie-signature\"><br><p>Ann</p></div><p>tail</p></blockquote></div>";
-        var html = "<p>Hi</p>" + quote;
-        var added = Composer.ReplaceSignature(html, "<p>Me</p>");
-        Assert.Contains("<p>Ann</p>", added);
-        Assert.Contains("<p>tail</p>", added);
-        Assert.True(added.IndexOf("<p>Me</p>", StringComparison.Ordinal) < added.IndexOf("magpie-quote", StringComparison.Ordinal));
-        var none = Composer.ReplaceSignature(html, "");
-        Assert.Equal(html, none);
-        // The editor page does the same: its swap only looks outside the quote, and inserts next to the quote wherever it sits.
-        var page = EditorPage.Html;
-        Assert.Contains("function ownSignature()", page);
-        Assert.Contains("closest('.magpie-quote')", page);
-        Assert.Contains("q.parentNode.insertBefore(d2.firstChild, q)", page);
-    }
-
-    [Fact]
-    public void Signature_by_id_falls_back_to_the_default_and_respects_the_switches()
-    {
-        var a = Gmail();
-        a.Signatures.Add(new SignatureDef { Id = "one", Name = "Personal", Html = "<p>One</p>" });
-        a.Signatures.Add(new SignatureDef { Id = "two", Name = "Short", Html = "<p>Two</p>" });
-        a.DefaultSignatureId = "two";
-        a.NormaliseSignatures();
-        Assert.Contains("Two", Composer.SignatureHtmlFor(a, null, reply: false));
-        Assert.Contains("One", Composer.SignatureHtmlFor(a, "one", reply: false));
-        Assert.Contains("Two", Composer.SignatureHtmlFor(a, "unknown", reply: false));
-        a.SignatureOnReplies = false;
-        Assert.Equal("", Composer.SignatureHtmlFor(a, "one", reply: true));
-        Assert.Contains("One", Composer.SignatureHtmlFor(a, "one", reply: false));
-    }
-
-    [Fact]
-    public void Template_body_is_the_new_text_trimmed() => Assert.Equal("Hi\nthere", Composer.TemplateBody("  Hi\r\nthere \r\n"));
-
-    // ───────────────────────── several signatures per account (D3) ─────────────────────────
-
-    [Fact]
-    public void Old_single_signature_becomes_the_first_signature_and_stays_mirrored()
-    {
-        var a = JsonSerializer.Deserialize<Account>("""{"Email":"k@x.com","SignatureHtml":"<p>Old</p>","Signature":"Old"}""", AppSettings.Json)!;
-        a.NormaliseSignatures();
-        var sig = Assert.Single(a.Signatures);
-        Assert.Equal("Signature", sig.Name);
-        Assert.Equal("<p>Old</p>", sig.Html);
-        Assert.Equal(sig.Id, a.DefaultSignatureId);
-        Assert.Equal("<p>Old</p>", a.SignatureHtml);
-        // Editing the default signature updates the mirror an older Magpie reads.
-        sig.Html = "<p>New</p>";
-        a.NormaliseSignatures();
-        Assert.Equal("<p>New</p>", a.SignatureHtml);
-        Assert.Equal("New", a.Signature);
-    }
-
-    [Fact]
-    public void Signatures_get_ids_names_and_a_valid_default()
-    {
-        var a = new Account { Email = "k@x.com" };
-        a.Signatures.Add(new SignatureDef { Id = "", Name = "", Html = "<p>A</p>" });
-        a.Signatures.Add(new SignatureDef { Id = "b", Name = " ", Html = "<p>B</p>" });
-        a.DefaultSignatureId = "nope";
-        a.NormaliseSignatures();
-        Assert.All(a.Signatures, s => Assert.False(string.IsNullOrWhiteSpace(s.Id)));
-        Assert.Equal("Signature", a.Signatures[0].Name);
-        Assert.Equal("Signature 2", a.Signatures[1].Name);
-        Assert.Equal(a.Signatures[0].Id, a.DefaultSignatureId);
-        Assert.Equal("<p>A</p>", a.SignatureHtml);
-        var clone = a.Clone();
-        clone.Signatures[0].Html = "changed";
-        Assert.Equal("<p>A</p>", a.Signatures[0].Html);
-    }
-
-    [Fact]
-    public void Settings_load_normalises_signatures_and_compose_block()
-    {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
-        try
+        var saved = new List<SavedContact>
         {
-            File.WriteAllText(path, """{"Accounts":[{"Email":"k@x.com","SignatureHtml":"<p>S</p>"}],"Compose":{"Toolbar":[{"Id":"bold","Visible":false},{"Id":"junk"}],"RecentEmoji":["😀","😀",""]}}""");
-            var s = new SettingsStore(path).Load();
-            Assert.Single(s.Accounts[0].Signatures);
-            Assert.False(s.Compose.Toolbar.First(b => b.Id == "bold").Visible);
-            Assert.DoesNotContain(s.Compose.Toolbar, b => b.Id == "junk");
-            Assert.Equal(ComposeSettings.ToolbarIds.Count(ComposeSettings.IsButton), s.Compose.Toolbar.Count);
-            Assert.Equal("bold", s.Compose.Toolbar[0].Id);   // kept order: the saved ones first, then the rest
-            Assert.Single(s.Compose.RecentEmoji);
-            Assert.True(s.Compose.CheckSpelling);
-            Assert.True(s.Compose.FoldQuote);
-            Assert.True(s.Compose.AttachmentCheck);
-            Assert.Equal(PastePictureChoice.Ask, s.Compose.PastePicture);
-        }
-        finally { File.Delete(path); }
-    }
+            new() { Id = 1, Name = "Ananya", Emails = new() { "ananya@example.com" }, Groups = new() { "Finance" } },
+            new() { Id = 2, Name = "Meera", Emails = new() { "meera@example.com" }, Groups = new() { "Finance", "Project" } },
+            new() { Id = 3, Name = "Rahul", Emails = new() { "rahul@example.com" }, Groups = new() { "Project" } },
+        };
+        var people = new List<(string Address, string Name, int Count, DateTimeOffset Last, bool Sent)>();
+        var entries = ContactSuggest.Entries(saved, people);
+        var groups = ContactSuggest.Groups(entries);
 
-    [Fact]
-    public void Compose_settings_keep_recent_lists_short_and_newest_first()
-    {
-        var c = new ComposeSettings();
-        for (var i = 0; i < 15; i++) c.NoteAttachment($"C:\\f{i}.txt");
-        Assert.Equal(ComposeSettings.MaxRecentAttachments, c.RecentAttachments.Count);
-        Assert.Equal("C:\\f14.txt", c.RecentAttachments[0]);
-        c.NoteAttachment("c:\\F3.TXT");
-        Assert.Equal("c:\\F3.TXT", c.RecentAttachments[0]);
-        Assert.Equal(1, c.RecentAttachments.Count(p => p.Equals("c:\\f3.txt", StringComparison.OrdinalIgnoreCase)));
-        for (var i = 0; i < 25; i++) c.NoteEmoji(i.ToString());
-        Assert.Equal(ComposeSettings.MaxRecentEmoji, c.RecentEmoji.Count);
-        Assert.Equal("24", c.RecentEmoji[0]);
-        c.Width = 10; c.Height = double.NaN; c.PastePicture = (PastePictureChoice)9;
-        c.Normalise();
-        Assert.Equal(980, c.Width);
-        Assert.Equal(720, c.Height);
-        Assert.Equal(PastePictureChoice.Ask, c.PastePicture);
-        Assert.All(ComposeSettings.ToolbarIds.Where(ComposeSettings.IsButton), id => Assert.NotEqual(id, ComposeSettings.NameOf(id)));
-    }
-
-    [Fact]
-    public void Account_limits_are_clamped()
-    {
-        var a = new Account { AttachmentLimitMb = 999 };
-        a.NormaliseSignatures();
-        Assert.Equal(150, a.AttachmentLimitMb);
-        a.AttachmentLimitMb = -3;
-        a.NormaliseSignatures();
-        Assert.Equal(0, a.AttachmentLimitMb);
-    }
-
-    // ───────────────────────── the editor page ─────────────────────────
-
-    [Fact]
-    public void Editor_page_has_the_new_commands_for_both_apps()
-    {
-        foreach (var fn in new[] { "function insertTable", "function tableCmd", "function findAll", "function replaceAll", "function foldQuote", "function unfoldQuote",
-                                   "function mention", "function setSignature", "function setFontSize", "function setBlock", "function insertEmoji", "function insertPicture",
-                                   "function setSpell", "function cleanCopy", "function imgSize", "function editLink", "function unlinkAt" })
-        {
-            Assert.Contains(fn, EditorPage.Html);
-            Assert.Contains(fn, EditorPage.ForMac);
-        }
-        Assert.Contains("(e.ctrlKey || e.metaKey) && e.key === 'Enter'", EditorPage.ForMac);
-        Assert.Contains("styleWithCSS", EditorPage.Html);
-        // An @mention link is built with DOM APIs and esc() escapes quotes, so a quoted-local-part address can't smuggle an attribute.
-        Assert.Contains("replace(/\"/g,'&quot;')", EditorPage.Html);
-        Assert.Contains("a.href='mailto:'+address; a.textContent=name;", EditorPage.Html);
-        Assert.DoesNotContain("'<a href=\"mailto:'+esc(address)", EditorPage.Html);
+        Assert.Equal(new[] { "Finance", "Project" }, groups.Select(group => group.Group));
+        Assert.Equal(new[] { "Ananya", "Meera" }, groups.Single(group => group.Group == "Finance").Members.Select(member => member.Name));
     }
 }

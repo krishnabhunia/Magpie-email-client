@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Magpie.App.Services;
@@ -11,44 +14,62 @@ using Magpie.Core.Settings;
 
 namespace Magpie.App.ViewModels;
 
-public sealed class AttachmentItem
+public sealed class AttachmentItem : ObservableObject
 {
     public string Path { get; init; } = "";
-    public string Name => System.IO.Path.GetFileName(Path);
+    private string? _outgoingName;
+    public string Name => _outgoingName ?? System.IO.Path.GetFileName(Path);
+    public void Rename(string name)
+    {
+        _outgoingName = name;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Icon));
+        OnPropertyChanged(nameof(Display));
+    }
+    public string Icon => System.IO.Path.GetExtension(Name).ToLowerInvariant() switch
+    {
+        ".png" or ".jpg" or ".jpeg" or ".gif" => "▧",
+        ".pdf" => "▤",
+        ".doc" or ".docx" or ".txt" => "▣",
+        ".xls" or ".xlsx" or ".csv" => "▦",
+        _ => "📎",
+    };
     public string Size => HtmlRenderer.FormatSize(new FileInfo(Path).Exists ? new FileInfo(Path).Length : 0);
     public bool Carried { get; init; }
     /// <summary>For attachments carried over from the original (forward / draft): the MIME part itself.</summary>
     public MimeKit.MimeEntity? Part { get; init; }
-    public string Display => Carried ? Path : $"{Name}  ·  {Size}";
-    /// <summary>Design CW1 (C2): bytes of a carried-over part, for the size bar.</summary>
-    public long CarriedSize
+    public string Display => Carried ? Name : $"{Name}  ·  {Size}";
+    private ImageSource? _thumbnail;
+    private bool _thumbnailLoaded;
+    /// <summary>A small, decoded picture. Never loads the original full-size bitmap into the UI.</summary>
+    public ImageSource? Thumbnail
     {
         get
         {
-            try { return Part is MimeKit.MimePart { Content: { Stream: { } st } } ? st.Length : 0; }
-            catch { return 0; }
-        }
-    }
-    /// <summary>Design CW1 (C1): "XLS", "PDF", "DOC", "ZIP", "IMG" … from the file name.</summary>
-    public string Kind
-    {
-        get
-        {
-            var ext = System.IO.Path.GetExtension(Name).TrimStart('.').ToUpperInvariant();
-            return ext switch
+            if (_thumbnailLoaded) return _thumbnail;
+            _thumbnailLoaded = true;
+            if (Carried || ComposeSafety.AttachmentPreviewKind(Path) != "image") return null;
+            try
             {
-                "XLSX" or "XLS" or "CSV" => "XLS", "DOCX" or "DOC" or "RTF" or "ODT" => "DOC", "PPTX" or "PPT" => "PPT", "PDF" => "PDF",
-                "ZIP" or "7Z" or "RAR" or "GZ" => "ZIP", "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" => "IMG", "TXT" or "MD" or "LOG" => "TXT",
-                "EML" or "MSG" => "EML", "" => "FILE", _ => ext.Length > 4 ? ext[..4] : ext,
-            };
+                var file = new FileInfo(Path);
+                if (!file.Exists || file.Length > 32 * 1024 * 1024) return null;
+                using var stream = file.OpenRead();
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.StreamSource = stream;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.DecodePixelWidth = 64;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                _thumbnail = bitmap;
+            }
+            catch (Exception) { /* Missing or invalid pictures retain their file-type icon. */ }
+            return _thumbnail;
         }
     }
-    public bool IsPicture => !Carried && Magpie.Core.Mail.Composer.IsPicture(Path);
-    /// <summary>Colour of the type badge.</summary>
-    public string KindColour => Kind switch
-    {
-        "XLS" => "#1D6F42", "DOC" => "#2B579A", "PPT" => "#B7472A", "PDF" => "#B3261E", "ZIP" => "#5A6068", "IMG" => "#4B3F86", "EML" => "#14606E", _ => "#5A6068",
-    };
+    public Visibility ThumbnailVisibility => Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
+    public bool CanCompress => !Carried && ComposeSafety.CanCompressImage(Path);
+    public bool CanUploadCloud => !Carried;
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
@@ -72,10 +93,18 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _to = "";
     [ObservableProperty] private string _cc = "";
     [ObservableProperty] private string _bcc = "";
+    [ObservableProperty] private bool _showCcBcc;
     [ObservableProperty] private string _subject = "";
+    [ObservableProperty] private string _priority = "Normal";
+    [ObservableProperty] private string _replyTo = "";
+    [ObservableProperty] private bool _requestReadReceipt;
+    [ObservableProperty] private bool _requestDeliveryReceipt;
+    public string DeliveryReceiptHelp => DeliveryReceipts.ComposeHelp;
+    [ObservableProperty] private bool _warnExternalRecipients;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
     [ObservableProperty] private bool _sending;
+    [ObservableProperty] private bool _attachmentOperationBusy;
 
     // ── AI rail (S5) ──
     [ObservableProperty] private bool _showAiRail;
@@ -91,26 +120,79 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _previewKind = ""; // "draft" | "rewrite"
     [ObservableProperty] private string _selectedText = "";
     [ObservableProperty] private string _customRewrite = "";
+    [ObservableProperty] private string _translationLanguage = "English";
+    public IReadOnlyList<string> TranslationLanguages { get; } = new[]
+        { "English", "Hindi", "Bengali", "Marathi", "Chinese (Mandarin)", "Arabic", "French", "German", "Japanese", "Spanish" };
 
     public string InitialHtml { get; }
     /// <summary>Id of this message's copy on this PC, once autosaved.</summary>
     public long? LocalDraftId => _draft.LocalDraftId;
+    /// <summary>Controls text/plain-only MIME serialization, including local and server draft saves.</summary>
+    public bool IsPlainText
+    {
+        get => _draft.IsPlainText;
+        set
+        {
+            if (_draft.IsPlainText == value) return;
+            if (value || _draft.IsPlainText) _draft.BodySectionsLost = true;
+            _draft.IsPlainText = value;
+            OnPropertyChanged(nameof(WritingStatisticsSummary));
+            OnPropertyChanged(nameof(WritingStatisticsHelp));
+        }
+    }
+    /// <summary>Sticky until a revision with its original rich sections is explicitly restored.</summary>
+    public bool BodySectionsLost
+    {
+        get => _draft.BodySectionsLost || _draft.IsPlainText;
+        set => _draft.BodySectionsLost = value;
+    }
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
+    public string AttachmentSummary => FullMessageSizeSummary;
     public bool IsReply => _draft.Mode is ComposeMode.Reply or ComposeMode.ReplyAll;
+    public bool CanSendAndArchive => _e.CanSendAndArchive(_draft);
     public string ProviderLabel => _e.Ai.ProviderLabel;
+
 
     public ComposeViewModel(Draft draft, string? prefillText)
     {
         _draft = draft;
+        _e.RestoreReplyArchiveSource(draft);
         foreach (var a in _e.Accounts) Accounts.Add(a);
         From = Accounts.FirstOrDefault(a => a.Id == draft.AccountId) ?? Accounts.FirstOrDefault();
+        RefreshSenderIdentities(draft.SenderAddress);
         To = draft.To;
         Cc = draft.Cc;
         Bcc = draft.Bcc;
+        ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
         Subject = draft.Subject;
-        foreach (var p in draft.AttachmentPaths) Attachments.Add(new AttachmentItem { Path = p });
+        Priority = draft.Priority;
+        ReplyTo = draft.ReplyTo;
+        RequestReadReceipt = draft.RequestReadReceipt;
+        RequestDeliveryReceipt = draft.RequestDeliveryReceipt;
+        foreach (var p in draft.AttachmentPaths)
+        {
+            var item = new AttachmentItem { Path = p };
+            if (draft.AttachmentNames.TryGetValue(p, out var outgoingName)) item.Rename(outgoingName);
+            Attachments.Add(item);
+        }
         foreach (var part in draft.CarriedParts)
-            Attachments.Add(new AttachmentItem { Path = (part as MimeKit.MimePart)?.FileName ?? "forwarded message", Carried = true, Part = part });
+            Attachments.Add(new AttachmentItem { Path = MimeAttachmentNames.Get(part) ?? "forwarded message", Carried = true, Part = part });
+        if (draft.AttachmentOrder.Count > 0)
+        {
+            var arranged = new List<AttachmentItem>();
+            foreach (var position in draft.AttachmentOrder)
+            {
+                var item = position.Path != null
+                    ? Attachments.FirstOrDefault(a => !a.Carried && string.Equals(a.Path, position.Path, StringComparison.Ordinal))
+                    : position.CarriedIndex is { } index && index >= 0 && index < draft.CarriedParts.Count
+                        ? Attachments.FirstOrDefault(a => ReferenceEquals(a.Part, draft.CarriedParts[index])) : null;
+                if (item != null && !arranged.Contains(item)) arranged.Add(item);
+            }
+            foreach (var item in Attachments)
+                if (!arranged.Contains(item)) arranged.Add(item);
+            Attachments.Clear();
+            foreach (var item in arranged) Attachments.Add(item);
+        }
 
         var html = draft.Html;
         if (draft.Mode == ComposeMode.New && string.IsNullOrEmpty(html) && From != null)
@@ -122,15 +204,15 @@ public partial class ComposeViewModel : ObservableObject
         // so closing the window asks before discarding it.
         StartsUnsaved = draft.Mode == ComposeMode.EditDraft && draft.SourceDraftRow == null && draft.LocalDraftId == null;
         InitializeReplyDrafts(prefillText);
-        InitFeatures(draft);
         RefreshAi();
         if (draft.LocalDraftId is { } localId)
         {
             _openedFrom = _e.Store.GetLocalDraft(localId);
             _pendingUpload = _openedFrom?.PendingUpload ?? false;
+            if (_openedFrom != null && !draft.Security.Requested) _encodedMessageSize = new EncodedMessageSize(_openedFrom.Mime.LongLength);
             Claim(localId);
         }
-        _onSettings = () => Ui.Post(RefreshAi);
+        _onSettings = () => Ui.Post(() => { RefreshAi(); RefreshSenderIdentities(); });
         _e.Settings.Changed += _onSettings;
         _constructed = true;
     }
@@ -168,9 +250,11 @@ public partial class ComposeViewModel : ObservableObject
     /// <summary>Call on every edit: marks the message changed and autosaves it on this PC a moment later.</summary>
     public void MarkEdited()
     {
-        if (!_constructed) return;   // filling the fields from the draft is not an edit
+        if (!_constructed || _restoringRevision) return;   // filling/restoring fields is not an individual edit
         _edits++;
         Dirty = true;
+        InvalidateMessageSize();
+        ScheduleWritingStatistics();
         if (!_closed) _autosave.Run(() => _ = AutosaveAsync());
     }
 
@@ -189,6 +273,7 @@ public partial class ComposeViewModel : ObservableObject
         try
         {
             if (_closed || _queued) return;
+            var edits = _edits;
             var d = await BuildDraftAsync(validate: false);
             if (d == null || _closed || _queued) return;
             var pending = _pendingUpload;
@@ -197,6 +282,12 @@ public partial class ComposeViewModel : ObservableObject
             var id = await Task.Run(() => _e.SaveLocalDraft(d, pending));
             if (id == 0) return;
             if (!_closed) Claim(id);
+            var size = await Task.Run(() => _e.Store.GetLocalDraftMimeSize(id));
+            if (size is { } bytes && _edits == edits && !d.Security.Requested)
+            {
+                _encodedMessageSize = new EncodedMessageSize(bytes);
+                OnPropertyChanged(nameof(AttachmentSummary));
+            }
             Status = "Saved on this PC · " + DateTime.Now.ToString("HH:mm");
         }
         catch (Exception ex) { Log.Warn("autosave: " + ex.Message); }
@@ -232,6 +323,7 @@ public partial class ComposeViewModel : ObservableObject
     /// </summary>
     public async Task<bool> KeepAsDraftAsync(bool closing)
     {
+        if (closing && AttachmentOperationBusy) { Status = "Finish attaching or uploading the file before closing this message."; return false; }
         await SettleAutosaveAsync(stop: closing);
         await _saveGate.WaitAsync();
         try
@@ -289,6 +381,7 @@ public partial class ComposeViewModel : ObservableObject
     /// <returns>False if putting back the kept version failed (the window then stays open).</returns>
     public async Task<bool> DiscardAsync()
     {
+        if (AttachmentOperationBusy) { Status = "Finish attaching or uploading the file before discarding this message."; return false; }
         await SettleAutosaveAsync(stop: true);
         await _saveGate.WaitAsync();
         try
@@ -321,6 +414,7 @@ public partial class ComposeViewModel : ObservableObject
     public void Detach()
     {
         _closed = true;
+        StopWritingStatistics();
         ReleaseClaim();   // a draft still marked for upload is picked up by the background upload from now on
         _e.Settings.Changed -= _onSettings;
         _aiCts?.Cancel();
@@ -330,12 +424,17 @@ public partial class ComposeViewModel : ObservableObject
     public static string TextToParagraphs(string text) => Composer.TextToParagraphs(text);
 
     partial void OnSubjectChanged(string value) { OnPropertyChanged(nameof(WindowTitle)); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
-    partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); RefreshRecipientNote(); }
-    partial void OnCcChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); RefreshRecipientNote(); }
-    partial void OnBccChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnToChanged(string value) { MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnCcChanged(string value) { NotifyRecipientVisibility(); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnBccChanged(string value) { NotifyRecipientVisibility(); MarkEdited(); InvalidateReplyContext(); InvalidateLegacyAi(); }
+    partial void OnPriorityChanged(string value) => MarkEdited();
+    partial void OnReplyToChanged(string value) => MarkEdited();
+    partial void OnRequestReadReceiptChanged(bool value) => MarkEdited();
+    partial void OnRequestDeliveryReceiptChanged(bool value) => MarkEdited();
 
     public void RefreshAi()
     {
+        OnPropertyChanged(nameof(CanSendAndArchive));
         ShowDraftAi = _e.Ai.IsVisible(AiFeature.Draft);
         ShowRewriteAi = _e.Ai.IsVisible(AiFeature.Rewrite);
         RefreshReplyAi();
@@ -348,17 +447,35 @@ public partial class ComposeViewModel : ObservableObject
     }
 
     [RelayCommand] private void ToggleAiPanel() => AiPanelOpen = !AiPanelOpen;
+    [RelayCommand] private void ShowCc() => SetRecipientRowVisible("cc", true);
     [RelayCommand] private void OpenAiSettings() => Views.SettingsWindow.Open("AI");
+
+    /// <summary>Claim picture attachment work before its first await; a closing/queued draft cannot accept it.</summary>
+    public bool TryBeginAttachmentOperation()
+    {
+        if (_closed || _queued || Sending || RevisionBusy || AttachmentOperationBusy) return false;
+        AttachmentOperationBusy = true;
+        return true;
+    }
+
+    public bool CanCompleteAttachmentOperation => AttachmentOperationBusy && !_closed && !_queued && !Sending && !RevisionBusy;
 
     public void AddAttachments(IEnumerable<string> paths)
     {
+        var added = new List<string>();
         foreach (var p in paths.Where(File.Exists))
         {
-            // Design CW1 (A6 for files): the same file twice is one attachment; the size bar (C2) replaces the old per-file warning.
-            if (Attachments.Any(a => !a.Carried && a.Path.Equals(p, StringComparison.OrdinalIgnoreCase))) continue;
+            if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, p, StringComparison.Ordinal))) continue;
+            var fi = new FileInfo(p);
+            var limit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+            if (ComposeSafety.EstimatedEncodedBytes(new[] { fi.Length }) > limit && !Ui.Confirm("Large attachment", $"{fi.Name} is {HtmlRenderer.FormatSize(fi.Length)} before email encoding. It may exceed this account's {HtmlRenderer.FormatSize(limit)} message-size guidance after encoding. Attach anyway?"))
+                continue;
             Attachments.Add(new AttachmentItem { Path = p });
+            added.Add(p);
             MarkEdited();
         }
+        if (added.Count > 0) RecentComposeFiles.Remember(added);
+        OnPropertyChanged(nameof(AttachmentSummary));
     }
 
     [RelayCommand]
@@ -368,38 +485,92 @@ public partial class ComposeViewModel : ObservableObject
         Attachments.Remove(a);
         if (a.Carried && a.Part != null) _draft.CarriedParts.Remove(a.Part);
         MarkEdited();
+        OnPropertyChanged(nameof(AttachmentSummary));
         if (a.Carried) InvalidateReplyContext();   // a forward note may name this file
     }
+
+    public void RenameAttachment(AttachmentItem attachment, string outgoingName)
+    {
+        if (!Attachments.Contains(attachment) || !ComposeSafety.ValidAttachmentName(outgoingName)) return;
+        if (attachment.Part != null) MimeAttachmentNames.Rename(attachment.Part, outgoingName);
+        attachment.Rename(outgoingName);
+        MarkEdited();
+        InvalidateReplyContext();
+    }
+
+    /// <summary>Switch the outgoing attachment to a newly saved copy, leaving the original on disk.</summary>
+    public void ReplaceAttachmentWithOptimizedCopy(AttachmentItem original, string copyPath)
+    {
+        var index = Attachments.IndexOf(original);
+        if (index < 0 || original.Carried || !File.Exists(copyPath)) return;
+        if (Attachments.Any(a => !a.Carried && string.Equals(a.Path, copyPath, StringComparison.Ordinal))) return;
+        Attachments[index] = new AttachmentItem { Path = copyPath };
+        MarkEdited();
+        OnPropertyChanged(nameof(AttachmentSummary));
+        InvalidateReplyContext();
+    }
+
+    private void MoveAttachment(AttachmentItem? attachment, int change)
+    {
+        if (attachment == null) return;
+        var index = Attachments.IndexOf(attachment);
+        var target = index + change;
+        if (index < 0 || target < 0 || target >= Attachments.Count) return;
+        Attachments.Move(index, target);
+        MarkEdited();
+        InvalidateReplyContext();
+    }
+
+    [RelayCommand] private void MoveAttachmentUp(AttachmentItem? attachment) => MoveAttachment(attachment, -1);
+    [RelayCommand] private void MoveAttachmentDown(AttachmentItem? attachment) => MoveAttachment(attachment, 1);
 
     private async Task<Draft?> BuildDraftAsync(bool validate = true)
     {
         if (From == null) { if (validate) Ui.Error("Send", "Add an account first."); return null; }
         if (validate)
         {
-            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).Concat(Composer.InvalidAddresses(ReplyTo)).ToList();
+            var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc))
+                .Concat(Composer.InvalidAddresses(ReplyTo)).ToList();
             if (bad.Count > 0) { Ui.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
         }
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
         if (_draft.Mode != ComposeMode.EditDraft) _draft.ComposeStyle = _e.Config.Typography.Resolve("composeBody");
         _draft.AccountId = From.Id;
+        _draft.SenderAddress = SelectedSender?.Address ?? "";
         _draft.To = To;
         _draft.Cc = Cc;
         _draft.Bcc = Bcc;
         _draft.Subject = Subject;
+        _draft.Priority = Priority;
+        _draft.ReplyTo = ReplyTo;
+        _draft.RequestReadReceipt = RequestReadReceipt;
+        _draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
-        FillDraftOptions(_draft);
+        _draft.AttachmentNames = Attachments.Where(a => !a.Carried && !string.Equals(a.Name, Path.GetFileName(a.Path), StringComparison.Ordinal))
+            .ToDictionary(a => a.Path, a => a.Name, StringComparer.Ordinal);
+        _draft.AttachmentOrder = Attachments.Select(a => a.Carried
+            ? new DraftAttachmentPosition { CarriedIndex = _draft.CarriedParts.IndexOf(a.Part!) }
+            : new DraftAttachmentPosition { Path = a.Path }).ToList();
         return _draft;
     }
 
     /// <summary>Queues the message; <paramref name="when"/> null = now (after the undo window).</summary>
-    public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply)
+    public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
-        if (Sending || _queued) return;
+        if (AttachmentOperationBusy) { Status = "Finish attaching or uploading the file, then review and press Send."; return; }
+        if (Sending || _queued || RevisionBusy) return;
+        if (archiveAfterSend && !CanSendAndArchive)
+        {
+            Status = "The original reply account or conversation is unavailable. Send normally, then archive the conversation manually.";
+            return;
+        }
         StopReplyDraft(clear: true);
         DiscardPreview();
         Sending = true;
+        var sendVersion = _edits;
+        var sendingAccount = From;
         try
         {
             if (string.IsNullOrWhiteSpace(To) && string.IsNullOrWhiteSpace(Cc) && string.IsNullOrWhiteSpace(Bcc))
@@ -408,7 +579,57 @@ public partial class ComposeViewModel : ObservableObject
                 return;
             }
             if (string.IsNullOrWhiteSpace(Subject) && !Ui.Confirm("No subject", "Send this message without a subject?")) return;
-            if (!await ChecksBeforeSendAsync()) return;
+            var missingFiles = ComposeSafety.MissingFiles(Attachments.Where(a => !a.Carried).Select(a => a.Path));
+            if (missingFiles.Count > 0)
+            {
+                Ui.Error("Missing attachment", "These files moved or were deleted. Remove them or attach them again:\n\n" + string.Join("\n", missingFiles));
+                return;
+            }
+            var visibleCount = ComposeSafety.VisibleRecipientCount(To, Cc);
+            if (visibleCount > 20)
+            {
+                var invalid = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc))
+                    .Concat(Composer.InvalidAddresses(Bcc)).ToArray();
+                if (invalid.Length > 0)
+                {
+                    Ui.Error("Check recipients", "Correct these addresses before rearranging recipients:\n\n" + string.Join("\n", invalid));
+                    return;
+                }
+                var choice = MessageBox.Show(Ui.ActiveWindow!,
+                    $"This message has {visibleCount} visible recipients in To and Cc. They can see each other's addresses.\n\n"
+                    + "Yes — Move all except the first recipient to Bcc, then review before sending.\n"
+                    + "No — Keep recipients visible and continue sending.\n"
+                    + "Cancel — Return to the message.",
+                    "Large recipient list", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (choice == MessageBoxResult.Cancel) return;
+                if (choice == MessageBoxResult.Yes)
+                {
+                    var rearranged = ComposeSafety.MoveVisibleRecipientsToBcc(To, Cc, Bcc);
+                    To = rearranged.To;
+                    Cc = rearranged.Cc;
+                    Bcc = rearranged.Bcc;
+                    ShowCcBcc = true;
+                    MessageBox.Show(Ui.ActiveWindow!, "Recipients were moved to Bcc. Check the To and Bcc fields, then press Send again when ready.",
+                        "Recipients moved", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+            }
+            var repeated = ComposeSafety.DuplicateRecipients(To, Cc, Bcc);
+            if (repeated.Count > 0 && !Ui.Confirm("Duplicate recipients",
+                    "These addresses appear more than once. Magpie will send only one copy to each:\n\n" + string.Join("\n", repeated) + "\n\nContinue?")) return;
+            if (WarnExternalRecipients && From != null)
+            {
+                var external = ComposeSafety.ExternalRecipients(SelectedSender?.Address ?? From.Email, To, Cc, Bcc);
+                if (external.Count > 0 && !Ui.Confirm("External recipients",
+                        "These addresses are outside the selected sender's email domain:\n\n"
+                        + string.Join("\n", external) + "\n\nReview carefully before sending. Continue?")) return;
+            }
+            var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
+            if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+            if (ComposeSafety.MentionsAttachment(newText) && Attachments.Count == 0 &&
+                !Ui.Confirm("Did you forget an attachment?", "Your message refers to an attachment, but no files are attached. Send anyway?")) return;
+            if (string.IsNullOrWhiteSpace(newText) && Attachments.Count == 0 &&
+                !Ui.Confirm("Empty message", "The message has no new text or attachments. Send anyway?")) return;
             // Wait for an autosave that is building the message (it shares attachment streams with this build).
             await _saveGate.WaitAsync();
             Draft? d;
@@ -417,11 +638,21 @@ public partial class ComposeViewModel : ObservableObject
             long id;
             try
             {
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 d = await BuildDraftAsync();
                 if (d == null) return;
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                await _e.VerifyCloudFileAccessAsync(d.Html, d.To, d.Cc, d.Bcc);
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                var encoded = await MeasureBuiltDraftSizeAsync(d);
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                var suggestedLimit = ComposeSafety.SuggestedOutgoingLimitBytes(From);
+                if (encoded.Bytes > suggestedLimit && !Ui.Confirm("Large message",
+                        $"The complete message is {(encoded.AtLeast ? "at least " : "")}{HtmlRenderer.FormatSize(encoded.Bytes)} after email encoding, including the body, inline pictures and forwarded attachments. This exceeds the {HtmlRenderer.FormatSize(suggestedLimit)} guidance for this account. The server's actual limit may differ. Send anyway?")) return;
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 undo = _e.Config.UndoSendSeconds;
                 sendAt = when ?? DateTimeOffset.Now.AddSeconds(undo);
-                id = _e.QueueSend(d, sendAt, remindIfNoReply);
+                id = _e.QueueSend(d, sendAt, remindIfNoReply, archiveAfterSend);
                 _queued = true;
                 if (d.SourceDraftRow is { } draftRow) _e.DeleteDraft(draftRow);
                 if (d.LocalDraftId is { } localId) { ReleaseClaim(); _e.DeleteLocalDraft(localId); d.LocalDraftId = null; }
@@ -434,8 +665,6 @@ public partial class ComposeViewModel : ObservableObject
             {
                 if (when != null) vm.ShowScheduled(id, sendAt, Subject);
                 else vm.ShowUndo(id, undo, Subject);
-                // Design CW1 (D6): Send & Archive — the conversation is archived once the undo window has passed, unless Undo was clicked.
-                if (ArchiveAfterSend is { } arc && when == null) vm.ArchiveAfterUndo(id, undo, arc.AccountId, arc.ThreadKey, vm.ArchiveFoldersFor(arc.AccountId));
             }
             CloseRequested?.Invoke();
         }
@@ -444,17 +673,50 @@ public partial class ComposeViewModel : ObservableObject
             Log.Error("queue send", ex);
             Ui.Error("Send", ex.Message);
         }
-        finally
-        {
-            Sending = false;
-            if (!_queued) ArchiveAfterSend = null;   // design CW1 (D6): a cancelled Send & Archive doesn't turn the next Send into one
-        }
+        finally { Sending = false; }
+    }
+
+    private bool SendSnapshotIsCurrent(int version, Account? account)
+    {
+        if (_closed || _queued) return false;
+        if (_edits == version && ReferenceEquals(From, account) && !AttachmentOperationBusy) return true;
+        Status = "Message changed during review. Check the latest content and press Send again.";
+        return false;
     }
 
     /// <summary>The "Save draft" button: same as Keep — server Drafts, or this PC when offline.</summary>
     public Task<bool> SaveDraftAsync() => KeepAsDraftAsync(closing: false);
 
-    public void InsertTemplate(QuickTemplate t) => _ = EditorCommand?.Invoke("insert", t.Body);
+    /// <summary>Export the current message as a complete MIME file without sending it or changing draft status.</summary>
+    public async Task<bool> ExportEmlAsync(string destination)
+    {
+        await _saveGate.WaitAsync();
+        var temporaryFile = Path.Combine(Path.GetDirectoryName(destination)!, ".magpie-export-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            if (_queued || From == null) return false;
+            var draft = await BuildDraftAsync(validate: false);
+            if (draft == null) return false;
+            var message = _e.SecureMail.PrepareOutgoing(Composer.Build(draft, From), From, draft.Security,
+                DateTimeOffset.UtcNow, preserveRecall: false).Message;
+            await using (var output = new FileStream(temporaryFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await message.WriteToAsync(output);
+            File.Move(temporaryFile, destination, overwrite: true);
+            Status = "✓ Saved message as .eml";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Ui.Error("Save message to file", ex.Message);
+            return false;
+        }
+        finally
+        {
+            try { if (File.Exists(temporaryFile)) File.Delete(temporaryFile); }
+            catch (Exception) { /* The message export already reported any primary error. */ }
+            _saveGate.Release();
+        }
+    }
 
     // ───────────────────────── AI: write a draft (C2/C3) ─────────────────────────
 
@@ -475,7 +737,8 @@ public partial class ComposeViewModel : ObservableObject
         if (_e.Ai.NeedsConsent(AiFeature.Draft) && !Views.ConsentDialog.Ask(AiFeature.Draft, context?.Included ?? 0)) return;
         await RunAsync("draft", (onToken, ct) =>
         {
-            var name = From?.DisplayName is { Length: > 0 } n ? n : From?.Email ?? "";
+            var sender = TemplateSender;
+            var name = sender?.DisplayName is { Length: > 0 } n ? n : sender?.Email ?? "";
             return _e.Ai.DraftAsync(Prompt, Tone, context, name, onToken, ct);
         });
     }
@@ -489,12 +752,18 @@ public partial class ComposeViewModel : ObservableObject
         if (_e.Ai.Availability(AiFeature.Rewrite) == AiAvailability.NotConfigured) { AiNeedsSetup = true; return; }
         if (_e.Ai.NeedsConsent(AiFeature.Rewrite) && !Views.ConsentDialog.Ask(AiFeature.Rewrite, 0)) return;
         var k = Enum.TryParse<RewriteKind>(kind, out var parsed) ? parsed : RewriteKind.Custom;
-        if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(CustomRewrite)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
+        var instruction = CustomRewrite;
+        if (kind == "Translate")
+        {
+            try { instruction = ComposeTranslation.Instruction(TranslationLanguage); }
+            catch (ArgumentException ex) { AiError = ex.Message; return; }
+        }
+        if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(instruction)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
         var text = SelectedText;
         if (EditorCommand == null) return;
         try { await EditorCommand("captureRewrite", text); }
         catch (Exception ex) { AiError = ex.Message; return; }
-        await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, CustomRewrite, onToken, ct));
+        await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, instruction, onToken, ct));
     }
 
     private async Task RunAsync(string kind, Func<Action<string>, CancellationToken, Task<string>> call)

@@ -17,75 +17,42 @@ public partial class EditableAccount : ObservableObject
 {
     public Account Original { get; private set; }
     /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
-    public void Accept(Account saved) => Original = saved;
+    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; SenderAliasesText = SenderIdentities.Format(saved.SenderAliases); }
     public EditableAccount(Account a)
     {
         Original = a;
         _displayName = a.DisplayName;
+        _senderAliasesText = SenderIdentities.Format(a.SenderAliases);
         _phone = a.Phone;
         _jobTitle = a.JobTitle;
         _company = a.Company;
         _signature = a.Signature;
         _signatureHtml = a.SignatureHtml;
+        foreach (var variant in a.SignatureVariants ?? new()) SignatureVariants.Add(new EditableNamedSignature { Name = variant.Name, Html = variant.Html });
         _signatureOnNew = a.SignatureOnNew;
         _signatureOnReplies = a.SignatureOnReplies;
         _color = a.Color;
         _enabled = a.Enabled;
         _syncDays = a.SyncDays;
         _downloadAttachments = a.DownloadAttachments;
+        _maxOutgoingMessageMb = a.MaxOutgoingMessageMb;
         DownloadChoices = DownloadChoice.For(a.SyncDays);
-        _replyTo = a.ReplyTo;
-        _attachmentLimitMb = a.AttachmentLimitMb;
-        foreach (var sig in a.Signatures) Signatures.Add(new EditableSignature(sig.Id, sig.Name, sig.Html, sig.Id == a.DefaultSignatureId));
-        SelectedSignature = Signatures.FirstOrDefault(x => x.IsDefault) ?? Signatures.FirstOrDefault();
     }
-
-    // ── design CW1: several signatures (D3), "Replies go to" (A5), attachment limit (C2) ──
-    public ObservableCollection<EditableSignature> Signatures { get; } = new();
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignatureHtml), nameof(SignaturePlain), nameof(HasSignature), nameof(HasSignaturePicture), nameof(CanRemoveSignature))] private EditableSignature? _selectedSignature;
-    [ObservableProperty] private string _replyTo;
-    [ObservableProperty] private int _attachmentLimitMb;
-    public bool CanRemoveSignature => SelectedSignature != null && Signatures.Count > 1;
-
-    partial void OnSelectedSignatureChanged(EditableSignature? oldValue, EditableSignature? newValue)
-    {
-        if (oldValue != null) oldValue.IsSelectedSignature = false;
-        if (newValue != null) newValue.IsSelectedSignature = true;
-    }
-    public string AttachmentLimitHint => Original.Kind == AccountKind.Microsoft ? "0 = Outlook's usual 20 MB" : Original.Kind == AccountKind.Gmail ? "0 = Gmail's usual 25 MB" : "0 = 25 MB (ask your provider)";
-
-    public void AddSignature()
-    {
-        var n = Signatures.Count + 1;
-        var sig = new EditableSignature(SignatureDef.NewId(), n == 1 ? "Signature" : "Signature " + n, "", Signatures.Count == 0);
-        Signatures.Add(sig);
-        SelectedSignature = sig;
-        OnPropertyChanged(nameof(CanRemoveSignature));
-    }
-
-    public void RemoveSelectedSignature()
-    {
-        if (SelectedSignature is not { } s || Signatures.Count <= 1) return;
-        var wasDefault = s.IsDefault;
-        Signatures.Remove(s);
-        if (wasDefault && Signatures.Count > 0) Signatures[0].IsDefault = true;
-        SelectedSignature = Signatures.FirstOrDefault();
-        OnPropertyChanged(nameof(CanRemoveSignature));
-    }
-
-    public void MakeSelectedDefault()
-    {
-        if (SelectedSignature is not { } s) return;
-        foreach (var x in Signatures) x.IsDefault = x == s;
-    }
-
-    private List<SignatureDef> SignaturesToSave() => Signatures.Select(x => new SignatureDef { Id = x.Id, Name = x.Name.Trim().Length == 0 ? "Signature" : x.Name.Trim(), Html = x.Html }).ToList();
-    private string DefaultSignatureIdToSave() => (Signatures.FirstOrDefault(x => x.IsDefault) ?? Signatures.FirstOrDefault())?.Id ?? "";
     public string Email => Original.Email;
     public string Kind => Original.Kind switch { AccountKind.Gmail => "Gmail", AccountKind.Microsoft => "Outlook / Microsoft 365", _ => "IMAP" }
                           + (Original.Auth == AuthMethod.OAuth2 ? " · signed in with " + (Original.Kind == AccountKind.Gmail ? "Google" : "Microsoft") : " · password");
     public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
+    public bool IsImap => Original.Kind == AccountKind.Imap;
     [ObservableProperty] private string _displayName;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SenderAliasesError))] private string _senderAliasesText;
+    public string SenderAliasesError
+    {
+        get
+        {
+            try { SenderIdentities.Parse(SenderAliasesText, Email); return ""; }
+            catch (FormatException ex) { return ex.Message; }
+        }
+    }
     /// <summary>Design AC1: your details for this account.</summary>
     [ObservableProperty] private string _phone;
     [ObservableProperty] private string _jobTitle;
@@ -97,25 +64,10 @@ public partial class EditableAccount : ObservableObject
     /// <summary>Collapsed card in Settings → Accounts (design CL1).</summary>
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _signature;
-    private string _signatureHtml;
-    /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies. Since 15.0.0 (design CW1) this is the
-    /// <see cref="SelectedSignature"/>'s HTML; the field is kept for the editor, the Gmail import and the default button.</summary>
-    public string SignatureHtml
-    {
-        get => SelectedSignature?.Html ?? _signatureHtml;
-        set
-        {
-            // An account whose signature was cleared has no entries: the first edit (editor, Gmail import, default) creates one.
-            if (SelectedSignature == null && !string.IsNullOrWhiteSpace(value)) AddSignature();
-            if (SelectedSignature != null) SelectedSignature.Html = value ?? "";
-            else _signatureHtml = value ?? "";
-            OnPropertyChanged(nameof(SignatureHtml));
-            OnPropertyChanged(nameof(SignaturePlain));
-            OnPropertyChanged(nameof(HasSignaturePicture));
-            OnPropertyChanged(nameof(HasSignature));
-        }
-    }
+    /// <summary>Rich signature (design B6), edited in Settings → Signatures &amp; replies.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SignaturePlain), nameof(HasSignaturePicture), nameof(HasSignature))] private string _signatureHtml;
     public bool HasSignature => !string.IsNullOrWhiteSpace(SignatureHtml);
+    public ObservableCollection<EditableNamedSignature> SignatureVariants { get; } = new();
     public bool HasSignaturePicture => SignatureHtml.Contains("<img", StringComparison.OrdinalIgnoreCase);
     /// <summary>Accounts signed in with Google can copy the signature set in Gmail.</summary>
     public bool CanImportGmailSignature => Original.Kind == AccountKind.Gmail && Original.Auth == AuthMethod.OAuth2;
@@ -134,60 +86,41 @@ public partial class EditableAccount : ObservableObject
     /// <summary>Design DS1: "Download emails from the last …" (0 = everything) and whether attachments come too.</summary>
     [ObservableProperty] private int _syncDays;
     [ObservableProperty] private bool _downloadAttachments;
+    [ObservableProperty] private int _maxOutgoingMessageMb;
     public DownloadChoice[] DownloadChoices { get; }
 
-    public Account ToAccount()
+    public Account ToAccount(bool tolerateIncomplete = false)
     {
         var a = Original.Clone();
         a.DisplayName = DisplayName.Trim();
+        try { a.SenderAliases = SenderIdentities.Parse(SenderAliasesText, a.Email); }
+        catch (FormatException) when (tolerateIncomplete) { a.SenderAliases = new(); }
         a.Phone = Phone.Trim();
         a.JobTitle = JobTitle.Trim();
         a.Company = Company.Trim();
-        a.Signatures = SignaturesToSave();
-        a.DefaultSignatureId = DefaultSignatureIdToSave();
-        a.ReplyTo = ReplyTo.Trim();
-        a.AttachmentLimitMb = AttachmentLimitMb;
-        a.NormaliseSignatures();   // SignatureHtml / Signature mirror the default signature
+        a.SignatureHtml = SignatureHtml.Trim();
+        a.SignatureVariants = SignatureVariants.Where(s => !string.IsNullOrWhiteSpace(s.Name))
+            .Select(s => new NamedSignature { Name = s.Name.Trim(), Html = s.Html }).ToList();
+        // The old plain-text field mirrors the rich one, so it never brings back a signature that was cleared.
+        if (a.SignatureHtml != Original.SignatureHtml) a.Signature = MimeText.HtmlToText(a.SignatureHtml).Trim();
         a.SignatureOnNew = SignatureOnNew;
         a.SignatureOnReplies = SignatureOnReplies;
         a.Color = Color;
         a.Enabled = Enabled;
         a.SyncDays = DownloadChoice.Normalise(SyncDays);
         a.DownloadAttachments = DownloadAttachments;
+        a.MaxOutgoingMessageMb = Math.Clamp(MaxOutgoingMessageMb, 1, 100);
         return a;
     }
 
-    public bool Changed => DisplayName.Trim() != Original.DisplayName || SignaturesChanged
-                           || ReplyTo.Trim() != Original.ReplyTo || AttachmentLimitMb != Original.AttachmentLimitMb
+    public bool Changed => SenderAliasesText.Trim() != SenderIdentities.Format(Original.SenderAliases).Trim()
+                           || DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+                           || !SignatureVariants.Select(s => (s.Name.Trim(), s.Html))
+                               .SequenceEqual((Original.SignatureVariants ?? new()).Select(s => (s.Name, s.Html)))
                            || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
                            || SignatureOnNew != Original.SignatureOnNew || SignatureOnReplies != Original.SignatureOnReplies || Color != Original.Color
                            || Enabled != Original.Enabled || SyncDays != Original.SyncDays
-                           || DownloadAttachments != Original.DownloadAttachments;
-
-    private bool SignaturesChanged
-    {
-        get
-        {
-            var now = SignaturesToSave();
-            var was = Original.Signatures;
-            if (now.Count != was.Count || DefaultSignatureIdToSave() != Original.DefaultSignatureId) return true;
-            for (var i = 0; i < now.Count; i++)
-                if (now[i].Id != was[i].Id || now[i].Name != was[i].Name || now[i].Html != was[i].Html) return true;
-            return false;
-        }
-    }
-}
-
-/// <summary>One signature of an account in Settings (design CW1, D3).</summary>
-public partial class EditableSignature : ObservableObject
-{
-    public string Id { get; }
-    [ObservableProperty] private string _name;
-    [ObservableProperty] private string _html;
-    [ObservableProperty] private bool _isDefault;
-    /// <summary>The chip that is open in the editor (set by the account).</summary>
-    [ObservableProperty] private bool _isSelectedSignature;
-    public EditableSignature(string id, string name, string html, bool isDefault) { Id = id; _name = name; _html = html; _isDefault = isDefault; }
+                           || DownloadAttachments != Original.DownloadAttachments || MaxOutgoingMessageMb != Original.MaxOutgoingMessageMb;
 }
 
 public partial class EditableTag : ObservableObject
@@ -203,11 +136,20 @@ public partial class EditableQuickReply : ObservableObject
 
 public partial class EditableTemplate : ObservableObject
 {
+    [ObservableProperty] private string _category = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _name = "";
+    [ObservableProperty] private string _subject = "";
     [ObservableProperty] private string _body = "";
     /// <summary>Collapsed card (design CL1); a new template starts open.</summary>
     [ObservableProperty] private bool _isExpanded;
     public string Title => string.IsNullOrWhiteSpace(Name) ? "New template" : Name.Trim();
+}
+
+public partial class EditableNamedSignature : ObservableObject
+{
+    [ObservableProperty] private string _name = "New signature";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Preview))] private string _html = "";
+    public string Preview => string.IsNullOrWhiteSpace(Html) ? "No content yet" : MimeText.HtmlToText(Html).Trim();
 }
 
 public sealed record Choice<T>(T Value, string Label);
@@ -225,11 +167,23 @@ public partial class EditableToolbarButton : ObservableObject
     [ObservableProperty] private bool _visible;
 }
 
-/// <summary>One button of the compose window's formatting toolbar (design CW1, B15).</summary>
-public partial class EditableComposeButton : ObservableObject
+/// <summary>An item in the re-orderable Compose → More menu.</summary>
+public sealed class EditableComposeMenuItem
 {
     public string Id { get; init; } = "";
-    public string Name => ComposeSettings.NameOf(Id);
+    public string Name => Appearance.ComposeMoreNames.TryGetValue(Id, out var name) ? name : Id;
+    public string UpLabel => "Move " + Name + " up";
+    public string DownLabel => "Move " + Name + " down";
+}
+
+/// <summary>One main compose-toolbar control; Attach and More always remain available.</summary>
+public partial class EditableComposeToolbarButton : ObservableObject
+{
+    public string Id { get; init; } = "";
+    private ComposeToolbarDefinition? Definition => ComposeToolbarCatalog.Definitions.FirstOrDefault(item => item.Id == Id);
+    public string Name => Definition?.Name ?? Id;
+    public bool CanHide => Definition?.Required != true;
+    public string Note => CanHide ? "" : "Always shown";
     public string ShowLabel => "Show " + Name;
     public string UpLabel => "Move " + Name + " up";
     public string DownLabel => "Move " + Name + " down";
@@ -459,13 +413,10 @@ public partial class SettingsViewModel : ObservableObject
         ("Keep running in the notification area", "General", "Tray icon when the window is closed", "tray close minimise background notification area", "RowTray"),
         ("Start with Windows", "General", "Starts quietly when you sign in", "startup boot login start windows", "RowStartup"),
         ("Start-up screen", "General", "The card you see while Magpie opens: every time, only after an update, or never", "splash start-up startup screen logo loading launch opening steps accounts", "RowSplash"),
-        ("Writing emails", "General", "Spelling, folded quoted text, the forgot-attachment check, read receipts, pasted pictures", "compose write spelling spell check quote fold attachment forgot receipt paste picture new message", "RowCompose"),
-        ("Compose toolbar", "Toolbar", "Which formatting buttons a new message shows, and in what order", "compose toolbar formatting bold font colour table emoji buttons order new message", "RowComposeToolbar"),
-        ("Signatures", "Signatures", "Several signatures per account; the default goes into new messages", "signature signatures default rename new account", "RowSignatures"),
-        ("Replies go to · attachment limit", "Accounts", "Reply-To address and the attachment limit shown in a new message", "reply-to replies go to attachment limit size mb account", "RowAccounts"),
         ("Tags", "General", "Your tags and their colours", "tags labels colour color", "RowTags"),
         ("Gatekeeper", "General", "New senders wait at the door until you Allow or Block them", "gatekeeper new senders unknown block allow screen spam door blocked unblock", "RowGatekeeper"),
         ("Toolbar buttons", "Toolbar", "Which buttons sit above a conversation, and their order", "buttons toolbar order archive delete snooze show hide", "RowToolbar"),
+        ("Compose toolbar", "Toolbar", "Show, hide and reorder formatting buttons; narrow windows move groups into More tools", "compose toolbar formatting writing editor show hide order reorder overflow more tools", "RowComposeToolbar"),
         ("Button style", "Toolbar", "Icon + name · Icon only · Name only", "buttons style icon name text", "RowButtonStyle"),
         ("Colourful icons", "Toolbar", "Coloured icons everywhere, or plain grey", "colour color icons colourful grey look", "RowLook"),
         ("Show the status bar", "Toolbar", "One row at the bottom of the window", "status bar bottom activity", "RowLook"),
@@ -477,7 +428,10 @@ public partial class SettingsViewModel : ObservableObject
         ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
         ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Sender aliases", "Accounts", "Send as an address already authorized by your mail provider", "alias aliases identity identities from sender send as", "RowAccounts"),
+        ("Message security keys", "Accounts", "Import and manage signing identities and recipient public keys", "security smime s/mime pgp openpgp encrypt encryption certificate fingerprint private public key", "RowAccounts"),
         ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
+        ("Send size limit", "Accounts", "Estimated outgoing attachment limit for custom IMAP/SMTP accounts", "send message size megabytes MB limit upload SMTP IMAP attachment", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
         ("Bring my accounts to other PCs", "Accounts", "Sign in once on another PC and every account comes along", "sync other pcs computer new pc spark copy sign in once home account sync password", "RowAccountsCopy"),
         ("AI quick setup", "AI", "Off · A · B · C · Custom", "ai presets quick setup off custom", "RowAiPresets"),
@@ -489,7 +443,7 @@ public partial class SettingsViewModel : ObservableObject
         ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
         ("Only for mail from people", "Notifications", "Stay quiet for newsletters and automatic mail", "notifications people only newsletters quiet", "RowNotifyPeople"),
         ("Notification sound", "Notifications", "Play a sound for new mail", "sound notifications alert new mail", "RowNotifySound"),
-        ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
+        ("Templates", "Templates", "Text you insert often in a new message", "templates categories category groups canned quick text snippets", "RowTemplates"),
         ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
         ("Choose a version or restore a backup", "Updates", "Stable and beta versions, rollback, history and paired data recovery", "update check download restart version github stable beta rollback restore history backup", "RowUpdateCard"),
         ("Check automatically", "Updates", "Pause or resume checks; choose and confirm every version change", "auto update automatic check pause resume daily version pin", "RowUpdateSwitches"),
@@ -659,64 +613,8 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Toolbar & buttons (design C3) ──
     public ObservableCollection<EditableToolbarButton> ToolbarRows { get; } = new();
-    /// <summary>Design CW1 (B15): the compose window's formatting buttons, in order.</summary>
-    public ObservableCollection<EditableComposeButton> ComposeToolbarRows { get; } = new();
-    // Design CW1: the "Writing emails" switches (General)
-    [ObservableProperty] private bool _checkSpelling;
-    [ObservableProperty] private bool _foldQuote;
-    [ObservableProperty] private bool _attachmentCheck;
-    [ObservableProperty] private bool _alwaysReadReceipt;
-    [ObservableProperty] private PastePictureChoice _pastePicture;
-
-    private void LoadComposeToolbar(ComposeSettings c)
-    {
-        ComposeToolbarRows.Clear();
-        foreach (var b in c.Toolbar) ComposeToolbarRows.Add(new EditableComposeButton { Id = b.Id, Visible = b.Visible });
-    }
-
-    [RelayCommand]
-    private void MoveComposeUp(EditableComposeButton? row)
-    {
-        if (row == null) return;
-        var i = ComposeToolbarRows.IndexOf(row);
-        if (i > 0) ComposeToolbarRows.Move(i, i - 1);
-    }
-
-    [RelayCommand]
-    private void MoveComposeDown(EditableComposeButton? row)
-    {
-        if (row == null) return;
-        var i = ComposeToolbarRows.IndexOf(row);
-        if (i >= 0 && i < ComposeToolbarRows.Count - 1) ComposeToolbarRows.Move(i, i + 1);
-    }
-
-    [RelayCommand] private void ResetComposeToolbar() => LoadComposeToolbar(new ComposeSettings());
-
-    private ComposeSettings ComposeToSave(ComposeSettings current)
-    {
-        var c = current.Clone();
-        c.Toolbar = ComposeToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList();
-        c.CheckSpelling = CheckSpelling;
-        c.FoldQuote = FoldQuote;
-        c.AttachmentCheck = AttachmentCheck;
-        c.AlwaysReadReceipt = AlwaysReadReceipt;
-        c.PastePicture = PastePicture;
-        c.Normalise();
-        return c;
-    }
-
-    // ── design CW1 (D3): several signatures per account ──
-    [RelayCommand] private void AddSignature() { SignatureAccount?.AddSignature(); SignatureStatus = "New signature — write it with Edit signature…"; }
-    [RelayCommand] private void RemoveSignature() { SignatureAccount?.RemoveSelectedSignature(); SignatureStatus = ""; }
-    [RelayCommand] private void MakeDefaultSignature() { SignatureAccount?.MakeSelectedDefault(); SignatureStatus = "This one goes into new messages and replies."; }
-    [RelayCommand] private void PickSignature(EditableSignature? s) { if (s != null && SignatureAccount != null) SignatureAccount.SelectedSignature = s; }
-    [RelayCommand]
-    private void RenameSignature()
-    {
-        if (SignatureAccount?.SelectedSignature is not { } s) return;
-        var name = Views.TextPromptDialog.Ask(Ui.ActiveWindow!, "Rename signature", "Name", s.Name);
-        if (!string.IsNullOrWhiteSpace(name)) s.Name = name.Trim();
-    }
+    public ObservableCollection<EditableComposeToolbarButton> ComposeToolbarRows { get; } = new();
+    public ObservableCollection<EditableComposeMenuItem> ComposeMoreRows { get; } = new();
     public ObservableCollection<ToolbarButtonVm> ToolbarPreview { get; } = new();
     [ObservableProperty] private ButtonStyle _buttonStyle;
     [ObservableProperty] private bool _colourful;
@@ -750,6 +648,51 @@ public partial class SettingsViewModel : ObservableObject
             ToolbarRows.Add(row);
         }
         RefreshPreview();
+        LoadComposeToolbar(a.ComposeToolbar);
+        ComposeMoreRows.Clear();
+        foreach (var id in a.ComposeMoreOrder) ComposeMoreRows.Add(new EditableComposeMenuItem { Id = id });
+    }
+
+    private void LoadComposeToolbar(IEnumerable<ToolbarButton>? buttons)
+    {
+        ComposeToolbarRows.Clear();
+        foreach (var button in ComposeToolbarCatalog.Normalise(buttons))
+            ComposeToolbarRows.Add(new EditableComposeToolbarButton { Id = button.Id, Visible = button.Visible });
+    }
+
+    [RelayCommand]
+    private void MoveComposeToolbarUp(EditableComposeToolbarButton? row)
+    {
+        if (row == null) return;
+        var index = ComposeToolbarRows.IndexOf(row);
+        if (index > 0) ComposeToolbarRows.Move(index, index - 1);
+    }
+
+    [RelayCommand]
+    private void MoveComposeToolbarDown(EditableComposeToolbarButton? row)
+    {
+        if (row == null) return;
+        var index = ComposeToolbarRows.IndexOf(row);
+        if (index >= 0 && index < ComposeToolbarRows.Count - 1) ComposeToolbarRows.Move(index, index + 1);
+    }
+
+    [RelayCommand]
+    private void ResetComposeToolbar() => LoadComposeToolbar(ComposeToolbarCatalog.DefaultButtons());
+
+    [RelayCommand]
+    private void MoveComposeMoreUp(EditableComposeMenuItem? row)
+    {
+        if (row == null) return;
+        var index = ComposeMoreRows.IndexOf(row);
+        if (index > 0) ComposeMoreRows.Move(index, index - 1);
+    }
+
+    [RelayCommand]
+    private void MoveComposeMoreDown(EditableComposeMenuItem? row)
+    {
+        if (row == null) return;
+        var index = ComposeMoreRows.IndexOf(row);
+        if (index >= 0 && index < ComposeMoreRows.Count - 1) ComposeMoreRows.Move(index, index + 1);
     }
 
     private void OnToolbarRowChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => RefreshPreview();
@@ -864,14 +807,8 @@ public partial class SettingsViewModel : ObservableObject
         _googleClientSecret = c.GoogleClientSecret;
         _microsoftClientId = c.MicrosoftClientId;
         foreach (var t in c.Tags) Tags.Add(new EditableTag { Name = t.Name, Color = t.Color });
-        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Body = t.Body });
+        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Category = t.Category, Subject = t.Subject, Body = t.Body });
         foreach (var a in c.Accounts) Accounts.Add(new EditableAccount(a));
-        _checkSpelling = c.Compose.CheckSpelling;
-        _foldQuote = c.Compose.FoldQuote;
-        _attachmentCheck = c.Compose.AttachmentCheck;
-        _alwaysReadReceipt = c.Compose.AlwaysReadReceipt;
-        _pastePicture = c.Compose.PastePicture;
-        LoadComposeToolbar(c.Compose);
 
         var ai = c.Ai;
         _aiEnabled = ai.Enabled;
@@ -1111,6 +1048,22 @@ public partial class SettingsViewModel : ObservableObject
     private bool SaveCore()
     {
         if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return false;
+        foreach (var account in Accounts)
+        {
+            if (account.SenderAliasesError.Length > 0)
+            {
+                Page = "Accounts";
+                Ui.Error("Sender aliases", account.Email + ": " + account.SenderAliasesError);
+                return false;
+            }
+            if (account.SignatureVariants.Any(s => s.Name.Trim().Length is 0 or > 100)
+                || account.SignatureVariants.GroupBy(s => s.Name.Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+            {
+                Page = "Signatures";
+                Ui.Error("Named signatures", $"Give each signature in {account.Email} a unique name of 1–100 characters.");
+                return false;
+            }
+        }
         if (HasTypographyErrors)
         {
             Page = "Fonts";
@@ -1137,7 +1090,7 @@ public partial class SettingsViewModel : ObservableObject
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Category = ComposeTemplates.CategoryName(t.Category), Subject = t.Subject, Body = t.Body }).ToList();
 
         var ai = c.Ai;
         ai.Enabled = AiEnabled;
@@ -1152,6 +1105,8 @@ public partial class SettingsViewModel : ObservableObject
         {
             Theme = Theme, ButtonStyle = ButtonStyle, Colourful = Colourful, Counts = Counts, ShowStatusBar = ShowStatusBar, MenuFollowsToolbar = MenuFollowsToolbar,
             Toolbar = ToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeToolbar = ComposeToolbarRows.Select(r => new ToolbarButton { Id = r.Id, Visible = r.Visible }).ToList(),
+            ComposeMoreOrder = ComposeMoreRows.Select(r => r.Id).ToList(),
             FolderHover = new FolderHoverSettings { Enabled = HoverEnabled, DelayMs = HoverDelay, Lines = HoverLines.Where(l => l.On).Select(l => l.Id).ToList() },
             RowActions = new RowActionsSettings { Mode = RowMode, ConfirmDeleteOver = ConfirmDeleteOver, Ids = RowActions.Where(a => a.On).Select(a => a.Id).ToList(),
                 BulkUndoSeconds = c.Appearance.RowActions.BulkUndoSeconds },
@@ -1159,7 +1114,6 @@ public partial class SettingsViewModel : ObservableObject
             Splash = Splash, SplashAccounts = SplashAccounts,
         };
         c.Appearance.Normalise();
-        c.Compose = ComposeToSave(c.Compose);
         c.Updates.AutoUpdate = AutoUpdate;
         c.Updates.AutoCheck = c.Updates.AutoDownload = AutoUpdate;
         c.Updates.IncludePrerelease = IncludePrerelease;

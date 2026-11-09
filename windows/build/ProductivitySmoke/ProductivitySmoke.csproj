@@ -11,6 +11,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Magpie.App/Magpie.App.csproj" />
+    <EmbeddedResource Include="Fixtures/editor-find-unicode.js" />
+    <EmbeddedResource Include="Fixtures/editor-find-inline.js" />
   </ItemGroup>
   <ItemGroup>
     <!-- Application-relative pack URIs use the host assembly. Mirror Magpie's assets in this test host. -->

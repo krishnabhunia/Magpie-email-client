@@ -70,8 +70,6 @@ public class Release220Tests
         var a = s.Accounts[0];
         Assert.Contains("Thanks and Regards", a.SignatureHtml);
         Assert.True(a.SignatureDefaultApplied);
-        // 15.0.0 (design CW1): the signature lives in the account's signature list; clearing it there clears the mirror too.
-        a.Signatures[0].Html = "";
         a.SignatureHtml = "";
         SettingsStore.Normalise(s);
         Assert.Equal("", a.SignatureHtml);   // cleared on purpose: not put back

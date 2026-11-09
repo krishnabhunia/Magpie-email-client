@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Magpie.Mac.ViewModels"
         xmlns:models="using:Magpie.Core.Models"
+        xmlns:mail="using:Magpie.Core.Mail"
         x:Class="Magpie.Mac.Views.ComposeWindow"
         x:DataType="vm:ComposeViewModel"
         Title="{Binding WindowTitle}"
@@ -10,9 +11,9 @@
         Icon="avares://Magpie/Assets/magpie.png"
         Background="{DynamicResource Magpie.Pane}">
   <Grid RowDefinitions="Auto,Auto,*,Auto">
-    <Grid Grid.Row="0" ColumnDefinitions="70,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="16,12,16,6">
+    <Grid Grid.Row="0" ColumnDefinitions="70,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="16,12,16,6">
       <TextBlock Grid.Row="0" Text="From" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowFrom}" />
-      <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From}" HorizontalAlignment="Stretch"
+      <ComboBox Grid.Row="0" Grid.Column="1" Name="FromAccountPicker" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From}" HorizontalAlignment="Stretch"
                 Margin="0,0,0,6" IsVisible="{Binding ShowFrom}">
         <ComboBox.ItemTemplate>
           <DataTemplate x:DataType="models:Account">
@@ -21,21 +22,31 @@
         </ComboBox.ItemTemplate>
       </ComboBox>
 
-      <TextBlock Grid.Row="1" Text="To" Classes="muted" VerticalAlignment="Center" />
-      <AutoCompleteBox Grid.Row="1" Grid.Column="1" Name="ToBox" Text="{Binding To}" FilterMode="None" MinimumPrefixLength="1"
+      <TextBlock Grid.Row="1" Text="Send as" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowSender}" />
+      <ComboBox Grid.Row="1" Grid.Column="1" Name="SenderIdentityPicker" ItemsSource="{Binding SenderChoices}" SelectedItem="{Binding SelectedSender}"
+                HorizontalAlignment="Stretch" Margin="0,0,0,6" IsVisible="{Binding ShowSender}"
+                AutomationProperties.Name="Send as"
+                ToolTip.Tip="The From address sent to recipients. This uses the selected account's connection and must be allowed by your mail provider.">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="mail:SenderIdentity"><TextBlock Text="{Binding Label}" /></DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+
+      <TextBlock Grid.Row="2" Text="To" Classes="muted" VerticalAlignment="Center" />
+      <AutoCompleteBox Grid.Row="2" Grid.Column="1" Name="ToBox" Text="{Binding To}" FilterMode="None" MinimumPrefixLength="1"
                        Margin="0,0,0,6" PlaceholderText="Names or addresses, separated by commas" />
-      <Button Grid.Row="1" Grid.Column="2" Classes="link" Content="Cc / Bcc" Command="{Binding ShowCcCommand}" Margin="6,0,0,6"
+      <Button Grid.Row="2" Grid.Column="2" Classes="link" Content="Cc / Bcc" Command="{Binding ShowCcCommand}" Margin="6,0,0,6"
               IsVisible="{Binding !ShowCcBcc}" />
 
-      <TextBlock Grid.Row="2" Text="Cc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
-      <AutoCompleteBox Grid.Row="2" Grid.Column="1" Name="CcBox" Text="{Binding Cc}" FilterMode="None" MinimumPrefixLength="1"
+      <TextBlock Grid.Row="3" Text="Cc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
+      <AutoCompleteBox Grid.Row="3" Grid.Column="1" Name="CcBox" Text="{Binding Cc}" FilterMode="None" MinimumPrefixLength="1"
                        Margin="0,0,0,6" IsVisible="{Binding ShowCcBcc}" />
-      <TextBlock Grid.Row="3" Text="Bcc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
-      <AutoCompleteBox Grid.Row="3" Grid.Column="1" Name="BccBox" Text="{Binding Bcc}" FilterMode="None" MinimumPrefixLength="1"
+      <TextBlock Grid.Row="4" Text="Bcc" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding ShowCcBcc}" />
+      <AutoCompleteBox Grid.Row="4" Grid.Column="1" Name="BccBox" Text="{Binding Bcc}" FilterMode="None" MinimumPrefixLength="1"
                        Margin="0,0,0,6" IsVisible="{Binding ShowCcBcc}" />
 
-      <TextBlock Grid.Row="4" Text="Subject" Classes="muted" VerticalAlignment="Center" />
-      <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subject}" />
+      <TextBlock Grid.Row="5" Text="Subject" Classes="muted" VerticalAlignment="Center" />
+      <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subject}" />
     </Grid>
 
     <ItemsControl Grid.Row="1" ItemsSource="{Binding Attachments}" Margin="86,0,16,6" IsVisible="{Binding HasAttachments}">

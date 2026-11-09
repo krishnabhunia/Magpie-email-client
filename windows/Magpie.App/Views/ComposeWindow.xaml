@@ -7,12 +7,11 @@
         xmlns:views="clr-namespace:Magpie.App.Views"
         xmlns:svc="clr-namespace:Magpie.App.Services"
         xmlns:models="clr-namespace:Magpie.Core.Models;assembly=Magpie.Core"
-        xmlns:controls="clr-namespace:Magpie.App.Controls"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:ComposeViewModel}"
         Title="{Binding WindowTitle}"
-        Width="980" Height="720" MinWidth="640" MinHeight="460" SizeChanged="OnWindowSizeChanged" LocationChanged="OnWindowMoved"
+        Width="980" Height="720" MinWidth="640" MinHeight="460"
         Style="{StaticResource Window.Magpie}"
         Background="{DynamicResource Brush.Card.Background}"
         Icon="pack://application:,,,/Assets/app.ico"
@@ -21,6 +20,40 @@
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="38" ResizeBorderThickness="6" GlassFrameThickness="0,0,0,1" CornerRadius="0" UseAeroCaptionButtons="False" NonClientFrameEdges="None" />
     </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <!-- Keep native ToolBar overflow/keyboard behaviour, with an explicit themed More affordance. -->
+        <Style x:Key="Compose.Toolbar" TargetType="ToolBar">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolBar">
+                        <Grid Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <ToolBarPanel x:Name="PART_ToolBarPanel" IsItemsHost="True" Margin="0" KeyboardNavigation.TabNavigation="Continue" />
+                            <ToggleButton x:Name="OverflowButton" Grid.Column="1" Content="More tools ▾" Style="{StaticResource Button.Secondary}"
+                                          Margin="4,0,0,0" Padding="9,5" VerticalAlignment="Center" ToolTip="Formatting tools that do not fit in this window"
+                                          AutomationProperties.Name="More formatting tools" AutomationProperties.HelpText="Opens the toolbar groups hidden by the current window width"
+                                          IsChecked="{Binding IsOverflowOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Visibility="{Binding HasOverflowItems, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BoolToVis}}" />
+                            <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=OverflowButton}" StaysOpen="False" AllowsTransparency="True"
+                                   IsOpen="{Binding IsOverflowOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}"
+                                        BorderThickness="1" CornerRadius="6" Padding="6" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.DirectionalNavigation="Cycle">
+                                    <ScrollViewer MaxHeight="360" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <ToolBarOverflowPanel x:Name="PART_ToolBarOverflowPanel" WrapWidth="420" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
 
     <Grid Margin="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource MaxMargin}}">
         <Grid.RowDefinitions>
@@ -39,13 +72,16 @@
                 <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="Magpie" svc:Typography.Role="appTitle" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource Brush.TitleBar.Text}" />
                     <TextBlock Text="{Binding WindowTitle}" FontSize="11.5" Foreground="{DynamicResource Brush.TitleBar.Muted}" Margin="12,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="600" />
+                    <Button x:Name="FocusModeButton" Style="{StaticResource Button.Ghost}" Content="Focus" Margin="16,0,0,0" Padding="9,3" ToolTip="Hide extra controls while writing" Click="OnToggleFocus" WindowChrome.IsHitTestVisibleInChrome="True" />
+                    <Button x:Name="StudioModeButton" Style="{StaticResource Button.Ghost}" Content="Studio" Margin="4,0,0,0" Padding="9,3" ToolTip="Open attachments, review and delivery options" Click="OnToggleStudio" WindowChrome.IsHitTestVisibleInChrome="True" />
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -60,7 +96,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Header fields (design CW1 screen 2: chips, separate Cc · Bcc · Reply-To links, address book) -->
+                <!-- Header fields -->
                 <Grid Grid.Row="0" Margin="18,12,18,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="62" />
@@ -72,57 +108,64 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="From" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                    <ComboBox Grid.Row="0" Grid.Column="1" svc:Typography.Role="composeAddress" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" Margin="0,0,0,6" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,6">
+                        <ComboBox svc:Typography.Role="composeAddress" ItemsSource="{Binding Accounts}" SelectedItem="{Binding From, Mode=TwoWay}" DisplayMemberPath="Label" AutomationProperties.Name="Sender account" />
+                        <DockPanel Margin="0,5,0,0" Visibility="{Binding HasSenderAliases, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Send as" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="SenderIdentityPicker" ItemsSource="{Binding SenderChoices}" SelectedItem="{Binding SelectedSender, Mode=TwoWay}" DisplayMemberPath="Label"
+                                      AutomationProperties.Name="Send as identity" ToolTip="Use an alias already authorized by your provider. The account above still signs in and sends the message." />
+                        </DockPanel>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="1" Text="To" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
-                            <Button Style="{StaticResource Button.Link}" Content="Cc" FontSize="12" Margin="4,0" Command="{Binding OpenCcCommand}" Visibility="{Binding ShowCc, Converter={StaticResource InvBoolToVis}}" ToolTip="Add a Cc row (Ctrl+Shift+C)" />
-                            <Button Style="{StaticResource Button.Link}" Content="Bcc" FontSize="12" Margin="4,0" Command="{Binding OpenBccCommand}" Visibility="{Binding ShowBcc, Converter={StaticResource InvBoolToVis}}" ToolTip="Add a Bcc row (Ctrl+Shift+B)" />
-                            <Button Style="{StaticResource Button.Link}" Content="Reply-To" FontSize="12" Margin="4,0" Command="{Binding OpenReplyToCommand}" Visibility="{Binding ShowReplyTo, Converter={StaticResource InvBoolToVis}}" ToolTip="Replies go to a different address" />
-                            <Button Style="{StaticResource Button.Icon}" Content="&#xE779;" Width="28" Height="28" MinHeight="28" FontSize="13" Margin="2,0,0,0" Click="OnAddressBook" ToolTip="Address book" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                            <Button x:Name="ShowCcLink" Style="{StaticResource Button.Link}" Content="Cc" Tag="cc" FontSize="12" Margin="10,0,0,0" Click="OnShowRecipientRow"
+                                    AutomationProperties.Name="Show Cc recipients" Visibility="{Binding ShowCcRow, Converter={StaticResource InvBoolToVis}}" />
+                            <Button x:Name="ShowBccLink" Style="{StaticResource Button.Link}" Content="Bcc" Tag="bcc" FontSize="12" Margin="10,0,0,0" Click="OnShowRecipientRow"
+                                    AutomationProperties.Name="Show Bcc recipients" Visibility="{Binding ShowBccRow, Converter={StaticResource InvBoolToVis}}" />
                         </StackPanel>
-                        <controls:RecipientBox x:Name="ToBox" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Placeholder="Name or address" />
+                        <StackPanel>
+                            <WrapPanel x:Name="ToChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button x:Name="ToEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit recipients" Visibility="Collapsed" Click="OnEditRecipients" />
+                                <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="to" Click="OnPickContacts" Margin="8,0,0,0" ToolTip="Select one or more people or a saved contact group" />
+                            </StackPanel>
+                        <TextBox x:Name="ToBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" Tag="Name or address, separated by commas" AutomationProperties.Name="To recipients" AutomationProperties.HelpText="Type recipient addresses separated by commas" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
+                                     TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                        </StackPanel>
                     </DockPanel>
 
-                    <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCc, Converter={StaticResource BoolToVis}}" />
-                    <controls:RecipientBox Grid.Row="2" Grid.Column="1" x:Name="CcBox" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" Placeholder="Name or address" Margin="0,0,0,6"
-                                           Visibility="{Binding ShowCc, Converter={StaticResource BoolToVis}}" />
-                    <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowBcc, Converter={StaticResource BoolToVis}}" />
-                    <controls:RecipientBox Grid.Row="3" Grid.Column="1" x:Name="BccBox" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" Placeholder="Name or address" Margin="0,0,0,6"
-                                           Visibility="{Binding ShowBcc, Converter={StaticResource BoolToVis}}" />
-                    <TextBlock Grid.Row="4" Text="Reply-To" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowReplyTo, Converter={StaticResource BoolToVis}}" />
-                    <controls:RecipientBox Grid.Row="4" Grid.Column="1" x:Name="ReplyToBox" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Placeholder="Replies go to this address" Single="True" Margin="0,0,0,6"
-                                           Visibility="{Binding ShowReplyTo, Converter={StaticResource BoolToVis}}" />
-
-                    <TextBlock Grid.Row="5" Text="Subject" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
-                    <DockPanel Grid.Row="5" Grid.Column="1">
-                        <!-- Design CW1 (D1): the priority mark, next to the subject -->
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Margin="8,0,0,0" Click="OnOptionsMenu" ToolTip="Priority (Options ▾)"
-                                Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="! High" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" />
-                        </Button>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Margin="8,0,0,0" Click="OnOptionsMenu" ToolTip="Priority (Options ▾)"
-                                Visibility="{Binding IsLowPriority, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="↓ Low" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                        </Button>
-                        <TextBox svc:Typography.Role="composeSubject" Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" Tag="Subject" />
-                    </DockPanel>
-
-                    <!-- Design CW1 (A6): more than 20 visible recipients -->
-                    <Border Grid.Row="6" Grid.Column="1" Margin="0,6,0,0" Padding="10,5" CornerRadius="0,6,6,0" BorderThickness="3,0,0,0"
-                            BorderBrush="{DynamicResource Brush.Warning}" Background="{DynamicResource Brush.Warning.Subtle}"
-                            Visibility="{Binding ManyRecipientsText, Converter={StaticResource BoolToVis}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding ManyRecipientsText}" FontSize="12" VerticalAlignment="Center" />
-                            <Button Style="{StaticResource Button.Link}" Content="Move them to Bcc" FontSize="12" Margin="8,0,0,0" Command="{Binding MoveAllToBccCommand}" />
+                    <TextBlock Grid.Row="2" Text="Cc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowCcRow, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel x:Name="CcRow" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowCcRow, Converter={StaticResource BoolToVis}}">
+                        <WrapPanel x:Name="CcChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button x:Name="CcEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Cc" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="cc" Click="OnPickContacts" Margin="8,0,0,0" />
+                            <Button x:Name="HideCcLink" Style="{StaticResource Button.Link}" Content="Hide Cc" Tag="cc" Click="OnHideRecipientRow" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanHideCcRow}" AutomationProperties.Name="Hide empty Cc row" ToolTip="Only an empty recipient row can be hidden; addresses are never cleared" />
                         </StackPanel>
-                    </Border>
+                        <TextBox x:Name="CcBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Cc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
+                                 TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="3" Text="Bcc" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Visibility="{Binding ShowBccRow, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel x:Name="BccRow" Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Visibility="{Binding ShowBccRow, Converter={StaticResource BoolToVis}}">
+                        <WrapPanel x:Name="BccChipPanel" Visibility="Collapsed" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button x:Name="BccEditButton" Style="{StaticResource Button.Link}" Content="+ Add or edit Bcc" Visibility="Collapsed" Click="OnEditRecipients" />
+                            <Button Style="{StaticResource Button.Link}" Content="Contacts…" Tag="bcc" Click="OnPickContacts" Margin="8,0,0,0" />
+                            <Button x:Name="HideBccLink" Style="{StaticResource Button.Link}" Content="Hide Bcc" Tag="bcc" Click="OnHideRecipientRow" Margin="8,0,0,0"
+                                    IsEnabled="{Binding CanHideBccRow}" AutomationProperties.Name="Hide empty Bcc row" ToolTip="Only an empty recipient row can be hidden; addresses are never cleared" />
+                        </StackPanel>
+                        <TextBox x:Name="BccBox" svc:Typography.Role="composeAddress" Style="{StaticResource TextBox.Field}" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Bcc recipients" AllowDrop="True" PreviewDragOver="OnRecipientDragOver" PreviewDrop="OnRecipientDrop"
+                                 TextChanged="OnAddressChanged" PreviewKeyDown="OnAddressKey" LostKeyboardFocus="OnAddressLostFocus" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="4" Text="Subject" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="4" Grid.Column="1" svc:Typography.Role="composeSubject" Style="{StaticResource TextBox.Field}" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="Medium" AutomationProperties.Name="Email subject" />
 
                     <!-- Contact suggestions -->
                     <Popup x:Name="SuggestPopup" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
@@ -148,165 +191,135 @@
                     </Popup>
                 </Grid>
 
-                <!-- Formatting toolbar (design CW1 screen 3): buttons are built in code from Settings → Appearance → Compose toolbar;
-                     the right-most groups fold into More ▾ when the window is narrow -->
-                <Border Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="10,3" IsEnabled="{Binding IsRichText}">
-                    <DockPanel svc:Typography.Role="editorToolbar" SizeChanged="OnToolbarSizeChanged">
-                        <Button DockPanel.Dock="Right" x:Name="MoreButton" Style="{StaticResource Button.Icon}" Content="&#xE712;" Width="30" Height="30" MinHeight="30" Click="OnMoreMenu" ToolTip="More" />
-                        <StackPanel x:Name="ToolbarPanel" Orientation="Horizontal" ClipToBounds="True" />
-                    </DockPanel>
+                <!-- Formatting -->
+                <Border x:Name="FormattingToolbar" Grid.Row="1" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,1" Padding="14,3">
+                    <ToolBar x:Name="FormattingItems" Style="{StaticResource Compose.Toolbar}" svc:Typography.Role="editorToolbar" AutomationProperties.Name="Compose formatting toolbar">
+                        <Button svc:ComposeToolbarHost.Id="attach" Style="{StaticResource Button.Primary}" Content="Attach files…" Tag="plainAllowed" Click="OnAttach" Margin="0,0,4,0" ToolTip="Attach one or more files (also available below Send)" />
+                        <Button svc:ComposeToolbarHost.Id="recentFiles" Style="{StaticResource Button.Secondary}" Content="Recent ▾" Tag="plainAllowed" Click="OnAttachRecent" ToolTip="Choose from files recently attached on this computer" />
+                        <ComboBox x:Name="FontFamilyChoice" svc:ComposeToolbarHost.Id="fontFamily" Width="118" Margin="0,0,5,0" SelectionChanged="OnFontChoice" ToolTip="Font family">
+                            <ComboBoxItem Content="Arial" IsSelected="True" /><ComboBoxItem Content="Calibri" /><ComboBoxItem Content="Georgia" /><ComboBoxItem Content="Verdana" />
+                        </ComboBox>
+                        <ComboBox x:Name="FontSizeChoice" svc:ComposeToolbarHost.Id="fontSize" Width="60" SelectionChanged="OnFontSizeChoice" ToolTip="Font size">
+                            <ComboBoxItem Content="12" /><ComboBoxItem Content="14" /><ComboBoxItem Content="16" /><ComboBoxItem Content="18" IsSelected="True" /><ComboBoxItem Content="20" /><ComboBoxItem Content="24" /><ComboBoxItem Content="32" />
+                        </ComboBox>
+                        <Button svc:ComposeToolbarHost.Id="bold" Style="{StaticResource Button.Icon}" Content="&#xE8DD;" Tag="bold" Click="OnFormat" ToolTip="Bold (Ctrl+B)" />
+                        <Button svc:ComposeToolbarHost.Id="italic" Style="{StaticResource Button.Icon}" Content="&#xE8DB;" Tag="italic" Click="OnFormat" ToolTip="Italic (Ctrl+I)" />
+                        <Button svc:ComposeToolbarHost.Id="underline" Style="{StaticResource Button.Icon}" Content="&#xE8DC;" Tag="underline" Click="OnFormat" ToolTip="Underline (Ctrl+U)" />
+                        <Button svc:ComposeToolbarHost.Id="strikeThrough" Style="{StaticResource Button.Icon}" Content="S̶" Tag="strikeThrough" Click="OnFormat" ToolTip="Strikethrough" />
+                        <Button svc:ComposeToolbarHost.Id="foreColor" Style="{StaticResource Button.Icon}" Content="A" Tag="foreColor" Click="OnFormat" ToolTip="Text colour" />
+                        <Button svc:ComposeToolbarHost.Id="hiliteColor" Style="{StaticResource Button.Icon}" Content="▣" Tag="hiliteColor" Click="OnFormat" ToolTip="Highlight selection" />
+                        <Button svc:ComposeToolbarHost.Id="insertUnorderedList" Style="{StaticResource Button.Icon}" Content="&#xE8FD;" Tag="insertUnorderedList" Click="OnFormat" ToolTip="Bulleted list" />
+                        <Button svc:ComposeToolbarHost.Id="insertOrderedList" Style="{StaticResource Button.Icon}" Content="&#xE9D5;" Tag="insertOrderedList" Click="OnFormat" ToolTip="Numbered list" />
+                        <Button svc:ComposeToolbarHost.Id="justifyLeft" Style="{StaticResource Button.Icon}" Content="≡" Tag="justifyLeft" Click="OnFormat" ToolTip="Align left" />
+                        <Button svc:ComposeToolbarHost.Id="justifyCenter" Style="{StaticResource Button.Icon}" Content="☷" Tag="justifyCenter" Click="OnFormat" ToolTip="Align centre" />
+                        <Button svc:ComposeToolbarHost.Id="indent" Style="{StaticResource Button.Icon}" Content="⇥" Tag="indent" Click="OnFormat" ToolTip="Increase indent" />
+                        <Button svc:ComposeToolbarHost.Id="outdent" Style="{StaticResource Button.Icon}" Content="⇤" Tag="outdent" Click="OnFormat" ToolTip="Decrease indent" />
+                        <Button svc:ComposeToolbarHost.Id="link" Style="{StaticResource Button.Icon}" Content="&#xE71B;" Click="OnLink" ToolTip="Insert or edit link (Ctrl+K)" />
+                        <Button svc:ComposeToolbarHost.Id="removeLink" Style="{StaticResource Button.Icon}" Content="⌫" Click="OnRemoveLink" ToolTip="Remove link at the cursor" />
+                        <Button svc:ComposeToolbarHost.Id="table" Style="{StaticResource Button.Icon}" Content="▦" Click="OnInsertTable" ToolTip="Insert a table" />
+                        <Button svc:ComposeToolbarHost.Id="image" Style="{StaticResource Button.Icon}" Content="▧" Click="OnInsertImage" ToolTip="Insert an inline image" />
+                        <Button svc:ComposeToolbarHost.Id="resizeImage" Style="{StaticResource Button.Icon}" Content="↔" Click="OnResizeInlineImage" ToolTip="Resize a picture after clicking it in the message" />
+                        <Button svc:ComposeToolbarHost.Id="emoji" Style="{StaticResource Button.Icon}" Content="☺" Tag="plainAllowed" Click="OnInsertEmoji" ToolTip="Insert an emoji" />
+                        <Button svc:ComposeToolbarHost.Id="undo" Style="{StaticResource Button.Icon}" Content="↶" Tag="undo" Click="OnFormat" ToolTip="Undo (Ctrl+Z)" />
+                        <Button svc:ComposeToolbarHost.Id="redo" Style="{StaticResource Button.Icon}" Content="↷" Tag="redo" Click="OnFormat" ToolTip="Redo (Ctrl+Y)" />
+                        <Button svc:ComposeToolbarHost.Id="find" Style="{StaticResource Button.Secondary}" Content="Find" Tag="plainAllowed" Click="OnFind" ToolTip="Find or replace message text (Ctrl+F / Ctrl+H)" />
+                        <Button svc:ComposeToolbarHost.Id="more" Style="{StaticResource Button.Secondary}" Content="More ▾" Tag="plainAllowed" Click="OnMoreFormat" ToolTip="Paragraph styles, plain-text mode, spelling and more" />
+                        <Button svc:ComposeToolbarHost.Id="removeFormat" Style="{StaticResource Button.Icon}" Content="&#xE894;" Tag="removeFormat" Click="OnFormat" ToolTip="Clear formatting" />
+                    </ToolBar>
                 </Border>
 
                 <!-- Editor -->
                 <Grid Grid.Row="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <!-- Design CW1 (E1): find & replace -->
-                    <Border x:Name="FindBar" Grid.Row="0" Visibility="Collapsed" Background="{DynamicResource Brush.Sidebar.Background}" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="12,6">
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="10" Width="26" Height="26" MinHeight="26" Click="OnFindClose" ToolTip="Close (Esc)" />
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Find" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                <TextBox x:Name="FindBox" Style="{StaticResource TextBox.Field}" Width="180" MinHeight="28" FontSize="12.5" TextChanged="OnFindChanged" PreviewKeyDown="OnFindKey" />
-                                <TextBlock x:Name="FindCount" FontSize="11.5" VerticalAlignment="Center" Margin="8,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                <ToggleButton x:Name="FindCase" Style="{StaticResource Button.Chip}" Content="Aa" FontSize="11" Padding="6,1" MinHeight="24" ToolTip="Match case" Checked="OnFindChanged" Unchecked="OnFindChanged" />
-                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70E;" FontSize="10" Width="26" Height="26" MinHeight="26" Margin="4,0,0,0" Click="OnFindPrev" ToolTip="Previous (Shift+Enter)" />
-                                <Button Style="{StaticResource Button.Icon}" Content="&#xE70D;" FontSize="10" Width="26" Height="26" MinHeight="26" Click="OnFindNext" ToolTip="Next (Enter)" />
-                                <StackPanel x:Name="ReplaceRow" Orientation="Horizontal" Margin="14,0,0,0">
-                                    <TextBlock Text="Replace" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                    <TextBox x:Name="ReplaceBox" Style="{StaticResource TextBox.Field}" Width="180" MinHeight="28" FontSize="12.5" PreviewKeyDown="OnReplaceKey" />
-                                    <Button Style="{StaticResource Button.Secondary}" Content="Replace" FontWeight="Normal" MinHeight="26" Padding="10,2" FontSize="12" Margin="6,0,0,0" Click="OnReplaceOne" />
-                                    <Button Style="{StaticResource Button.Secondary}" Content="All" FontWeight="Normal" MinHeight="26" Padding="10,2" FontSize="12" Margin="4,0,0,0" Click="OnReplaceAll" />
-                                </StackPanel>
-                            </StackPanel>
-                        </DockPanel>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Border x:Name="FindReplacePanel" Grid.Row="0" Visibility="Collapsed" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,0,0,1" Padding="16,7">
+                        <StackPanel>
+                            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Find" FontSize="12" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBox x:Name="FindTextBox" Width="200" MinHeight="28" TextChanged="OnFindTextChanged" KeyDown="OnFindInputKeyDown" AutomationProperties.Name="Text to find" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Next" Click="OnFindNext" Margin="6,0,0,0" ToolTip="Find next match" />
+                                <CheckBox x:Name="FindMatchCase" Content="Match case" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <TextBlock x:Name="FindReplaceStatus" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                <Button Style="{StaticResource Button.Ghost}" Content="✕" Click="OnCloseFind" Margin="10,0,0,0" ToolTip="Close find and replace" AutomationProperties.Name="Close find" />
+                            </WrapPanel>
+                            <WrapPanel x:Name="ReplaceControls" Visibility="Collapsed" Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock Text="With" FontSize="12" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <TextBox x:Name="ReplaceTextBox" Width="200" MinHeight="28" AutomationProperties.Name="Replacement text" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Replace" Click="OnReplaceOne" Margin="6,0,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Replace all" Click="OnReplaceAll" Margin="6,0,0,0" />
+                            </WrapPanel>
+                        </StackPanel>
                     </Border>
-                    <wv2:WebView2 Grid.Row="1" x:Name="Editor" DefaultBackgroundColor="White" />
-                    <TextBox Grid.Row="1" x:Name="PlainEditor" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12"
+                    <Button x:Name="QuoteToggleButton" Grid.Row="1" Style="{StaticResource Button.Ghost}" Content="Show quoted message" Visibility="Collapsed" HorizontalAlignment="Left" Margin="18,3" FontSize="11.5" Click="OnToggleQuote" AutomationProperties.Name="Show or hide the original quoted message" ToolTip="Only folds the quote while writing; the complete original text remains in the outgoing reply" />
+                    <wv2:WebView2 x:Name="Editor" Grid.Row="2" DefaultBackgroundColor="White" AutomationProperties.Name="Rich-text email message editor" />
+                    <TextBox x:Name="PlainEditor" Grid.Row="2" svc:Typography.Role="composeBody" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="18,12" AutomationProperties.Name="Plain-text email message editor"
                              VerticalScrollBarVisibility="Auto" FontFamily="Arial" FontSize="18" />
-
-                    <!-- Design CW1 (E6): @mention suggestions -->
-                    <Popup x:Name="MentionPopup" PlacementTarget="{Binding ElementName=Editor}" Placement="Relative" StaysOpen="True" AllowsTransparency="True">
-                        <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="260">
-                            <ListBox x:Name="MentionList" Style="{StaticResource ListBox.Flat}" MaxHeight="200" MouseUp="OnMentionClick">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type models:ContactSuggestion}">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Address}" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Border>
-                    </Popup>
-                    <!-- Design CW1 (B14): the link bubble -->
-                    <Popup x:Name="LinkBubble" PlacementTarget="{Binding ElementName=Editor}" Placement="Relative" StaysOpen="True" AllowsTransparency="True">
-                        <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="6" Padding="10,5">
-                            <StackPanel Orientation="Horizontal">
-                                <Button x:Name="LinkOpen" Style="{StaticResource Button.Link}" FontSize="12" MaxWidth="320" Click="OnLinkOpen" ToolTip="Open in the browser">
-                                    <TextBlock x:Name="LinkText" TextTrimming="CharacterEllipsis" />
-                                </Button>
-                                <Button Style="{StaticResource Button.Link}" Content="Edit" FontSize="12" Margin="12,0,0,0" Click="OnLinkEdit" />
-                                <Button Style="{StaticResource Button.Link}" Content="Remove" FontSize="12" Margin="10,0,0,0" Click="OnLinkRemove" />
-                            </StackPanel>
-                        </Border>
-                    </Popup>
-                    <!-- Design CW1 (B9): the picture bubble -->
-                    <Popup x:Name="PictureBubble" PlacementTarget="{Binding ElementName=Editor}" Placement="Relative" StaysOpen="True" AllowsTransparency="True">
-                        <Border Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="6" Padding="10,5">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource Button.Link}" Content="Small" FontSize="12" Tag="small" Click="OnPictureSize" />
-                                <Button Style="{StaticResource Button.Link}" Content="Medium" FontSize="12" Margin="10,0,0,0" Tag="medium" Click="OnPictureSize" />
-                                <Button Style="{StaticResource Button.Link}" Content="Original" FontSize="12" Margin="10,0,0,0" Tag="original" Click="OnPictureSize" />
-                                <Button Style="{StaticResource Button.Link}" Content="Attach as file instead" FontSize="12" Margin="14,0,0,0" Click="OnPictureAttach" />
-                                <Button Style="{StaticResource Button.Link}" Content="Remove" FontSize="12" Margin="10,0,0,0" Click="OnPictureRemove" />
-                            </StackPanel>
-                        </Border>
-                    </Popup>
                 </Grid>
 
                 <!-- AI draft for Reply / Reply All / Forward (designs FR1 + AW1): under the editor -->
                 <views:AiReplyDraftView x:Name="ReplyAi" Grid.Row="3" />
 
-                <!-- Attachments (design CW1 screen 4): cards + the size bar -->
-                <StackPanel Grid.Row="4" Margin="16,6,16,0">
-                    <ItemsControl ItemsSource="{Binding Attachments}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:AttachmentItem}">
-                                <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="6" Padding="6,4,4,4" Margin="0,0,8,6" Cursor="Hand"
-                                        Background="{DynamicResource Brush.Card.Background}" MouseLeftButtonUp="OnAttachmentOpen" ToolTip="{Binding Path}" ContextMenuOpening="OnAttachmentMenu">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Border Width="30" Height="30" CornerRadius="5" Background="{Binding KindColour, Converter={StaticResource HexBrush}}" VerticalAlignment="Center" Margin="0,0,8,0">
-                                            <TextBlock Text="{Binding Kind}" FontSize="9.5" FontWeight="SemiBold" Foreground="White" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
-                                        <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontSize="12.5" MaxWidth="220" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Size}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" />
-                                        </StackPanel>
-                                        <Button Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="9" Width="22" Height="22" MinHeight="22" Margin="6,0,0,0" ToolTip="Remove"
-                                                Command="{Binding DataContext.RemoveAttachmentCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4" Visibility="{Binding AttachmentSummary, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Text="{Binding AttachmentSummary}" FontSize="11.5" VerticalAlignment="Center" Foreground="{Binding AttachmentsOver, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Danger|Brush.Text.Secondary}" />
-                        <Border Width="200" Height="4" CornerRadius="2" Background="{DynamicResource Brush.Progress.Track}" VerticalAlignment="Center" Margin="10,0,0,0">
-                            <Border HorizontalAlignment="Left" CornerRadius="2" Width="{Binding AttachmentBarWidth}"
-                                    Background="{Binding AttachmentsOver, Converter={StaticResource BoolToBrush}, ConverterParameter=Brush.Danger|Brush.Accent}" />
-                        </Border>
-                    </StackPanel>
-                </StackPanel>
-
-                <!-- Footer (design CW1 screen 1 / 5) -->
-                <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,10">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding WordsText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" Margin="0,0,14,0" ToolTip="{Binding WordsTip}"
-                                       Visibility="{Binding WordsText, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock Text="{Binding Status}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
-                            <Button Style="{StaticResource Button.Ghost}" Margin="14,0,0,0" FontWeight="Normal" Click="OnDiscard" ToolTip="Discard this message" Foreground="{DynamicResource Brush.Danger}">
+                <!-- Attachments -->
+                <ItemsControl Grid.Row="4" ItemsSource="{Binding Attachments}" Margin="16,6,16,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:AttachmentItem}">
+                            <Border BorderBrush="{DynamicResource Brush.Control.Border}" BorderThickness="1" CornerRadius="6" Padding="10,4,4,4" Margin="0,0,8,6">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                    <TextBlock Text="Discard" />
+                                    <Image Source="{Binding Thumbnail}" Visibility="{Binding ThumbnailVisibility}" Width="38" Height="38" Stretch="UniformToFill" Margin="0,0,7,0" ToolTip="Image thumbnail" />
+                                    <TextBlock Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Brush.Text.Secondary}" />
+                                    <TextBlock Text="{Binding Display}" FontSize="12" VerticalAlignment="Center" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Preview" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnPreviewAttachment" ToolTip="Preview images, PDFs, text, Word, Excel and PowerPoint files inside Magpie" AutomationProperties.Name="Preview attachment" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Compress" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnCompressAttachment" IsEnabled="{Binding CanCompress}" ToolTip="Save a reduced-size picture as a new file and attach it" AutomationProperties.Name="Compress image attachment" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Open" FontSize="11" MinHeight="22" Padding="5,0" Margin="5,0,0,0" Click="OnOpenAttachment" ToolTip="Open this file with its usual app" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Rename" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnRenameAttachment" ToolTip="Change the filename the recipient sees, not the local file" />
+                                    <Button Style="{StaticResource Button.Ghost}" Content="Cloud link" FontSize="11" MinHeight="22" Padding="5,0" Margin="4,0,0,0" Click="OnCloudAttach" IsEnabled="{Binding CanUploadCloud}" ToolTip="Upload a private copy, confirm named access, and replace this attachment with a link" AutomationProperties.Name="Upload attachment as cloud link" />
+                                    <Button Style="{StaticResource Button.Icon}" Content="↑" Width="22" Height="22" MinHeight="22" Margin="3,0,0,0" ToolTip="Move attachment earlier"
+                                            Command="{Binding DataContext.MoveAttachmentUpCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                    <Button Style="{StaticResource Button.Icon}" Content="↓" Width="22" Height="22" MinHeight="22" Margin="2,0,0,0" ToolTip="Move attachment later"
+                                            Command="{Binding DataContext.MoveAttachmentDownCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                    <Button Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="9" Width="22" Height="22" MinHeight="22" Margin="4,0,0,0" ToolTip="Remove"
+                                            Command="{Binding DataContext.RemoveAttachmentCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                 </StackPanel>
-                            </Button>
-                        </StackPanel>
-                        <!-- A WrapPanel: in a narrow window (640 px minimum, assistant panel open) the trailing buttons wrap to a second line instead of being clipped. -->
-                        <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Grid.Row="4" Text="{Binding AttachmentSummary}" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,5" IsHitTestVisible="False" />
+
+                <!-- Footer -->
+                <Border Grid.Row="5" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Padding="16,10">
+                    <StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Status}" ToolTip="{Binding Status}" MaxWidth="180" TextTrimming="CharacterEllipsis" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" VerticalAlignment="Center" />
+                        <WrapPanel Orientation="Horizontal">
                             <Button Style="{StaticResource Button.Primary}" Content="Send" Padding="22,6" Click="OnSend" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}" ToolTip="Send (Ctrl+Enter)" />
-                            <Button Style="{StaticResource Button.Primary}" Content="&#xE70D;" FontFamily="{StaticResource Font.Icons}" FontSize="9" Padding="8,6" Margin="-4,0,0,0" Click="OnSendMenu" ToolTip="Send &amp; Archive, Send later"
-                                    IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="Send &amp; Archive" Margin="8,0,0,0" FontWeight="Normal"
+                                    Click="OnSendAndArchive" IsEnabled="{Binding Sending, Converter={StaticResource InvBool}}"
+                                    Visibility="{Binding CanSendAndArchive, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="Send this reply; after delivery succeeds, archive the original Inbox conversation. Undo Send leaves it in the Inbox." />
                             <Button Style="{StaticResource Button.Secondary}" Content="Send later" Margin="8,0,0,0" FontWeight="Normal" Click="OnSendLater" />
-                            <Button Style="{StaticResource Button.Secondary}" Margin="8,0,0,0" FontWeight="Normal" Click="OnAttach" ToolTip="Attach files (Ctrl+Shift+O)">
+                            <Button Style="{StaticResource Button.Secondary}" Margin="8,0,0,0" FontWeight="Normal" Click="OnAttach">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="&#xE723;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
                                     <TextBlock Text="Attach" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource Button.Secondary}" Content="&#xE70D;" FontFamily="{StaticResource Font.Icons}" FontSize="9" Padding="6,6" Margin="-4,0,0,0" FontWeight="Normal" Click="OnAttachMenu" ToolTip="Recent files, insert a picture" />
-                            <Button Style="{StaticResource Button.Ghost}" Content="Templates ▾" Margin="8,0,0,0" Click="OnTemplates" />
-                            <Button Style="{StaticResource Button.Ghost}" Margin="2,0,0,0" Click="OnSignatureMenu" ToolTip="Signature">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE8D2;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                    <TextBlock Text="Signature ▾" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource Button.Ghost}" Margin="2,0,0,0" Click="OnOptionsMenu" ToolTip="Priority, read receipt, plain text, save">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE713;" FontFamily="{StaticResource Font.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                    <TextBlock Text="Options ▾" />
-                                </StackPanel>
-                            </Button>
+                            <Button Style="{StaticResource Button.Ghost}" Content="Recent ▾" Margin="3,0,0,0" Click="OnAttachRecent" />
+                            <Button x:Name="CloudAttachButton" Style="{StaticResource Button.Ghost}" Content="Cloud link…" Margin="3,0,0,0" Click="OnCloudAttach" ToolTip="Upload and share a new Google Drive or OneDrive file with confirmed recipients" AutomationProperties.Name="Upload cloud file link" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Templates" Margin="8,0,0,0" Click="OnTemplates" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Signatures ▾" Margin="4,0,0,0" Click="OnSignatures" ToolTip="Choose a saved signature for this message" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Save draft" Margin="2,0,0,0" Click="OnSaveDraft" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Draft history" Margin="4,0,0,0" Click="OnDraftHistory" ToolTip="Preview and restore recent draft revisions saved only on this PC" AutomationProperties.Name="Draft revision history" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Save .eml" Margin="4,0,0,0" Click="OnSaveEml" ToolTip="Save a local copy of this message with attachments without sending" />
+                            <Button Style="{StaticResource Button.Ghost}" Content="Discard changes" Margin="4,0,0,0" Click="OnDiscardChanges" ToolTip="Discard edits made in this compose window; a previously saved draft is kept" />
                         </WrapPanel>
                     </DockPanel>
+                    <TextBlock x:Name="WritingStatisticsFooter" Text="{Binding WritingStatisticsSummary}" ToolTip="{Binding WritingStatisticsHelp}"
+                               AutomationProperties.Name="{Binding WritingStatisticsSummary}" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,7,0,0" />
+                    </StackPanel>
                 </Border>
             </Grid>
 
@@ -392,6 +405,12 @@
                                     <Button DockPanel.Dock="Right" Style="{StaticResource Button.AiChip}" Content="Go" Margin="6,0,0,0" Command="{Binding RewriteCommand}" CommandParameter="Custom" />
                                     <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding CustomRewrite, UpdateSourceTrigger=PropertyChanged}" Tag="Or say how to change it…" MinHeight="30" />
                                 </DockPanel>
+                                <DockPanel Margin="0,8,0,0">
+                                    <Button x:Name="TranslateSelectionButton" DockPanel.Dock="Right" Style="{StaticResource Button.AiChip}" Content="Translate" Margin="6,0,0,0"
+                                            Command="{Binding RewriteCommand}" CommandParameter="Translate" ToolTip="Translate the selected text with your configured AI, then review before applying." />
+                                    <ComboBox x:Name="TranslationLanguagePicker" IsEditable="True" ItemsSource="{Binding TranslationLanguages}" Text="{Binding TranslationLanguage, UpdateSourceTrigger=PropertyChanged}"
+                                              AutomationProperties.Name="Translation target language" />
+                                </DockPanel>
                             </StackPanel>
 
                             <!-- Busy / error -->
@@ -422,6 +441,66 @@
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- Hybrid design A+B+C: the optional Studio panel keeps the existing AI panel intact. -->
+            <Border x:Name="StudioPanel" Grid.Column="2" Width="310" Visibility="Collapsed" Background="{DynamicResource Brush.Card.Background}" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="1,0,0,0">
+                <DockPanel Margin="14,12,14,12">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Icon}" Content="×" Click="OnToggleStudio" ToolTip="Close Studio" />
+                        <TextBlock Text="COMPOSE STUDIO" Style="{StaticResource Text.SectionCaps}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TabControl>
+                        <TabItem Header="Files">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Attachments" FontWeight="SemiBold" FontSize="14" />
+                                <TextBlock Text="{Binding AttachmentSummary}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,6,0,12" />
+                                <Border AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" BorderBrush="{DynamicResource Brush.Card.Border}" BorderThickness="1" CornerRadius="8" Padding="16,22" Margin="0,0,0,8">
+                                    <StackPanel HorizontalAlignment="Center"><TextBlock Text="📎 Drop files here" TextAlignment="Center" FontWeight="SemiBold" /><TextBlock Text="Or use the Attach button" TextAlignment="Center" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" /></StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Button.Primary}" Content="Browse files…" Click="OnAttach" />
+                                <Button x:Name="StudioAttachEmailButton" Style="{StaticResource Button.Secondary}" Content="Attach saved email (.eml)…" Click="OnAttachEmail" Margin="0,7,0,0" ToolTip="Choose an existing .eml email message to include as an attachment" />
+                                <Button x:Name="StudioCloudAttachButton" Style="{StaticResource Button.Secondary}" Content="Upload &amp; share cloud link…" Click="OnCloudAttach" Margin="0,7,0,0" ToolTip="Choose Google Drive or OneDrive, a file, named people and their access before uploading" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Paste files or screenshot…" Click="OnPasteAttachments" Margin="0,7,0,0" ToolTip="Attach files copied from File Explorer, or save and attach a screenshot from the clipboard" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Remove all attachments" Click="OnClearAttachments" Margin="0,7,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Insert picture…" Click="OnInsertImage" Margin="0,7,0,0" />
+                                <TextBlock Text="Drop files into this window, or use Attach. Missing files and large messages are checked before Send." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,15,0,0" />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Review">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Review before sending" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Text="Checks: valid recipients, duplicates, missing or forgotten attachments, message size, empty subject and empty body." TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,12" />
+                                <Button Style="{StaticResource Button.Primary}" Content="Run safety review" Click="OnReview" />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Options">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Message priority" FontWeight="SemiBold" />
+                                <ComboBox SelectedValuePath="Content" SelectedValue="{Binding Priority, Mode=TwoWay}" Margin="0,6,0,14">
+                                    <ComboBoxItem Content="Normal" /><ComboBoxItem Content="High" /><ComboBoxItem Content="Low" />
+                                </ComboBox>
+                                <TextBlock Text="Reply-To (optional)" FontWeight="SemiBold" />
+                                <TextBox Style="{StaticResource TextBox.Field}" Text="{Binding ReplyTo, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                                <CheckBox Content="Request read receipt" IsChecked="{Binding RequestReadReceipt, Mode=TwoWay}" />
+                                <CheckBox x:Name="RequestDeliveryReceiptCheck" Content="Request delivery notification" IsChecked="{Binding RequestDeliveryReceipt, Mode=TwoWay}" Margin="0,9,0,0" ToolTip="{Binding DeliveryReceiptHelp}" AutomationProperties.Name="Request delivery notification from the sending server" />
+                                <TextBlock Text="{Binding DeliveryReceiptHelp}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <CheckBox Content="Warn before sending outside my email domain" IsChecked="{Binding WarnExternalRecipients, Mode=TwoWay}" Margin="0,9,0,0" ToolTip="Optional for this compose session; useful for work or confidential emails" />
+                                <TextBlock Text="Read receipts depend on recipients' mail apps and are not guaranteed." FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <TextBlock Text="Message security" FontWeight="SemiBold" Margin="0,18,0,6" />
+                                <ComboBox ItemsSource="{Binding SecurityFormats}" SelectedItem="{Binding SecurityFormat, Mode=TwoWay}" AutomationProperties.Name="Message security method" />
+                                <CheckBox Content="Sign message" IsChecked="{Binding SignMessage, Mode=TwoWay}" Margin="0,8,0,0" />
+                                <CheckBox Content="Encrypt message" IsChecked="{Binding EncryptMessage, Mode=TwoWay}" Margin="0,8,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Manage security keys…" Click="OnSecurityKeys" Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding SecurityNotice}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,8,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Send later…" Click="OnSendLater" Margin="0,14,0,0" />
+                                <Button Style="{StaticResource Button.Secondary}" Content="Provider-managed protection…" Click="OnProviderProtection" Margin="0,9,0,0" ToolTip="Check Gmail confidential mode or Outlook protection on the provider's website" />
+                            </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
                 </DockPanel>
             </Border>
         </Grid>

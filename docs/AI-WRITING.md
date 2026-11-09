@@ -12,6 +12,8 @@ Version 13.0.0 implements Q85–Q87 / issues #113–#115 from the approved [AW1 
 
 Sending is always explicit; recipients never come from the model; signature and quoted/forwarded block are protected; Use draft asks Append / Replace when you have typed; email text is untrusted quoted data inside JSON; the user's answer is also JSON data, bounded to 500 characters; a context/account/AI change drops pending results. Per-draft choices are no longer part of the context fingerprint, so changing one keeps the shown version usable.
 
+Plain-text conversion removes the boundaries between your writing, signature and quoted thread. Magpie therefore blocks AI Append / Replace and Use draft when those boundaries are no longer known, including after switching back to rich text, saving/reopening, or Undo Send. Select only your own text and use **Rewrite selection**, or restore an earlier rich draft revision with its original sections. Native Undo/Redo and selected-text rewrites remain available. The fallback editor can still replace the body while its originally captured protected tail matches exactly; saved fallback drafts require a selection when reopened. Imported or older unmarked messages also require a selection because their conversion history is unavailable. This local safety state is saved with drafts/history and the outbox, and is excluded from outgoing MIME and exported `.eml` files.
+
 ## Upgrade
 
 A saved Tone of Formal becomes Professional + Formality Formal; Informal becomes Friendly + Casual. New fields get their defaults (Forward Off, What the reply says On, Indian English, Neutral etiquette, Balanced, Auto greeting/address, no emoji). Remembered contact styles are written by the composer as they happen and are not part of Settings Apply.
