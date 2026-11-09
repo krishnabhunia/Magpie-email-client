@@ -393,6 +393,11 @@ public class CloudFilesTests
         Assert.DoesNotContain("outlook.office.com", cloud.ConfigFor(AccountKind.Microsoft)!.Scopes);
         Assert.DoesNotContain("Files.ReadWrite.All", cloud.ConfigFor(AccountKind.Microsoft)!.Scopes);
         Assert.NotEqual(SecretVault.RefreshKey("A"), CloudFilesAuthorization.RefreshKey("A"));
+        Assert.NotEqual(CloudFilesAuthorization.RefreshKey("A"), CloudFilesAuthorization.ExistingRefreshKey("A"));
+        Assert.Contains(CloudFilesAuthorization.GoogleExistingScope, cloud.ExistingConfigFor(AccountKind.Gmail)!.Scopes);
+        Assert.False(OAuthService.Allows(cloud.ConfigFor(AccountKind.Gmail)!.Scopes, CloudFilesAuthorization.GoogleExistingScope));
+        Assert.Throws<ReauthRequiredException>(() => CloudFilesAuthorization.EnsureExistingScopes(AccountKind.Gmail, CloudFilesAuthorization.GoogleScope + " openid email"));
+        CloudFilesAuthorization.EnsureExistingScopes(AccountKind.Gmail, CloudFilesAuthorization.GoogleExistingScope + " openid email");
         Assert.Throws<ReauthRequiredException>(() => CloudFilesAuthorization.EnsureScopes(AccountKind.Gmail, "openid email"));
         Assert.Throws<ReauthRequiredException>(() => CloudFilesAuthorization.EnsureScopes(AccountKind.Microsoft, "Files.ReadWrite"));
     }
@@ -441,6 +446,36 @@ public class CloudFilesTests
         Assert.Equal("S256", query["code_challenge_method"]);
         using var browser = new HttpClient();
         await browser.GetStringAsync(query["redirect_uri"] + "?code=CLOUD-CODE&state=" + query["state"]);
+    }
+
+    [Fact]
+    public async Task Existing_file_consent_has_independent_vault_token_and_does_not_expand_upload_or_mail_scopes()
+    {
+        using var dir = new TempDir();
+        var vault = new SecretVault(dir.File("secrets.json"), new FakeProtector());
+        vault.Set(SecretVault.RefreshKey("cloud-account"), "keep-mail-token");
+        using var http = new HttpClient(new FakeHttp
+        {
+            Respond = (request, _) => request.RequestUri!.Host == "oauth2.googleapis.com"
+                ? Json(new { access_token = "existing-token", refresh_token = "separate-existing-refresh", expires_in = 3600,
+                    scope = CloudFilesAuthorization.GoogleExistingScope + " openid email" })
+                : Json(new { sub = "owner-id", email = "owner@example.test", email_verified = true }),
+        });
+        var cloud = new CloudFilesAuthorization(http, vault, _ => OAuthService.Google("client", "secret"));
+        string? loginUrl = null;
+        var signIn = cloud.SignInExistingAsync(Account(), url => loginUrl = url, CancellationToken.None);
+        Assert.NotNull(loginUrl);
+        Assert.Contains(Uri.EscapeDataString(CloudFilesAuthorization.GoogleExistingScope), loginUrl);
+        await SimulateBrowserRedirectAsync(loginUrl!);
+        await signIn;
+        Assert.True(cloud.IsExistingConnected(Account()));
+        Assert.False(cloud.IsConnected(Account()));
+        Assert.Equal("keep-mail-token", vault.Get(SecretVault.RefreshKey("cloud-account")));
+        Assert.Null(vault.Get(CloudFilesAuthorization.RefreshKey("cloud-account")));
+        Assert.Equal("separate-existing-refresh", vault.Get(CloudFilesAuthorization.ExistingRefreshKey("cloud-account")));
+        Assert.DoesNotContain("separate-existing-refresh", File.ReadAllText(dir.File("secrets.json")));
+        Assert.Equal("owner@example.test", (await cloud.AuthorizeExistingAsync(Account(), CancellationToken.None)).Email);
+        await Assert.ThrowsAsync<ReauthRequiredException>(() => cloud.AuthorizeAsync(Account(), CancellationToken.None));
     }
 
     [Fact]

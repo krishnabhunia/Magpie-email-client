@@ -6,6 +6,33 @@ namespace Magpie.Core.CloudFiles;
 
 public enum CloudFileAccess { View, Edit }
 
+/// <summary>A file already owned by the selected cloud account; selecting it never modifies it.</summary>
+public sealed record CloudExistingFile(AccountKind Provider, string Id, string Name, string WebUrl, string DriveId = "")
+{
+    public bool IsValid => Provider is AccountKind.Gmail or AccountKind.Microsoft
+        && CloudUploadedFile.SafeId(Id) && CloudUploadedFile.SafeLinkTitle(Name)
+        && CloudUploadedFile.IsProviderWebUrl(Provider, WebUrl)
+        && (Provider != AccountKind.Microsoft || CloudUploadedFile.SafeId(DriveId));
+}
+
+public sealed record CloudExistingFilesPage(IReadOnlyList<CloudExistingFile> Files, bool HasMore);
+
+/// <summary>Consent to change an existing file's named access, independent of new-copy uploads.</summary>
+public sealed record CloudExistingSharePlan(Account Account, CloudExistingFile File, string LinkTitle,
+    string[] Recipients, CloudFileAccess Access)
+{
+    public static CloudExistingSharePlan Create(Account account, CloudExistingFile file, string title,
+        string to, string cc, string bcc, CloudFileAccess access)
+    {
+        if (account.Kind is not (AccountKind.Gmail or AccountKind.Microsoft) || account.Kind != file.Provider || !file.IsValid)
+            throw new InvalidOperationException("Choose a valid file from the selected cloud account.");
+        title = title.Trim();
+        if (!Enum.IsDefined(access) || !CloudUploadedFile.SafeLinkTitle(title))
+            throw new InvalidOperationException("Choose a link title of at most 160 characters without control characters and a supported access role.");
+        return new(account.Clone(), file, title, CloudSharePlan.RecipientsFor(to, cc, bcc), access);
+    }
+}
+
 /// <summary>An explicit upload and named-recipient grant, never an anonymous sharing link.</summary>
 public sealed record CloudSharePlan(Account Account, string FileName, long Length, string[] Recipients, CloudFileAccess Access)
 {
@@ -50,6 +77,9 @@ public sealed record CloudUploadedFile
     public string FileId { get; init; } = "";
     public string ContainerId { get; init; } = "";
     public string FileName { get; init; } = "";
+    public string LinkTitle { get; init; } = "";
+    public bool IsExisting { get; init; }
+    public string DisplayName => string.IsNullOrEmpty(LinkTitle) ? FileName : LinkTitle;
     public string WebUrl { get; init; } = "";
     public string[] Recipients { get; init; } = Array.Empty<string>();
     public Dictionary<string, string> PermissionIds { get; init; } = new(StringComparer.OrdinalIgnoreCase);
@@ -58,7 +88,8 @@ public sealed record CloudUploadedFile
 
     public bool IsValid => Provider is AccountKind.Gmail or AccountKind.Microsoft
         && !string.IsNullOrWhiteSpace(AccountId) && AccountId.Length <= 256
-        && ComposeSafety.ValidAttachmentName(FileName) && SafeId(FileId)
+        && (IsExisting ? SafeLinkTitle(FileName) : ComposeSafety.ValidAttachmentName(FileName))
+        && (string.IsNullOrEmpty(LinkTitle) || SafeLinkTitle(LinkTitle)) && SafeId(FileId)
         && (Provider != AccountKind.Microsoft || SafeId(ContainerId))
         && IsProviderWebUrl(Provider, WebUrl) && Enum.IsDefined(Access)
         && Recipients is { Length: > 0 and <= CloudSharePlan.MaximumRecipients }
@@ -70,6 +101,9 @@ public sealed record CloudUploadedFile
 
     public static bool SafeId(string? value) => !string.IsNullOrEmpty(value) && value.Length <= 512
         && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '!' or '.' or '=' or '+');
+
+    public static bool SafeLinkTitle(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 160
+        && value == value.Trim() && !value.Any(char.IsControl);
 
     public static bool IsProviderWebUrl(AccountKind provider, string? value)
     {
@@ -90,7 +124,9 @@ public sealed record CloudUploadedFile
         catch (InvalidOperationException ex) { return ex.Message; }
         return current.Any(x => !Recipients.Contains(x, StringComparer.OrdinalIgnoreCase)
                 && !x.Equals(AccountEmail, StringComparison.OrdinalIgnoreCase))
-            ? $"The recipients changed after sharing {FileName}. Remove its cloud link and upload a new copy for the reviewed recipients, or attach the file normally."
+            ? IsExisting
+                ? $"The recipients changed after sharing {FileName}. Remove its link, review access to the existing file again for the new recipients, or attach a local copy."
+                : $"The recipients changed after sharing {FileName}. Remove its cloud link and upload a new copy for the reviewed recipients, or attach the file normally."
             : null;
     }
 }
@@ -101,6 +137,12 @@ public sealed record CloudAuthorization(string AccessToken, string Email, string
 public interface ICloudFileAuthorization
 {
     Task<CloudAuthorization> AuthorizeAsync(Account account, CancellationToken ct);
+}
+
+/// <summary>Broader file-browsing permission is an independent, opt-in credential.</summary>
+public interface ICloudExistingFileAuthorization
+{
+    Task<CloudAuthorization> AuthorizeExistingAsync(Account account, CancellationToken ct);
 }
 
 public sealed class CloudSharingException : Exception
