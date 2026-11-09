@@ -54,3 +54,4 @@ One row per feature, in plain words. "Since" is the first version in `CHANGELOG.
 | 48 | Translate a selection | Translate the selected text with your AI and see it before it replaces anything | 16.0.0 | Yes | Not yet |
 | 49 | Existing cloud files | Browse your own Google Drive or OneDrive files while writing and share one with a review of who gets View or Edit access | 17.0.0 | Yes | Not yet |
 | 50 | Info window | ⓘ next to the version (or F1): this build's details, what's implemented, what's new and what it is made of, with Copy build info and the full release notes | 18.0.0 | Yes | Yes |
+| 51 | Writing emails and Replies go to | Settings → General → Writing emails sets how new messages start (spelling check, folded quotes, forgotten-attachment check, read receipt, pasted-picture size); each account can have a Replies go to address | 18.2.0 | Yes | Not yet |

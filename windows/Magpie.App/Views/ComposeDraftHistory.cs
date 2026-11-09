@@ -41,5 +41,6 @@ public partial class ComposeWindow
         }
         QuoteToggleButton.Visibility = !plainText && html.Contains("magpie-quote", StringComparison.OrdinalIgnoreCase)
             ? Visibility.Visible : Visibility.Collapsed;
+        if (!plainText) await ApplyQuoteFoldDefaultAsync();
     }
 }

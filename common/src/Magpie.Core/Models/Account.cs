@@ -31,6 +31,9 @@ public sealed class Account
     public string DisplayName { get; set; } = "";
     /// <summary>Send-as addresses already authorized by the provider; this list does not provision server aliases.</summary>
     public List<SenderAlias> SenderAliases { get; set; } = new();
+    /// <summary>Design CW1 (A5): "Replies go to" — put in the Reply-To of every new message, reply and forward from this
+    /// account (one address; empty = replies go to the sender).</summary>
+    public string ReplyTo { get; set; } = "";
     /// <summary>Your details for this account (design AC1): shown in the default signature; kept in backups.</summary>
     public string Phone { get; set; } = "";
     public string JobTitle { get; set; } = "";

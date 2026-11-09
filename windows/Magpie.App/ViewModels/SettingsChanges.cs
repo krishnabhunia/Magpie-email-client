@@ -69,6 +69,7 @@ public partial class SettingsViewModel
         c.RemoteImages = RemoteImages;
         c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;
+        c.Compose = ComposeDefaultsToSave();
         c.SyncIntervalMinutes = SyncIntervalMinutes;
         c.CloseToTray = CloseToTray;
         c.Notifications = Notifications;
