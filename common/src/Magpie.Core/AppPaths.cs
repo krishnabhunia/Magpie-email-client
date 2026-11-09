@@ -84,10 +84,11 @@ public sealed class AppPaths
         || (exeName is { } n && PortableExeName.IsMatch(n)
             && !File.Exists(Path.Combine(exeFolder, InstallerUninstaller)));
 
-    /// <summary>The download's own name, <c>Magpie_&lt;version&gt;.exe</c> (x.y.z or x.y.z-beta.N; a browser's " (1)" allowed).
+    /// <summary>The download's own name, <c>Magpie_&lt;version&gt;.exe</c> (x.y.z, a test version x.y.z-betaNNN, or an older
+    /// one such as x.y.z-beta.N or x.y.z-beta.&lt;time&gt;.g&lt;sha&gt;; a browser's " (1)" allowed).
     /// Any other name — e.g. a copy renamed to <c>Magpie_backup.exe</c> — keeps using the profile folders.</summary>
     private static readonly System.Text.RegularExpressions.Regex PortableExeName = new(
-        @"^Magpie_\d+\.\d+\.\d+(-[A-Za-z]+\.\d+)?( \(\d+\))?\.exe$",
+        @"^Magpie_\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?( \(\d+\))?\.exe$",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Portable (see <see cref="IsPortableCopy"/>); otherwise the user's profile folders

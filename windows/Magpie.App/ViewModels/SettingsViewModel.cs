@@ -378,6 +378,9 @@ public partial class SettingsViewModel : ObservableObject
         body.AppendLine("Windows: " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? " x64" : " x86"));
         body.AppendLine("Machine: " + Environment.MachineName + " · .NET " + Environment.Version);
         body.AppendLine("Accounts: " + _e.Accounts.Count);
+        body.AppendLine();
+        body.AppendLine("Build info:");   // design IN1: the same two lines as Info → Copy build info
+        body.AppendLine(Views.InfoWindow.CopyText());
         if (kind is "Bug found" or "Crash / error report")
         {
             var tail = Log.Tail(20);
@@ -449,6 +452,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Check automatically", "Updates", "Pause or resume checks; choose and confirm every version change", "auto update automatic check pause resume daily version pin", "RowUpdateSwitches"),
         ("Include test versions", "Updates", "Pre-releases", "update prerelease beta test", "RowUpdateSwitches"),
         ("About Me", "About", "Krishna's details, feedback email, LinkedIn, Facebook", "about author krishna feedback bug report email linkedin facebook contact suggestion", "RowAboutMe"),
+        ("Info", "About", "This build, what's implemented, what's new, under the hood, Copy build info", "info build version beta test commit pull request features implemented changelog what's new under the hood copy build info f1", "AboutInfo"),
         ("Data folder", "About", "Where mail, settings and the log live on this PC", "data folder log file appdata storage", "RowData"),
         ("Auto-delete rules", "Rules", "Emails from a sender or domain go to Trash a set time after they arrive; OTP delete after 24 hours", "auto delete autodelete otp codes expire trash timer clean up old", "RowAutoDelete"),
         ("Rules", "Rules", "Sort new mail automatically: move, tag, mark read, pin, snooze, delete", "rules filters sort move automatic organise organize folder tag skip notification", "RowRules"),

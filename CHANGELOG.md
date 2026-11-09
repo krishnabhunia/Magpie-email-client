@@ -7,11 +7,27 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 17.1.0 (9 Nov 2026)
+## 18.1.0 (9 Nov 2026)
 <!-- closes: #142 -->
 ### Changed
 - **The version manager is back to how it was before 14.1.0** (Krishna, 5 Nov 2026). The From → To confirm screen, the "skips the latest stable" note, the Updates / Version history tabs and the "On this PC" marks are removed: you choose Update (newer) or Roll back (older) in the drop-down again, and a short Yes/No question confirms the exact version. Everything else stays — choosing exact stable or beta versions, compatibility checks, backups, the version pin, permanent beta tags and **View full implementation details**.
 - Windows only; the Mac app is unchanged.
+
+## 18.0.0 (9 Nov 2026)
+<!-- closes: #138 -->
+### New
+- **Info window.** The **ⓘ** next to the version at the top of the window (or **F1**; on the Mac also ⌘I and Magpie → Magpie Info…, and **Info** in Settings → About) opens **Magpie · Info** with four tabs:
+  - **This build** — the version, Beta or Stable, the pull request it was made from, the commit, when it was built, its GitHub tag, the download's name and how it is installed. A test version says "This is a test build. It is beta 007 of Magpie 18.0.0, made from a pull request."
+  - **What's implemented** — every feature with the version it arrived in, searchable, with filters for what is new in this version, Windows only and also on the Mac.
+  - **What's new** — this version's lines from the changelog (for a test version: the version being tested), with **Full release notes** on Windows (the installed release's full implementation details) and a link to all releases.
+  - **Under the hood** — what this copy is made with (.NET, the window toolkit, the mail and storage libraries), where it keeps your data, and how it updates, with **Open data folder** and **Open log file**.
+- **Copy build info** puts two lines on the clipboard (version, pull request, commit, build time; Windows or macOS version, how it is installed, .NET) — and the feedback email in Settings → About Me now carries the same lines.
+### Changed
+- **One ⓘ in the title bar.** The separate What's New button is gone: its full release notes are now in Info → What's new → **Full release notes**.
+- **Beta chip.** A test version shows a small **Beta** chip next to its version in the title bar.
+### Fixed
+- **A portable copy of a test version stays portable.** `Magpie_18.0.0-beta007.exe` (and the older long test names) taken from the zip now keeps its data next to it like `Magpie_18.0.0.exe` does, instead of using the profile folders.
+
 ## 17.0.0 (9 Nov 2026)
 <!-- closes: #78 -->
 ### New

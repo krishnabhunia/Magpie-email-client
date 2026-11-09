@@ -39,6 +39,11 @@ public partial class MainWindow : Window
             if (e.Source is Button) return;
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         };
+        InfoButton.Click += (_, _) => Views.InfoWindow.Open();   // design IN1
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F1 && e.KeyModifiers == KeyModifiers.None) { Views.InfoWindow.Open(); e.Handled = true; }
+        };
         ThreadList.KeyDown += OnListKey;
         ThreadList.DoubleTapped += (_, _) => ViewModel.OpenSelectedDraft();   // a draft opens in a compose window
     }

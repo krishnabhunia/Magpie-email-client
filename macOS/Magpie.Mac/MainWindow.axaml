@@ -18,8 +18,19 @@
             BorderBrush="{DynamicResource Magpie.Line}" BorderThickness="0,0,0,1">
       <Grid ColumnDefinitions="84,Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="0,0,12,0">
         <TextBlock Grid.Column="1" Text="Magpie" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="2" Name="VersionLabel" Classes="muted" Text="{Binding VersionText}" FontSize="12"
-                   Margin="8,1,0,0" VerticalAlignment="Center" ToolTip.Tip="{Binding VersionTip}" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4">
+          <TextBlock Name="VersionLabel" Classes="muted" Text="{Binding VersionText}" FontSize="12"
+                     Margin="8,1,0,0" VerticalAlignment="Center" ToolTip.Tip="{Binding VersionTip}" />
+          <!-- Design BT1 A: a small Beta chip on a test version -->
+          <Border Name="BetaChip" IsVisible="{Binding IsBetaBuild}" CornerRadius="4" Padding="5,0,5,1" BorderThickness="1"
+                  Background="{DynamicResource Magpie.AccentSoft}" BorderBrush="{DynamicResource Magpie.Accent}" VerticalAlignment="Center"
+                  ToolTip.Tip="A test version made from a pull request">
+            <TextBlock Text="Beta" FontSize="10.5" FontWeight="SemiBold" />
+          </Border>
+          <!-- Design IN1: the Info window (also F1, ⌘I and Magpie → Magpie Info…) -->
+          <Button Name="InfoButton" Classes="link" Content="ⓘ" FontSize="14" Padding="4,0" VerticalAlignment="Center"
+                  ToolTip.Tip="Info (F1)" AutomationProperties.Name="Info" />
+        </StackPanel>
         <StackPanel Grid.Column="4" Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,10,0"
                     IsVisible="{Binding Updates.IsUpdateVisible, FallbackValue=False}">
           <Button Name="UpdateButton" Classes="update" Content="{Binding Updates.ButtonText}"
