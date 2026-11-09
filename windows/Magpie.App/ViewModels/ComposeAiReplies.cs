@@ -226,6 +226,7 @@ public partial class ComposeViewModel
     /// <summary>Called once after the rich or fallback editor has loaded the initial signature/quote.</summary>
     public async Task ReplyEditorReadyAsync()
     {
+        await RefreshWritingStatisticsAsync();
         if (_replyAutoStarted) return;
         _replyAutoStarted = true;
         if (!_replyAutoEligible || !ReplyGateOpen()) return;
@@ -274,6 +275,7 @@ public partial class ComposeViewModel
 
     partial void OnFromChanged(Magpie.Core.Models.Account? value)
     {
+        OnPropertyChanged(nameof(AttachmentSummary));
         if (!_constructed) return;
         InvalidateReplyContext();
         InvalidateLegacyAi();
