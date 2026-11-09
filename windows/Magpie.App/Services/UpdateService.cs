@@ -33,6 +33,8 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>"Later": not offered again by automatic checks before this time.</summary>
     private DateTimeOffset _laterUntil = DateTimeOffset.MinValue;
     private ReleaseInfo? _release;
+    /// <summary>The newer version the last check offered; a cancelled change to another version offers it again.</summary>
+    private ReleaseInfo? _offer;
     private string? _downloaded;
     private string? _downloadedSha;
     private ReleaseCompatibility? _compatibility;
@@ -286,6 +288,9 @@ public sealed partial class UpdateService : ObservableObject
         if (!value) _flyoutClosedAt = DateTimeOffset.Now;
     }
 
+    /// <summary>Settings changed outside the flyout (the start-up repair of a forward update's pin): show them again.</summary>
+    public void RefreshSwitches() => OnPropertyChanged(nameof(AutoUpdate));
+
     /// <summary>The tooltip says how long ago the last check was; refreshed when the mouse arrives.</summary>
     public void RefreshTip() => OnPropertyChanged(nameof(ButtonTip));
 
@@ -325,10 +330,32 @@ public sealed partial class UpdateService : ObservableObject
         catch (OperationCanceledException)
         {
             SetHistoryStatus(UpdateHistory.Cancelled, "Cancelled before installation; the current application is unchanged.");
-            Title = "Version change cancelled"; Detail = "Your current application and data are unchanged."; State = UpdateState.Available;
+            AfterCancel("Your current application and data are unchanged.");
         }
         catch (Exception ex) { FailTransition("The version change stopped", ex); }
         finally { FinishProgress(); _selectingVersion = false; }
+    }
+
+    /// <summary>
+    /// A cancelled version change. Only a newer version stays on offer: a cancelled rollback left the state at
+    /// "Available" for an older version, which hid the title-bar button and stopped the automatic checks
+    /// (they skip while something is on offer) for the rest of the session.
+    /// </summary>
+    private void AfterCancel(string detail)
+    {
+        Title = "Version change cancelled"; Detail = detail;
+        if (_release is { } chosen && chosen.Version.CompareTo(Current) > 0) { State = UpdateState.Available; return; }
+        _downloaded = null; _downloadedSha = null;
+        if (_offer is { } offer && offer.Version.CompareTo(Current) > 0)
+        {
+            _release = offer; Notes = TrimNotes(offer.Notes);
+            NotifyRelease();
+            State = UpdateState.Available;
+            return;
+        }
+        _release = null;
+        NotifyRelease();
+        State = UpdateState.Idle;
     }
 
     private async Task SelectAndInstallVersionAsync()
@@ -469,7 +496,7 @@ public sealed partial class UpdateService : ObservableObject
         _cts = new CancellationTokenSource();
         State = UpdateState.Checking;
         // A fresh check must not retain a stale offer if GitHub reports no update or fails.
-        _release = null;
+        _release = null; _offer = null;
         OnPropertyChanged(nameof(NewVersion));
         OnPropertyChanged(nameof(ButtonText));
         OnPropertyChanged(nameof(IsUpdateVisible));
@@ -500,7 +527,7 @@ public sealed partial class UpdateService : ObservableObject
                 return;
             }
             if (automatic && rel.Version.ToString() == cfg.SkippedVersion) { Idle("Magpie " + Current, $"Skipped {rel.Version}."); return; }
-            _release = rel;
+            _release = rel; _offer = rel;
             OnPropertyChanged(nameof(NewVersion));
             Notes = TrimNotes(rel.Notes);
             Title = $"Magpie {rel.Version} is available";
@@ -550,7 +577,7 @@ public sealed partial class UpdateService : ObservableObject
         catch (OperationCanceledException)
         {
             SetHistoryStatus(UpdateHistory.Cancelled, "Cancelled before executable replacement.");
-            Title = "Version change cancelled"; Detail = "The current application was kept."; State = UpdateState.Available;
+            AfterCancel("The current application was kept.");
         }
         catch (Exception ex) { FailTransition("The version change stopped", ex); }
         finally
@@ -622,8 +649,11 @@ public sealed partial class UpdateService : ObservableObject
         Process? child = null;
         try
         {
-            // Persist older releases' legacy opt-out before touching the executable.
-            pin = VersionPin.Prepare(AppServices.Engine.Settings, VersionPinPath, selected.Version);
+            // A rollback or restore: pin it and persist older releases' legacy opt-out before touching the executable.
+            // A newer version keeps the user's Auto update choice, so it still finds the next release after a restart.
+            pin = _restoreSnapshotId == null && !VersionPin.PinsAfterChange(Current, selected.Version)
+                ? VersionPin.PrepareForward(AppServices.Engine.Settings, VersionPinPath)
+                : VersionPin.Prepare(AppServices.Engine.Settings, VersionPinPath, selected.Version);
             OnPropertyChanged(nameof(AutoUpdate));
             UpdateHistory.SetStatus(AppPaths.Default(), _historyId, UpdateHistory.Installing,
                 "The exact selected application is starting; completion is recorded after its main window and data load.");
@@ -667,6 +697,15 @@ public sealed partial class UpdateService : ObservableObject
             else
             {
                 _unsafeToRestart = true;
+                if (pin != null && !VersionPin.PinsAfterChange(Current, selected.Version) && _restoreSnapshotId == null)
+                {
+                    // Forward handoff: it kept checks on. Which application is in place is unknown now, so protect
+                    // it the way a rollback does (the selected version's start clears this once it starts fine).
+                    try { pin.Dispose(); } catch (Exception ex) { Log.Error("could not put back the update settings", ex); }
+                    pin = null;
+                    try { using var protect = VersionPin.Prepare(AppServices.Engine.Settings, VersionPinPath, selected.Version); protect.Commit(); }
+                    catch (Exception ex) { Log.Error("could not pin the selected version after a failed handoff", ex); }
+                }
                 pin?.Commit(); pin?.Dispose(); pin = null;
                 Ui.Error("Recovery needs attention", "Magpie could not safely restore the previous application. " +
                     "Automatic installation remains off. The paired application/data backup has been kept in your profile; do not replace only the executable.");

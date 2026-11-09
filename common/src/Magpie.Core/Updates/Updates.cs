@@ -169,18 +169,15 @@ public sealed class UpdateClient
 
     public UpdateAsset Asset => _asset;
 
-    /// <summary>The newest release newer than <paramref name="current"/>, or null when up to date.</summary>
+    /// <summary>
+    /// The newest release newer than <paramref name="current"/>, or null when up to date. Reads every page of
+    /// releases: GitHub lists them newest first by date, so a stable release can sit behind dozens of test versions
+    /// published after it (reading only the first 20 missed it).
+    /// </summary>
     public async Task<ReleaseInfo?> FindNewerAsync(AppVersion current, bool includePrerelease, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases?per_page=20");
-        req.Headers.UserAgent.Add(new ProductInfoHeaderValue("Magpie", current.ToString()));
-        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        using var res = await _http.SendAsync(req, ct);
-        if ((int)res.StatusCode == 403 || (int)res.StatusCode == 429)
-            throw new InvalidOperationException("GitHub is limiting requests right now — Magpie will try again later.");
-        res.EnsureSuccessStatusCode();
-        var json = await res.Content.ReadAsStringAsync(ct);
-        var best = PickNewest(ParseReleases(json, _asset), includePrerelease);
+        var catalog = await ListVersionsAsync(current, ct);
+        var best = PickNewest(catalog.Where(r => r.Info.AssetAvailable), includePrerelease);
         return best != null && best.Version.CompareTo(current) > 0 ? best : null;
     }
 

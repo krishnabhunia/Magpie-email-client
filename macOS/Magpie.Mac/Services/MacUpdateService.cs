@@ -242,9 +242,10 @@ public sealed partial class MacUpdateService : ObservableObject
         try
         {
             MacInstaller.Install(_downloaded!, _expectedSha, plan.App!);
-            InstalledUpdate.Write(DownloadFolder, Current.ToString(), _release.Version.ToString());
+            var installedVersion = _release.Version.ToString();   // MarkInstalled clears the release
+            InstalledUpdate.Write(DownloadFolder, Current.ToString(), installedVersion);
             MarkInstalled();
-            Log.Info($"update {Current} → {NewVersion} installed on quit; runs from the next start");
+            Log.Info($"update {Current} → {installedVersion} installed on quit; runs from the next start");
         }
         catch (Exception ex) { Log.Error("install on quit failed", ex); }
     }

@@ -7,6 +7,14 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 18.2.1 (9 Nov 2026)
+<!-- closes: #149 -->
+### Fixed
+- **Magpie keeps looking for updates after you update it.** Updating to a newer version in the version manager used to pin that version and switch Auto update off, so the "Update to vx.y.z" button never came back after a restart. Now only going back to an older version pins it; moving forward keeps your Auto update choice and ends any pin from an earlier roll back. A copy left pinned by an earlier update gets its automatic checks back the first time this version starts.
+- **A pin left behind by an older version no longer stays.** When Magpie runs a newer version than the one pinned (for example after the installer was run following a roll back), the old pin is cleared and automatic checks resume.
+- **Cancelling a roll back no longer stops update checks.** Cancelling the download or install of an older version left Magpie thinking that version was on offer, so it stopped checking for updates until the next start.
+- **Magpie for Mac finds a new stable version behind many test versions.** It read only the 20 newest GitHub releases, so a stable release followed by many test versions was never offered. It now reads all of them, as the Windows app does.
+
 ## 18.2.0 (9 Nov 2026)
 <!-- closes: #132 -->
 ### Changed
