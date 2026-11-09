@@ -187,7 +187,19 @@ public sealed class InfoWindow : Window
                     });
                 }
             }
-        panel.Children.Add(LinkButton("All releases on GitHub", BuildInfo.ReleasesUrl));
+        // One ⓘ (Krishna, 9 Nov 2026): the title bar's former What's New button lives here — the installed release's
+        // full implementation details, read from its GitHub release notes.
+        var full = new Button { Name = "FullReleaseNotes", Content = "Full release notes", HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(0, 2, 0, 2),
+            ToolTip = "What's New — full implementation details for the installed release" };
+        full.SetResourceReference(StyleProperty, "Button.Link");
+        System.Windows.Automation.AutomationProperties.SetName(full, "Full release notes");
+        full.Click += async (_, _) => await Magpie.App.Services.ReleaseNotesWindow.ShowInstalledAsync(this);
+        RegisterName(full.Name, full);
+        panel.Children.Add(full);
+        var all = LinkButton("All releases on GitHub", BuildInfo.ReleasesUrl);
+        all.Margin = new Thickness(0, 6, 0, 0);
+        panel.Children.Add(all);
         return panel;
     }
 

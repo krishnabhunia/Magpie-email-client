@@ -116,6 +116,7 @@
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE787;" Command="{Binding ToggleCalendarCommand}" ToolTip="Calendar / mail (Ctrl+2 / Ctrl+1)" AutomationProperties.Name="Calendar" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE72C;" Command="{Binding SyncAllCommand}" ToolTip="Check for new mail (F5)" />
                     <Button Style="{StaticResource Button.TitleBar}" Content="&#xE713;" Click="OnSettings" ToolTip="Settings" />
+                    <!-- The separate What's New button became the Info window's What's new tab → Full release notes (one ⓘ, Krishna 9 Nov 2026). -->
                     <!-- Only a newer GitHub release shows this action; Settings keeps manual update checking available. -->
                     <Grid x:Name="UpdateHost" Margin="6,0,8,0" VerticalAlignment="Center">
                         <Grid.Style>
@@ -732,6 +733,12 @@
                                                 </StackPanel>
                                             </DockPanel>
                                             <DockPanel Grid.Row="1" Margin="0,2,0,0">
+                                                <!-- D1: sender priority is distinct from the user's pinned state. -->
+                                                <TextBlock x:Name="HighPriorityBadge" DockPanel.Dock="Left" Text="!" FontSize="14" FontWeight="Bold"
+                                                           Foreground="{DynamicResource Brush.Danger}" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsHighPriority, Converter={StaticResource BoolToVis}}"
+                                                           AutomationProperties.Name="High priority message"
+                                                           ToolTip="Contains a message marked high priority by its sender" ty:Typography.Role="listBadges" />
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                                     <TextBlock Text="{Binding DateText}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="6,0,0,0" VerticalAlignment="Center"
                                                                ToolTip="Arrived" Visibility="{Binding ShowDeleteDay, Converter={StaticResource BoolToVis}}"  ty:Typography.Role="listDate" />
@@ -825,6 +832,8 @@
 
                             <!-- Scheduled (send later) list -->
                             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsScheduledView, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                <TextBlock Text="{Binding ScheduledHelp}" TextWrapping="Wrap" Margin="16,10,14,8" Foreground="{DynamicResource Brush.Text.Secondary}" />
                                 <ItemsControl ItemsSource="{Binding Scheduled}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:ScheduledItem}">
@@ -855,6 +864,7 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                </StackPanel>
                             </ScrollViewer>
 
                             <TextBlock Text="{Binding EmptyText}" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"

@@ -44,6 +44,7 @@ internal static partial class Program
             Assert(table.RowDefinitions.Count == all, "Clearing the search shows every feature again");
             Capture(window, Path.Combine(output, theme + "-info-implemented.png"));
             tabs.SelectedIndex = 2; window.UpdateLayout();
+            Assert(window.FindName("FullReleaseNotes") is Button, "What's new offers the full release notes (the former What's New button)");
             Capture(window, Path.Combine(output, theme + "-info-whats-new.png"));
             tabs.SelectedIndex = 3; window.UpdateLayout();
             Assert(window.FindName("PartsTable") is Grid parts && parts.RowDefinitions.Count >= 10, "Under the hood lists the parts");
@@ -69,5 +70,17 @@ internal static partial class Program
         Assert(info != null && System.Windows.Automation.AutomationProperties.GetName(info) == "Info" && (string)info.ToolTip == "Info (F1)",
             "The title bar has an Info button named Info with the F1 tooltip");
         Assert(window.FindName("BetaChip") is Border, "The title bar has the Beta chip");
+        Assert(!LogicalDescendants(window).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetName(b) == "What's New"),
+            "Only one ⓘ in the title bar: the separate What's New button is gone");
+    }
+
+    private static IEnumerable<object> LogicalDescendants(DependencyObject node)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(node))
+        {
+            yield return child;
+            if (child is DependencyObject d)
+                foreach (var next in LogicalDescendants(d)) yield return next;
+        }
     }
 }

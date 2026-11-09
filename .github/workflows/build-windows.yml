@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # reserves the test version's tag v<x.y.z>-beta<NNN> on the PR head commit (design BT2)
+  contents: read
 
 concurrency:
   group: windows-${{ github.ref }}
@@ -45,8 +45,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Designs BT1 A + BT2: a PR gets x.y.z-betaNNN, reserved as a tag on its head commit (the same number in every
-      # platform workflow of that commit). --github-env also sets VERSION and the build details the Info window shows
+      # Designs BT1 A + BT2: a PR gets x.y.z-betaNNN, reserved once by build.yml as a tag on its head commit (the same
+      # number in every platform workflow of that commit). --github-env also sets VERSION and the build details the Info window shows
       # (MAGPIE_SOURCE_PR / _COMMIT / _BUILD_TIME_UTC / _RELEASE_TAG, read by Directory.Build.props).
       - name: Resolve shared build version
         shell: pwsh

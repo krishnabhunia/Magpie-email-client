@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # reserves the test version's tag v<x.y.z>-beta<NNN> on the PR head commit (design BT2)
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        # Designs BT1 A + BT2: x.y.z-betaNNN for a PR, the same number in every platform workflow of its head commit;
+        # Designs BT1 A + BT2: x.y.z-betaNNN for a PR, reserved once by build.yml on its head commit and read here;
         # also sets VERSION and the Info window's build details (MAGPIE_SOURCE_PR / _COMMIT / _BUILD_TIME_UTC / _RELEASE_TAG).
         run: |
           set -euo pipefail

@@ -416,6 +416,8 @@ public partial class ThreadViewModel : ObservableObject
         var timers = _e.Config.Appearance.DeleteDates.Reader == "R3" && rows.Count > 0
             ? _e.Store.DeleteTimers(accountId, rows[0].ThreadKey).ToDictionary(t => t.Id) : new();
         var rules = timers.Count > 0 ? _e.AutoDeleteRules().ToDictionary(x => x.Id) : new();
+        var receipts = rows.Count == 0 ? new Dictionary<string, DeliveryReceiptResult>()
+            : _e.Store.DeliveryReceiptsForThread(accountId, rows[0].ThreadKey);
         return rows.Select((r, i) => new RenderMessage
         {
             DeleteNote = timers.TryGetValue(r.Id, out var t) ? DeleteDates.MessageNote(t.At, now) : null,
@@ -426,6 +428,7 @@ public partial class ThreadViewModel : ObservableObject
             InlineImages = bodies.TryGetValue(r.Id, out var b2) ? b2.images : new(),
             Expanded = i == rows.Count - 1 || !r.IsSeen || rows.Count <= 2,
             IsMine = IsMine(r),
+            DeliveryReceipt = IsMine(r) ? receipts.GetValueOrDefault(Threading.NormalizeId(r.MessageId)) : null,
             LoadingText = $"Downloading from {where}…",
             LoadError = errors.TryGetValue(r.Id, out var err) ? err : null,
         }).ToList();

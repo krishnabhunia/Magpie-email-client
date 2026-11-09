@@ -1,268 +1,584 @@
-using Magpie.Core.Info;
-using Magpie.Core.Updates;
-using Xunit;
+using Magpie.Core.Mail;
+using Magpie.Core.Contacts;
+using Magpie.Core.Models;
+using System.IO.Compression;
+using System.Xml;
+using MimeKit;
+using Magpie.Core.Settings;
 
 namespace Magpie.Core.Tests;
 
-/// <summary>
-/// 15.0.0 — short test-version names (design BT1 option A, BT2) and the Info window (design IN1, Q94): beta parsing
-/// and order, portable names, build details, Copy build info, docs/FEATURES.md and the CHANGELOG section.
-/// </summary>
-public sealed class Release1500Tests
+/// <summary>CW1: recipient safety, attachments and delivery options for the compose redesign.</summary>
+public class Release1500Tests
 {
-    private static AppVersion V(string version) => AppVersion.TryParse(version)!;
-
-    [Theory]
-    [InlineData("15.0.0-beta007", "15.0.0")]                                 // below its release
-    [InlineData("2.16.0-beta.18.29", "2.16.0-beta001")]                      // above the old long betas
-    [InlineData("15.0.0-beta.1793625068.gaaaaaaaa", "15.0.0-beta001")]
-    [InlineData("15.0.0-beta.95", "15.0.0-beta001")]
-    [InlineData("15.0.0-beta009", "15.0.0-beta010")]                         // fixed width sorts 001 … 999
-    [InlineData("15.0.0-beta099", "15.0.0-beta999")]
-    [InlineData("14.1.0", "15.0.0-beta001")]                                 // above the previous release
-    [InlineData("15.0.0", "15.0.1-beta001")]
-    public void Short_test_versions_sort_where_the_design_says(string older, string newer)
+    [Fact]
+    public void Compose_more_order_is_normalised_and_cloned_independently()
     {
-        Assert.True(V(older).CompareTo(V(newer)) < 0, $"{older} < {newer}");
-        Assert.True(V(newer).CompareTo(V(older)) > 0, $"{newer} > {older}");
+        var appearance = new Appearance
+        {
+            ComposeMoreOrder = new List<string> { "find", "quote", "find", "unrecognised" },
+        };
+        appearance.Normalise();
+        Assert.Equal(Appearance.ComposeMoreIds.Length, appearance.ComposeMoreOrder.Count);
+        Assert.Equal(new[] { "find", "quote" }, appearance.ComposeMoreOrder.Take(2));
+        Assert.All(Appearance.ComposeMoreIds, id => Assert.Contains(id, appearance.ComposeMoreOrder));
+
+        var copy = appearance.Clone();
+        copy.ComposeMoreOrder.Reverse();
+        Assert.Equal("find", appearance.ComposeMoreOrder[0]);
+        Assert.NotEqual(appearance.ComposeMoreOrder[0], copy.ComposeMoreOrder[0]);
     }
 
     [Fact]
-    public void Short_test_versions_parse_and_print_unchanged()
+    public void Mention_adds_valid_contact_to_to_and_preserves_existing_recipients()
     {
-        var v = V("v15.0.0-beta007");
-        Assert.True(v.IsPrerelease);
-        Assert.Equal("beta007", v.Pre);
-        Assert.Equal("15.0.0-beta007", v.ToString());
-        Assert.Equal(7, BetaName.Number(v));
-        Assert.Equal("15.0.0", BetaName.Core(v));
-        Assert.Null(BetaName.Number(V("15.0.0-beta.1793625068.gaaaaaaaa")));
-        Assert.Null(BetaName.Number(V("15.0.0")));
-        Assert.Null(BetaName.Number(V("15.0.0-beta000")));
-        Assert.Equal("Magpie_15.0.0-beta007.dmg", UpdateAsset.MacDmg.FileFor("15.0.0-beta007"));
-    }
-
-    private const string Releases = """
-        [
-          { "tag_name": "v15.0.0-beta002", "prerelease": true, "assets": [ { "name": "Magpie.exe", "browser_download_url": "https://dl/c/Magpie.exe" }, { "name": "Magpie.exe.sha256", "browser_download_url": "https://dl/c/s" } ] },
-          { "tag_name": "v15.0.0-beta.1793625068.gaaaaaaaa", "prerelease": true, "assets": [ { "name": "Magpie.exe", "browser_download_url": "https://dl/b/Magpie.exe" }, { "name": "Magpie.exe.sha256", "browser_download_url": "https://dl/b/s" } ] },
-          { "tag_name": "v15.0.0-beta001", "prerelease": true, "assets": [ { "name": "Magpie.exe", "browser_download_url": "https://dl/a/Magpie.exe" }, { "name": "Magpie.exe.sha256", "browser_download_url": "https://dl/a/s" } ] },
-          { "tag_name": "v14.1.0", "prerelease": false, "assets": [ { "name": "Magpie.exe", "browser_download_url": "https://dl/s/Magpie.exe" }, { "name": "Magpie.exe.sha256", "browser_download_url": "https://dl/s/s" } ] }
-        ]
-        """;
-
-    [Fact]
-    public void Old_and_new_test_versions_are_both_listed_and_the_short_one_is_newest()
-    {
-        var all = UpdateClient.ParseReleases(Releases);
-        Assert.Equal(4, all.Count);
-        Assert.Equal("15.0.0-beta002", UpdateClient.PickNewest(all, includePrerelease: true)!.Version.ToString());
-        Assert.Equal("14.1.0", UpdateClient.PickNewest(all, includePrerelease: false)!.Version.ToString());
-        Assert.Equal(new[] { "15.0.0-beta002", "15.0.0-beta001", "15.0.0-beta.1793625068.gaaaaaaaa", "14.1.0" },
-            all.Select(r => r.Info.Version).OrderByDescending(v => v).Select(v => v.ToString()));
+        var added = ComposeSafety.AddMentionRecipient("first@example.com", "", "", "Ananya Roy", "ananya@example.com");
+        Assert.True(added.Added);
+        Assert.Contains("first@example.com", added.To);
+        var recipient = Composer.ParseAddresses(added.To).Mailboxes.Last();
+        Assert.Equal("Ananya Roy", recipient.Name);
+        Assert.Equal("ananya@example.com", recipient.Address);
     }
 
     [Theory]
-    [InlineData("Magpie_15.0.0-beta007.exe", true)]
-    [InlineData("magpie_15.0.0-BETA007.EXE", true)]
-    [InlineData("Magpie_15.0.0-beta007 (1).exe", true)]
-    [InlineData("Magpie_15.0.0-beta.1793625068.gaaaaaaaa.exe", true)]   // the old long test names too
-    [InlineData("Magpie_7.2.0-beta.5.exe", true)]
-    [InlineData("Magpie_15.0.0-.exe", false)]
-    [InlineData("Magpie_15.0.0-beta007.dll", false)]
-    [InlineData("Magpie_backup.exe", false)]
-    public void Portable_copies_of_test_versions_stay_portable(string name, bool portable)
+    [InlineData("ANANYA@example.com", "", "", "ananya@example.com")]
+    [InlineData("", "ananya@example.com", "", "ananya@example.com")]
+    [InlineData("", "", "ananya@example.com", "ananya@example.com")]
+    [InlineData("first@example.com", "", "", "invalid address")]
+    public void Mention_never_duplicates_existing_addresses_or_adds_invalid_addresses(
+        string to, string cc, string bcc, string address)
+    {
+        var result = ComposeSafety.AddMentionRecipient(to, cc, bcc, "Ananya", address);
+        Assert.False(result.Added);
+        Assert.Equal(to, result.To);
+    }
+
+    [Fact]
+    public void Editor_supports_safe_dom_mentions_and_arrow_key_selection()
+    {
+        Assert.Contains("function insertMention(name,address)", EditorPage.Html);
+        Assert.Contains("post({t:'mention',q:match[1]})", EditorPage.Html);
+        Assert.Contains("post({t:'mentionKey',key:e.key})", EditorPage.Html);
+    }
+
+    [Fact]
+    public async Task Send_and_archive_moves_inbox_thread_only_after_successful_smtp_acceptance()
     {
         using var dir = new TempDir();
-        Assert.Equal(portable, AppPaths.IsPortableCopy(dir.Path, name));
-    }
+        var accepted = 0;
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => { accepted++; return Task.CompletedTask; });
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        var original = Assert.Single(engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-1") }));
+        var draft = new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = original.ThreadKey,
+            ReplyArchiveSource = new ReplyArchiveSource("A", original.ThreadKey),
+            To = "recipient@test.local", Subject = "Re: Hello", Html = "<p>Reply</p>" };
 
-    private static readonly DateTimeOffset Built = new(2026, 11, 4, 14, 25, 0, TimeSpan.Zero);
-    private static readonly TimeZoneInfo India = TimeZoneInfo.CreateCustomTimeZone("IST", TimeSpan.FromHours(5.5), "IST", "IST");
+        var outboxId = engine.QueueSend(draft, DateTimeOffset.Now.AddHours(1), null, archiveAfterSend: true);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+        Assert.NotNull(engine.Recall(outboxId));
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-1")).FolderId);
 
-    private static BuildInfo Beta() => BuildInfo.From("15.0.0-beta001+4e68c2a", key => key switch
-    {
-        "SourcePr" => "35",
-        "SourceCommit" => "4E68C2A0B1C2D3E4F5061728394A5B6C7D8E9F00",
-        "BuildTimeUtc" => "2026-11-04T14:25:00Z",
-        "ReleaseTag" => "v15.0.0-beta001",
-        _ => null,
-    });
-
-    [Fact]
-    public void A_test_build_names_its_pr_commit_time_and_tag()
-    {
-        var b = Beta();
-        Assert.True(b.IsBeta);
-        Assert.False(b.IsLocal);
-        Assert.Equal("Beta", b.Channel);
-        Assert.Equal("v15.0.0-beta001", b.VersionLabel);
-        Assert.Equal("4e68c2a", b.ShortCommit);
-        Assert.Equal("Magpie_15.0.0-beta001.zip", b.DownloadName);
-        Assert.Equal("Version 15.0.0-beta001 · Beta · Windows", b.Subtitle("Windows"));
-        Assert.Equal("This is a test build. It is beta 001 of Magpie 15.0.0, made from a pull request.", b.Banner);
-        Assert.Equal("04-Nov-2026, 19:55", b.BuiltOn(India));
-        Assert.Equal("https://github.com/krishnabhunia/Magpie-email-client/pull/35", b.PrUrl);
-
-        var rows = b.Rows("installer, per-user", India);
-        Assert.Equal(new[] { "Version", "Channel", "Made from", "Commit", "Built on", "GitHub tag", "Download", "Installed as" },
-            rows.Select(r => r.Item));
-        Assert.Equal("PR #35", rows[2].Value);
-        Assert.Equal(b.PrUrl, rows[2].Link);
-        Assert.Equal("v15.0.0-beta001", rows[5].Value);
+        engine.QueueSend(draft, DateTimeOffset.Now.AddSeconds(-1), null, archiveAfterSend: true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(1, accepted);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-1"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
     }
 
     [Fact]
-    public void Copy_build_info_gives_the_two_lines_of_the_design()
+    public async Task Send_and_archive_keeps_inbox_on_failed_delivery_and_retries_pending_archive_after_restart()
     {
-        var system = SystemInfo.Line(SystemInfo.WindowsName("Windows 10 Pro", "24H2", 26100),
-            SystemInfo.Arch(System.Runtime.InteropServices.Architecture.X64),
-            SystemInfo.InstalledAs(UpdateInstallKinds.WindowsPerUser), new Version(8, 0, 11));
-        Assert.Equal("Windows 11 Pro 24H2 x64 · installer, per-user · .NET 8", system);
-        Assert.Equal("Magpie 15.0.0-beta001 (Beta) · PR #35 · 4e68c2a · built 2026-11-04 14:25 UTC" + Environment.NewLine + system,
-            Beta().CopyText(system));
-        Assert.Equal("Windows 10 Home 22H2", SystemInfo.WindowsName("Windows 10 Home", "22H2", 19045));
-        Assert.Equal("portable", SystemInfo.InstalledAs(UpdateInstallKinds.WindowsPortable));
-        Assert.Equal("installer, all users", SystemInfo.InstalledAs(UpdateInstallKinds.WindowsAllUsers));
+        using var dir = new TempDir();
+        using var engine = new MailEngine(new AppPaths(dir.Path), new FakeProtector(),
+            sendMessage: (_, _, _) => throw new IOException("SMTP unavailable"));
+        engine.Config.Accounts.Add(new Account { Id = "A", Email = "me@test.local", Enabled = false });
+        var inbox = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "INBOX", Role = FolderRole.Inbox });
+        var archive = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Archive", Role = FolderRole.Archive });
+        engine.Store.InsertMessages(new[] { Rows.Make("A", inbox, "thread-2") });
+        var queued = engine.QueueSend(new Draft { AccountId = "A", Mode = ComposeMode.Reply, ThreadKey = "thread-2",
+            ReplyArchiveSource = new ReplyArchiveSource("A", "thread-2"),
+            To = "recipient@test.local", Subject = "Reply", Html = "<p>Reply</p>" }, DateTimeOffset.Now.AddSeconds(-1), null, true);
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Equal(OutboxStatus.Failed, engine.Store.GetOutbox().Single(o => o.Id == queued).Status);
+        Assert.Equal(inbox, Assert.Single(engine.Store.GetThreadCopies("A", "thread-2")).FolderId);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
+
+        // Simulate a successful delivery recorded before a crash, with only the post-send action left.
+        engine.Store.SetOutboxResult(queued, OutboxStatus.Sent);
+        Assert.Single(engine.Store.PendingPostSendArchives());
+        await engine.ProcessOutboxAsync(CancellationToken.None);
+        Assert.Empty(engine.Store.GetThreadCopies("A", "thread-2"));
+        Assert.Contains(engine.Store.GetPendingOps("A"), op => op.Kind == PendingOpKind.Move && op.Arg == archive);
+        Assert.Empty(engine.Store.PendingPostSendArchives());
     }
 
     [Fact]
-    public void A_local_build_says_local_build_and_has_no_pr_row()
+    public void Quick_templates_expand_only_known_variables_with_current_compose_context()
     {
-        var b = BuildInfo.From("15.0.0", _ => "");
-        Assert.True(b.IsLocal);
-        Assert.False(b.IsBeta);
-        Assert.Null(b.Banner);
-        Assert.Equal("Stable", b.Channel);
-        var rows = b.Rows(null);
-        Assert.DoesNotContain(rows, r => r.Item is "Made from" or "Installed as");
-        Assert.Equal(BuildInfo.LocalBuild, rows.Single(r => r.Item == "Commit").Value);
-        Assert.Equal(BuildInfo.LocalBuild, rows.Single(r => r.Item == "Built on").Value);
-        Assert.Equal("Magpie 15.0.0 (Stable) · local build", b.SummaryLine());
+        var sender = new Account { DisplayName = "Krishna Bhunia", Email = "krishna@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate(
+            "Hi {{first_name}} {{last_name}} / {{full_name}} ({{recipient_email}}), from {{sender_name}} {{sender_email}}; {{subject}} on {{date}} at {{time}}. {{custom}}",
+            sender, "Ananya Roy <ananya@example.com>", "Project update", new DateTimeOffset(2026, 11, 5, 14, 25, 0, TimeSpan.FromHours(5.5)));
+        Assert.Contains("Hi Ananya Roy / Ananya Roy (ananya@example.com)", expanded);
+        Assert.Contains("from Krishna Bhunia krishna@example.com; Project update", expanded);
+        Assert.Contains("05 Nov 2026 at 14:25", expanded);
+        Assert.EndsWith("{{custom}}", expanded);
     }
 
     [Fact]
-    public void An_old_long_test_version_has_a_banner_without_a_number()
+    public void Quick_templates_leave_missing_recipient_name_visible_and_never_expand_recursively()
     {
-        var b = BuildInfo.From("14.0.0-beta.1793625068.gaaaaaaaa", _ => null);
-        Assert.Equal("This is a test build of Magpie 14.0.0, made from a pull request.", b.Banner);
-        Assert.Equal("14.0.0 · test version · being tested", ChangelogNotes.Heading(b, null));
+        var sender = new Account { DisplayName = "{{sender_email}}", Email = "me@example.com" };
+        var expanded = ComposeSafety.ExpandQuickTemplate("{{FIRST_NAME}} {{recipient_email}} {{sender_name}}", sender,
+            "unknown@example.com", "", DateTimeOffset.Now);
+        Assert.Equal("{{FIRST_NAME}} unknown@example.com {{sender_email}}", expanded);
     }
 
     [Fact]
-    public void This_app_reads_its_own_build_details()
+    public void Accounts_clone_named_signatures_independently_and_old_default_remains()
     {
-        var b = BuildInfo.FromAssembly(typeof(BuildInfo).Assembly);
-        Assert.NotEqual("0.0.0", b.Version.ToString());
+        var original = new Account
+        {
+            SignatureHtml = "<p>Best wishes</p>",
+            SignatureVariants = new List<NamedSignature> { new() { Name = "Formal", Html = "<p>Regards</p>" } },
+        };
+        var copy = original.Clone();
+        copy.SignatureVariants[0].Name = "Casual";
+        Assert.Equal("Formal", original.SignatureVariants[0].Name);
+        Assert.Contains("Best wishes", Composer.SignatureHtml(original, reply: false));
+        Assert.Contains("replaceSignatureBlock(blockHtml)", EditorPage.Html);
     }
 
-    private const string Features = """
-        # What Magpie can do
+    [Theory]
+    [InlineData("photo.JPG", "image")]
+    [InlineData("receipt.pdf", "pdf")]
+    [InlineData("notes.md", "text")]
+    [InlineData("transaction.csv", "text")]
+    [InlineData("notes.docx", "office")]
+    [InlineData("budget.xlsx", "office")]
+    [InlineData("deck.pptx", "office")]
+    [InlineData("document.docx", "office")]
+    [InlineData("dangerous.exe", "none")]
+    [InlineData("evil.pdf.exe", "none")]
+    public void Compose_preview_only_accepts_known_safe_types(string file, string type) =>
+        Assert.Equal(type, ComposeSafety.AttachmentPreviewKind(file));
 
-        Intro.
-
-        | SrNo. | Area | What it does | Since | Windows | Mac |
-        |---|---|---|---|---|---|
-        | 1 | Accounts | Gmail and **IMAP** | 1.0.0 | Yes | Yes |
-        | 2 | Calendar | Google Calendar with `Meet` links | 3.0.0 | Yes | Not yet |
-        | 3 | Info window | ⓘ next to the version | 15.0.0 | Yes | Yes |
-
-        Text after the table.
-        """;
-
-    [Fact]
-    public void Features_md_parses_and_filters()
-    {
-        var rows = FeatureList.Parse(Features);
-        Assert.Equal(new[] { 1, 2, 3 }, rows.Select(r => r.SrNo));
-        Assert.Equal("Gmail and IMAP", rows[0].What);
-        Assert.Equal("Google Calendar with Meet links", rows[1].What);
-        Assert.Equal(new[] { "Info window" }, FeatureList.Filter(rows, "", FeatureFilter.NewInThisVersion, "15.0.0").Select(r => r.Area));
-        Assert.Equal(new[] { "Calendar" }, FeatureList.Filter(rows, null, FeatureFilter.WindowsOnly, "15.0.0").Select(r => r.Area));
-        Assert.Equal(new[] { "Accounts", "Info window" }, FeatureList.Filter(rows, "", FeatureFilter.AlsoOnMac, "15.0.0").Select(r => r.Area));
-        Assert.Equal(new[] { "Calendar" }, FeatureList.Filter(rows, "google MEET", FeatureFilter.All, "15.0.0").Select(r => r.Area));
-        Assert.Empty(FeatureList.Filter(rows, "nothing like this", FeatureFilter.All, "15.0.0"));
-        Assert.Equal("New in 15.0.0", FeatureList.NewInLabel("15.0.0"));
-    }
-
-    [Fact]
-    public void The_built_in_features_md_has_the_info_window_and_numbered_rows()
-    {
-        var rows = FeatureList.Parse(InfoContent.Features);
-        Assert.True(rows.Count >= 20);
-        Assert.Equal(Enumerable.Range(1, rows.Count), rows.Select(r => r.SrNo));
-        Assert.Contains(rows, r => r.Area == "Info window" && r.OnWindows && r.OnMac);
-        Assert.All(rows, r => Assert.NotNull(AppVersion.TryParse(r.Since)));
-    }
-
-    private const string Log = """
-        # Changelog
-
-        <!-- the rule
-             spans lines -->
-
-        ## 15.0.0 (5 Nov 2026)
-        ### New
-        - **Info window.** Four tabs:
-          - **This build** — the version.
-        - Copy build info.
-        ### Changed
-        - Short `beta007` names,
-          wrapped onto a second line.
-        <!-- closes: #138 -->
-        ## 14.1.0 (4 Nov 2026)
-        ### Changed
-        - Confirm screen.
-
-        ## 2.2.0 (30 Sep 2026)
-        - Emails open from this PC.
-        """;
+    [Theory]
+    [InlineData("report.pdf", "application/pdf", "pdf")]
+    [InlineData("photo.jpg", "image/jpeg", "image")]
+    [InlineData("notes.txt", "text/plain", "text")]
+    [InlineData("data.json", "application/json", "text")]
+    [InlineData("photo.jpg", "application/x-msdownload", "none")]
+    [InlineData("archive.zip", "application/zip", "none")]
+    [InlineData("report.pdf", "text/html", "none")]
+    [InlineData("contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "office")]
+    [InlineData("budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "office")]
+    [InlineData("deck.pptx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "none")]
+    [InlineData("contract.docx", "application/zip", "none")]
+    public void Forwarded_preview_requires_approved_type_and_filename(string file, string mime, string expected) =>
+        Assert.Equal(expected, ComposeSafety.ForwardedAttachmentPreviewKind(file, mime));
 
     [Fact]
-    public void Whats_new_reads_the_versions_changelog_section()
+    public void Word_preview_extracts_text_only_from_a_valid_open_xml_package()
     {
-        var s = ChangelogNotes.Section(Log, "15.0.0")!;
-        Assert.Equal("15.0.0", s.Version);
-        Assert.Equal("5 Nov 2026", s.Date);
-        Assert.Equal(new[] { "New", "Changed" }, s.Groups.Select(g => g.Kind));
-        Assert.Equal(new[] { "Info window. Four tabs:", "· This build — the version.", "Copy build info." }, s.Groups[0].Lines);
-        Assert.Equal(new[] { "Short beta007 names, wrapped onto a second line." }, s.Groups[1].Lines);
-        var old = ChangelogNotes.Section(Log, "2.2.0")!;
-        Assert.Equal("Changes", Assert.Single(old.Groups).Kind);
-        Assert.Null(ChangelogNotes.Section(Log, "99.0.0"));
-        Assert.Equal("15.0.0 · released 5 Nov 2026", ChangelogNotes.Heading(BuildInfo.From("15.0.0", _ => null), s));
-        Assert.Equal("15.0.0 · beta 001 · being tested", ChangelogNotes.Heading(Beta(), s));
+        using var stream = WordPackage("""
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body><w:p><w:r><w:t>Hello </w:t><w:t>Krishna</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:body></w:document>
+            """);
+        var preview = OfficeTextPreview.ReadWordDocument(stream);
+        Assert.Contains("Hello Krishna", preview);
+        Assert.Contains("Second paragraph", preview);
+        Assert.DoesNotContain("<w:", preview);
     }
 
     [Fact]
-    public void Whats_new_falls_back_to_the_next_version_section()
+    public void Word_preview_rejects_xml_with_dtd()
     {
-        var s = ChangelogNotes.Section("# Changelog\n\n## Next version (not released yet)\n### Fixed\n- A fix.\n\n## 14.1.0 (4 Nov 2026)\n- Old.\n", "15.0.0")!;
-        Assert.Equal("15.0.0", s.Version);
-        Assert.Equal("", s.Date);
-        Assert.Equal("A fix.", Assert.Single(Assert.Single(s.Groups).Lines));
+        using var stream = WordPackage("<!DOCTYPE doc [<!ENTITY example 'unsafe'>]><doc>&example;</doc>");
+        Assert.ThrowsAny<XmlException>(() => OfficeTextPreview.ReadWordDocument(stream));
     }
 
     [Fact]
-    public void The_built_in_changelog_has_this_versions_section()
+    public void PowerPoint_preview_extracts_slide_text_in_numeric_order()
     {
-        var core = BetaName.Core(BuildInfo.FromAssembly(typeof(BuildInfo).Assembly).Version);
-        var s = ChangelogNotes.Section(InfoContent.Changelog, core);
-        Assert.NotNull(s);
-        Assert.False(s!.IsEmpty);
+        const string slideNamespace = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        using var stream = OfficePackage(
+            ("ppt/slides/slide10.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Ten</a:t></a:p></a:slide>"),
+            ("ppt/slides/slide2.xml", $"<a:slide xmlns:a=\"{slideNamespace}\"><a:p><a:t>Two</a:t></a:p></a:slide>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "deck.pptx");
+        Assert.True(preview.IndexOf("[Slide 2]", StringComparison.Ordinal) < preview.IndexOf("[Slide 10]", StringComparison.Ordinal));
+        Assert.Contains("Two", preview);
+        Assert.Contains("Ten", preview);
     }
 
     [Fact]
-    public void Under_the_hood_lists_the_parts_this_copy_uses()
+    public void Excel_preview_extracts_shared_and_inline_strings_without_formulas()
     {
-        var rows = UnderTheHood.Rows(false, "WPF · CommunityToolkit.Mvvm 8.4.2", @"C:\Users\k\AppData\Roaming\Magpie", true, "Match Windows", "IBM Plex Sans, IBM Plex Serif");
-        Assert.Equal(new[] { "App", "Window toolkit", "Showing emails", "Mail", "Storage", "Sync", "Passwords and keys", "Updates", "Design / theme", "Fonts" },
-            rows.Select(r => r.Item));
-        Assert.Contains("MailKit 4.", rows.Single(r => r.Item == "Mail").Value);
-        Assert.Contains("test versions on", rows.Single(r => r.Item == "Updates").Value);
-        Assert.Contains("DPAPI", rows.Single(r => r.Item == "Passwords and keys").Value);
-        var mac = UnderTheHood.Rows(true, "Avalonia 12", "~/Library/Application Support/Magpie", false, "Follows the Mac", null);
-        Assert.Contains("Keychain", mac.Single(r => r.Item == "Passwords and keys").Value);
-        Assert.Equal("The system's own fonts", mac.Single(r => r.Item == "Fonts").Value);
+        const string sheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        using var stream = OfficePackage(
+            ("xl/sharedStrings.xml", $"<sst xmlns=\"{sheetNamespace}\"><si><t>Transaction</t></si></sst>"),
+            ("xl/worksheets/sheet1.xml", $"<worksheet xmlns=\"{sheetNamespace}\"><sheetData><row r=\"1\">" +
+                "<c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\"><v>125</v></c>" +
+                "<c r=\"C1\" t=\"inlineStr\"><is><t>Pending</t></is></c></row></sheetData></worksheet>"));
+        var preview = OfficeTextPreview.ReadDocument(stream, "budget.xlsx");
+        Assert.Contains("A1: Transaction", preview);
+        Assert.Contains("B1: 125", preview);
+        Assert.Contains("C1: Pending", preview);
+    }
+
+    private static MemoryStream WordPackage(string documentXml) => OfficePackage(("word/document.xml", documentXml));
+
+    private static MemoryStream OfficePackage(params (string Path, string Xml)[] entries)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (path, xml) in entries)
+            {
+                var entry = archive.CreateEntry(path);
+                using var output = new StreamWriter(entry.Open());
+                output.Write(xml);
+            }
+        }
+        stream.Position = 0;
+        return stream;
+    }
+
+    [Theory]
+    [InlineData("photo.jpg", true)]
+    [InlineData("photo.PNG", true)]
+    [InlineData("scan.bmp", true)]
+    [InlineData("animation.gif", false)]
+    [InlineData("document.pdf", false)]
+    [InlineData("dangerous.jpg.exe", false)]
+    public void Only_static_picture_formats_can_be_compressed(string file, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.CanCompressImage(file));
+
+    [Theory]
+    [InlineData("https://example.com", true)]
+    [InlineData("http://example.com/page", true)]
+    [InlineData("mailto:hello@example.com", true)]
+    [InlineData("javascript:alert(1)", false)]
+    [InlineData("file:///C:/secret.txt", false)]
+    [InlineData("data:text/html,hello", false)]
+    [InlineData("not a link", false)]
+    public void Compose_link_editor_rejects_unsafe_schemes(string link, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidComposeLink(link));
+
+    [Fact]
+    public void Shared_editor_includes_safe_link_edit_and_image_resize_commands()
+    {
+        Assert.Contains("function setSelectedLink(url)", EditorPage.Html);
+        Assert.Contains("function removeSelectedLink()", EditorPage.Html);
+        Assert.Contains("function resizeSelectedImage(percent)", EditorPage.Html);
+        Assert.Contains("[25,50,75,100].includes(percent)", EditorPage.Html);
+        Assert.Contains("function setWritingDirection(direction)", EditorPage.Html);
+        Assert.Contains("function setWritingLanguage(language)", EditorPage.Html);
+        Assert.Contains("post({t:'shortcuts'})", EditorPage.Html);
+        Assert.Contains("function findInEditor(query,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceFoundText(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("function replaceAllInEditor(query,replacement,matchCase)", EditorPage.Html);
+        Assert.Contains("post({t:'find'})", EditorPage.Html);
+        Assert.Contains("post({t:'replace'})", EditorPage.Html);
+        Assert.Contains("function toggleQuoteFold()", EditorPage.Html);
+        Assert.Contains("ed.classList.toggle('quote-folded'", EditorPage.Html);
+        Assert.Contains("function insertTableGrid(rows,cols)", EditorPage.Html);
+        Assert.Contains("function editTable(action)", EditorPage.Html);
+        Assert.Contains("function tableGrid(table)", EditorPage.Html);
+        Assert.Contains("function editMergedTableCell(action,cell,table)", EditorPage.Html);
+        Assert.Contains("action==='mergeRight'||action==='mergeDown'", EditorPage.Html);
+        Assert.Contains("action==='splitCell'", EditorPage.Html);
+        Assert.Contains("post({t:'tableMenu'})", EditorPage.Html);
+        Assert.Contains("function setEditorSpellcheck(enabled)", EditorPage.Html);
+        Assert.Contains("function setParagraphStyle(style)", EditorPage.Html);
+        Assert.Contains("['p','h1','h2','h3','pre'].includes(style)", EditorPage.Html);
+        Assert.Contains("function setEditorPlainText(enabled,notify)", EditorPage.Html);
+        Assert.Contains("ed.contentEditable='plaintext-only'", EditorPage.Html);
+    }
+
+    [Fact]
+    public void Plain_text_draft_sends_only_text_plain_and_remains_plain_after_reopening()
+    {
+        var account = new Account { Email = "sender@example.com" };
+        var draft = new Draft
+        {
+            To = "recipient@example.com", Subject = "Plain text", IsPlainText = true,
+            Html = "<p>Hello <b>there</b></p><p>Next line</p>",
+        };
+        var outgoing = Composer.Build(draft, account);
+        Assert.Null(outgoing.HtmlBody);
+        Assert.Contains("Hello there", outgoing.TextBody);
+        Assert.Contains("Next line", outgoing.TextBody);
+        var reopened = Composer.FromMime(outgoing, "account-one", "");
+        Assert.True(reopened.IsPlainText);
+        Assert.Contains("Hello", reopened.Html);
+    }
+
+    [Fact]
+    public void Compose_message_can_be_exported_and_loaded_as_eml()
+    {
+        var account = new Account { Email = "sender@example.com", DisplayName = "Sender" };
+        var draft = new Draft { To = "recipient@example.com", Subject = "Export test", Html = "<p>Export me</p>" };
+        var mime = Composer.Build(draft, account);
+        using var stream = new MemoryStream();
+        mime.WriteTo(stream);
+        stream.Position = 0;
+        var loaded = MimeMessage.Load(stream);
+        Assert.Equal("Export test", loaded.Subject);
+        Assert.Equal("recipient@example.com", loaded.To.Mailboxes.Single().Address);
+    }
+
+    [Fact]
+    public void Duplicate_recipients_are_detected_across_all_fields()
+    {
+        var repeated = ComposeSafety.DuplicateRecipients("Ananya <A@Example.com>, b@example.com", "a@example.com", "B@EXAMPLE.COM, hidden@example.com");
+        Assert.Equal(new[] { "A@Example.com", "b@example.com" }, repeated, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Moving_large_visible_recipient_list_to_bcc_keeps_all_people_private()
+    {
+        var to = string.Join(", ", Enumerable.Range(1, 21).Select(i => $"person{i}@example.com"));
+        const string cc = "person22@example.com";
+        const string bcc = "private@example.com, PERSON2@example.com";
+        Assert.Equal(22, ComposeSafety.VisibleRecipientCount(to, cc));
+
+        var rearranged = ComposeSafety.MoveVisibleRecipientsToBcc(to, cc, bcc);
+        var recipients = Composer.ParseAddresses(rearranged.To).Mailboxes
+            .Concat(Composer.ParseAddresses(rearranged.Cc).Mailboxes)
+            .Concat(Composer.ParseAddresses(rearranged.Bcc).Mailboxes).ToArray();
+        Assert.Single(Composer.ParseAddresses(rearranged.To).Mailboxes);
+        Assert.Empty(Composer.ParseAddresses(rearranged.Cc).Mailboxes);
+        Assert.Equal(23, recipients.Length);
+        Assert.Equal(23, recipients.Select(address => address.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Contains(recipients, address => address.Address == "private@example.com");
+        Assert.Contains(recipients, address => address.Address == "person22@example.com");
+    }
+
+    [Fact]
+    public void Dragging_a_recipient_between_fields_preserves_name_and_does_not_duplicate()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("Ananya <a@example.com>, b@example.com", "manager@example.com",
+            "private@example.com", "a@example.com", "to", "bcc");
+        Assert.True(result.Moved);
+        Assert.Equal("b@example.com", Composer.ParseAddresses(result.To).Mailboxes.Single().Address);
+        Assert.Equal("manager@example.com", Composer.ParseAddresses(result.Cc).Mailboxes.Single().Address);
+        Assert.Contains(Composer.ParseAddresses(result.Bcc).Mailboxes, mailbox => mailbox.Address == "a@example.com" && mailbox.Name == "Ananya");
+
+        var repeated = ComposeSafety.MoveRecipientBetweenFields(result.To, result.Cc, result.Bcc,
+            "manager@example.com", "cc", "bcc");
+        Assert.True(repeated.Moved);
+        var duplicate = ComposeSafety.MoveRecipientBetweenFields(repeated.To, repeated.Cc, repeated.Bcc,
+            "a@example.com", "bcc", "to");
+        Assert.True(duplicate.Moved);
+        Assert.Single(Composer.ParseAddresses(duplicate.To).Mailboxes, m => m.Address == "a@example.com");
+    }
+
+    [Fact]
+    public void Dragging_recipients_never_discards_invalid_address_text()
+    {
+        var result = ComposeSafety.MoveRecipientBetweenFields("valid@example.com", "not-an-address", "",
+            "valid@example.com", "to", "bcc");
+        Assert.False(result.Moved);
+        Assert.Equal("not-an-address", result.Cc);
+        Assert.Equal("valid@example.com", result.To);
+    }
+
+    [Fact]
+    public void Saved_quick_templates_remain_available_after_settings_serialization()
+    {
+        var templates = new List<Magpie.Core.Settings.QuickTemplate>
+        {
+            new() { Name = "Client update", Body = "Here is the latest status." },
+        };
+        var restored = System.Text.Json.JsonSerializer.Deserialize<List<Magpie.Core.Settings.QuickTemplate>>(
+            System.Text.Json.JsonSerializer.Serialize(templates));
+        Assert.Equal("Client update", restored!.Single().Name);
+        Assert.Equal("Here is the latest status.", restored!.Single().Body);
+    }
+
+    [Fact]
+    public void Compose_window_placement_defaults_and_invalid_sizes_are_safe()
+    {
+        var placement = new Magpie.Core.Settings.ComposeWindowPlacement
+        {
+            HasSavedPlacement = true, Left = double.NaN, Top = 20,
+            Width = double.PositiveInfinity, Height = 30,
+        };
+        placement.Normalise();
+        Assert.False(placement.HasSavedPlacement);
+        Assert.Equal(980, placement.Width);
+        Assert.Equal(460, placement.Height);
+    }
+
+    [Theory]
+    [InlineData(AccountKind.Gmail, 0, 25_000_000L)]
+    [InlineData(AccountKind.Microsoft, 0, 20_000_000L)]
+    [InlineData(AccountKind.Imap, 12, 12_000_000L)]
+    [InlineData(AccountKind.Imap, 0, 25_000_000L)]
+    [InlineData(AccountKind.Imap, 150, 100_000_000L)]
+    public void Compose_message_limit_is_provider_aware_and_advisory(AccountKind kind, int configuredMb, long expectedBytes)
+    {
+        var account = new Account { Kind = kind, MaxOutgoingMessageMb = configuredMb };
+        Assert.Equal(expectedBytes, ComposeSafety.SuggestedOutgoingLimitBytes(account));
+    }
+
+    [Fact]
+    public void Recent_attachment_history_deduplicates_and_keeps_newest_files_first()
+    {
+        var paths = ComposeSafety.RecentAttachmentPaths(new[] { "C:/new.pdf", "C:/OLD.pdf" },
+            new[] { "c:/old.pdf", "C:/older.docx", "C:/third.txt" }, maximum: 3);
+        Assert.Equal(new[] { "C:/new.pdf", "C:/OLD.pdf", "C:/older.docx" }, paths);
+    }
+
+    [Theory]
+    [InlineData("Please find the attached report", true)]
+    [InlineData("See the attachment", true)]
+    [InlineData("We can meet tomorrow", false)]
+    public void Missing_attachment_language_is_detected(string body, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.MentionsAttachment(body));
+
+    [Fact]
+    public void Encoded_size_includes_base64_expansion()
+    {
+        Assert.True(ComposeSafety.EstimatedEncodedBytes(new[] { 20_000_000L }) > 25_000_000L);
+        Assert.True(ComposeSafety.EstimatedEncodedBytes(new[] { 2_000L, 3_000L }) > 5_000);
+    }
+
+    [Fact]
+    public void Missing_attachments_are_not_silently_dropped_on_send()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft { AccountId = account.Id, To = "to@example.com", Subject = "Report", Html = "<p>Hello</p>" };
+        draft.AttachmentPaths.Add(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pdf"));
+        Assert.Single(ComposeSafety.MissingFiles(draft.AttachmentPaths));
+        Assert.Throws<FileNotFoundException>(() => Composer.Build(draft, account));
+    }
+
+    [Fact]
+    public void Mime_message_deduplicates_and_keeps_bcc_private()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft
+        {
+            To = "first@example.com", Cc = "FIRST@example.com, second@example.com",
+            Bcc = "second@example.com, secret@example.com", ReplyTo = "replies@example.com",
+            Subject = "Review", Priority = "High", RequestReadReceipt = true, Html = "<p>Hi</p>",
+        };
+        var msg = Composer.Build(draft, account);
+        Assert.Single(msg.To.Mailboxes);
+        Assert.Single(msg.Cc.Mailboxes);
+        Assert.Single(msg.Bcc.Mailboxes);
+        Assert.Equal("secret@example.com", msg.Bcc.Mailboxes.Single().Address);
+        Assert.Equal("replies@example.com", msg.ReplyTo.Mailboxes.Single().Address);
+        Assert.Equal("high", msg.Headers["Importance"]);
+        Assert.Equal(account.Email, msg.Headers["Disposition-Notification-To"]);
+    }
+
+    [Fact]
+    public void Delivery_options_survive_mime_draft_round_trip()
+    {
+        var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+        var draft = new Draft
+        {
+            To = "client@example.com", ReplyTo = "replies@example.com", Priority = "Low",
+            RequestReadReceipt = true, Html = "<p>Report attached separately.</p>",
+        };
+        var message = Composer.Build(draft, account);
+        var restored = Composer.FromMime(message, account.Id, "thread");
+
+        Assert.Equal(draft.ReplyTo, restored.ReplyTo);
+        Assert.Equal(draft.Priority, restored.Priority);
+        Assert.True(restored.RequestReadReceipt);
+    }
+
+    [Fact]
+    public void External_recipient_check_uses_sender_domain_and_deduplicates()
+    {
+        var external = ComposeSafety.ExternalRecipients("me@work.example", "one@work.example, customer@outside.example",
+            "CUSTOMER@OUTSIDE.EXAMPLE", "private@another.example");
+        Assert.Equal(new[] { "customer@outside.example", "private@another.example" }, external, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Word_count_and_reading_estimate_are_available_for_review()
+    {
+        Assert.Equal(6, ComposeSafety.WordCount("Hello Krishna, I've attached two files."));
+        Assert.Equal(2, ComposeSafety.EstimatedReadingMinutes(205));
+    }
+
+    [Theory]
+    [InlineData("report.pdf", true)]
+    [InlineData("quarterly report (final).xlsx", true)]
+    [InlineData("../../data.txt", false)]
+    [InlineData("folder\\data.txt", false)]
+    [InlineData("report?.pdf", false)]
+    [InlineData("bad\nfile.pdf", false)]
+    [InlineData("renamed.", false)]
+    public void Outgoing_attachment_names_are_checked(string name, bool expected) =>
+        Assert.Equal(expected, ComposeSafety.ValidAttachmentName(name));
+
+    [Fact]
+    public void Interleaved_attachment_order_and_names_survive_saving_as_mime()
+    {
+        var first = Path.Combine(Path.GetTempPath(), "magpie-compose-first-" + Guid.NewGuid() + ".txt");
+        var second = Path.Combine(Path.GetTempPath(), "magpie-compose-second-" + Guid.NewGuid() + ".txt");
+        try
+        {
+            File.WriteAllText(first, "first");
+            File.WriteAllText(second, "second");
+            var forwarded = new MimePart("application", "pdf")
+            {
+                FileName = "forward.pdf",
+                Content = new MimeContent(new MemoryStream(new byte[] { 1, 2, 3 })),
+            };
+            var account = new Account { Email = "me@example.com", DisplayName = "Me" };
+            var draft = new Draft
+            {
+                To = "client@example.com", Html = "<p>Hello</p>",
+                AttachmentPaths = new List<string> { first, second },
+                AttachmentNames = new Dictionary<string, string> { [first] = "renamed-first.txt" },
+                CarriedParts = new List<MimeEntity> { forwarded },
+                AttachmentOrder = new List<DraftAttachmentPosition>
+                {
+                    new() { CarriedIndex = 0 }, new() { Path = second }, new() { Path = first },
+                },
+            };
+
+            var message = Composer.Build(draft, account);
+            var names = message.Attachments.OfType<MimePart>().Select(part => part.FileName).ToArray();
+            Assert.Equal(new[] { "forward.pdf", Path.GetFileName(second), "renamed-first.txt" }, names);
+            var reopened = Composer.FromMime(message, account.Id, "thread");
+            Assert.Equal(names, reopened.CarriedParts.OfType<MimePart>().Select(part => part.FileName));
+        }
+        finally
+        {
+            if (File.Exists(first)) File.Delete(first);
+            if (File.Exists(second)) File.Delete(second);
+        }
+    }
+
+    [Fact]
+    public void Contact_picker_groups_include_only_group_members()
+    {
+        var saved = new List<SavedContact>
+        {
+            new() { Id = 1, Name = "Ananya", Emails = new() { "ananya@example.com" }, Groups = new() { "Finance" } },
+            new() { Id = 2, Name = "Meera", Emails = new() { "meera@example.com" }, Groups = new() { "Finance", "Project" } },
+            new() { Id = 3, Name = "Rahul", Emails = new() { "rahul@example.com" }, Groups = new() { "Project" } },
+        };
+        var people = new List<(string Address, string Name, int Count, DateTimeOffset Last, bool Sent)>();
+        var entries = ContactSuggest.Entries(saved, people);
+        var groups = ContactSuggest.Groups(entries);
+
+        Assert.Equal(new[] { "Finance", "Project" }, groups.Select(group => group.Group));
+        Assert.Equal(new[] { "Ananya", "Meera" }, groups.Single(group => group.Group == "Finance").Members.Select(member => member.Name));
     }
 }

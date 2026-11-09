@@ -46,4 +46,10 @@ One row per feature, in plain words. "Since" is the first version in `CHANGELOG.
 | 40 | Accounts on a new computer | Sign in once on a new computer and every account (and, if you like, your settings) comes along | 12.0.0 | Yes | Not yet |
 | 41 | AI writing | AI note when you forward, "What the reply says" with one-click answers, tone, formality, culture and etiquette | 13.0.0 | Yes | Not yet |
 | 42 | Start-up screen | While Magpie opens: its version, the start-up steps with their times and your accounts; a failed start says why | 14.0.0 | Yes | Not yet |
-| 43 | Info window | ⓘ next to the version (or F1): this build's details, what's implemented, what's new and what it is made of, with Copy build info | 15.0.0 | Yes | Yes |
+| 43 | Compose window | Balanced, Focus and Studio ways to write: recipient chips, separate Cc / Bcc, a contacts picker, attachment cards with previews, several signatures per account, templates with variables, draft history, find and replace, tables, emoji, Send & Archive, priority and read receipts | 15.0.0 | Yes | Not yet |
+| 44 | Cloud file links | Share a file through Google Drive or OneDrive, with a review of who gets View or Edit access before the link goes in | 16.0.0 | Yes | Not yet |
+| 45 | Signed and encrypted mail | Sign or encrypt with S/MIME or OpenPGP, and open a protected message on its own to check its signature | 16.0.0 | Yes | Not yet |
+| 46 | Delivery notifications | Ask the mail server for a delivered / failed report, separately from a read receipt | 16.0.0 | Yes | Not yet |
+| 47 | Send as an alias | Up to 20 sender addresses your provider allows, per account, chosen while writing | 16.0.0 | Yes | Not yet |
+| 48 | Translate a selection | Translate the selected text with your AI and see it before it replaces anything | 16.0.0 | Yes | Not yet |
+| 49 | Info window | ⓘ next to the version (or F1): this build's details, what's implemented, what's new and what it is made of, with Copy build info and the full release notes | 17.0.0 | Yes | Yes |

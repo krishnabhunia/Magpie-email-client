@@ -26,11 +26,11 @@ readiness claim.
 |---|---|
 | Name | `<x.y.z>-beta<NNN>`, three digits, e.g. `15.0.0-beta007`; tag `v15.0.0-beta007`; files `Magpie_15.0.0-beta007.zip / .exe / .dmg / .apk`. Not `beta.007` (SemVer forbids leading zeros in a number); `beta007` is one identifier and the fixed width sorts 001 … 999 |
 | Counter | Per x.y.z, across all PRs, starting at 001. Every new head commit of a PR gets the next number; a re-run of the same commit and every platform (Windows, macOS, Android) of one commit get the same number. At 1000 the run fails and asks for a version bump |
-| How | Each workflow runs `ci_version.py`: it lists `refs/tags/v<x.y.z>-beta*` (only the three-digit ones count; annotated tags are followed to their commit), reuses the tag that already points at the PR's head commit (never the merge commit), or creates the next one with `POST git/refs`; a 422 (another workflow was quicker) lists again; 10 tries at most. The jobs need `contents: write`; tags made with the workflow's token start no workflow |
+| How | `build.yml`'s version job runs `ci_version.py reserve` once per PR head commit: it lists `refs/tags/v<x.y.z>-beta*` (only the three-digit ones count), reuses the tag already on the head commit, or creates the next one with `POST git/refs` (a 422 — another PR was quicker — lists again). Only that job needs `contents: write`. Each platform workflow runs `ci_version.py --github-env`, which waits for that tag (up to about 7½ minutes) and reads it; tags made with the workflow's token start no workflow |
 | Release | The test release is published on that tag (same commit). Fork PRs, pushes to `main` and manual runs reserve nothing and keep `x.y.z` |
 | Gaps | A number reserved by a build that fails later is skipped; gaps are normal |
 | Order | `x.y.z-betaNNN` < `x.y.z`; and above the older long test versions of the same x.y.z (`2.16.0-beta001` > `2.16.0-beta.18.29`), which still parse and appear in the version history under their own names |
-| Build details | The same step writes `MAGPIE_SOURCE_PR`, `MAGPIE_SOURCE_COMMIT`, `MAGPIE_BUILD_TIME_UTC` and `MAGPIE_RELEASE_TAG`; `Directory.Build.props` turns them into AssemblyMetadata for the Info window (empty in a local build: "Local build") |
+| Build details | The platform step (`--github-env`) also writes `MAGPIE_SOURCE_PR`, `MAGPIE_SOURCE_COMMIT`, `MAGPIE_BUILD_TIME_UTC` and `MAGPIE_RELEASE_TAG`; `Directory.Build.props` turns them into AssemblyMetadata for the Info window (empty in a local build: "Local build") |
 
 ## Version rule (design VB1, Krishna 30 Sep 2026)
 

@@ -68,6 +68,7 @@ public partial class StatusBarViewModel : ObservableObject
     private DateTime _today = DateTime.Today;
     private (DateTimeOffset At, int Count, List<string> Senders)? _received;
     private (DateTimeOffset At, int Count)? _sent;
+    private (DateTimeOffset At, DeliveryReceiptResult Receipt)? _receiptNotice;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     public ObservableCollection<StatusSegment> Segments { get; } = new();
@@ -160,6 +161,11 @@ public partial class StatusBarViewModel : ObservableObject
     {
         _sent = _sent is { } p && DateTimeOffset.Now - p.At < TimeSpan.FromSeconds(30) ? (DateTimeOffset.Now, p.Count + 1) : (DateTimeOffset.Now, 1);
         AddLog($"Sent \"{Short(item.Subject, 50)}\" to {item.ToText}");
+        if (item.DeliveryReceipt is { } receipt)
+        {
+            _receiptNotice = (DateTimeOffset.Now, receipt);
+            AddLog(receipt.Detail);
+        }
         Rebuild();
     }
 
@@ -205,7 +211,10 @@ public partial class StatusBarViewModel : ObservableObject
             if (drafts > 0) parts.Add($"{drafts} draft{S(drafts)} to upload");
             if (ops > 0) parts.Add($"{ops} change{S(ops)} (archive, pin, read…)");
             if (parts.Count > 0) segs.Add(Seg("waiting", "Waiting: " + string.Join(" · ", parts), "clock"));
-            segs.Add(Seg("retry", "Nothing is lost — it goes out when you're back online", "", neutral: true, link: "Retry now", cmd: SyncAllCommand));
+            segs.Add(Seg("retry", outbox.Any(item => item.AutomaticRetryExhausted)
+                    ? "Some messages need Send now in Scheduled to retry"
+                    : "Messages wait until Magpie can reach the mail server", "", neutral: true,
+                link: "Open Scheduled", cmd: _main.ShowScheduledViewCommand));
         }
         else if (accounts.Count > 0)
             segs.Add(Seg("online", "Online", "check"));
@@ -223,7 +232,9 @@ public partial class StatusBarViewModel : ObservableObject
                 segs.Add(Seg("off" + a.Id, $"{ShortName(a.Id)}: can't reach the server — {st.Message}", "offline", link: "Retry", cmd: new RelayCommand(() => _e.SyncNow(a.Id))));
         }
         foreach (var f in outbox.Where(o => o.Status == OutboxStatus.Failed).Take(1))
-            segs.Add(Seg("fail" + f.Id, $"Couldn't send \"{Short(f.Subject, 36)}\" — will retry", "warn", link: "Open Scheduled", cmd: _main.ShowScheduledViewCommand));
+            segs.Add(Seg("fail" + f.Id, $"Couldn't send \"{Short(f.Subject, 36)}\" — "
+                + (f.AutomaticRetryExhausted ? "automatic retries paused; choose Send now in Scheduled" : "will retry"),
+                "warn", link: "Open Scheduled", cmd: _main.ShowScheduledViewCommand));
 
         // 3. Sending
         foreach (var o in outbox.Where(o => o.Status == OutboxStatus.Sending).Take(1))
@@ -239,6 +250,9 @@ public partial class StatusBarViewModel : ObservableObject
         }
         if (_sent is { } sent && now - sent.At < TimeSpan.FromSeconds(30))
             segs.Add(Seg("sent", $"Sent {sent.Count} at {sent.At.LocalDateTime:HH:mm} ✓", "sent"));
+
+        if (_receiptNotice is { } notice && now - notice.At < TimeSpan.FromSeconds(30))
+            segs.Add(Seg("delivery-receipt", notice.Receipt.Summary, notice.Receipt.State == DeliveryReceiptState.Unavailable ? "warn" : "sent"));
 
         // Design SY1·4: accounts from the copy coming in (the adding window's count).
         if (Views.AddingAccountsWindow.StatusText is { Length: > 0 } adding)

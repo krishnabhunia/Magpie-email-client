@@ -169,6 +169,15 @@ public partial class SettingsWindow : Window
         if (html != null) _vm.SetSignatureHtml(html);
     }
 
+    private void OnEditNamedSignature(object sender, RoutedEventArgs e)
+    {
+        if (_vm.SignatureAccount is not { } account || (sender as FrameworkElement)?.Tag is not EditableNamedSignature variant) return;
+        var html = SignatureEditorWindow.Edit(this, $"{account.Email} · {variant.Name}", variant.Html);
+        if (html == null) return;
+        variant.Html = html;
+        _vm.NoteChange();
+    }
+
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
 
     // ───────────────────────── backup (design EX1) and mail folder (design DL1) ─────────────────────────

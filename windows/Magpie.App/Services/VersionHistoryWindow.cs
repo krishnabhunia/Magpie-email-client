@@ -22,6 +22,7 @@ public sealed class VersionHistoryWindow : Window
     private readonly ListBox _versions = new() { MinHeight = 140, Margin = new Thickness(0, 14, 0, 10) };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Button _details = new() { Content = "ⓘ View full implementation details", IsEnabled = false, MinWidth = 205, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBlock _compatibility = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly Button _select = new() { Content = "Choose a version", IsEnabled = false, MinWidth = 190 };
     private IReadOnlyList<VersionChoice> _choices;
@@ -83,6 +84,12 @@ public sealed class VersionHistoryWindow : Window
             DialogResult = true;
         };
         actions.Children.Add(_select); actions.Children.Add(cancel);
+        actions.Children.Insert(0, _details);
+        _details.Click += (_, _) =>
+        {
+            if (_versions.SelectedItem is VersionRow row)
+                new ReleaseNotesWindow(row.Choice.Release, _current.ToString()) { Owner = this }.ShowDialog();
+        };
         DockPanel.SetDock(actions, Dock.Bottom); root.Children.Add(actions);
 
         var header = new StackPanel();
@@ -170,7 +177,6 @@ public sealed class VersionHistoryWindow : Window
             ? matching.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
                 .GroupBy(c => c.Prerelease).Select(g => g.First()).OrderByDescending(c => c.Release.Version)
             : matching.AsEnumerable();
-        // Design BT1 A: every row shows its real version (v15.0.0-beta007); old long test tags show as they are.
         var installable = _choices.Where(c => c.Release.AssetAvailable && c.Compatibility.CanInstall)
             .OrderByDescending(c => c.Release.Version)
             .GroupBy(c => c.Release.Version.ToString()).Select(g => g.First()).ToList();
@@ -181,6 +187,7 @@ public sealed class VersionHistoryWindow : Window
             _kept.Contains(c.Release.Version.ToString()))).ToList();
         _versions.ItemsSource = rows; _versions.SelectedIndex = -1;
         Selection = null; SelectedChoice = null; _select.IsEnabled = false; _select.Content = "Choose a version";
+        _details.IsEnabled = false;
         _summary.Text = ""; _compatibility.Text = "";
         _message.Text = rows.Count == 0
             ? (!IsRollback && _showAllBuilds.IsChecked != true
@@ -196,6 +203,7 @@ public sealed class VersionHistoryWindow : Window
         if (_versions.SelectedItem is not VersionRow row) { _select.IsEnabled = false; return; }
         var choice = row.Choice;
         _select.IsEnabled = choice.Compatibility.CanInstall;
+        _details.IsEnabled = true;
         _select.Content = IsRollback ? $"Roll back to v{choice.Release.Version}" : $"Install v{choice.Release.Version}";
         _compatibility.Text = choice.Compatibility.Reason;
         _summary.Text = string.IsNullOrWhiteSpace(choice.Release.Notes) ? "No release notes were published."
@@ -208,14 +216,18 @@ public sealed class VersionHistoryWindow : Window
         {
             get
             {
+                var version = Choice.Release.Version;
+                var friendly = $"v{version}";
                 var newest = Latest ? "  (LATEST)" : "";
                 var published = Choice.Release.Published is { } date
                     ? $"  ·  {date.ToLocalTime():dd MMM yyyy, h:mm tt} (local)" : "";
+                // Display the permanent tag; never renumber betas by list position.
+                var exact = Choice.Prerelease
+                    ? $"\nExact tag: {Choice.Release.Tag}" : "";
                 var availability = (Choice.Release.AssetAvailable
                     ? "Application and checksum available" : "Application or checksum missing")
                     + (OnThisPc ? "  ·  On this PC" : "");
-                var name = Choice.Release.Tag is { Length: > 0 } tag ? tag : "v" + Choice.Release.Version;
-                return $"{name}{newest}{published}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
+                return $"{friendly}{newest}{published}{exact}\n{availability}  ·  {(Choice.Compatibility.CanInstall ? "Compatible" : "Blocked")}";
             }
         }
     }

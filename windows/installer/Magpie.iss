@@ -3,9 +3,9 @@
 
 #define MyAppName "Magpie Mail"
 #ifndef MyAppVersion
-  #define MyAppVersion "15.0.0"
+  #define MyAppVersion "17.0.0"
 #endif
-; Windows file versions are numbers only: a test build (15.0.0-beta007) passes /DMyAppNumericVersion=1.2.0 as well.
+; Windows file versions are numbers only: a test build (1.2.0-beta.3) passes /DMyAppNumericVersion=1.2.0 as well.
 #ifndef MyAppNumericVersion
   #define MyAppNumericVersion MyAppVersion
 #endif

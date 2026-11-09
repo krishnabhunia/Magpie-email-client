@@ -16,11 +16,6 @@ permissions:
   issues: write         # close the [Q..] issues a release ships
   actions: read         # read successful platform artifacts from independent workflow runs
 
-# One release job at a time for pushes to main.
-concurrency:
-  group: magpie-build-${{ github.ref == 'refs/heads/main' && 'release' || github.ref }}
-  cancel-in-progress: false
-
 env:
   PYTHONUTF8: "1"
 
@@ -46,10 +41,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python common/scripts/ci_platforms.py
 
+      - name: Reserve permanent beta tag before platform publishing
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python common/scripts/ci_version.py reserve
+
       # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While any PR from this
       # repository is open, its CI publishes a test version <version>-beta<NNN> (designs BT1 A + BT2: the number is
-      # reserved as the tag v<version>-beta<NNN> on the PR head commit by ci_version.py, the same in every platform
-      # workflow; a number whose build fails is skipped) (pre-release; tried through
+      # reserved as the tag v<version>-beta<NNN> on the PR head commit by `ci_version.py reserve` above; every platform
+      # workflow reads the same number) (pre-release; tried through
       # Settings → Updates → "Include test versions" when the version is new, or downloaded from the release page
       # when the PR keeps the released version); merging a PR with a new version publishes <version> to everyone.
       - name: Read version
@@ -135,6 +136,11 @@ jobs:
 
   package:
     needs: version
+    # Do not hold a global beta-version lock while waiting up to 35 minutes
+    # for independent platform builds. Serialize only publication to main.
+    concurrency:
+      group: magpie-package-${{ github.ref == 'refs/heads/main' && 'release' || github.run_id }}
+      cancel-in-progress: false
     # A Mac-only or Android-only change gets its standalone artifact, without a Windows build.
     # No new combined release is needed for a change that did not build Windows.
     if: needs.version.result == 'success' && (needs.version.outputs.windows == 'true' || needs.version.outputs.macos == 'true' || needs.version.outputs.android == 'true')
@@ -260,6 +266,8 @@ jobs:
           # Release notes = this version's section of CHANGELOG.md (written as UTF-8 by the script)
           python common/scripts/release_prep.py notes $env:VERSION --out release-notes.md
           if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no section for $env:VERSION" }
+          python common/scripts/release_notes_check.py release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Release notes must include actual implementations" }
 
       - name: Publish GitHub Release
         if: steps.rel.outputs.needed == 'true'
@@ -307,6 +315,8 @@ jobs:
           }
           python common/scripts/release_prep.py notes $env:BASE --out release-notes.md --header $header
           if ($LASTEXITCODE -ne 0) { throw "No CHANGELOG section for $env:BASE" }
+          python common/scripts/release_notes_check.py release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Beta release notes must include actual implementations" }
 
       - name: Publish test version
         if: needs.version.outputs.beta == 'true'

@@ -13,6 +13,7 @@ public partial class ComposeWindow : Window
 {
     private readonly ComposeViewModel _vm;
     private readonly WebSurface _editor;
+    private readonly Func<string, Task<string?>> _runEditor;
     private bool _editorReady;
     private bool _forceClose;
 
@@ -78,7 +79,10 @@ public partial class ComposeWindow : Window
 
     public ComposeWindow() : this(new Draft()) { }
 
-    public ComposeWindow(Draft draft)
+    public ComposeWindow(Draft draft) : this(draft, null) { }
+
+    // A script transport lets the headless fixtures exercise the same host/editor protocol without WKWebView.
+    internal ComposeWindow(Draft draft, Func<string, Task<string?>>? runEditor)
     {
         InitializeComponent();
         _vm = new ComposeViewModel(draft);
@@ -99,6 +103,7 @@ public partial class ComposeWindow : Window
         AttachButton.Click += async (_, _) => await _vm.AddAttachmentsAsync(await Dialogs.PickFiles(this, "Attach files", many: true));
 
         _editor = new WebSurface();
+        _runEditor = runEditor ?? _editor.RunAsync;
         EditorHost.Child = _editor;
         _editor.Message += OnEditorMessage;
         _editor.Load(MacMenus.WithKeyForwarding(EditorPage.ForMac), "editor");
@@ -137,16 +142,42 @@ public partial class ComposeWindow : Window
     private async Task AskLinkAsync()
     {
         if (!_editorReady) return;
-        var text = await Dialogs.Prompt("Insert link", "Web or email address (leave empty to remove the link)", "https://", this);
+        var text = await Dialogs.Prompt("Insert link", _vm.IsPlainText
+            ? "Web or email address (inserted as literal text in this plain-text message)"
+            : "Web or email address (leave empty to remove the link)", "https://", this);
         if (text == null) return;
-        if (text.Trim().Length == 0 || text.Trim() == "https://") { await _editor.RunAsync("fmt('unlink')"); return; }
-        if (ComposeViewModel.AllowedLink(text) is not { } url)
+        if (text.Trim().Length == 0 || text.Trim() == "https://")
+        {
+            if (!_vm.IsPlainText) await _runEditor("fmt('unlink')");
+            return;
+        }
+        if (ComposeViewModel.AllowedLink(text) == null)
         {
             await Dialogs.Error("Insert link", "That doesn't look like a web or email address (https://… or mailto:…).", this);
             return;
         }
-        await _editor.RunAsync($"fmt('createLink', {JsonSerializer.Serialize(url)})");
+        await InsertLinkAsync(text);
+    }
+
+    internal async Task<bool> InsertLinkAsync(string text)
+    {
+        if (!_editorReady || ComposeViewModel.AllowedLink(text) is not { } url) return false;
+        // text/plain cannot retain a hidden href. Insert the complete destination into the visible message.
+        var command = _vm.IsPlainText ? "insertText" : "createLink";
+        if (await _runEditor($"fmt('{command}', {JsonSerializer.Serialize(url)})") != "true") return false;
         _vm.Dirty = true;
+        return true;
+    }
+
+    internal async Task InitializeEditorAsync()
+    {
+        _editorReady = false;
+        await _runEditor($"setDark({(App.IsDark ? "true" : "false")})");
+        // setHtml resets the shared editor to rich mode. Apply the persisted mode in the same script turn,
+        // before accepting editor actions, so a reopened text-only draft never allows hidden link targets.
+        var initialized = await _runEditor($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)}, {(_vm.BodySectionsLost ? "true" : "false")});setEditorPlainText({(_vm.IsPlainText ? "true" : "false")},false)");
+        if (initialized != "true") throw new InvalidOperationException("The message editor could not restore its text format.");
+        _editorReady = true;
     }
 
     private async void OnEditorMessage(string json)
@@ -159,9 +190,7 @@ public partial class ComposeWindow : Window
             {
                 case "menukey": MacMenus.TryRunKey(this, json); break;
                 case "ready":
-                    await _editor.RunAsync($"setDark({(App.IsDark ? "true" : "false")})");
-                    await _editor.RunAsync($"setHtml({JsonSerializer.Serialize(_vm.InitialHtml)})");
-                    _editorReady = true;
+                    await InitializeEditorAsync();
                     break;
                 case "dirty": _vm.Dirty = true; break;
                 case "send": await _vm.SendAsync(null); break;
@@ -171,13 +200,13 @@ public partial class ComposeWindow : Window
         catch (Exception ex) { Log.Warn("editor message: " + ex.Message); }
     }
 
-    private void OnThemeChanged() => _ = _editor.RunAsync($"setDark({(App.IsDark ? "true" : "false")})");
+    private void OnThemeChanged() => _ = _runEditor($"setDark({(App.IsDark ? "true" : "false")})");
 
     /// <summary>The editor's HTML (the original text when the editor isn't there, e.g. in a test without macOS).</summary>
     private async Task<string> GetHtmlAsync()
     {
-        if (!_editor.IsNative || !_editorReady) return _vm.InitialHtml;
-        return WebSurface.JsonText(await _editor.RunAsync("getHtml()"));
+        if (!_editorReady) return _vm.InitialHtml;
+        return WebSurface.JsonText(await _runEditor("getHtml()"));
     }
 
     /// <summary>Quitting Magpie: keep or discard an unsent message first. False = Cancel.</summary>

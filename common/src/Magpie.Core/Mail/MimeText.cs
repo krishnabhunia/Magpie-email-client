@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using Magpie.Core.Models;
 using MimeKit;
@@ -59,7 +60,11 @@ public static class MimeText
             i++;
             if (entity is MessagePart mp)
             {
-                list.Add(new AttachmentInfo { Index = i, FileName = (mp.ContentDisposition?.FileName ?? mp.Message?.Subject ?? "message") + ".eml", ContentType = "message/rfc822", Size = 0 });
+                list.Add(new AttachmentInfo
+                {
+                    Index = i, FileName = AttachedMessageName(mp.ContentDisposition?.FileName, mp.ContentType.Name, mp.Message?.Subject),
+                    ContentType = "message/rfc822", Size = 0,
+                });
                 continue;
             }
             if (entity is not MimePart part) continue;
@@ -79,6 +84,12 @@ public static class MimeText
         }
         return list;
     }
+
+    // Explicit MIME filenames already include their intended extension; only a subject-based fallback needs .eml.
+    private static string AttachedMessageName(string? dispositionName, string? contentTypeName, string? subject) =>
+        !string.IsNullOrEmpty(dispositionName) ? dispositionName
+        : !string.IsNullOrEmpty(contentTypeName) ? contentTypeName
+        : (string.IsNullOrWhiteSpace(subject) ? "message" : subject) + ".eml";
 
     public static MimeEntity? PartAt(MimeMessage msg, int index) => msg.BodyParts.ElementAtOrDefault(index);
 
@@ -105,7 +116,7 @@ public static class MimeText
             list.Add(new AttachmentInfo
             {
                 Index = inline ? -1000 - inl++ : PendingIndex - k++,
-                FileName = p is MailKit.BodyPartMessage m ? (m.ContentDisposition?.FileName ?? m.Envelope?.Subject ?? "message") + ".eml"
+                FileName = p is MailKit.BodyPartMessage m ? AttachedMessageName(m.ContentDisposition?.FileName, m.ContentType.Name, m.Envelope?.Subject)
                                                           : p.FileName ?? (inline ? "image" : "attachment"),
                 ContentType = p.ContentType.MimeType,
                 Size = p.Octets,
@@ -179,6 +190,66 @@ public static class MimeText
         enc = Regex.Replace(enc, @"(https?://[^\s<>&""]+)", "<a href=\"$1\">$1</a>");
         return "<div style=\"white-space:pre-wrap;font-family:inherit\">" + enc + "</div>";
     }
+
+    /// <summary>
+    /// Lossless HTML compatibility wrapper for a plain-text draft. Do not trim, linkify or interpret its contents.
+    /// Only line endings are normalized; spaces, tabs, blank lines and literal markup remain message text.
+    /// </summary>
+    public static string PlainTextToEditorHtml(string? text) =>
+        "<div style=\"white-space:pre-wrap;font-family:inherit\">"
+        + WebUtility.HtmlEncode(NormalizePlainLineEndings(text ?? "")) + "</div>";
+
+    /// <summary>
+    /// Read a plain-text draft's HTML compatibility representation without the whitespace normalization used for
+    /// rich-mail previews. The editor serializes one p per line; reopened/native drafts use a pre-wrap wrapper.
+    /// Block siblings delimit lines, including empty lines, while a containing wrapper adds no trailing newline.
+    /// </summary>
+    public static string EditorHtmlToPlainText(string? html)
+    {
+        if (string.IsNullOrEmpty(html)) return "";
+        var parser = new HtmlParser();
+        var document = parser.ParseDocument("");
+        var holder = document.CreateElement("div");
+        // Fragment parsing retains leading/trailing text whitespace that document parsing can discard before <body>.
+        foreach (var node in parser.ParseFragment(html, holder).ToArray()) holder.AppendChild(node);
+        foreach (var bad in holder.QuerySelectorAll("script,style,head,title,template").ToList()) bad.Remove();
+
+        var result = new StringBuilder();
+        void AppendChildren(INode parent, int depth)
+        {
+            // Canonical plain drafts are flat. Refuse excessive legacy/imported nesting rather than risking a stack
+            // overflow or silently falling back to the lossy rich-mail extractor.
+            if (depth > 256) throw new FormatException("The plain-text draft contains excessively nested markup.");
+            var hasPrevious = false;
+            var previousWasBlock = false;
+            foreach (var node in parent.ChildNodes)
+            {
+                if (node is not IText && node is not IElement) continue;
+                var element = node as IElement;
+                var block = element?.LocalName is "p" or "div" or "pre" or "blockquote" or "li"
+                    or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "tr" or "table"
+                    or "ul" or "ol" or "section" or "article" or "header" or "footer";
+                var start = result.Length;
+                if (hasPrevious && (previousWasBlock || block)) result.Append('\n');
+                var contentStart = result.Length;
+                if (node is IText text) result.Append(text.Data);
+                else if (element!.LocalName == "br") result.Append('\n');
+                else AppendChildren(node, depth + 1);
+
+                // Empty block elements encode intentional empty lines; empty inline elements and comments do not.
+                if (block || result.Length > contentStart)
+                {
+                    hasPrevious = true;
+                    previousWasBlock = block;
+                }
+                else result.Length = start;
+            }
+        }
+        AppendChildren(holder, 0);
+        return NormalizePlainLineEndings(result.ToString());
+    }
+
+    private static string NormalizePlainLineEndings(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n');
 
     public static string HtmlToText(string html)
     {
