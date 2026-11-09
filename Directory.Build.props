@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
-    <Version>18.0.0</Version>
-    <AssemblyVersion>18.0.0.0</AssemblyVersion>
-    <FileVersion>18.0.0.0</FileVersion>
+    <Version>18.1.0</Version>
+    <AssemblyVersion>18.1.0.0</AssemblyVersion>
+    <FileVersion>18.1.0.0</FileVersion>
     <Company>Krishna Bhunia</Company>
     <Product>Magpie</Product>
     <Copyright>© 2026 Krishna Bhunia</Copyright>

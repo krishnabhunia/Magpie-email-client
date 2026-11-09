@@ -1,7 +1,6 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using Magpie.App.Services;
 using Magpie.Core.Updates;
@@ -38,13 +37,13 @@ internal static partial class Program
             Choice("12.0.0"), Choice("13.0.0", available: false),
             Choice("10.0.0"), Choice("11.0.0-beta.4"), Choice("9.0.0", compatible: false), Choice("11.0.0"),
         ];
-        var window = new VersionHistoryWindow(AppVersion.TryParse("11.0.0")!, choices, new HashSet<string> { "10.0.0" }) { Owner = owner };
+        var window = new VersionHistoryWindow(AppVersion.TryParse("11.0.0")!, choices) { Owner = owner };
         Exception? failure = null;
         window.Dispatcher.BeginInvoke(() =>
         {
             try
             {
-                var direction = (Selector)window.FindName("DirectionFilter"); // Updates | Version history & roll back tabs (VP1)
+                var direction = (ComboBox)window.FindName("DirectionFilter");
                 var channel = (ComboBox)window.FindName("ChannelFilter");
                 var showAll = (CheckBox)window.FindName("ShowAllBuilds");
                 var versions = (ListBox)window.FindName("ReleaseList");
@@ -131,8 +130,6 @@ internal static partial class Program
                 Assert(select.IsEnabled && select.Content.ToString()!.Contains("v10.0.0", StringComparison.Ordinal),
                     "The rollback action names the exact stable target");
                 Capture(window, Path.Combine(output, theme + "-version-manager-rollback.png"));
-                Assert(RowText(0).Contains("On this PC", StringComparison.Ordinal),
-                    "A version kept in this PC's version backups is marked On this PC");
                 select.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
             catch (Exception ex) { failure = ex; window.Close(); }
@@ -141,32 +138,5 @@ internal static partial class Program
         if (failure != null) throw failure;
         Assert(accepted == true && window.Selection?.Version.ToString() == "10.0.0" && window.IsRollback && !window.IsBeta,
             "Only the explicit action returns the exact selected rollback target to the caller");
-        Assert(window.SelectedOnThisPc && window.SelectedChoice?.Release.Version.ToString() == "10.0.0",
-            "The chosen row and its On this PC mark reach the confirm screen");
-
-        // Confirm screen (VP1, Q90): From → To, the roll back note, numbered steps; "Pick a different version" goes back.
-        var confirm = new VersionConfirmWindow(AppVersion.TryParse("11.0.0")!, window.SelectedChoice!, window.Choices, onThisPc: true) { Owner = owner };
-        Exception? confirmFailure = null;
-        confirm.Dispatcher.BeginInvoke(() =>
-        {
-            try
-            {
-                var warning = (TextBlock)confirm.FindName("ConfirmWarning");
-                var steps = (ItemsControl)confirm.FindName("ConfirmSteps");
-                var go = (Button)confirm.FindName("ConfirmButton");
-                var back = (Button)confirm.FindName("PickAgainButton");
-                Assert(warning.Text.Contains("going back to an older version", StringComparison.Ordinal),
-                    "A roll back explains that newer features will be missing");
-                Assert(steps.Items.Count == 5 && ((string)steps.Items[1]!).Contains("saved on this PC", StringComparison.Ordinal),
-                    "The steps say the kept copy is used");
-                Assert(go.Content.ToString() == "Roll back to v10.0.0", "The confirm action names the exact roll back target");
-                Capture(confirm, Path.Combine(output, theme + "-version-manager-confirm.png"));
-                back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            }
-            catch (Exception ex) { confirmFailure = ex; confirm.Close(); }
-        }, DispatcherPriority.ApplicationIdle);
-        var confirmed = confirm.ShowDialog();
-        if (confirmFailure != null) throw confirmFailure;
-        Assert(confirmed != true && confirm.PickAgain, "Pick a different version returns to the list without installing");
     }
 }

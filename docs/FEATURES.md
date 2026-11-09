@@ -41,7 +41,7 @@ One row per feature, in plain words. "Since" is the first version in `CHANGELOG.
 | 35 | Contacts | Google Contacts in Magpie: search, add and edit, with better recipient suggestions | 9.0.0 | Yes | Not yet |
 | 36 | Fonts and text | Choose a font and size for each kind of text in the app | 10.0.0 | Yes | Not yet |
 | 37 | AI reply drafts | Reply and Reply All can start with an AI draft in the tone, length and language you choose | 10.0.0 | Yes | Not yet |
-| 38 | Version manager | Choose an exact stable or test version, see if it works with your mail, confirm From → To, and roll back | 11.0.0 | Yes | Not yet |
+| 38 | Version manager | Choose an exact stable or test version, see if it works with your mail, confirm the exact version, and roll back | 11.0.0 | Yes | Not yet |
 | 39 | Gmail labels fold | Labels inside other labels sit under their parent; quiet labels move into More labels | 11.1.0 | Yes | Not yet |
 | 40 | Accounts on a new computer | Sign in once on a new computer and every account (and, if you like, your settings) comes along | 12.0.0 | Yes | Not yet |
 | 41 | AI writing | AI note when you forward, "What the reply says" with one-click answers, tone, formality, culture and etiquette | 13.0.0 | Yes | Not yet |

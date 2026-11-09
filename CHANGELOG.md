@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 18.1.0 (9 Nov 2026)
+<!-- closes: #142 -->
+### Changed
+- **The version manager is back to how it was before 14.1.0** (Krishna, 5 Nov 2026). The From → To confirm screen, the "skips the latest stable" note, the Updates / Version history tabs and the "On this PC" marks are removed: you choose Update (newer) or Roll back (older) in the drop-down again, and a short Yes/No question confirms the exact version. Everything else stays — choosing exact stable or beta versions, compatibility checks, backups, the version pin, permanent beta tags and **View full implementation details**.
+- Windows only; the Mac app is unchanged.
+
 ## 18.0.0 (9 Nov 2026)
 <!-- closes: #138 -->
 ### New
