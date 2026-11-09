@@ -256,7 +256,7 @@ public sealed partial class CloudFilesService : IDisposable
         CloudFileAccess access, CancellationToken ct)
     {
         using var response = await JsonAsync(HttpMethod.Get, GoogleApi + "/files/" + Esc(id)
-            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted)", auth.AccessToken, null, ct);
+            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted,permissionDetails(inherited))", auth.AccessToken, null, ct);
         var root = response.RootElement;
         if (root.TryGetProperty("nextPageToken", out _) || !root.TryGetProperty("permissions", out var permissions) || permissions.ValueKind != JsonValueKind.Array)
             throw new CloudSharingException("Google Drive could not confirm all permissions on the new file.");
@@ -264,6 +264,8 @@ public sealed partial class CloudFilesService : IDisposable
         foreach (var permission in permissions.EnumerateArray())
         {
             if (permission.TryGetProperty("deleted", out var deleted) && deleted.ValueKind == JsonValueKind.True) continue;
+            if (InheritedGoogleGrant(permission))
+                throw new CloudSharingException("Drive has inherited sharing permissions that Magpie cannot safely review. Choose a private file.");
             var permissionId = String(permission, "id");
             var owner = String(permission, "type") == "user" && String(permission, "role") == "owner"
                 && String(permission, "emailAddress").Equals(auth.Email, StringComparison.OrdinalIgnoreCase);
@@ -276,6 +278,11 @@ public sealed partial class CloudFilesService : IDisposable
         }
         if (!found.SetEquals(granted.Keys)) throw new CloudSharingException("Google Drive has not confirmed all requested recipients. No link was inserted.");
     }
+
+    private static bool InheritedGoogleGrant(JsonElement permission) =>
+        permission.TryGetProperty("permissionDetails", out var details) && details.ValueKind == JsonValueKind.Array
+        && details.EnumerateArray().Any(detail => detail.ValueKind == JsonValueKind.Object
+            && detail.TryGetProperty("inherited", out var inherited) && inherited.ValueKind == JsonValueKind.True);
 
     private async Task CheckMicrosoftPermissionsAsync(string id, CloudAuthorization auth, IReadOnlyDictionary<string, string> granted,
         CloudFileAccess access, CancellationToken ct, bool strictIdentity = false)

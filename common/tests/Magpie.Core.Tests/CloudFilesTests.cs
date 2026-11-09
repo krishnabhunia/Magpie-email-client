@@ -395,7 +395,7 @@ public class CloudFilesTests
         Assert.NotEqual(SecretVault.RefreshKey("A"), CloudFilesAuthorization.RefreshKey("A"));
         Assert.NotEqual(CloudFilesAuthorization.RefreshKey("A"), CloudFilesAuthorization.ExistingRefreshKey("A"));
         Assert.Contains(CloudFilesAuthorization.GoogleExistingScope, cloud.ExistingConfigFor(AccountKind.Gmail)!.Scopes);
-        Assert.DoesNotContain(CloudFilesAuthorization.GoogleExistingScope, cloud.ConfigFor(AccountKind.Gmail)!.Scopes);
+        Assert.False(OAuthService.Allows(cloud.ConfigFor(AccountKind.Gmail)!.Scopes, CloudFilesAuthorization.GoogleExistingScope));
         Assert.Throws<ReauthRequiredException>(() => CloudFilesAuthorization.EnsureExistingScopes(AccountKind.Gmail, CloudFilesAuthorization.GoogleScope + " openid email"));
         CloudFilesAuthorization.EnsureExistingScopes(AccountKind.Gmail, CloudFilesAuthorization.GoogleExistingScope + " openid email");
         Assert.Throws<ReauthRequiredException>(() => CloudFilesAuthorization.EnsureScopes(AccountKind.Gmail, "openid email"));

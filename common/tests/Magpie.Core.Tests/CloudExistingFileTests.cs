@@ -70,6 +70,8 @@ public class CloudExistingFileTests
                         ownedByMe = false, trashed = false, capabilities = new { canShare = true }, owners = new[] { new { emailAddress = "someone@example.test" } } },
                     new { id = "folder", name = "folder", mimeType = "application/vnd.google-apps.folder", webViewLink = File(AccountKind.Gmail).WebUrl,
                         ownedByMe = true, trashed = false, capabilities = new { canShare = true }, owners = new[] { new { emailAddress = "owner@example.test" } } },
+                    new { id = "shortcut", name = "shortcut.txt", mimeType = "application/vnd.google-apps.shortcut", webViewLink = File(AccountKind.Gmail).WebUrl,
+                        ownedByMe = true, trashed = false, capabilities = new { canShare = true }, owners = new[] { new { emailAddress = "owner@example.test" } } },
                 },
                 nextPageToken = Pagination ? "more-items" : null,
             });
@@ -81,6 +83,8 @@ public class CloudExistingFileTests
                 grants.AddRange(Grants.Select(x => (object)new { id = x.Value, type = "user", role = Role,
                     emailAddress = WrongRecipient ? "wrong@example.test" : x.Key }));
                 if (BroadAccess) grants.Add(new { id = "all", type = "anyone", role = "reader", emailAddress = "" });
+                if (InheritedAccess) grants.Add(new { id = "inherited", type = "user", role = "reader",
+                    emailAddress = "alex@example.test", permissionDetails = new[] { new { inherited = true } } });
                 return Pagination ? Json(new { permissions = grants, nextPageToken = "next" })
                     : Json(new { permissions = grants });
             }
@@ -182,7 +186,7 @@ public class CloudExistingFileTests
         Assert.False(files.HasMore);
         Assert.True(auth.ExistingCalls > 0);
         Assert.All(provider.Calls, request => Assert.Equal("GET", request.Method));
-        Assert.Contains(provider.Calls, request => request.Query.Contains("report", StringComparison.Ordinal));
+        Assert.Contains(provider.Calls, request => (request.Path + request.Query).Contains("report", StringComparison.Ordinal));
         var defaultPage = await service.BrowseExistingAsync(Account(kind));
         Assert.Single(defaultPage.Files);
     }
@@ -241,13 +245,15 @@ public class CloudExistingFileTests
         }
     }
 
-    [Fact]
-    public async Task Inherited_OneDrive_access_is_not_modified()
+    [Theory]
+    [InlineData(AccountKind.Gmail)]
+    [InlineData(AccountKind.Microsoft)]
+    public async Task Inherited_cloud_access_is_not_modified(AccountKind kind)
     {
-        var provider = new Provider(AccountKind.Microsoft) { InheritedAccess = true };
+        var provider = new Provider(kind) { InheritedAccess = true };
         using var http = new HttpClient(provider);
         using var service = new CloudFilesService(http, new Auth());
-        await Assert.ThrowsAsync<CloudSharingException>(() => service.ShareExistingAsync(Plan(AccountKind.Microsoft)));
+        await Assert.ThrowsAsync<CloudSharingException>(() => service.ShareExistingAsync(Plan(kind)));
         Assert.DoesNotContain(provider.Calls, x => x.Method == "POST");
     }
 

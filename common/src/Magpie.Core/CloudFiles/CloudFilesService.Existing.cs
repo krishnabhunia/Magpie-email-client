@@ -51,7 +51,7 @@ public sealed partial class CloudFilesService
     private static bool OwnedGoogleFile(JsonElement item, string email) =>
         item.TryGetProperty("ownedByMe", out var owned) && owned.ValueKind == JsonValueKind.True
         && (!item.TryGetProperty("trashed", out var trash) || trash.ValueKind == JsonValueKind.False)
-        && String(item, "mimeType") != "application/vnd.google-apps.folder"
+        && String(item, "mimeType") is not ("application/vnd.google-apps.folder" or "application/vnd.google-apps.shortcut")
         && item.TryGetProperty("capabilities", out var capabilities) && capabilities.ValueKind == JsonValueKind.Object
         && capabilities.TryGetProperty("canShare", out var share) && share.ValueKind == JsonValueKind.True
         && item.TryGetProperty("owners", out var owners) && owners.ValueKind == JsonValueKind.Array
@@ -199,7 +199,7 @@ public sealed partial class CloudFilesService
         IReadOnlyCollection<string> recipients, CloudFileAccess access, CancellationToken ct)
     {
         using var response = await JsonAsync(HttpMethod.Get, GoogleApi + "/files/" + Esc(id)
-            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted)", auth.AccessToken, null, ct);
+            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted,permissionDetails(inherited))", auth.AccessToken, null, ct);
         var root = response.RootElement;
         if (root.TryGetProperty("nextPageToken", out _) || !root.TryGetProperty("permissions", out var permissions)
             || permissions.ValueKind != JsonValueKind.Array)
@@ -209,6 +209,8 @@ public sealed partial class CloudFilesService
         foreach (var permission in permissions.EnumerateArray())
         {
             if (permission.TryGetProperty("deleted", out var deleted) && deleted.ValueKind == JsonValueKind.True) continue;
+            if (InheritedGoogleGrant(permission))
+                throw new CloudSharingException("The existing Drive file has inherited access. Review it in Drive before sharing.");
             var address = String(permission, "emailAddress");
             if (String(permission, "type") == "user" && String(permission, "role") == "owner"
                 && address.Equals(auth.Email, StringComparison.OrdinalIgnoreCase)) { ownerFound = true; continue; }
