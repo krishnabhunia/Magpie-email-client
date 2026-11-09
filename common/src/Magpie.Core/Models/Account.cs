@@ -8,12 +8,29 @@ public enum AuthMethod { Password, OAuth2 }
 
 public enum TlsMode { SslOnConnect, StartTls, None }
 
+public sealed class SenderAlias
+{
+    public string Email { get; set; } = "";
+    public string Name { get; set; } = "";
+    public SenderAlias Clone() => new() { Email = Email, Name = Name };
+}
+
+/// <summary>One optional saved signature that can be selected while composing.</summary>
+public sealed class NamedSignature
+{
+    public string Name { get; set; } = "";
+    public string Html { get; set; } = "";
+    public NamedSignature Clone() => new() { Name = Name, Html = Html };
+}
+
 /// <summary>A configured mailbox. Secrets (password / refresh token) live in the SecretVault, never here.</summary>
 public sealed class Account
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>Send-as addresses already authorized by the provider; this list does not provision server aliases.</summary>
+    public List<SenderAlias> SenderAliases { get; set; } = new();
     /// <summary>Your details for this account (design AC1): shown in the default signature; kept in backups.</summary>
     public string Phone { get; set; } = "";
     public string JobTitle { get; set; } = "";
@@ -30,6 +47,8 @@ public sealed class Account
     public TlsMode ImapSecurity { get; set; } = TlsMode.SslOnConnect;
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; } = 465;
+    /// <summary>Advisory outgoing size cap for custom IMAP/SMTP accounts, in decimal megabytes.</summary>
+    public int MaxOutgoingMessageMb { get; set; } = 25;
     public TlsMode SmtpSecurity { get; set; } = TlsMode.SslOnConnect;
 
     /// <summary>Colour dot used in the unified inbox (hex, e.g. #14606E).</summary>
@@ -39,6 +58,8 @@ public sealed class Account
     public string Signature { get; set; } = "";
     /// <summary>Rich signature (design B6): HTML from the signature editor; pictures are data: URIs, sent embedded (cid).</summary>
     public string SignatureHtml { get; set; } = "";
+    /// <summary>Additional rich signatures. The existing SignatureHtml remains the default for compatibility.</summary>
+    public List<NamedSignature> SignatureVariants { get; set; } = new();
     /// <summary>Add the signature to new messages.</summary>
     public bool SignatureOnNew { get; set; } = true;
     /// <summary>Add the signature to replies and forwards (above the quoted text).</summary>
@@ -55,5 +76,11 @@ public sealed class Account
 
     [JsonIgnore] public string Label => string.IsNullOrWhiteSpace(DisplayName) ? Email : $"{DisplayName} <{Email}>";
 
-    public Account Clone() => (Account)MemberwiseClone();
+    public Account Clone()
+    {
+        var copy = (Account)MemberwiseClone();
+        copy.SenderAliases = (SenderAliases ?? new()).Select(a => a.Clone()).ToList();
+        copy.SignatureVariants = (SignatureVariants ?? new()).Select(s => s.Clone()).ToList();
+        return copy;
+    }
 }

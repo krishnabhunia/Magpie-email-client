@@ -224,6 +224,7 @@ public sealed partial class ThreadItem : ObservableObject
     public string DateTip { get; }
     public bool IsUnread => Row.UnreadCount > 0;
     public bool IsPinned => Row.Flagged;
+    public bool IsHighPriority => Row.HighPriority || Row.Latest.IsHighPriority;
     public bool HasAttachments => Row.HasAttachments;
     public string CountText => Row.Count > 1 ? Row.Count.ToString() : "";
     /// <summary>Set for a draft kept on this PC (design F1); such rows open in Compose instead of the reader.</summary>
@@ -264,8 +265,11 @@ public sealed class ScheduledItem
     public string Subject => string.IsNullOrWhiteSpace(Item.Subject) ? "(no subject)" : Item.Subject;
     public string To => "To: " + Item.ToText;
     public string When => Item.Status == OutboxStatus.Failed
-        ? $"Not sent yet — {Item.LastError}"
-        : "Sends " + TimePresets.Describe(Item.SendAt, DateTime.Now);
+        ? $"Not sent yet — {Item.LastError}. " + (Item.AutomaticRetryExhausted
+            ? "Automatic retries paused. Choose Send now to retry."
+            : "Next attempt " + ScheduleTime.Describe(Item.SendAt, DateTime.Now))
+        : "Scheduled for " + ScheduleTime.Describe(Item.SendAt, DateTime.Now)
+            + (Item.RequestDeliveryReceipt ? " · delivery notification requested" : "");
     public bool Failed => Item.Status == OutboxStatus.Failed;
 }
 
@@ -362,6 +366,7 @@ public partial class MainViewModel : ObservableObject
     public bool IsInbox => Current?.Kind == NavKind.Inbox;
     public bool ShowCategories => IsInbox && _e.Config.SmartInbox && string.IsNullOrWhiteSpace(SearchText);
     public bool IsScheduledView => Current?.Kind == NavKind.Scheduled;
+    public string ScheduledHelp => ScheduleTime.ExecutionHelp;
 
     // ───────────────────────── calendar (design B2) ─────────────────────────
 
@@ -1333,7 +1338,7 @@ public partial class MainViewModel : ObservableObject
 
     public void ShowScheduled(long outboxId, DateTimeOffset when, string subject)
     {
-        AddToast(new UndoToast(outboxId, $"\"{Shorten(subject, 30)}\" scheduled for {TimePresets.Describe(when, DateTime.Now)}",
+        AddToast(new UndoToast(outboxId, $"\"{Shorten(subject, 30)}\" scheduled for {ScheduleTime.Describe(when, DateTime.Now)}",
             DateTimeOffset.Now.AddSeconds(8), showCountdown: false));
     }
 
