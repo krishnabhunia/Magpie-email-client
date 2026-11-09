@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **16.1.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **16.2.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -89,6 +89,7 @@ python windows/build/xaml_check.py --dps windows/build/app-types.json   # static
 | Main window | `windows/Magpie.App/MainWindow.xaml(.cs)`, `ViewModels/MainViewModel.cs` (nav, list, counts, toasts, sidebar, hover card, row actions, bulk bar), `ViewModels/ThreadViewModel.cs` (reader) |
 | Settings UI | `windows/Magpie.App/Views/SettingsWindow.xaml(.cs)`, `ViewModels/SettingsViewModel.cs` (incl. search index `Index[]`, About Me) |
 | Compose | `windows/Magpie.App/Views/ComposeWindow.xaml(.cs)`, `ViewModels/ComposeViewModel.cs`, `common/src/Magpie.Core/Mail/Composer.cs` |
+| Writing emails + Replies go to (CW1 gaps) | `common/src/Magpie.Core/Settings/ComposeDefaults.cs` (`AppSettings.Compose`: `CheckSpelling` / `FoldQuotedText` / `AttachmentCheck` / `AlwaysReadReceipt` / `PastedPicture`; `ApplyToNew` = fresh messages only, never `EditDraft`; `ReplyToAfterFromChange`; `ReplyToProblem` / `CleanReplyTo`), `Account.ReplyTo`; Windows: `ComposeWindow.StartFresh` (every Open* entry point except `OpenDraft`), `ComposeViewModel.OnFromChanged(old, new)`, `ApplyQuoteFoldDefaultAsync`, the pasted-picture preset in `ComposeAttachmentClipboard.cs`; Settings `RowWriting` (General) and the account card's Replies go to; both in `Snapshot()` and `SaveCore` |
 | Look | `windows/Magpie.App/Themes/Light.xaml` (every brush key — a Dark.xaml must define the same set; `theme-parity` check), `Styles/Magpie.xaml`, `Styles/Controls.xaml`, `Services/Icons.cs` (icon set with light + dark colour pairs, `Icons.Dark`) |
 | Mac app (8.0.0, PX1 B) | `macOS/Magpie.Mac/` — `App.axaml.cs` (start-up: `KeychainProtector` + `MacKeychainStore`, quit: compose windows first, `InstallOnQuit`), `MainWindow.axaml(.cs)` + `ViewModels/MainViewModel.cs` (top bar with version + "Update to vx.y.z", sidebar, list, search, toasts), `ViewModels/ReaderViewModel.cs` + `Services/ReaderPresenter.cs` + `Services/WebSurface.cs` (Core reader shell in WKWebView), `Views/ComposeWindow` (Core `EditorPage.ForMac`), `Views/AddAccountWindow`, `Views/SettingsWindow`, `Services/MacUpdateService.cs` + `MacInstaller.cs` (hdiutil/ditto/relaunch), `Services/MacMenus.cs` (menu bar) + `EditCommands.cs`; `macOS/build/build.sh` + `Info.plist`; `macOS/Magpie.Mac.Tests` (headless) |
 | Mac data / secrets | `AppPaths.For(…, macHome)` → `~/Library/Application Support/Magpie` + `~/Library/Caches/Magpie`; `Security/KeychainProtector.cs` (AES-256-GCM, key in the login Keychain via `/usr/bin/security`, `IKeyStore` for tests) |

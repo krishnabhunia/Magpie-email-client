@@ -65,11 +65,21 @@ public partial class ComposeWindow
                 // Capture the picture before opening a modal choice: another application may change the clipboard.
                 var editor = !_plain && _editorReady && !_vm.IsPlainText ? Editor.CoreWebView2 : null;
                 var canInline = editor != null && await editor.ExecuteScriptAsync("captureClipboardPicture()") == "true";
-                var choice = new ClipboardPictureDialog(canInline) { Owner = this };
-                if (choice.ShowDialog() != true) return;
-                var png = ComposeClipboardImage.EncodePng(image, choice.Choice == ClipboardPictureChoice.Inline
+                // Design CW1 (C4): Settings → General → Writing emails can answer this question once for every paste.
+                // "In the message" still asks when the rich editor can't take the picture here.
+                ClipboardPictureChoice picked;
+                var preset = AppServices.Engine.Config.Compose.PastedPicture;
+                if (preset == Magpie.Core.Settings.PastedPictureChoice.Attach) picked = ClipboardPictureChoice.Attachment;
+                else if (preset == Magpie.Core.Settings.PastedPictureChoice.Inline && canInline) picked = ClipboardPictureChoice.Inline;
+                else
+                {
+                    var choice = new ClipboardPictureDialog(canInline) { Owner = this };
+                    if (choice.ShowDialog() != true) return;
+                    picked = choice.Choice;
+                }
+                var png = ComposeClipboardImage.EncodePng(image, picked == ClipboardPictureChoice.Inline
                     ? ComposeClipboardImage.InlineLimitBytes : ComposeClipboardImage.AttachmentLimitBytes);
-                if (choice.Choice == ClipboardPictureChoice.Inline)
+                if (picked == ClipboardPictureChoice.Inline)
                 {
                     if (_plain || !_editorReady || _vm.IsPlainText || Editor.CoreWebView2 == null)
                         throw new InvalidOperationException("The rich-text editor is no longer available. Choose Save and attach PNG instead.");
