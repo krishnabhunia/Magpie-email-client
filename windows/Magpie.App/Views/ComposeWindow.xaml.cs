@@ -252,7 +252,9 @@ public partial class ComposeWindow : Window
         try
         {
             if (!await WebHost.InitAsync(Editor, scripts: true)) { UsePlainEditor(); return; }
-            Editor.AllowExternalDrop = false;
+            // Files dropped on the message become attachments: the page hands their paths over with
+            // postMessageWithAdditionalObjects ("dropFiles"); anything else dropped there is ignored by the page.
+            Editor.AllowExternalDrop = true;
             var core = Editor.CoreWebView2;
             core.NavigationStarting += (_, e) => { if (!WebHost.IsOwnPage(e.Uri)) e.Cancel = true; };
             core.NewWindowRequested += (_, e) => e.Handled = true;
@@ -309,6 +311,10 @@ public partial class ComposeWindow : Window
             var root = doc.RootElement;
             switch (root.GetProperty("t").GetString())
             {
+                case "dropFiles":
+                    var dropped = e.AdditionalObjects?.OfType<CoreWebView2File>().Select(f => f.Path).ToList() ?? [];
+                    if (dropped.Count > 0) AttachDroppedFiles(dropped);
+                    break;
                 case "ready":
                     await Editor.CoreWebView2.ExecuteScriptAsync("setNativeAttachmentPaste(true)");
                     await Editor.CoreWebView2.ExecuteScriptAsync("setQuoteFoldingSupported(true)");
@@ -596,15 +602,49 @@ public partial class ComposeWindow : Window
         if (dlg.ShowDialog(this) == true) _vm.AddAttachments(dlg.FileNames);
     }
 
+    /// <summary>
+    /// Files dragged onto any part of the window (also the To / Cc / Bcc and Subject boxes, which would otherwise
+    /// refuse or swallow them) become attachments. Wired as the window's Preview events so no text box sees a file
+    /// drop first; any other drag (moving a recipient chip, dragging text) is left to the control under the mouse.
+    /// The message editor is a web view and reports its own file drops (<see cref="AttachDroppedFiles"/>).
+    /// </summary>
     private void OnDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            // Not handled: a recipient box (chips) or a text box (text) under the mouse can still allow it.
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+        e.Effects = DragDropEffects.Copy;
         e.Handled = true;
     }
 
     private void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files) _vm.AddAttachments(files);
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
+        e.Handled = true;
+        AttachDroppedFiles(files);
+    }
+
+    /// <summary>
+    /// Only real files are attached; folders and paths that no longer exist are reported. Runs after the drop has
+    /// finished, so a question or message (e.g. about a large file) never keeps File Explorer waiting.
+    /// </summary>
+    private void AttachDroppedFiles(IEnumerable<string> paths)
+    {
+        var all = paths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        Dispatcher.BeginInvoke(() =>
+        {
+            var files = all.Where(File.Exists).ToList();
+            var folders = all.Count(Directory.Exists);
+            var missing = all.Count - files.Count - folders;
+            if (files.Count > 0) _vm.AddAttachments(files.ToArray());
+            var notes = new List<string>();
+            if (folders > 0) notes.Add("Folders can't be attached. Drop the files inside the folder instead.");
+            if (missing > 0) notes.Add(missing == 1 ? "One dropped file could not be found." : $"{missing} dropped files could not be found.");
+            if (notes.Count > 0) Ui.Error("Attach files", string.Join("\n", notes), this);
+        });
     }
 
     private void OnTemplates(object sender, RoutedEventArgs e)

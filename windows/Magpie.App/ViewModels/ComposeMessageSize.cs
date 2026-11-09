@@ -23,9 +23,9 @@ public partial class ComposeViewModel
         get
         {
             var count = Attachments.Count;
-            var files = count == 0 ? "No file attachments" : $"{count} file{(count == 1 ? "" : "s")}";
+            var files = count == 0 ? "No attachments" : $"{count} attachment{(count == 1 ? "" : "s")}";
             var size = _encodedMessageSize;
-            return files + (size == null ? (_draft.Security.Requested ? " · protected message size updates after Review" : " · full message size updates after autosave or Review")
+            return files + (size == null ? (_draft.Security.Requested ? " · size shown after Review" : " · size shown once the draft is saved")
                 : $" · {(size.AtLeast ? "at least " : "")}{HtmlRenderer.FormatSize(size.Bytes)} full message / {HtmlRenderer.FormatSize(ComposeSafety.SuggestedOutgoingLimitBytes(From))} suggested cap");
         }
     }

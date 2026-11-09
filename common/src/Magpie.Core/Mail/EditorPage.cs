@@ -1064,8 +1064,16 @@ document.addEventListener('keydown', function(e){
   else if (e.ctrlKey && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); post({t:'replace'}); }
   else if (e.ctrlKey && e.key === '/') { e.preventDefault(); post({t:'shortcuts'}); }
 });
-document.addEventListener('dragover', function(e){ e.preventDefault(); });
-document.addEventListener('drop', function(e){ e.preventDefault(); });
+function hasFiles(e){ var t=e.dataTransfer&&e.dataTransfer.types; return !!t && Array.prototype.indexOf.call(t,'Files')>=0; }
+document.addEventListener('dragover', function(e){ e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect=hasFiles(e)?'copy':'none'; });
+document.addEventListener('drop', function(e){
+  e.preventDefault();
+  // Windows (WebView2): dropped files go to the app as attachments, with their paths; nothing is inserted here.
+  var files=e.dataTransfer&&e.dataTransfer.files;
+  if(files&&files.length&&window.chrome&&window.chrome.webview&&window.chrome.webview.postMessageWithAdditionalObjects){
+    try{ window.chrome.webview.postMessageWithAdditionalObjects(JSON.stringify({t:'dropFiles'}), files); }catch(err){}
+  }
+});
 post({t:'ready'});
 </script>
 </body></html>

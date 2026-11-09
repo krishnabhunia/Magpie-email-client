@@ -39,8 +39,8 @@ internal static partial class Program
             var vm = (ComposeViewModel)window.DataContext;
             var to = (TextBox)window.FindName("ToBox");
             var panel = (WrapPanel)window.FindName("ToChipPanel");
-            var ccRow = (StackPanel)window.FindName("CcRow");
-            var bccRow = (StackPanel)window.FindName("BccRow");
+            var ccRow = (FrameworkElement)window.FindName("CcRow");
+            var bccRow = (FrameworkElement)window.FindName("BccRow");
             Assert(!vm.ShowCcRow && !vm.ShowBccRow && ccRow.Visibility == Visibility.Collapsed && bccRow.Visibility == Visibility.Collapsed,
                 theme + ": empty Cc and Bcc start independently collapsed");
             Click((Button)window.FindName("ShowCcLink"));

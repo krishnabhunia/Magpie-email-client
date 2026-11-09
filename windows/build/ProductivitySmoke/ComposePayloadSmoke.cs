@@ -86,11 +86,11 @@ internal static partial class Program
             var first = await vm.MeasureDraftSizeAsync();
             Assert(first.Bytes > 4096 + 8192 + 20_000 && !first.AtLeast,
                 "Real compose size includes local files, forwarded MIME and inline pictures");
-            Assert(vm.AttachmentSummary.StartsWith("2 files") && vm.AttachmentSummary.Contains("full message /")
+            Assert(vm.AttachmentSummary.StartsWith("2 attachments") && vm.AttachmentSummary.Contains("full message /")
                 && vm.AttachmentSummary.Contains("suggested cap"),
                 "Attachment strip labels complete encoded size and account guidance");
             vm.Subject = "Updated payload subject";
-            Assert(vm.AttachmentSummary.Contains("updates after autosave or Review"),
+            Assert(vm.AttachmentSummary.Contains("size shown once the draft is saved"),
                 "Editing invalidates the old full-message size rather than showing a stale number");
             var second = await vm.MeasureDraftSizeAsync();
             Assert(second.Bytes > 32_000 && carried.Content?.Stream?.CanRead == true,
@@ -103,7 +103,7 @@ internal static partial class Program
             Exception? staleSize = null;
             try { await vm.MeasureDraftSizeAsync(); }
             catch (InvalidOperationException ex) { staleSize = ex; }
-            Assert(staleSize != null && vm.AttachmentSummary.Contains("updates after autosave or Review"),
+            Assert(staleSize != null && vm.AttachmentSummary.Contains("size shown once the draft is saved"),
                 "Review declines an edited snapshot and never publishes its stale encoded size");
             vm.GetHtml = () => Task.FromResult(html);
             Assert(http.Requests == 0 && engine.Store.GetOutbox().Count == 0,

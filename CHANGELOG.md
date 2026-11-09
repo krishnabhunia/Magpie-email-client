@@ -7,6 +7,15 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 18.2.2 (9 Nov 2026)
+<!-- closes: #151 -->
+### Fixed
+- **Drag files into a new message.** Files dropped anywhere on the compose window are attached, also on the message text and on the To, Cc, Bcc and Subject boxes. Before, only the toolbar and footer took them. A dropped folder is not attached and Magpie says why.
+- **Every formatting button shows its icon.** Strikethrough, text colour, highlight, align left and centre, indent, outdent, remove link, table, picture, resize picture, emoji, undo and redo showed empty boxes. The numbered-list button showed a checklist icon; it now shows "1.".
+- **Focus and Studio are readable in the title bar**, and the one that is on stays highlighted.
+- **Contacts… sits next to each recipient box**, with Cc / Bcc and Hide, so the To, Cc and Bcc labels line up with their boxes.
+- **Plainer attachment line:** "No attachments · size shown once the draft is saved".
+
 ## 18.2.1 (9 Nov 2026)
 <!-- closes: #149 -->
 ### Fixed

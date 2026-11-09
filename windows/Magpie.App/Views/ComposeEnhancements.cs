@@ -209,6 +209,14 @@ public partial class ComposeWindow
             Editor.HorizontalAlignment = HorizontalAlignment.Stretch;
             FocusModeButton.Content = "Focus";
         }
+        MarkActiveMode();
+    }
+
+    /// <summary>The title-bar Focus / Studio button of the mode that is on stays highlighted.</summary>
+    private void MarkActiveMode()
+    {
+        FocusModeButton.Tag = _focusMode ? "active" : null;
+        StudioModeButton.Tag = StudioPanel.Visibility == Visibility.Visible ? "active" : null;
     }
 
     private void OnToggleStudio(object sender, RoutedEventArgs e)
@@ -230,6 +238,7 @@ public partial class ComposeWindow
             StudioPanel.Visibility = Visibility.Visible;
             StudioModeButton.Content = "Close studio";
         }
+        MarkActiveMode();
     }
 
     private void OnAiPanelVisibilityChanged()
@@ -238,6 +247,7 @@ public partial class ComposeWindow
         StudioPanel.Visibility = Visibility.Collapsed;
         StudioModeButton.Content = "Studio";
         _studioRestoreAiPanel = false;
+        MarkActiveMode();
     }
 
     /// <summary>Design CW1 (E2): with "Fold the quoted message in replies" off, a newly loaded message shows its quote open.
