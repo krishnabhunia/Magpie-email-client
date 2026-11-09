@@ -140,6 +140,42 @@ public sealed class Release1701Tests
     }
 
     [Fact]
+    public void A_rollback_not_yet_marked_successful_still_beats_an_older_update()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("settings.json");
+        var pin = dir.File("version-pin.txt");
+        File.WriteAllText(pin, "17.0.1");
+        var settings = Store(path, autoUpdate: false);
+        var history = new[]
+        {
+            Entry("Update", "17.0.0", "17.0.1", UpdateHistory.Succeeded, minutesAgo: 600),
+            Entry("Update", "17.0.1", "17.2.0", UpdateHistory.Succeeded, minutesAgo: 300),
+            Entry("Rollback", "17.2.0", "17.0.1", UpdateHistory.Installing, minutesAgo: 1),   // its status update failed
+        };
+        Assert.False(VersionPin.ReleaseAfterForwardMove(settings, pin, V("17.0.1"), history));
+        Assert.Equal("17.0.1", File.ReadAllText(pin));
+        Assert.False(SavedAutoUpdate(path));
+    }
+
+    [Fact]
+    public void An_unreadable_history_entry_leaves_the_pin_alone()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("settings.json");
+        var pin = dir.File("version-pin.txt");
+        File.WriteAllText(pin, "17.0.0");
+        var settings = Store(path, autoUpdate: false);
+        var history = new[]
+        {
+            Entry("Update", "16.1.0", "17.0.0", UpdateHistory.Succeeded, minutesAgo: 60),
+            Entry("History record", "", "", UpdateHistory.Failed),   // what UpdateHistory.List returns for a broken file
+        };
+        Assert.False(VersionPin.ReleaseAfterForwardMove(settings, pin, V("17.0.0"), history));
+        Assert.True(File.Exists(pin));
+    }
+
+    [Fact]
     public void A_pin_older_than_the_running_version_is_stale()
     {
         using var dir = new TempDir();

@@ -33,6 +33,8 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>"Later": not offered again by automatic checks before this time.</summary>
     private DateTimeOffset _laterUntil = DateTimeOffset.MinValue;
     private ReleaseInfo? _release;
+    /// <summary>The newer version the last check offered; a cancelled change to another version offers it again.</summary>
+    private ReleaseInfo? _offer;
     private string? _downloaded;
     private string? _downloadedSha;
     private ReleaseCompatibility? _compatibility;
@@ -342,8 +344,16 @@ public sealed partial class UpdateService : ObservableObject
     private void AfterCancel(string detail)
     {
         Title = "Version change cancelled"; Detail = detail;
-        if (_release is { } offered && offered.Version.CompareTo(Current) > 0) { State = UpdateState.Available; return; }
-        _release = null; _downloaded = null; _downloadedSha = null;
+        if (_release is { } chosen && chosen.Version.CompareTo(Current) > 0) { State = UpdateState.Available; return; }
+        _downloaded = null; _downloadedSha = null;
+        if (_offer is { } offer && offer.Version.CompareTo(Current) > 0)
+        {
+            _release = offer; Notes = TrimNotes(offer.Notes);
+            NotifyRelease();
+            State = UpdateState.Available;
+            return;
+        }
+        _release = null;
         NotifyRelease();
         State = UpdateState.Idle;
     }
@@ -493,7 +503,7 @@ public sealed partial class UpdateService : ObservableObject
         _cts = new CancellationTokenSource();
         State = UpdateState.Checking;
         // A fresh check must not retain a stale offer if GitHub reports no update or fails.
-        _release = null;
+        _release = null; _offer = null;
         OnPropertyChanged(nameof(NewVersion));
         OnPropertyChanged(nameof(ButtonText));
         OnPropertyChanged(nameof(IsUpdateVisible));
@@ -524,7 +534,7 @@ public sealed partial class UpdateService : ObservableObject
                 return;
             }
             if (automatic && rel.Version.ToString() == cfg.SkippedVersion) { Idle("Magpie " + Current, $"Skipped {rel.Version}."); return; }
-            _release = rel;
+            _release = rel; _offer = rel;
             OnPropertyChanged(nameof(NewVersion));
             Notes = TrimNotes(rel.Notes);
             Title = $"Magpie {rel.Version} is available";
@@ -703,6 +713,15 @@ public sealed partial class UpdateService : ObservableObject
             else
             {
                 _unsafeToRestart = true;
+                if (pin != null && !VersionPin.PinsAfterChange(Current, selected.Version) && _restoreSnapshotId == null)
+                {
+                    // Forward handoff: it kept checks on. Which application is in place is unknown now, so protect
+                    // it the way a rollback does (the selected version's start clears this once it starts fine).
+                    try { pin.Dispose(); } catch (Exception ex) { Log.Error("could not put back the update settings", ex); }
+                    pin = null;
+                    try { using var protect = VersionPin.Prepare(AppServices.Engine.Settings, VersionPinPath, selected.Version); protect.Commit(); }
+                    catch (Exception ex) { Log.Error("could not pin the selected version after a failed handoff", ex); }
+                }
                 pin?.Commit(); pin?.Dispose(); pin = null;
                 Ui.Error("Recovery needs attention", "Magpie could not safely restore the previous application. " +
                     "Automatic installation remains off. The paired application/data backup has been kept in your profile; do not replace only the executable.");
