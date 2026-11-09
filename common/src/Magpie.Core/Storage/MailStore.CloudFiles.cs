@@ -25,9 +25,22 @@ public sealed partial class MailStore
         if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM cloud_file_receipts")) >= MaximumCloudReceipts
             && Scalar(c, "SELECT 1 FROM cloud_file_receipts WHERE web_url=$url", ("$url", file.WebUrl)) == null)
             throw new InvalidOperationException("The cloud-file record limit was reached. Attach the file normally.");
-        // URLs are immutable per fresh upload. Never let a different draft overwrite the original access proof.
+        // URLs are immutable per fresh upload. Existing-file links may have different display titles,
+        // but their original account, named people, role and provider permission IDs must match exactly.
         var existing = Scalar(c, "SELECT receipt FROM cloud_file_receipts WHERE web_url=$url", ("$url", file.WebUrl)) as string;
-        if (existing != null && existing != json) throw new InvalidOperationException("The saved cloud file access differs from this upload.");
+        if (existing != null && existing != json)
+        {
+            var original = JsonSerializer.Deserialize<CloudUploadedFile>(existing);
+            if (original?.IsValid != true || !original.IsExisting || !file.IsExisting
+                || original.AccountId != file.AccountId || original.Provider != file.Provider
+                || !original.AccountEmail.Equals(file.AccountEmail, StringComparison.OrdinalIgnoreCase)
+                || original.FileId != file.FileId || original.ContainerId != file.ContainerId || original.FileName != file.FileName
+                || original.Access != file.Access
+                || !original.Recipients.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(file.Recipients)
+                || original.PermissionIds.Count != file.PermissionIds.Count
+                || original.PermissionIds.Any(x => !file.PermissionIds.TryGetValue(x.Key, out var id) || id != x.Value))
+                throw new InvalidOperationException("The saved cloud file access differs from the reviewed existing file. Review its original grants first.");
+        }
         Exec(c, "INSERT INTO cloud_file_receipts(web_url,receipt) VALUES($url,$json) ON CONFLICT(web_url) DO NOTHING",
             ("$url", file.WebUrl), ("$json", json));
         tx.Commit();

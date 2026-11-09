@@ -7,6 +7,11 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 17.0.0 (9 Nov 2026)
+<!-- closes: #78 -->
+### New
+- **Browse and share existing Google Drive or OneDrive files from Compose.** Connect independently approved existing-file access, search owned cloud files, choose an existing file, edit its link title, review named To/Cc recipients and View/Edit access, then explicitly confirm before sharing or inserting a link. Magpie rechecks the original file identity and permissions, rejects public/inherited/unreviewed grants, and retains verified access records for scheduled sending. Existing files are never deleted during cancellation; partial sharing shows a recovery link to review permissions. Regular attachments and private-copy cloud uploads remain available.
+
 ## 16.1.0 (8 Nov 2026)
 <!-- closes: #146 -->
 ### Changed
