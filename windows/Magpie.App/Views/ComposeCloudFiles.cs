@@ -8,10 +8,14 @@ namespace Magpie.App.Views;
 
 public partial class ComposeWindow
 {
-    private async void OnCloudAttach(object sender, RoutedEventArgs e)
+    private async void OnCloudAttach(object sender, RoutedEventArgs e) => await OpenCloudFileDialogAsync(sender, existing: false);
+
+    private async void OnCloudBrowseExisting(object sender, RoutedEventArgs e) => await OpenCloudFileDialogAsync(sender, existing: true);
+
+    private async Task OpenCloudFileDialogAsync(object sender, bool existing)
     {
         if (_vm.Sending || _vm.AttachmentOperationBusy || _vm.RevisionBusy || _forceClose) return;
-        var original = (sender as FrameworkElement)?.DataContext as AttachmentItem;
+        var original = existing ? null : (sender as FrameworkElement)?.DataContext as AttachmentItem;
         if (original?.Carried == true) return;
         var nativeText = PlainEditor.Text;
         var nativeCaret = PlainEditor.CaretIndex;
@@ -27,7 +31,7 @@ public partial class ComposeWindow
                 if (native)
                 {
                     if (PlainEditor.Text != nativeText) return false;
-                    var linkText = file.FileName + ": " + file.WebUrl;
+                    var linkText = file.DisplayName + ": " + file.WebUrl;
                     PlainEditor.Select(nativeCaret, 0);
                     PlainEditor.SelectedText = linkText;
                     PlainEditor.CaretIndex = nativeCaret + linkText.Length;
@@ -35,12 +39,16 @@ public partial class ComposeWindow
                 }
                 return _editorReady && Editor.CoreWebView2 != null
                     && await Editor.CoreWebView2.ExecuteScriptAsync("insertCloudLink(" + JsonSerializer.Serialize(file.WebUrl)
-                        + "," + JsonSerializer.Serialize(file.FileName) + ")") == "true";
+                        + "," + JsonSerializer.Serialize(file.DisplayName) + ")") == "true";
             }
-            var dialog = new CloudFileDialog(_vm, Insert, original?.Path, original?.Name) { Owner = this };
-            if (dialog.ShowDialog() == true && original != null && _vm.Attachments.Contains(original)
-                && string.Equals(dialog.SourcePath, original.Path, StringComparison.OrdinalIgnoreCase))
-                _vm.RemoveAttachmentCommand.Execute(original);
+            if (existing) new CloudExistingFileDialog(_vm, Insert) { Owner = this }.ShowDialog();
+            else
+            {
+                var dialog = new CloudFileDialog(_vm, Insert, original?.Path, original?.Name) { Owner = this };
+                if (dialog.ShowDialog() == true && original != null && _vm.Attachments.Contains(original)
+                    && string.Equals(dialog.SourcePath, original.Path, StringComparison.OrdinalIgnoreCase))
+                    _vm.RemoveAttachmentCommand.Execute(original);
+            }
         }
         catch (Exception ex) { if (!_forceClose) Ui.Error("Cloud file link", ex.Message, this); }
         finally

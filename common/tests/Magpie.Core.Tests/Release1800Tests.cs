@@ -5,10 +5,10 @@ using Xunit;
 namespace Magpie.Core.Tests;
 
 /// <summary>
-/// 17.0.0 (written for 15.0.0, which main released with other work) — short test-version names (design BT1 option A, BT2) and the Info window (design IN1, Q95): beta parsing
+/// 18.0.0 (written for 15.0.0, which main released with other work) — short test-version names (design BT1 option A, BT2) and the Info window (design IN1, Q95): beta parsing
 /// and order, portable names, build details, Copy build info, docs/FEATURES.md and the CHANGELOG section.
 /// </summary>
-public sealed class Release1700Tests
+public sealed class Release1800Tests
 {
     private static AppVersion V(string version) => AppVersion.TryParse(version)!;
 

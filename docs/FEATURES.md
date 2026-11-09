@@ -52,4 +52,5 @@ One row per feature, in plain words. "Since" is the first version in `CHANGELOG.
 | 46 | Delivery notifications | Ask the mail server for a delivered / failed report, separately from a read receipt | 16.0.0 | Yes | Not yet |
 | 47 | Send as an alias | Up to 20 sender addresses your provider allows, per account, chosen while writing | 16.0.0 | Yes | Not yet |
 | 48 | Translate a selection | Translate the selected text with your AI and see it before it replaces anything | 16.0.0 | Yes | Not yet |
-| 49 | Info window | ⓘ next to the version (or F1): this build's details, what's implemented, what's new and what it is made of, with Copy build info and the full release notes | 17.0.0 | Yes | Yes |
+| 49 | Existing cloud files | Browse your own Google Drive or OneDrive files while writing and share one with a review of who gets View or Edit access | 17.0.0 | Yes | Not yet |
+| 50 | Info window | ⓘ next to the version (or F1): this build's details, what's implemented, what's new and what it is made of, with Copy build info and the full release notes | 18.0.0 | Yes | Yes |

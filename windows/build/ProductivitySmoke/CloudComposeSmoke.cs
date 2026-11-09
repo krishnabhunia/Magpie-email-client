@@ -51,8 +51,9 @@ internal static partial class Program
         TaskCompletionSource<CloudUploadedFile>? upload = null;
         try
         {
-            Assert(window.FindName("CloudAttachButton") is Button && window.FindName("StudioCloudAttachButton") is Button,
-                theme + ": cloud upload is reachable from Attach tools and Studio Files");
+            Assert(window.FindName("CloudAttachButton") is Button && window.FindName("StudioCloudAttachButton") is Button
+                && window.FindName("CloudBrowseExistingButton") is Button && window.FindName("StudioCloudBrowseButton") is Button,
+                theme + ": upload and existing-file browsing are reachable from Compose and Studio Files");
             var path = Path.Combine(root, "cloud-fixture-" + theme + ".txt");
             await File.WriteAllTextAsync(path, "data");
             var dialog = new CloudFileDialog(vm, _ => Task.FromResult(true), path);
@@ -90,6 +91,32 @@ internal static partial class Program
             }
             finally { dialog.Close(); vm.Bcc = ""; }
 
+            var existingDialog = new CloudExistingFileDialog(vm, _ => Task.FromResult(true));
+            try
+            {
+                var existingAccount = (ComboBox)existingDialog.FindName("ExistingCloudAccounts");
+                var existingFiles = (ListBox)existingDialog.FindName("ExistingCloudFiles");
+                var existingTitle = (TextBox)existingDialog.FindName("ExistingCloudTitle");
+                var existingRole = (ComboBox)existingDialog.FindName("ExistingCloudAccess");
+                var existingConfirm = (CheckBox)existingDialog.FindName("ExistingCloudConfirm");
+                var existingShare = (Button)existingDialog.FindName("ExistingCloudShare");
+                Assert(existingAccount.Items.Count == 2 && existingRole.SelectedIndex == 0 && !existingShare.IsEnabled
+                    && existingConfirm.IsChecked != true && ((ListBox)existingDialog.FindName("ExistingCloudRecipients")).Items.Count == 2,
+                    theme + ": browse existing files requires separate consent, an owned file and explicit named access");
+                existingFiles.ItemsSource = new[] { new CloudExistingFile(AccountKind.Gmail, "existing-smoke", "report.txt",
+                    "https://drive.google.com/file/d/existing-smoke/view") };
+                existingFiles.SelectedIndex = 0;
+                existingTitle.Text = "Reviewed link";
+                existingConfirm.IsChecked = true;
+                existingRole.SelectedIndex = 1;
+                Assert(existingConfirm.IsChecked == false && !existingShare.IsEnabled,
+                    theme + ": changing the existing-file role clears approval");
+                existingAccount.SelectedItem = microsoft;
+                Assert(existingConfirm.IsChecked == false && existingFiles.Items.Count == 0 && !existingShare.IsEnabled,
+                    theme + ": changing cloud account discards prior file selection and confirmation");
+            }
+            finally { existingDialog.Close(); }
+
             var plan = CloudSharePlan.Create(google, "report.txt", 4, vm.To, vm.Cc, vm.Bcc, CloudFileAccess.View);
             var receipt = CloudReceipt(plan);
             upload = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -121,6 +148,49 @@ internal static partial class Program
                 Assert(mime.HtmlBody?.Contains(receipt.WebUrl) == true
                     && !System.Text.Encoding.UTF8.GetString(Composer.ToBytes(mime)).Contains("grant-"),
                     theme + ": saved MIME carries the usable link without internal sharing records");
+
+            var existingFile = new CloudExistingFile(AccountKind.Gmail, "existing-smoke", "report.txt",
+                "https://drive.google.com/file/d/existing-smoke/view");
+            var existingPlan = CloudExistingSharePlan.Create(google, existingFile, "Reviewed link title", vm.To, vm.Cc, vm.Bcc, CloudFileAccess.View);
+            var existingReceipt = CloudReceipt(plan) with
+            {
+                IsExisting = true, FileId = existingFile.Id, WebUrl = existingFile.WebUrl,
+                LinkTitle = existingPlan.LinkTitle,
+            };
+            var existingShareWait = new TaskCompletionSource<CloudUploadedFile>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var existingInserted = 0;
+            var pendingExisting = vm.ShareExistingCloudFileAsync(existingPlan, _ => existingShareWait.Task, value =>
+            {
+                existingInserted++;
+                body += "<p><a href=\"" + value.WebUrl + "\">" + value.DisplayName + "</a></p>";
+                return Task.FromResult(true);
+            });
+            Assert(vm.AttachmentOperationBusy && !pendingExisting.IsCompleted,
+                theme + ": existing-file share also protects compose against overlapping operations");
+            existingShareWait.SetResult(existingReceipt);
+            Assert(await pendingExisting == existingReceipt && existingInserted == 1 && !vm.AttachmentOperationBusy
+                && engine.Store.CloudFilesIn(body).Count == 2,
+                theme + ": successful existing-file grant inserts the editable link title and saves access receipt");
+
+            var rejectedExisting = existingReceipt with { WebUrl = "https://drive.google.com/file/d/another-smoke/view" };
+            CloudSharingException? existingRecovery = null;
+            try { await vm.ShareExistingCloudFileAsync(existingPlan, _ => Task.FromResult(rejectedExisting), _ => Task.FromResult(false)); }
+            catch (CloudSharingException ex) { existingRecovery = ex; }
+            Assert(existingRecovery?.CleanupRequired == true && existingRecovery.RecoveryUrl == rejectedExisting.WebUrl
+                && !vm.AttachmentOperationBusy,
+                theme + ": existing-file insertion mismatch warns of durable sharing without deleting the file");
+
+            var staleExistingWait = new TaskCompletionSource<CloudUploadedFile>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var staleExistingInserts = 0;
+            var staleExistingTask = vm.ShareExistingCloudFileAsync(existingPlan, _ => staleExistingWait.Task,
+                _ => { staleExistingInserts++; return Task.FromResult(true); });
+            vm.MarkEdited();
+            staleExistingWait.SetResult(existingReceipt);
+            CloudSharingException? staleExistingFailure = null;
+            try { await staleExistingTask; } catch (CloudSharingException ex) { staleExistingFailure = ex; }
+            Assert(staleExistingFailure?.CleanupRequired == true && staleExistingInserts == 0
+                && !vm.AttachmentOperationBusy && engine.Store.CloudFilesIn(existingReceipt.WebUrl).Count == 1,
+                theme + ": stale compose edits prevent an existing-file link without deleting prior access proof");
 
             foreach (var change in new[] { "recipient", "body", "account", "From", "mode" })
             {
