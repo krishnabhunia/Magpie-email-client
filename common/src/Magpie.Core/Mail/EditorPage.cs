@@ -1065,7 +1065,7 @@ document.addEventListener('keydown', function(e){
   else if (e.ctrlKey && e.key === '/') { e.preventDefault(); post({t:'shortcuts'}); }
 });
 function hasFiles(e){ var t=e.dataTransfer&&e.dataTransfer.types; return !!t && Array.prototype.indexOf.call(t,'Files')>=0; }
-document.addEventListener('dragover', function(e){ e.preventDefault(); if(hasFiles(e)) e.dataTransfer.dropEffect='copy'; });
+document.addEventListener('dragover', function(e){ e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect=hasFiles(e)?'copy':'none'; });
 document.addEventListener('drop', function(e){
   e.preventDefault();
   // Windows (WebView2): dropped files go to the app as attachments, with their paths; nothing is inserted here.

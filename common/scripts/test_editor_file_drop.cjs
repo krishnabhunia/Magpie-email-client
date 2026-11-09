@@ -39,6 +39,7 @@ assert.equal(win.sent[0][1], files, 'the dropped FileList itself is passed so We
 
 // Dragged text or a link: cancelled (the page never navigates or inserts), nothing posted.
 over = event(['text/plain'], []);
+over.dataTransfer.dropEffect = 'move';   // what the browser offers for text from another app
 win.listeners.dragover(over);
 assert.ok(over.prevented); assert.equal(over.dataTransfer.dropEffect, 'none'); checks += 2;
 drop = event(['text/plain'], {length: 0});

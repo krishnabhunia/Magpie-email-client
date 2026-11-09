@@ -610,7 +610,12 @@ public partial class ComposeWindow : Window
     /// </summary>
     private void OnDragOver(object sender, DragEventArgs e)
     {
-        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            // Not handled: a recipient box (chips) or a text box (text) under the mouse can still allow it.
+            e.Effects = DragDropEffects.None;
+            return;
+        }
         e.Effects = DragDropEffects.Copy;
         e.Handled = true;
     }
@@ -622,14 +627,24 @@ public partial class ComposeWindow : Window
         AttachDroppedFiles(files);
     }
 
-    /// <summary>Only real files are attached; dropped folders are skipped with a note.</summary>
+    /// <summary>
+    /// Only real files are attached; folders and paths that no longer exist are reported. Runs after the drop has
+    /// finished, so a question or message (e.g. about a large file) never keeps File Explorer waiting.
+    /// </summary>
     private void AttachDroppedFiles(IEnumerable<string> paths)
     {
         var all = paths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
-        var files = all.Where(File.Exists).ToList();
-        if (files.Count > 0) _vm.AddAttachments(files.ToArray());
-        if (files.Count < all.Count)
-            Ui.Error("Attach files", "Folders can't be attached. Drop the files inside the folder instead.", this);
+        Dispatcher.BeginInvoke(() =>
+        {
+            var files = all.Where(File.Exists).ToList();
+            var folders = all.Count(Directory.Exists);
+            var missing = all.Count - files.Count - folders;
+            if (files.Count > 0) _vm.AddAttachments(files.ToArray());
+            var notes = new List<string>();
+            if (folders > 0) notes.Add("Folders can't be attached. Drop the files inside the folder instead.");
+            if (missing > 0) notes.Add(missing == 1 ? "One dropped file could not be found." : $"{missing} dropped files could not be found.");
+            if (notes.Count > 0) Ui.Error("Attach files", string.Join("\n", notes), this);
+        });
     }
 
     private void OnTemplates(object sender, RoutedEventArgs e)
