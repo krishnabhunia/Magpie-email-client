@@ -7,11 +7,16 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
-## 16.2.0 (9 Nov 2026)
+## 17.1.0 (9 Nov 2026)
 <!-- closes: #132 -->
 ### Changed
 - **Writing emails settings.** Settings → General → **Writing emails** decides how every new message window starts: check spelling while you write, fold the quoted message in replies, ask when you forget an attachment, always ask for a read receipt, and what a pasted picture does (ask each time, put it in the message, or save and attach it). Every switch starts as Magpie works today.
 - **Replies go to.** Each account in Settings → Accounts can have one **Replies go to** address. New messages, replies and forwards from that account start with it as Reply-To; you can still change it while writing, and changing From swaps it for the new account's own unless you typed one yourself. Reopened drafts keep what they had.
+
+## 17.0.0 (9 Nov 2026)
+<!-- closes: #78 -->
+### New
+- **Browse and share existing Google Drive or OneDrive files from Compose.** Connect independently approved existing-file access, search owned cloud files, choose an existing file, edit its link title, review named To/Cc recipients and View/Edit access, then explicitly confirm before sharing or inserting a link. Magpie rechecks the original file identity and permissions, rejects public/inherited/unreviewed grants, and retains verified access records for scheduled sending. Existing files are never deleted during cancellation; partial sharing shows a recovery link to review permissions. Regular attachments and private-copy cloud uploads remain available.
 
 ## 16.1.0 (8 Nov 2026)
 <!-- closes: #146 -->

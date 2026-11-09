@@ -9,14 +9,14 @@ namespace Magpie.Core.Tests;
 /// The CW1 pieces main's compose window did not have (PR #137 after "main wins", Krishna 9 Nov 2026): Settings → General →
 /// Writing emails and the per-account "Replies go to".
 /// </summary>
-public sealed class Release1620Tests
+public sealed class Release1710Tests
 {
     private static Account Acc(string id, string email, string replyTo = "") => new() { Id = id, Email = email, ReplyTo = replyTo };
 
     [Fact]
     public void An_older_settings_json_keeps_todays_compose_behaviour()
     {
-        var path = Path.Combine(Path.GetTempPath(), "magpie-1620-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Combine(Path.GetTempPath(), "magpie-1710-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             File.WriteAllText(path, """{ "Accounts": [ { "Id": "A", "Email": "me@example.com" } ] }""");

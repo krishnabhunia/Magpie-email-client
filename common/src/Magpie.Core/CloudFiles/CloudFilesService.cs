@@ -10,7 +10,7 @@ namespace Magpie.Core.CloudFiles;
 /// Upload a fresh private copy, check its initial access, and grant only the reviewed named recipients.
 /// No existing file is replaced; no anonymous link, notification, or inherited-permission change is requested.
 /// </summary>
-public sealed class CloudFilesService : IDisposable
+public sealed partial class CloudFilesService : IDisposable
 {
     private const string GoogleApi = "https://www.googleapis.com/drive/v3";
     private const string GraphApi = "https://graph.microsoft.com/v1.0";
@@ -66,6 +66,9 @@ public sealed class CloudFilesService : IDisposable
 
     public async Task RemoveNewFileAsync(Account account, CloudUploadedFile file, CancellationToken ct = default)
     {
+        if (file.IsExisting)
+            throw new CloudSharingException("This is an existing cloud file. Magpie will never delete it as upload cleanup. Review its permissions in your cloud provider.",
+                true, file.WebUrl);
         if (!file.IsValid || file.AccountId != account.Id || file.Provider != account.Kind
             || !file.AccountEmail.Equals(account.Email, StringComparison.OrdinalIgnoreCase))
             throw new CloudSharingException("The cloud file's account cannot be verified; remove the new copy in your cloud app.", true, file.WebUrl);
@@ -91,13 +94,14 @@ public sealed class CloudFilesService : IDisposable
         if (!file.IsValid || file.AccountId != account.Id || file.Provider != account.Kind
             || !file.AccountEmail.Equals(account.Email, StringComparison.OrdinalIgnoreCase))
             throw new CloudSharingException("The account used to share " + file.FileName + " is no longer available. Reconnect it or attach the file normally.");
-        var auth = await _authorization.AuthorizeAsync(account, ct);
+        var auth = file.IsExisting ? await ExistingAuthorization().AuthorizeExistingAsync(account, ct)
+            : await _authorization.AuthorizeAsync(account, ct);
         var grants = file.PermissionIds.ToDictionary(x => x.Value, x => x.Key, StringComparer.Ordinal);
         if (file.Provider == AccountKind.Gmail) await CheckGooglePermissionsAsync(file.FileId, auth, grants, file.Access, ct);
         else
         {
             auth = await MicrosoftDriveOwnerAsync(auth, null, ct);
-            await CheckMicrosoftPermissionsAsync(file.FileId, auth, grants, file.Access, ct);
+            await CheckMicrosoftPermissionsAsync(file.FileId, auth, grants, file.Access, ct, file.IsExisting);
         }
     }
 
@@ -252,7 +256,7 @@ public sealed class CloudFilesService : IDisposable
         CloudFileAccess access, CancellationToken ct)
     {
         using var response = await JsonAsync(HttpMethod.Get, GoogleApi + "/files/" + Esc(id)
-            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted)", auth.AccessToken, null, ct);
+            + "/permissions?pageSize=100&fields=nextPageToken,permissions(id,type,role,emailAddress,deleted,permissionDetails(inherited))", auth.AccessToken, null, ct);
         var root = response.RootElement;
         if (root.TryGetProperty("nextPageToken", out _) || !root.TryGetProperty("permissions", out var permissions) || permissions.ValueKind != JsonValueKind.Array)
             throw new CloudSharingException("Google Drive could not confirm all permissions on the new file.");
@@ -260,6 +264,8 @@ public sealed class CloudFilesService : IDisposable
         foreach (var permission in permissions.EnumerateArray())
         {
             if (permission.TryGetProperty("deleted", out var deleted) && deleted.ValueKind == JsonValueKind.True) continue;
+            if (InheritedGoogleGrant(permission))
+                throw new CloudSharingException("Drive has inherited sharing permissions that Magpie cannot safely review. Choose a private file.");
             var permissionId = String(permission, "id");
             var owner = String(permission, "type") == "user" && String(permission, "role") == "owner"
                 && String(permission, "emailAddress").Equals(auth.Email, StringComparison.OrdinalIgnoreCase);
@@ -273,8 +279,13 @@ public sealed class CloudFilesService : IDisposable
         if (!found.SetEquals(granted.Keys)) throw new CloudSharingException("Google Drive has not confirmed all requested recipients. No link was inserted.");
     }
 
+    private static bool InheritedGoogleGrant(JsonElement permission) =>
+        permission.TryGetProperty("permissionDetails", out var details) && details.ValueKind == JsonValueKind.Array
+        && details.EnumerateArray().Any(detail => detail.ValueKind == JsonValueKind.Object
+            && detail.TryGetProperty("inherited", out var inherited) && inherited.ValueKind == JsonValueKind.True);
+
     private async Task CheckMicrosoftPermissionsAsync(string id, CloudAuthorization auth, IReadOnlyDictionary<string, string> granted,
-        CloudFileAccess access, CancellationToken ct)
+        CloudFileAccess access, CancellationToken ct, bool strictIdentity = false)
     {
         using var response = await JsonAsync(HttpMethod.Get, GraphApi + "/me/drive/items/" + Esc(id) + "/permissions", auth.AccessToken, null, ct);
         var root = response.RootElement;
@@ -286,6 +297,7 @@ public sealed class CloudFilesService : IDisposable
             var permissionId = String(permission, "id");
             if (!HasUnsafeGrant(permission) && BelongsOnlyToOwner(permission, auth)) continue;
             if (HasUnsafeGrant(permission) || !granted.TryGetValue(permissionId, out var recipient) || HasDifferentRecipient(permission, recipient)
+                || strictIdentity && !MicrosoftRecipientEmail(permission).Equals(recipient, StringComparison.OrdinalIgnoreCase)
                 || !HasOnlyRole(permission, access == CloudFileAccess.View ? "read" : "write"))
                 throw new CloudSharingException("The new OneDrive file inherits access beyond the reviewed people. Magpie will not change your existing permissions; attach the file normally or use a private account.");
             found.Add(permissionId);
@@ -294,6 +306,7 @@ public sealed class CloudFilesService : IDisposable
     }
 
     private static bool HasUnsafeGrant(JsonElement permission) => permission.TryGetProperty("link", out _)
+        || permission.TryGetProperty("inheritedFrom", out var inherited) && inherited.ValueKind != JsonValueKind.Null
         || ContainsProperty(permission, "group") || ContainsProperty(permission, "siteGroup");
 
     // Graph sometimes returns only an opaque identity ID. The result of our single-recipient invite binds
