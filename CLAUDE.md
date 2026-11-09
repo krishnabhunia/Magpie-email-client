@@ -2,7 +2,7 @@
 
 Email client for Windows (C# / .NET 8 / WPF, CommunityToolkit.Mvvm, WebView2, MailKit, SQLite + FTS5) and, since 8.0.0, Mac (Apple Silicon; Avalonia 12 / .NET 10, WKWebView via NativeWebView) — both on the same `common/src/Magpie.Core` (.NET 8).
 Owner: Krishna Dipayan Bhunia. Public repo `krishnabhunia/Magpie-email-client`, branch `main`.
-Current release: **17.0.0** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
+Current release: **17.0.1** (see CHANGELOG.md). Next: whatever is queued — the queue and every approved design are in `docs/ROADMAP-1.2.0.md`.
 
 ## How Krishna works (non-negotiable)
 
@@ -25,7 +25,7 @@ Current release: **17.0.0** (see CHANGELOG.md). Next: whatever is queued — the
 | Every change through a PR (Krishna, 2 Nov 2026) | Work on a feature branch and open a PR for every change, however small. Never commit, push or merge directly into `main`. |
 | Release zip / CI download (workflows.md) | One artifact `Magpie_<version>` → `Magpie_<version>.zip` holding `portable/Magpie_<v>.exe`, `windows-x64/Magpie_<v>.exe` (installer), `macOS/Magpie_<v>.dmg`, `Android/Magpie_<v>.apk` — one file per folder, nothing else (`release_prep.py check-folders`). |
 | CI/CD | Krishna only reviews, approves and merges PRs on GitHub. Everything after that runs by itself: all tests and checks, the version bump, the release. |
-| Windows updates (approved exact-version manager, #117) | Automatic checks can be paused. Checks never select, download or install a release. Settings → Updates and the title-bar button open the stable/beta chooser; the user selects an exact compatible version in the Updates / Version history & roll back tabs and confirms it on the From → To screen (`VersionConfirmWindow`, design VP1, Q90; Krishna 30 Oct 2026: "Picker wins" — Auto update never installs). A manual choice/pin overrides legacy automatic installation. The title-bar button shows only when GitHub has a newer version: "Update to vx.y.z". |
+| Windows updates (approved exact-version manager, #117) | Automatic checks can be paused. Checks never select, download or install a release. Settings → Updates and the title-bar button open the stable/beta chooser; the user selects an exact compatible version in the Updates / Version history & roll back tabs and confirms it on the From → To screen (`VersionConfirmWindow`, design VP1, Q90; Krishna 30 Oct 2026: "Picker wins" — Auto update never installs). A manual choice/pin overrides legacy automatic installation. Only a rollback or restore pins the version and pauses automatic checks; an update to a newer version keeps the user's Auto update choice and ends an earlier rollback pin (`VersionPin.PinsAfterChange` / `PrepareForward`; start-up repair `ReleaseAfterForwardMove`, 17.0.1). The title-bar button shows only when GitHub has a newer version: "Update to vx.y.z". |
 | Mac updates (feature deferred by Krishna, 1 Nov 2026 IST) | Keep the existing updater and build pipeline: every start checks GitHub; Auto update also checks daily, downloads and installs on quit. The Mac exact-version manager and its native readiness work are deferred. Packaged DMGs do not imply support in the new compatibility manifest. |
 | Installer | If the previous version is running, the installer updates it in the background (closes it cleanly, installs, starts it again). |
 | Version | Every program shows its version number in its main (home) window. |

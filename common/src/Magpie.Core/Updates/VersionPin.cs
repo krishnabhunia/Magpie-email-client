@@ -35,6 +35,74 @@ public static class VersionPin
         }
     }
 
+    /// <summary>
+    /// Only going back (a rollback) pins the selected version and pauses automatic checks. Moving to a newer
+    /// version must leave checks running, so the next release still shows "Update to vx.y.z" after a restart.
+    /// </summary>
+    public static bool PinsAfterChange(AppVersion current, AppVersion selected) => selected.CompareTo(current) < 0;
+
+    /// <summary>
+    /// The handoff to a newer version: the user's Auto update choice stays as it is. A pin left by an earlier
+    /// rollback ends here, and the automatic checks that rollback paused are switched back on. Commit after a
+    /// successful handoff; otherwise disposing puts the previous pin and switches back.
+    /// </summary>
+    public static Handoff PrepareForward(SettingsStore settings, string pinPath)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentException.ThrowIfNullOrWhiteSpace(pinPath);
+        var handoff = new Handoff(settings, Path.GetFullPath(pinPath));
+        try
+        {
+            handoff.PersistForward();
+            return handoff;
+        }
+        catch (Exception preparationError)
+        {
+            try { handoff.Dispose(); }
+            catch (Exception recoveryError)
+            {
+                throw new AggregateException("The selected version could not be prepared and the previous update settings could not be fully restored.",
+                    preparationError, recoveryError);
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Runs once the running version has started successfully. Before 17.0.1 every version change, also an update to
+    /// a newer version, pinned that version and switched Auto update off, so no newer release was offered again.
+    /// Clears such a pin and switches automatic checks back on when <paramref name="running"/> was reached by moving
+    /// forward: the newest successful history entry into it is an "Update" from an older version, or the pin names an
+    /// older version than the one running (e.g. the installer was run after a rollback). A pin from a rollback or a
+    /// restore of the running version is kept. Returns true when something changed.
+    /// </summary>
+    public static bool ReleaseAfterForwardMove(SettingsStore settings, string pinPath, AppVersion running,
+        IEnumerable<UpdateHistoryEntry> history)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(running);
+        if (!File.Exists(pinPath)) return false;
+        var pinned = AppVersion.TryParse(File.ReadAllText(pinPath).Trim());
+        bool forward;
+        if (pinned == null) forward = true;                              // unreadable: it can't protect anything
+        else if (pinned.CompareTo(running) > 0) return false;           // running an older version than the pin
+        else if (pinned.CompareTo(running) < 0) forward = true;         // moved past the pinned version
+        else
+        {
+            var into = history
+                .Where(e => e.To == running.ToString() && e.Status is UpdateHistory.Succeeded or UpdateHistory.Restored)
+                .OrderByDescending(e => e.Created)
+                .FirstOrDefault();
+            forward = into is { Action: "Update" } && AppVersion.TryParse(into.From) is { } from && from.CompareTo(running) < 0;
+        }
+        if (!forward) return false;
+        File.Delete(pinPath);
+        var updates = settings.Current.Updates;
+        updates.AutoUpdate = updates.AutoCheck = updates.AutoDownload = true;
+        settings.Save(notify: false);
+        return true;
+    }
+
     private static void WriteAtomically(string path, string content)
     {
         var temporary = path + ".next-" + Guid.NewGuid().ToString("N");
@@ -78,6 +146,18 @@ public static class VersionPin
             var updates = _settings.Current.Updates;
             // Save normalises both legacy switches from AutoUpdate, so all three must be false.
             updates.AutoUpdate = updates.AutoCheck = updates.AutoDownload = false;
+            _settings.Save(notify: false);
+            _settingsWritten = true;
+        }
+
+        /// <summary>A newer version: no pin. Only a pin left by a rollback is removed, with the checks it paused.</summary>
+        internal void PersistForward()
+        {
+            if (_previousPin == null) return;   // nothing pinned: the user's own Auto update choice stays
+            File.Delete(_pinPath);
+            _pinWritten = true;
+            var updates = _settings.Current.Updates;
+            updates.AutoUpdate = updates.AutoCheck = updates.AutoDownload = true;
             _settings.Save(notify: false);
             _settingsWritten = true;
         }

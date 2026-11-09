@@ -156,6 +156,16 @@ public partial class App : Application
         SplashPlan.RememberStarted(AppPaths.Default().Root, UpdateService.Current.ToString());   // design SP1: "after an update" also after the installer
         try { UpdateHistory.CompleteStartup(AppPaths.Default(), UpdateService.Current); }
         catch (Exception ex) { Log.Error("could not record version startup completion", ex); }
+        // Before 17.0.1 an update to a newer version pinned it and switched Auto update off: undo that once.
+        try
+        {
+            if (VersionPin.ReleaseAfterForwardMove(engine.Settings, UpdateService.VersionPinPath, UpdateService.Current, UpdateHistory.List(AppPaths.Default())))
+            {
+                Log.Info($"version pin from an update to {UpdateService.Current} cleared; automatic update checks are on again");
+                updates.RefreshSwitches();
+            }
+        }
+        catch (Exception ex) { Log.Error("could not clear the version pin left by an update", ex); }
         if (Program.AfterUpdate) Core.Updates.InstalledUpdate.Clear(AppPaths.Default().Updates);
         if (engine.Accounts.Count == 0)
             main.Dispatcher.BeginInvoke(() => AddAccountWindow.ShowWelcome(main), DispatcherPriority.ApplicationIdle);
