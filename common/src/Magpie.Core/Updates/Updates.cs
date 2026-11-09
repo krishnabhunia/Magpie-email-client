@@ -6,20 +6,24 @@ using System.Text.RegularExpressions;
 
 namespace Magpie.Core.Updates;
 
-/// <summary>A version like 1.1.0 or 1.2.0-beta.2 (SemVer order: a pre-release comes before its release).</summary>
+/// <summary>
+/// A version like 1.1.0, a test version 15.0.0-beta007 (design BT1 A) or an older 1.2.0-beta.2 (SemVer order: a
+/// pre-release comes before its release; "beta007" is one identifier that sorts after the "beta" of the old long
+/// test versions of the same x.y.z, and the fixed three digits sort 001 … 999).
+/// </summary>
 public sealed class AppVersion : IComparable<AppVersion>
 {
     public int Major { get; }
     public int Minor { get; }
     public int Patch { get; }
-    /// <summary>"" for a release, e.g. "beta.2" for a pre-release.</summary>
+    /// <summary>"" for a release, e.g. "beta007" (or an older "beta.2") for a pre-release.</summary>
     public string Pre { get; }
 
     private AppVersion(int major, int minor, int patch, string pre) { Major = major; Minor = minor; Patch = patch; Pre = pre; }
 
     public bool IsPrerelease => Pre.Length > 0;
 
-    /// <summary>Accepts "v1.1.0", "1.1", "1.1.0-beta.2", "1.1.0+abc123" (build metadata ignored).</summary>
+    /// <summary>Accepts "v1.1.0", "1.1", "15.0.0-beta007", "1.1.0-beta.2", "1.1.0+abc123" (build metadata ignored).</summary>
     public static AppVersion? TryParse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -124,7 +128,7 @@ public sealed class UpdateAsset
     public string LocalFileFor(AppVersion version) => _local(version);
 
     public static UpdateAsset WindowsExe { get; } = new("exe", _ => UpdateClient.ExeAsset, v => $"Magpie-{v}.exe");
-    /// <summary>The Mac disk image CI puts on every release and test version: Magpie_8.0.0.dmg, Magpie_8.0.0-beta.95.dmg.</summary>
+    /// <summary>The Mac disk image CI puts on every release and test version: Magpie_8.0.0.dmg, Magpie_15.0.0-beta007.dmg.</summary>
     public static UpdateAsset MacDmg { get; } = new("dmg", v => $"Magpie_{v}.dmg", v => $"Magpie_{v}.dmg");
 }
 

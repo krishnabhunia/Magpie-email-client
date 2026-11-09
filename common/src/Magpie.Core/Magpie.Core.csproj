@@ -13,6 +13,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Magpie.Core.Tests" />
   </ItemGroup>
+  <!-- Design IN1: the Info window's "What's implemented" and "What's new" tabs read these, built in at build time. -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\..\docs\FEATURES.md" LogicalName="Magpie.FEATURES.md" Link="Info\FEATURES.md" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\..\CHANGELOG.md" LogicalName="Magpie.CHANGELOG.md" Link="Info\CHANGELOG.md" />
+  </ItemGroup>
   <!-- Design SY1 / SA1: the sign-in apps built into each release, from the CI secrets of the same names (empty in a
        local build, then Settings -> Accounts -> Sign-in apps is needed as before). See Auth/BuiltInSignIn.cs. -->
   <ItemGroup>
