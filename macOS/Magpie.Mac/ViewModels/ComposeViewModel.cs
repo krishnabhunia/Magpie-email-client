@@ -25,10 +25,16 @@ public sealed class AttachmentItem
 public sealed partial class ComposeViewModel : ObservableObject
 {
     private static MailEngine E => AppServices.Engine;
+    private readonly MailEngine _engine;
     private readonly Draft _draft;
     private bool _queued;
+    private bool _initialized;
+    private bool _refreshingSenders;
+    private bool _detached;
+    private int _senderRevision;
 
     public ObservableCollection<Account> Accounts { get; } = new();
+    public ObservableCollection<SenderIdentity> SenderChoices { get; } = new();
     public ObservableCollection<AttachmentItem> Attachments { get; } = new();
     /// <summary>Send later choices, worked out from the clock each time the menu opens (a window can stay open for hours).</summary>
     public static List<TimePreset> SendLaterChoices(DateTime now) => TimePresets.For(now, sendLater: true);
@@ -54,6 +60,7 @@ public sealed partial class ComposeViewModel : ObservableObject
     public event Action? CloseRequested;
 
     [ObservableProperty] private Account? _from;
+    [ObservableProperty] private SenderIdentity? _selectedSender;
     [ObservableProperty] private string _to = "";
     [ObservableProperty] private string _cc = "";
     [ObservableProperty] private string _bcc = "";
@@ -65,15 +72,19 @@ public sealed partial class ComposeViewModel : ObservableObject
 
     public string InitialHtml { get; }
     public bool IsPlainText => _draft.IsPlainText;
+    public bool BodySectionsLost => _draft.BodySectionsLost || _draft.IsPlainText;
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public bool ShowFrom => Accounts.Count > 1;
+    public bool ShowSender => SenderChoices.Count > 1 || SelectedSender is { Available: false };
     public bool HasAttachments => Attachments.Count > 0;
 
     public ComposeViewModel(Draft draft)
     {
+        _engine = E;
         _draft = draft;
         foreach (var a in E.Accounts) Accounts.Add(a);
         From = Accounts.FirstOrDefault(a => a.Id == draft.AccountId) ?? Accounts.FirstOrDefault();
+        RefreshSenderIdentities(draft.SenderAddress);
         To = draft.To;
         Cc = draft.Cc;
         Bcc = draft.Bcc;
@@ -91,6 +102,53 @@ public sealed partial class ComposeViewModel : ObservableObject
         // While this window edits a draft kept on this Mac, the background upload leaves it alone.
         if (draft.LocalDraftId is { } local) E.ClaimLocalDraft(local);
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasAttachments));
+        _initialized = true;
+        _engine.Settings.Changed += OnSettingsChanged;
+    }
+
+    partial void OnFromChanged(Account? value)
+    {
+        if (!_initialized) return;
+        // An explicit account change selects that account's primary identity. Reopening or a settings refresh
+        // instead retains the selected alias, including an unavailable one, until the user chooses another.
+        RefreshSenderIdentities("");
+        _senderRevision++;
+        Dirty = true;
+    }
+
+    partial void OnSelectedSenderChanged(SenderIdentity? value)
+    {
+        if (!_initialized || _refreshingSenders) return;
+        _senderRevision++;
+        Dirty = true;
+    }
+
+    private void OnSettingsChanged() => AppServices.Post(() =>
+    {
+        if (!_detached) RefreshSenderIdentities(SelectedSender?.Address ?? _draft.SenderAddress);
+    });
+
+    private void RefreshSenderIdentities(string address)
+    {
+        var account = From == null ? null : _engine.AccountById(From.Id);
+        var desired = string.IsNullOrWhiteSpace(address) ? account?.Email ?? From?.Email ?? "" : address;
+        var choices = account == null ? new List<SenderIdentity>() : SenderIdentities.ForAccount(account).ToList();
+        if (desired.Length > 0 && !choices.Any(s => s.Address.Equals(desired, StringComparison.OrdinalIgnoreCase)))
+            choices.Add(new SenderIdentity(desired, "", Available: false));
+        _refreshingSenders = true;
+        try
+        {
+            // Clearing a bound ComboBox temporarily sets SelectedItem to null. Avoid both that churn and a
+            // false unsaved-change prompt when unrelated settings are saved while this window is open.
+            if (!SenderChoices.SequenceEqual(choices))
+            {
+                SenderChoices.Clear();
+                foreach (var sender in choices) SenderChoices.Add(sender);
+            }
+            SelectedSender = SenderChoices.FirstOrDefault(s => s.Address.Equals(desired, StringComparison.OrdinalIgnoreCase));
+            OnPropertyChanged(nameof(ShowSender));
+        }
+        finally { _refreshingSenders = false; }
     }
 
     partial void OnToChanged(string value) => Dirty = true;
@@ -148,17 +206,42 @@ public sealed partial class ComposeViewModel : ObservableObject
     private async Task<Draft?> BuildDraftAsync(bool validate)
     {
         if (From == null) { if (validate) await Dialogs.Error("Send", "Add an account first."); return null; }
+        var accountId = From.Id;
+        var sender = SelectedSender;
+        var senderRevision = _senderRevision;
+        if (sender is not { Available: true })
+        {
+            Status = "Choose a configured sender from Send as before saving or sending.";
+            return null;
+        }
         if (validate)
         {
             var bad = Composer.InvalidAddresses(To).Concat(Composer.InvalidAddresses(Cc)).Concat(Composer.InvalidAddresses(Bcc)).ToList();
             if (bad.Count > 0) { await Dialogs.Error("Check the recipients", "These don't look like email addresses:\n\n" + string.Join("\n", bad)); return null; }
         }
-        _draft.AccountId = From.Id;
+        var html = GetHtml != null ? await GetHtml() : InitialHtml;
+        if (senderRevision != _senderRevision)
+        {
+            Status = "The sender changed while reading the message. Review it and try again.";
+            return null;
+        }
+        var account = _engine.AccountById(accountId);
+        if (account == null)
+        {
+            Status = "This account is no longer configured. Choose an account before saving or sending.";
+            return null;
+        }
+        try { SenderIdentities.Resolve(account, sender.Address); }
+        catch (InvalidOperationException ex) { Status = ex.Message; return null; }
+        // Keep the original Draft: options managed on another platform (receipts, security, reply metadata)
+        // must survive a Mac edit even when this window does not expose their controls.
+        _draft.AccountId = accountId;
+        _draft.SenderAddress = sender.Address;
         _draft.To = To;
         _draft.Cc = Cc;
         _draft.Bcc = Bcc;
         _draft.Subject = Subject;
-        _draft.Html = GetHtml != null ? await GetHtml() : InitialHtml;
+        _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
         return _draft;
     }
@@ -238,7 +321,9 @@ public sealed partial class ComposeViewModel : ObservableObject
     /// <summary>The window closed: a draft kept on this Mac may upload by itself again.</summary>
     public void Detach()
     {
-        if (_draft.LocalDraftId is { } local) E.ReleaseLocalDraft(local);
+        _detached = true;
+        _engine.Settings.Changed -= OnSettingsChanged;
+        if (_draft.LocalDraftId is { } local) _engine.ReleaseLocalDraft(local);
     }
 
     /// <summary>Closing with unsaved changes: Keep as draft, Discard, or Cancel (false = stay open).</summary>

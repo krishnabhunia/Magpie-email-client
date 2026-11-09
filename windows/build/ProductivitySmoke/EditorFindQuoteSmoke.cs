@@ -90,6 +90,17 @@ internal static partial class Program
             Assert(result.RootElement.GetProperty("assertions").GetInt32() >= 30,
                 "The real editor executed all Unicode find/replace regressions");
         }
+        using (var fixture = typeof(Program).Assembly.GetManifestResourceStream("ProductivitySmoke.Fixtures.editor-find-inline.js")
+            ?? throw new InvalidOperationException("Missing inline editor-search regression fixture."))
+        using (var reader = new StreamReader(fixture))
+        using (var result = JsonDocument.Parse(await script(await reader.ReadToEndAsync())))
+        {
+            var passed = result.RootElement.ValueKind == JsonValueKind.Object
+                && result.RootElement.TryGetProperty("ok", out var ok) && ok.GetBoolean();
+            Assert(passed, "Inline search/replace must map visible runs to original DOM ranges and preserve native history: " + result.RootElement);
+            Assert(result.RootElement.GetProperty("assertions").GetInt32() >= 50,
+                "The real editor executed the inline, boundary, Unicode and native Undo regressions");
+        }
         Console.WriteLine("EDITOR_FIND_PROGRESSION_SMOKE_PASSED");
     }
 

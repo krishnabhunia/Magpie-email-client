@@ -245,7 +245,7 @@ public partial class ComposeViewModel
         var p = _e.Config.Ai.ReplyDrafts;
         return JsonSerializer.Serialize(new
         {
-            Account = From?.Id, _draft.ThreadKey, _draft.Mode, _draft.ForwardOfRow, Subject,
+            Account = From?.Id, Sender = SelectedSender?.Address, SenderName = SelectedSender?.Name, _draft.ThreadKey, _draft.Mode, _draft.ForwardOfRow, Subject,
             To = IsForward ? "" : To, Cc = IsForward ? "" : Cc, Bcc = IsForward ? "" : Bcc,
             Carried = IsForward ? Attachments.Where(a => a.Carried).Select(a => a.Path).ToList() : null,
             _e.Config.Ai.Enabled, _e.Config.Ai.ActiveId, _e.Config.Ai.Provider, _e.Config.Ai.Endpoint, _e.Config.Ai.Model,
@@ -277,6 +277,7 @@ public partial class ComposeViewModel
     {
         OnPropertyChanged(nameof(AttachmentSummary));
         if (!_constructed) return;
+        RefreshSenderIdentities("");
         InvalidateReplyContext();
         InvalidateLegacyAi();
         MarkEdited();
@@ -284,7 +285,7 @@ public partial class ComposeViewModel
 
     private string LegacyAiFingerprint() => JsonSerializer.Serialize(new
     {
-        Account = From?.Id, _draft.ThreadKey, Subject, To, Cc, Bcc,
+        Account = From?.Id, Sender = SelectedSender?.Address, SenderName = SelectedSender?.Name, _draft.ThreadKey, Subject, To, Cc, Bcc,
         _e.Config.Ai.Enabled, _e.Config.Ai.ActiveId, _e.Config.Ai.Provider,
         _e.Config.Ai.Endpoint, _e.Config.Ai.Model, _e.Config.Ai.Draft, _e.Config.Ai.Rewrite,
     });
@@ -534,7 +535,8 @@ public partial class ComposeViewModel
         _replyThreadDigest = context.Digest;
         var cts = _replyDraftCts = new CancellationTokenSource();
         var token = cts.Token;
-        var name = string.IsNullOrWhiteSpace(From.DisplayName) ? From.Email : From.DisplayName;
+        var sender = TemplateSender ?? From;
+        var name = string.IsNullOrWhiteSpace(sender.DisplayName) ? sender.Email : sender.DisplayName;
         var mode = _draft.Mode;
         var buffer = new StringBuilder();
         var acceptingTokens = true;

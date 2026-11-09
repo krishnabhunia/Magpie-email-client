@@ -11,7 +11,7 @@ public partial class ComposeViewModel
     [ObservableProperty] private bool _revisionBusy;
 
     /// <summary>The view replaces the whole editor, clears stale selections, and preserves restored formatting.</summary>
-    public Func<string, bool, Task>? RestoreRevisionEditor { get; set; }
+    public Func<string, bool, bool, Task>? RestoreRevisionEditor { get; set; }
     /// <summary>A plain fallback must not silently flatten a rich revision on the next autosave.</summary>
     public bool SupportsRichDraftRestore { get; set; } = true;
 
@@ -93,7 +93,7 @@ public partial class ComposeViewModel
             StopReplyDraft(clear: true);
             DiscardPreview();
             SelectedText = "";
-            await RestoreRevisionEditor(revision.Html, revision.IsPlainText);
+            await RestoreRevisionEditor(revision.Html, revision.IsPlainText, revision.BodySectionsLost);
             ApplyRevisionContent(revision);
             var id = await Task.Run(() => _e.SaveLocalDraft(_draft, _pendingUpload));
             if (id == 0) throw new InvalidOperationException("The restored draft could not be saved on this PC.");
@@ -109,7 +109,7 @@ public partial class ComposeViewModel
             {
                 try
                 {
-                    await RestoreRevisionEditor!(rollback.Html, rollback.IsPlainText);
+                    await RestoreRevisionEditor!(rollback.Html, rollback.IsPlainText, rollback.BodySectionsLost);
                     ApplyRevisionContent(rollback);
                     var id = await Task.Run(() => _e.SaveLocalDraft(_draft, _pendingUpload));
                     if (id != 0) Claim(id);
@@ -133,6 +133,8 @@ public partial class ComposeViewModel
 
     private void ApplyRevisionContent(Draft revision)
     {
+        RefreshSenderIdentities(revision.SenderAddress);
+        _draft.SenderAddress = revision.SenderAddress;
         To = revision.To;
         Cc = revision.Cc;
         Bcc = revision.Bcc;
@@ -140,6 +142,8 @@ public partial class ComposeViewModel
         ReplyTo = revision.ReplyTo;
         Priority = revision.Priority;
         RequestReadReceipt = revision.RequestReadReceipt;
+        RequestDeliveryReceipt = revision.RequestDeliveryReceipt;
+        RestoreSecurity(revision.Security);
         ShowCcBcc = Cc.Length > 0 || Bcc.Length > 0;
         _draft.To = To;
         _draft.Cc = Cc;
@@ -148,8 +152,10 @@ public partial class ComposeViewModel
         _draft.ReplyTo = ReplyTo;
         _draft.Priority = Priority;
         _draft.RequestReadReceipt = RequestReadReceipt;
+        _draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
         _draft.Html = revision.Html;
         _draft.IsPlainText = revision.IsPlainText;
+        _draft.BodySectionsLost = revision.BodySectionsLost || revision.IsPlainText;
         _draft.ComposeStyle = revision.ComposeStyle;
         _draft.CarriedParts = revision.CarriedParts;
         _draft.AttachmentPaths.Clear();

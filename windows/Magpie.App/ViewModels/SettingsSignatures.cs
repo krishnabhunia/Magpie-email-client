@@ -30,7 +30,7 @@ public partial class SettingsViewModel
     private void UseDefaultSignature()
     {
         if (SignatureAccount is not { } a) return;
-        a.SignatureHtml = Magpie.Core.Mail.Composer.DefaultSignatureHtml(a.ToAccount());
+        a.SignatureHtml = Magpie.Core.Mail.Composer.DefaultSignatureHtml(a.ToAccount(tolerateIncomplete: true));
         SignatureStatus = "Default signature put in. Press Apply to keep it.";
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Magpie.Core.Models;
+using Magpie.Core.Mail;
 using Microsoft.Data.Sqlite;
 
 namespace Magpie.Core.Storage;
@@ -46,10 +47,14 @@ public sealed partial class MailStore
         }.ToString();
         Migrate();
         EnsurePostSendArchiveSchema();
+        EnsureDeliveryReceiptSchema();
         EnsureReplyArchiveSourceSchema();
+        EnsureCloudFilesSchema();
         EnsureProductivitySchema();
         EnsureSavedContactsSchema();   // design B4
         EnsureDraftRevisionSchema();
+        EnsureSecureOutboxSchema();
+        EnsureOutboxBodySectionsSchema();
     }
 
     private SqliteConnection Open()
@@ -1066,6 +1071,15 @@ public sealed partial class MailStore
 
     // ───────────────────────── outbox ─────────────────────────
 
+    // Always run even when the schema version already matches. Null leaves legacy recovery conservative;
+    // explicit false/true preserves new drafts without adding local editor metadata to signed wire bytes.
+    private void EnsureOutboxBodySectionsSchema()
+    {
+        using var c = Open();
+        if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('outbox') WHERE name='body_sections_lost'")) == 0)
+            Exec(c, "ALTER TABLE outbox ADD COLUMN body_sections_lost INTEGER");
+    }
+
     /// <summary>Separate durable queue keeps the optional post-send action across restart without modifying the mail schema version.</summary>
     private void EnsurePostSendArchiveSchema()
     {
@@ -1093,8 +1107,8 @@ public sealed partial class MailStore
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created)
-            VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c) RETURNING id
+            INSERT INTO outbox(account_id,mime,send_at,status,subject,to_text,message_id,thread_key,remind_at,created,body_sections_lost)
+            VALUES($a,$m,$s,0,$su,$to,$mid,$tk,$ra,$c,$bl) RETURNING id
             """;
         cmd.Parameters.AddWithValue("$a", o.AccountId);
         cmd.Parameters.AddWithValue("$m", o.Mime);
@@ -1105,7 +1119,17 @@ public sealed partial class MailStore
         cmd.Parameters.AddWithValue("$tk", o.ThreadKey);
         cmd.Parameters.AddWithValue("$ra", (object?)o.RemindAt?.ToUnixTimeMilliseconds() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$c", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$bl", o.BodySectionsLost is bool lost ? (object)(lost ? 1 : 0) : DBNull.Value);
         o.Id = Convert.ToInt64(cmd.ExecuteScalar());
+        if (o.RequestDeliveryReceipt)
+        {
+            using var receipt = c.CreateCommand();
+            receipt.Transaction = tx;
+            receipt.CommandText = "INSERT INTO outbox_delivery_receipts(outbox_id) VALUES($id)";
+            receipt.Parameters.AddWithValue("$id", o.Id);
+            receipt.ExecuteNonQuery();
+        }
+        SaveSecureOutboxState(c, tx, o);
         if (o.ArchiveAfterSend)
         {
             using var archive = c.CreateCommand();
@@ -1158,8 +1182,9 @@ public sealed partial class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id,account_id," + (withMime ? "mime" : "x''") + ",send_at,status,attempts,last_error,subject,to_text,message_id,thread_key,remind_at,created FROM outbox"
-            + (includeDone ? "" : " WHERE status IN (0,1,2)") + " ORDER BY send_at";
+        cmd.CommandText = "SELECT o.id,o.account_id," + (withMime ? "o.mime" : "x''") + ",o.send_at,o.status,o.attempts,o.last_error,o.subject,o.to_text,o.message_id,o.thread_key,o.remind_at,o.created,d.state,d.server_response,o.body_sections_lost FROM outbox o"
+            + " LEFT JOIN outbox_delivery_receipts d ON d.outbox_id=o.id"
+            + (includeDone ? "" : " WHERE o.status IN (0,1,2)") + " ORDER BY o.send_at";
         var list = new List<OutboxItem>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -1171,6 +1196,9 @@ public sealed partial class MailStore
                 MessageId = r.GetString(9), ThreadKey = r.GetString(10),
                 RemindAt = r.IsDBNull(11) ? null : DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(11)),
                 Created = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(12)),
+                RequestDeliveryReceipt = !r.IsDBNull(13),
+                DeliveryReceipt = r.IsDBNull(13) ? null : new DeliveryReceiptResult((DeliveryReceiptState)r.GetInt32(13), DeliveryReceipts.SafeServerResponse(r.GetString(14))),
+                BodySectionsLost = r.IsDBNull(15) ? null : r.GetInt32(15) != 0,
             });
         return list;
     }
@@ -1188,11 +1216,18 @@ public sealed partial class MailStore
         return Exec(c, "UPDATE outbox SET status=4 WHERE id=$id AND status IN (0,2)", ("$id", id)) == 1;
     }
 
-    public void SetOutboxResult(long id, OutboxStatus status, string error = "", DateTimeOffset? retryAt = null)
+    public void SetOutboxResult(long id, OutboxStatus status, string error = "", DateTimeOffset? retryAt = null, DeliveryReceiptResult? deliveryReceipt = null)
     {
+        if (deliveryReceipt != null && (status != OutboxStatus.Sent || deliveryReceipt.State is not (DeliveryReceiptState.Requested or DeliveryReceiptState.Unavailable)))
+            throw new ArgumentException("A receipt outcome can only be recorded after SMTP acceptance.", nameof(deliveryReceipt));
         using var c = Open();
+        using var tx = c.BeginTransaction();
         Exec(c, "UPDATE outbox SET status=$s, last_error=$e, attempts=attempts+1, send_at=COALESCE($r, send_at) WHERE id=$id",
             ("$s", (int)status), ("$e", error), ("$r", retryAt?.ToUnixTimeMilliseconds()), ("$id", id));
+        if (deliveryReceipt != null)
+            Exec(c, "UPDATE outbox_delivery_receipts SET state=$s,server_response=$r WHERE outbox_id=$id",
+                ("$s", (int)deliveryReceipt.State), ("$r", DeliveryReceipts.SafeServerResponse(deliveryReceipt.ServerResponse)), ("$id", id));
+        tx.Commit();
     }
 
     public void RescheduleOutbox(long id, DateTimeOffset sendAt)

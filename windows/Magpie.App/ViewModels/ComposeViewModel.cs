@@ -69,6 +69,7 @@ public sealed class AttachmentItem : ObservableObject
     }
     public Visibility ThumbnailVisibility => Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
     public bool CanCompress => !Carried && ComposeSafety.CanCompressImage(Path);
+    public bool CanUploadCloud => !Carried;
 }
 
 /// <summary>Compose window state. The editor itself is a WebView2 page; the view supplies HTML on demand.</summary>
@@ -97,6 +98,8 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _priority = "Normal";
     [ObservableProperty] private string _replyTo = "";
     [ObservableProperty] private bool _requestReadReceipt;
+    [ObservableProperty] private bool _requestDeliveryReceipt;
+    public string DeliveryReceiptHelp => DeliveryReceipts.ComposeHelp;
     [ObservableProperty] private bool _warnExternalRecipients;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _dirty;
@@ -117,6 +120,9 @@ public partial class ComposeViewModel : ObservableObject
     [ObservableProperty] private string _previewKind = ""; // "draft" | "rewrite"
     [ObservableProperty] private string _selectedText = "";
     [ObservableProperty] private string _customRewrite = "";
+    [ObservableProperty] private string _translationLanguage = "English";
+    public IReadOnlyList<string> TranslationLanguages { get; } = new[]
+        { "English", "Hindi", "Bengali", "Marathi", "Chinese (Mandarin)", "Arabic", "French", "German", "Japanese", "Spanish" };
 
     public string InitialHtml { get; }
     /// <summary>Id of this message's copy on this PC, once autosaved.</summary>
@@ -128,10 +134,17 @@ public partial class ComposeViewModel : ObservableObject
         set
         {
             if (_draft.IsPlainText == value) return;
+            if (value || _draft.IsPlainText) _draft.BodySectionsLost = true;
             _draft.IsPlainText = value;
             OnPropertyChanged(nameof(WritingStatisticsSummary));
             OnPropertyChanged(nameof(WritingStatisticsHelp));
         }
+    }
+    /// <summary>Sticky until a revision with its original rich sections is explicitly restored.</summary>
+    public bool BodySectionsLost
+    {
+        get => _draft.BodySectionsLost || _draft.IsPlainText;
+        set => _draft.BodySectionsLost = value;
     }
     public string WindowTitle => string.IsNullOrWhiteSpace(Subject) ? "New message" : Subject;
     public string AttachmentSummary => FullMessageSizeSummary;
@@ -146,6 +159,7 @@ public partial class ComposeViewModel : ObservableObject
         _e.RestoreReplyArchiveSource(draft);
         foreach (var a in _e.Accounts) Accounts.Add(a);
         From = Accounts.FirstOrDefault(a => a.Id == draft.AccountId) ?? Accounts.FirstOrDefault();
+        RefreshSenderIdentities(draft.SenderAddress);
         To = draft.To;
         Cc = draft.Cc;
         Bcc = draft.Bcc;
@@ -154,6 +168,7 @@ public partial class ComposeViewModel : ObservableObject
         Priority = draft.Priority;
         ReplyTo = draft.ReplyTo;
         RequestReadReceipt = draft.RequestReadReceipt;
+        RequestDeliveryReceipt = draft.RequestDeliveryReceipt;
         foreach (var p in draft.AttachmentPaths)
         {
             var item = new AttachmentItem { Path = p };
@@ -194,10 +209,10 @@ public partial class ComposeViewModel : ObservableObject
         {
             _openedFrom = _e.Store.GetLocalDraft(localId);
             _pendingUpload = _openedFrom?.PendingUpload ?? false;
-            if (_openedFrom != null) _encodedMessageSize = new EncodedMessageSize(_openedFrom.Mime.LongLength);
+            if (_openedFrom != null && !draft.Security.Requested) _encodedMessageSize = new EncodedMessageSize(_openedFrom.Mime.LongLength);
             Claim(localId);
         }
-        _onSettings = () => Ui.Post(RefreshAi);
+        _onSettings = () => Ui.Post(() => { RefreshAi(); RefreshSenderIdentities(); });
         _e.Settings.Changed += _onSettings;
         _constructed = true;
     }
@@ -268,7 +283,7 @@ public partial class ComposeViewModel : ObservableObject
             if (id == 0) return;
             if (!_closed) Claim(id);
             var size = await Task.Run(() => _e.Store.GetLocalDraftMimeSize(id));
-            if (size is { } bytes && _edits == edits)
+            if (size is { } bytes && _edits == edits && !d.Security.Requested)
             {
                 _encodedMessageSize = new EncodedMessageSize(bytes);
                 OnPropertyChanged(nameof(AttachmentSummary));
@@ -308,7 +323,7 @@ public partial class ComposeViewModel : ObservableObject
     /// </summary>
     public async Task<bool> KeepAsDraftAsync(bool closing)
     {
-        if (closing && AttachmentOperationBusy) { Status = "Finish attaching the picture before closing this message."; return false; }
+        if (closing && AttachmentOperationBusy) { Status = "Finish attaching or uploading the file before closing this message."; return false; }
         await SettleAutosaveAsync(stop: closing);
         await _saveGate.WaitAsync();
         try
@@ -366,7 +381,7 @@ public partial class ComposeViewModel : ObservableObject
     /// <returns>False if putting back the kept version failed (the window then stays open).</returns>
     public async Task<bool> DiscardAsync()
     {
-        if (AttachmentOperationBusy) { Status = "Finish attaching the picture before discarding this message."; return false; }
+        if (AttachmentOperationBusy) { Status = "Finish attaching or uploading the file before discarding this message."; return false; }
         await SettleAutosaveAsync(stop: true);
         await _saveGate.WaitAsync();
         try
@@ -415,6 +430,7 @@ public partial class ComposeViewModel : ObservableObject
     partial void OnPriorityChanged(string value) => MarkEdited();
     partial void OnReplyToChanged(string value) => MarkEdited();
     partial void OnRequestReadReceiptChanged(bool value) => MarkEdited();
+    partial void OnRequestDeliveryReceiptChanged(bool value) => MarkEdited();
 
     public void RefreshAi()
     {
@@ -520,6 +536,7 @@ public partial class ComposeViewModel : ObservableObject
         var html = GetHtml != null ? await GetHtml() : InitialHtml;
         if (_draft.Mode != ComposeMode.EditDraft) _draft.ComposeStyle = _e.Config.Typography.Resolve("composeBody");
         _draft.AccountId = From.Id;
+        _draft.SenderAddress = SelectedSender?.Address ?? "";
         _draft.To = To;
         _draft.Cc = Cc;
         _draft.Bcc = Bcc;
@@ -527,6 +544,7 @@ public partial class ComposeViewModel : ObservableObject
         _draft.Priority = Priority;
         _draft.ReplyTo = ReplyTo;
         _draft.RequestReadReceipt = RequestReadReceipt;
+        _draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
         _draft.Html = html;
         _draft.AttachmentPaths = Attachments.Where(a => !a.Carried).Select(a => a.Path).ToList();
         _draft.AttachmentNames = Attachments.Where(a => !a.Carried && !string.Equals(a.Name, Path.GetFileName(a.Path), StringComparison.Ordinal))
@@ -541,7 +559,7 @@ public partial class ComposeViewModel : ObservableObject
     public async Task SendAsync(DateTimeOffset? when, DateTimeOffset? remindIfNoReply, bool archiveAfterSend = false)
     {
         // Claim the send before any await, so a double-click or a repeating Ctrl+Enter can't queue it twice.
-        if (AttachmentOperationBusy) { Status = "Finish attaching the picture, then review and press Send."; return; }
+        if (AttachmentOperationBusy) { Status = "Finish attaching or uploading the file, then review and press Send."; return; }
         if (Sending || _queued || RevisionBusy) return;
         if (archiveAfterSend && !CanSendAndArchive)
         {
@@ -601,9 +619,9 @@ public partial class ComposeViewModel : ObservableObject
                     "These addresses appear more than once. Magpie will send only one copy to each:\n\n" + string.Join("\n", repeated) + "\n\nContinue?")) return;
             if (WarnExternalRecipients && From != null)
             {
-                var external = ComposeSafety.ExternalRecipients(From.Email, To, Cc, Bcc);
+                var external = ComposeSafety.ExternalRecipients(SelectedSender?.Address ?? From.Email, To, Cc, Bcc);
                 if (external.Count > 0 && !Ui.Confirm("External recipients",
-                        "These addresses are outside the sending account's email domain:\n\n"
+                        "These addresses are outside the selected sender's email domain:\n\n"
                         + string.Join("\n", external) + "\n\nReview carefully before sending. Continue?")) return;
             }
             var newText = GetNewText != null ? await GetNewText() : MimeText.HtmlToText(InitialHtml);
@@ -623,6 +641,8 @@ public partial class ComposeViewModel : ObservableObject
                 if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 d = await BuildDraftAsync();
                 if (d == null) return;
+                if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
+                await _e.VerifyCloudFileAccessAsync(d.Html, d.To, d.Cc, d.Bcc);
                 if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
                 var encoded = await MeasureBuiltDraftSizeAsync(d);
                 if (!SendSnapshotIsCurrent(sendVersion, sendingAccount)) return;
@@ -677,7 +697,8 @@ public partial class ComposeViewModel : ObservableObject
             if (_queued || From == null) return false;
             var draft = await BuildDraftAsync(validate: false);
             if (draft == null) return false;
-            var message = Composer.Build(draft, From);
+            var message = _e.SecureMail.PrepareOutgoing(Composer.Build(draft, From), From, draft.Security,
+                DateTimeOffset.UtcNow, preserveRecall: false).Message;
             await using (var output = new FileStream(temporaryFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 await message.WriteToAsync(output);
             File.Move(temporaryFile, destination, overwrite: true);
@@ -716,7 +737,8 @@ public partial class ComposeViewModel : ObservableObject
         if (_e.Ai.NeedsConsent(AiFeature.Draft) && !Views.ConsentDialog.Ask(AiFeature.Draft, context?.Included ?? 0)) return;
         await RunAsync("draft", (onToken, ct) =>
         {
-            var name = From?.DisplayName is { Length: > 0 } n ? n : From?.Email ?? "";
+            var sender = TemplateSender;
+            var name = sender?.DisplayName is { Length: > 0 } n ? n : sender?.Email ?? "";
             return _e.Ai.DraftAsync(Prompt, Tone, context, name, onToken, ct);
         });
     }
@@ -730,12 +752,18 @@ public partial class ComposeViewModel : ObservableObject
         if (_e.Ai.Availability(AiFeature.Rewrite) == AiAvailability.NotConfigured) { AiNeedsSetup = true; return; }
         if (_e.Ai.NeedsConsent(AiFeature.Rewrite) && !Views.ConsentDialog.Ask(AiFeature.Rewrite, 0)) return;
         var k = Enum.TryParse<RewriteKind>(kind, out var parsed) ? parsed : RewriteKind.Custom;
-        if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(CustomRewrite)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
+        var instruction = CustomRewrite;
+        if (kind == "Translate")
+        {
+            try { instruction = ComposeTranslation.Instruction(TranslationLanguage); }
+            catch (ArgumentException ex) { AiError = ex.Message; return; }
+        }
+        if (k == RewriteKind.Custom && string.IsNullOrWhiteSpace(instruction)) { AiError = "Type how to change it, e.g. \"make it sound more confident\"."; return; }
         var text = SelectedText;
         if (EditorCommand == null) return;
         try { await EditorCommand("captureRewrite", text); }
         catch (Exception ex) { AiError = ex.Message; return; }
-        await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, CustomRewrite, onToken, ct));
+        await RunAsync("rewrite", (onToken, ct) => _e.Ai.RewriteAsync(text, k, instruction, onToken, ct));
     }
 
     private async Task RunAsync(string kind, Func<Action<string>, CancellationToken, Task<string>> call)

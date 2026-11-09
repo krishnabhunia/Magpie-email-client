@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
 using Magpie.Core.Settings;
+using Magpie.Core.Security;
 using Microsoft.Data.Sqlite;
 using MimeKit;
 
@@ -322,11 +323,15 @@ public sealed partial class MailStore
         public string Cc { get; set; } = "";
         public string Bcc { get; set; } = "";
         public string ReplyTo { get; set; } = "";
+        public string SenderAddress { get; set; } = "";
         public string Subject { get; set; } = "";
         public string Html { get; set; } = "";
         public string Priority { get; set; } = "Normal";
         public bool RequestReadReceipt { get; set; }
+        public bool RequestDeliveryReceipt { get; set; }
+        public SecureMailOptions Security { get; set; } = new();
         public bool IsPlainText { get; set; }
+        public bool? BodySectionsLost { get; set; }
         public TextStyle? ComposeStyle { get; set; }
         public string InReplyTo { get; set; } = "";
         public string References { get; set; } = "";
@@ -337,8 +342,11 @@ public sealed partial class MailStore
         public static DraftRevisionState Capture(Draft draft) => new()
         {
             Version = 1, To = draft.To ?? "", Cc = draft.Cc ?? "", Bcc = draft.Bcc ?? "", ReplyTo = draft.ReplyTo ?? "",
+            SenderAddress = draft.SenderAddress ?? "",
             Subject = draft.Subject ?? "", Html = draft.Html ?? "", Priority = draft.Priority ?? "Normal",
-            RequestReadReceipt = draft.RequestReadReceipt, IsPlainText = draft.IsPlainText,
+            RequestReadReceipt = draft.RequestReadReceipt, RequestDeliveryReceipt = draft.RequestDeliveryReceipt,
+            Security = draft.Security.Clone(), IsPlainText = draft.IsPlainText,
+            BodySectionsLost = draft.BodySectionsLost || draft.IsPlainText,
             ComposeStyle = draft.ComposeStyle?.Clone(), InReplyTo = draft.InReplyTo ?? "", References = draft.References ?? "",
             ThreadKey = draft.ThreadKey ?? "", ReplyArchiveSource = draft.ReplyArchiveSource,
             CalendarReply = draft.CalendarReply ?? "",
@@ -346,14 +354,17 @@ public sealed partial class MailStore
 
         public bool IsSupported() => Version == 1 && To != null && Cc != null && Bcc != null && ReplyTo != null
             && Subject != null && Html != null && Priority != null && InReplyTo != null && References != null
-            && ThreadKey != null && CalendarReply != null
+            && ThreadKey != null && CalendarReply != null && Security != null && Enum.IsDefined(Security.Format)
             && (ReplyArchiveSource == null || (ReplyArchiveSource.IsValid && ReplyArchiveSource.ThreadKey == ThreadKey));
 
         public void RestoreFields(Draft draft)
         {
             draft.To = To; draft.Cc = Cc; draft.Bcc = Bcc; draft.ReplyTo = ReplyTo;
+            draft.SenderAddress = SenderAddress ?? "";
             draft.Subject = Subject; draft.Html = Html; draft.Priority = Priority;
-            draft.RequestReadReceipt = RequestReadReceipt; draft.IsPlainText = IsPlainText;
+            draft.RequestReadReceipt = RequestReadReceipt; draft.RequestDeliveryReceipt = RequestDeliveryReceipt;
+            draft.Security = Security.Clone(); draft.IsPlainText = IsPlainText;
+            draft.BodySectionsLost = IsPlainText || (BodySectionsLost ?? draft.BodySectionsLost);
             draft.ComposeStyle = ComposeStyle?.Clone(); draft.InReplyTo = InReplyTo; draft.References = References;
             draft.ThreadKey = ThreadKey; draft.CalendarReply = CalendarReply;
             draft.ReplyArchiveSource = ReplyArchiveSource;

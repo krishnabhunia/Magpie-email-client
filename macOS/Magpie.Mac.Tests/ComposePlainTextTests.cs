@@ -46,6 +46,7 @@ public partial class HeadlessTests
         await window.InitializeEditorAsync();
         Assert.True(vm.IsPlainText);
         Assert.True(editor.PlainText);
+        Assert.True(editor.BodySectionsLost);
         Assert.Equal(original, MimeText.EditorHtmlToPlainText(editor.Html));
         Assert.False(vm.Dirty);
 
@@ -63,6 +64,7 @@ public partial class HeadlessTests
         Assert.True(draft.IsPlainText);
         var reopened = Assert.IsType<Draft>(fixture.Engine.OpenLocalDraft(draft.LocalDraftId!.Value));
         Assert.True(reopened.IsPlainText);
+        Assert.True(reopened.BodySectionsLost);
         Assert.Equal(expected, MimeText.EditorHtmlToPlainText(reopened.Html));
         using var saved = Composer.FromBytes(fixture.Engine.LocalDrafts().Single().Mime);
         Assert.Null(saved.HtmlBody);
@@ -75,6 +77,7 @@ public partial class HeadlessTests
         Assert.Equal(expected, Lines(sent.TextBody));
         var recalled = Assert.IsType<Draft>(fixture.Engine.Recall(queued.Id));
         Assert.True(recalled.IsPlainText);
+        Assert.True(recalled.BodySectionsLost);
         Assert.Equal(expected, MimeText.EditorHtmlToPlainText(recalled.Html));
         var (recalledWindow, _, recalledEditor) = fixture.Open(recalled);
         await recalledWindow.InitializeEditorAsync();
@@ -95,14 +98,40 @@ public partial class HeadlessTests
         await window.InitializeEditorAsync();
         Assert.False(vm.IsPlainText);
         Assert.False(editor.PlainText);
+        Assert.False(editor.BodySectionsLost);
         Assert.True(await window.InsertLinkAsync("https://example.com/rich"));
         Assert.Equal("createLink", editor.LastInsertion);
         Assert.True(await vm.SaveDraftAsync());
         var reopened = Assert.IsType<Draft>(fixture.Engine.OpenLocalDraft(draft.LocalDraftId!.Value));
         Assert.False(reopened.IsPlainText);
+        Assert.False(reopened.BodySectionsLost);
         using var saved = Composer.FromBytes(fixture.Engine.LocalDrafts().Single().Mime);
         Assert.Contains("href=\"https://example.com/rich\"", saved.HtmlBody);
         Assert.Contains("<strong>message</strong>", saved.HtmlBody);
+    }
+
+    [AvaloniaFact]
+    public async Task Mac_reopened_rich_draft_keeps_prior_plain_conversion_boundary_restriction()
+    {
+        using var fixture = new PlainComposeFixture();
+        var draft = new Draft
+        {
+            AccountId = fixture.Account.Id, To = "recipient@example.org", Subject = "Previously converted",
+            Html = "<p>Writing</p><p>Flattened signature</p><p>Flattened quoted message</p>", BodySectionsLost = true,
+        };
+        var (window, vm, editor) = fixture.Open(draft);
+        await window.InitializeEditorAsync();
+        Assert.False(vm.IsPlainText);
+        Assert.True(vm.BodySectionsLost);
+        Assert.True(editor.BodySectionsLost);
+        Assert.True(await vm.SaveDraftAsync());
+        var reopened = Assert.IsType<Draft>(fixture.Engine.OpenLocalDraft(draft.LocalDraftId!.Value));
+        Assert.True(reopened.BodySectionsLost);
+        var (restoredWindow, _, restoredEditor) = fixture.Open(reopened);
+        await restoredWindow.InitializeEditorAsync();
+        Assert.True(restoredEditor.BodySectionsLost);
+        Assert.Contains("Flattened signature", restoredEditor.Html);
+        Assert.Contains("Flattened quoted message", restoredEditor.Html);
     }
 
     private static string Lines(string? text) => (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
@@ -117,6 +146,7 @@ public partial class HeadlessTests
         public string Html { get; private set; } = "";
         public bool PlainText { get; private set; }
         public string LastInsertion { get; private set; } = "";
+        public bool BodySectionsLost { get; private set; }
 
         public Task<string?> RunAsync(string script)
         {
@@ -128,7 +158,9 @@ public partial class HeadlessTests
                 const string boundary = ");setEditorPlainText(";
                 var split = script.LastIndexOf(boundary, StringComparison.Ordinal);
                 Assert.True(split > 0, "The native host must restore format together with setHtml, which resets rich mode.");
-                Html = JsonSerializer.Deserialize<string>(script[8..split])!;
+                using var args = JsonDocument.Parse("[" + script[8..split] + "]");
+                Html = args.RootElement[0].GetString()!;
+                BodySectionsLost = args.RootElement[1].GetBoolean();
                 var mode = script[(split + boundary.Length)..];
                 Assert.Contains(mode, new[] { "true,false)", "false,false)" });
                 PlainText = mode == "true,false)";

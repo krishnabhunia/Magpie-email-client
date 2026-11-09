@@ -8,6 +8,13 @@ public enum AuthMethod { Password, OAuth2 }
 
 public enum TlsMode { SslOnConnect, StartTls, None }
 
+public sealed class SenderAlias
+{
+    public string Email { get; set; } = "";
+    public string Name { get; set; } = "";
+    public SenderAlias Clone() => new() { Email = Email, Name = Name };
+}
+
 /// <summary>One optional saved signature that can be selected while composing.</summary>
 public sealed class NamedSignature
 {
@@ -22,6 +29,8 @@ public sealed class Account
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>Send-as addresses already authorized by the provider; this list does not provision server aliases.</summary>
+    public List<SenderAlias> SenderAliases { get; set; } = new();
     /// <summary>Your details for this account (design AC1): shown in the default signature; kept in backups.</summary>
     public string Phone { get; set; } = "";
     public string JobTitle { get; set; } = "";
@@ -70,6 +79,7 @@ public sealed class Account
     public Account Clone()
     {
         var copy = (Account)MemberwiseClone();
+        copy.SenderAliases = (SenderAliases ?? new()).Select(a => a.Clone()).ToList();
         copy.SignatureVariants = (SignatureVariants ?? new()).Select(s => s.Clone()).ToList();
         return copy;
     }

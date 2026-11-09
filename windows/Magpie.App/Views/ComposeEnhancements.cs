@@ -910,6 +910,7 @@ public partial class ComposeWindow
         var words = ComposeSafety.WordCount(body);
         var notes = new List<string>
         {
+            "From: " + (_vm.SelectedSender?.Label ?? _vm.From?.Label ?? "No account selected"),
             "Recipients: " + Composer.ParseAddresses(_vm.To + "," + _vm.Cc + "," + _vm.Bcc).Mailboxes.Count(),
             "Visible To/Cc addresses: " + ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc)
                 + (ComposeSafety.VisibleRecipientCount(_vm.To, _vm.Cc) > 20 ? " (consider Bcc for privacy)" : ""),
@@ -920,11 +921,12 @@ public partial class ComposeWindow
             $"New writing: {words} words · approximately {ComposeSafety.EstimatedReadingMinutes(words)} minute(s) to read",
             "Priority: " + _vm.Priority,
             "Read receipt: " + (_vm.RequestReadReceipt ? "requested (recipient software may decline)" : "not requested"),
+            "Delivery notification: " + (_vm.RequestDeliveryReceipt ? "requested when supported; otherwise send normally and show unavailable" : "not requested"),
             "Message format: " + (_vm.IsPlainText ? "plain text" : "rich text / HTML"),
         };
         if (_vm.WarnExternalRecipients && _vm.From != null)
         {
-            var external = ComposeSafety.ExternalRecipients(_vm.From.Email, _vm.To, _vm.Cc, _vm.Bcc);
+            var external = ComposeSafety.ExternalRecipients(_vm.SelectedSender?.Address ?? _vm.From.Email, _vm.To, _vm.Cc, _vm.Bcc);
             if (external.Count > 0) notes.Add("EXTERNAL: " + string.Join(", ", external));
         }
         if (missing.Count > 0) notes.Add("MISSING: " + string.Join(", ", missing.Select(Path.GetFileName)));

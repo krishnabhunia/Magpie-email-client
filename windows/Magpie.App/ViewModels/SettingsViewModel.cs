@@ -17,11 +17,12 @@ public partial class EditableAccount : ObservableObject
 {
     public Account Original { get; private set; }
     /// <summary>After Apply: what was saved becomes the new starting point, so a later Save only sends new changes.</summary>
-    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; }
+    public void Accept(Account saved) { Original = saved; MaxOutgoingMessageMb = saved.MaxOutgoingMessageMb; SenderAliasesText = SenderIdentities.Format(saved.SenderAliases); }
     public EditableAccount(Account a)
     {
         Original = a;
         _displayName = a.DisplayName;
+        _senderAliasesText = SenderIdentities.Format(a.SenderAliases);
         _phone = a.Phone;
         _jobTitle = a.JobTitle;
         _company = a.Company;
@@ -43,6 +44,15 @@ public partial class EditableAccount : ObservableObject
     public string Servers => $"IMAP {Original.ImapHost}:{Original.ImapPort} · SMTP {Original.SmtpHost}:{Original.SmtpPort}";
     public bool IsImap => Original.Kind == AccountKind.Imap;
     [ObservableProperty] private string _displayName;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SenderAliasesError))] private string _senderAliasesText;
+    public string SenderAliasesError
+    {
+        get
+        {
+            try { SenderIdentities.Parse(SenderAliasesText, Email); return ""; }
+            catch (FormatException ex) { return ex.Message; }
+        }
+    }
     /// <summary>Design AC1: your details for this account.</summary>
     [ObservableProperty] private string _phone;
     [ObservableProperty] private string _jobTitle;
@@ -79,10 +89,12 @@ public partial class EditableAccount : ObservableObject
     [ObservableProperty] private int _maxOutgoingMessageMb;
     public DownloadChoice[] DownloadChoices { get; }
 
-    public Account ToAccount()
+    public Account ToAccount(bool tolerateIncomplete = false)
     {
         var a = Original.Clone();
         a.DisplayName = DisplayName.Trim();
+        try { a.SenderAliases = SenderIdentities.Parse(SenderAliasesText, a.Email); }
+        catch (FormatException) when (tolerateIncomplete) { a.SenderAliases = new(); }
         a.Phone = Phone.Trim();
         a.JobTitle = JobTitle.Trim();
         a.Company = Company.Trim();
@@ -101,7 +113,8 @@ public partial class EditableAccount : ObservableObject
         return a;
     }
 
-    public bool Changed => DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
+    public bool Changed => SenderAliasesText.Trim() != SenderIdentities.Format(Original.SenderAliases).Trim()
+                           || DisplayName.Trim() != Original.DisplayName || SignatureHtml.Trim() != Original.SignatureHtml
                            || !SignatureVariants.Select(s => (s.Name.Trim(), s.Html))
                                .SequenceEqual((Original.SignatureVariants ?? new()).Select(s => (s.Name, s.Html)))
                            || Phone.Trim() != Original.Phone || JobTitle.Trim() != Original.JobTitle || Company.Trim() != Original.Company
@@ -123,6 +136,7 @@ public partial class EditableQuickReply : ObservableObject
 
 public partial class EditableTemplate : ObservableObject
 {
+    [ObservableProperty] private string _category = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _name = "";
     [ObservableProperty] private string _subject = "";
     [ObservableProperty] private string _body = "";
@@ -414,6 +428,8 @@ public partial class SettingsViewModel : ObservableObject
         ("Back up your settings", "General", "Save every setting and account to one password-locked file; restore it after reinstalling", "backup export import restore reinstall settings file move pc accounts", "RowBackup"),
         ("Where your mail is kept", "General", "Keep your mail in another folder or drive (encrypted, if you like)", "mail folder data location drive move storage encrypted disk", "RowMailFolder"),
         ("Accounts", "Accounts", "Name, colour, sync on/off for each account", "account email signature colour password sign in", "RowAccounts"),
+        ("Sender aliases", "Accounts", "Send as an address already authorized by your mail provider", "alias aliases identity identities from sender send as", "RowAccounts"),
+        ("Message security keys", "Accounts", "Import and manage signing identities and recipient public keys", "security smime s/mime pgp openpgp encrypt encryption certificate fingerprint private public key", "RowAccounts"),
         ("Download emails from the last", "Accounts", "How many days of email to download, and whether attachments come too", "download days 90 offline attachments sync older emails everything", "RowAccounts"),
         ("Send size limit", "Accounts", "Estimated outgoing attachment limit for custom IMAP/SMTP accounts", "send message size megabytes MB limit upload SMTP IMAP attachment", "RowAccounts"),
         ("Google / Microsoft sign-in apps", "Accounts", "Your own client ID for Google or Microsoft sign-in", "google microsoft client id secret oauth sign in json", "RowSignIn"),
@@ -427,7 +443,7 @@ public partial class SettingsViewModel : ObservableObject
         ("New-mail notification", "Notifications", "Show a notification for new mail", "notifications alert new mail toast", "RowNotify"),
         ("Only for mail from people", "Notifications", "Stay quiet for newsletters and automatic mail", "notifications people only newsletters quiet", "RowNotifyPeople"),
         ("Notification sound", "Notifications", "Play a sound for new mail", "sound notifications alert new mail", "RowNotifySound"),
-        ("Templates", "Templates", "Text you insert often in a new message", "templates canned quick text snippets", "RowTemplates"),
+        ("Templates", "Templates", "Text you insert often in a new message", "templates categories category groups canned quick text snippets", "RowTemplates"),
         ("Keyboard shortcuts", "Keys", "Every key Magpie understands", "keyboard keys shortcuts ctrl hotkeys", "RowKeys"),
         ("Choose a version or restore a backup", "Updates", "Stable and beta versions, rollback, history and paired data recovery", "update check download restart version github stable beta rollback restore history backup", "RowUpdateCard"),
         ("Check automatically", "Updates", "Pause or resume checks; choose and confirm every version change", "auto update automatic check pause resume daily version pin", "RowUpdateSwitches"),
@@ -791,7 +807,7 @@ public partial class SettingsViewModel : ObservableObject
         _googleClientSecret = c.GoogleClientSecret;
         _microsoftClientId = c.MicrosoftClientId;
         foreach (var t in c.Tags) Tags.Add(new EditableTag { Name = t.Name, Color = t.Color });
-        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Subject = t.Subject, Body = t.Body });
+        foreach (var t in c.Templates) Templates.Add(new EditableTemplate { Name = t.Name, Category = t.Category, Subject = t.Subject, Body = t.Body });
         foreach (var a in c.Accounts) Accounts.Add(new EditableAccount(a));
 
         var ai = c.Ai;
@@ -1034,6 +1050,12 @@ public partial class SettingsViewModel : ObservableObject
         if (_e.IsStoppedForVersionChange || AppServices.Updates?.IsProfileFrozen == true) return false;
         foreach (var account in Accounts)
         {
+            if (account.SenderAliasesError.Length > 0)
+            {
+                Page = "Accounts";
+                Ui.Error("Sender aliases", account.Email + ": " + account.SenderAliasesError);
+                return false;
+            }
             if (account.SignatureVariants.Any(s => s.Name.Trim().Length is 0 or > 100)
                 || account.SignatureVariants.GroupBy(s => s.Name.Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
             {
@@ -1068,7 +1090,7 @@ public partial class SettingsViewModel : ObservableObject
         c.MicrosoftClientId = MicrosoftClientId.Trim();
         c.Tags = Tags.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new TagDef { Name = t.Name.Trim().Replace(",", " "), Color = t.Color }).DistinctBy(t => t.Name).ToList();
         c.QuickReplies = QuickRepliesToSave();
-        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Subject = t.Subject, Body = t.Body }).ToList();
+        c.Templates = Templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => new QuickTemplate { Name = t.Name.Trim(), Category = ComposeTemplates.CategoryName(t.Category), Subject = t.Subject, Body = t.Body }).ToList();
 
         var ai = c.Ai;
         ai.Enabled = AiEnabled;

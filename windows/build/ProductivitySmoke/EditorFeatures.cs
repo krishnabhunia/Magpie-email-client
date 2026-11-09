@@ -68,7 +68,33 @@ internal static partial class Program
                 return WaitEditorAsync(view.CoreWebView2.ExecuteScriptAsync(script), "script " + ++scriptNumber, State);
             }
             await CheckPlainFallbackWhitespaceAsync();
-            await CheckEditorFindProgressionAsync(Script);
+            // Each AI check initializes its own editor state; collect every failure in the same native run.
+            var aiFailures = new List<Exception>();
+            var initialQuoteFoldingSupport = await Script("quoteFoldingSupported");
+            try
+            {
+                try { await CheckPlainFallbackAiUndoAsync(); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("Plain fallback AI Undo smoke failed", ex)); }
+                try { await CheckAiApplyUndoAsync(Script); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("WebView2 AI Undo smoke failed", ex)); }
+                try { await CheckAiBodyBoundaryStateAsync(Script); }
+                catch (Exception ex) { aiFailures.Add(new InvalidOperationException("AI body boundary-state smoke failed", ex)); }
+            }
+            finally
+            {
+                // AI fixtures enable Windows folding. Preserve the actual page default for the
+                // later unsupported-host check, including when an AI assertion fails.
+                await Script("setQuoteFoldingSupported(" + initialQuoteFoldingSupport + ")");
+            }
+            if (aiFailures.Count > 0) throw new AggregateException("Native AI Undo smoke failed", aiFailures);
+            // Both fixtures initialize their own document. Run them independently so one failure
+            // cannot hide the native history or cross-inline search result in the same CI run.
+            var editingFailures = new List<Exception>();
+            try { await CheckEditorFindProgressionAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Editor search smoke failed", ex)); }
+            try { await CheckTableUndoAsync(Script); }
+            catch (Exception ex) { editingFailures.Add(new InvalidOperationException("Table deletion Undo smoke failed", ex)); }
+            if (editingFailures.Count > 0) throw new AggregateException("Native editor editing smoke failed", editingFailures);
             await CheckWindowsQuoteFoldingAsync(Script);
             await CheckPlainEditorWhitespaceRoundTripAsync(Script);
             const string original = "<p>My own opening.</p><div class=\"magpie-signature\"><p>Regards, Example User</p></div><div class=\"magpie-quote\"><blockquote>Original quoted message</blockquote></div>";
@@ -214,14 +240,28 @@ internal static partial class Program
             await CheckSignatureModesAsync(Script);
             await CheckClipboardEditorAsync(Script);
             await CheckInlineImageEditorAsync(Script);
-            await CheckEditorWritingToolsAsync(Script);
-            // Execute the actual Mac page in the browser too; host capabilities must start disabled.
-            ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            navigation = "pending Mac editor page";
-            view.CoreWebView2.NavigateToString(EditorPage.ForMac);
-            await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
-            await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
-            Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
+            // These final stages initialize their own document; retain every failure in one native run.
+            var finalEditorFailures = new List<Exception>();
+            try { await CheckCloudLinkEditorAsync(Script); }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Cloud-link editor smoke failed", ex)); }
+            try
+            {
+                await CheckEditorWritingToolsAsync(Script);
+                Console.WriteLine("EDITOR_WRITING_TOOLS_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Writing-tools editor smoke failed", ex)); }
+            try
+            {
+                // Execute the actual Mac page in the browser too; host capabilities must start disabled.
+                ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                navigation = "pending Mac editor page";
+                view.CoreWebView2.NavigateToString(EditorPage.ForMac);
+                await WaitEditorAsync(ready.Task, "Mac editor navigation and ready message", State);
+                await CheckDefaultQuoteVisibilityAsync(Script, "Actual EditorPage.ForMac");
+                Console.WriteLine("EDITOR_MAC_QUOTE_VISIBILITY_SMOKE_PASSED");
+            }
+            catch (Exception ex) { finalEditorFailures.Add(new InvalidOperationException("Mac default quote-visibility smoke failed", ex)); }
+            if (finalEditorFailures.Count > 0) throw new AggregateException("Independent final editor smoke stages failed", finalEditorFailures);
             Console.WriteLine("EDITOR_SMOKE_PASSED scripts=" + scriptNumber);
         }
         finally { view.Dispose(); window.Close(); }

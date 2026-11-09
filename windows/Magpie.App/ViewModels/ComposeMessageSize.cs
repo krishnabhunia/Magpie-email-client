@@ -25,7 +25,7 @@ public partial class ComposeViewModel
             var count = Attachments.Count;
             var files = count == 0 ? "No file attachments" : $"{count} file{(count == 1 ? "" : "s")}";
             var size = _encodedMessageSize;
-            return files + (size == null ? " · full message size updates after autosave or Review"
+            return files + (size == null ? (_draft.Security.Requested ? " · protected message size updates after Review" : " · full message size updates after autosave or Review")
                 : $" · {(size.AtLeast ? "at least " : "")}{HtmlRenderer.FormatSize(size.Bytes)} full message / {HtmlRenderer.FormatSize(ComposeSafety.SuggestedOutgoingLimitBytes(From))} suggested cap");
         }
     }
@@ -56,7 +56,12 @@ public partial class ComposeViewModel
     {
         var account = From ?? throw new InvalidOperationException("Choose a sending account first.");
         var edits = _edits;
-        var size = await Task.Run(() => ComposeSafety.MeasureEncodedMessage(Composer.Build(draft, account)));
+        var size = await Task.Run(() =>
+        {
+            var outgoing = _e.SecureMail.PrepareOutgoing(Composer.Build(draft, account), account, draft.Security,
+                DateTimeOffset.UtcNow, preserveRecall: false);
+            return ComposeSafety.MeasureEncodedMessage(outgoing.Message);
+        });
         if (_edits == edits)
         {
             _encodedMessageSize = size;

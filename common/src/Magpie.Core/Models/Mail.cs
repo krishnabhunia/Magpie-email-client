@@ -148,12 +148,20 @@ public sealed class LocalDraft
 
 public sealed class OutboxItem
 {
+    public const int MaximumAutomaticAttempts = 6;
     public long Id { get; set; }
     public string AccountId { get; set; } = "";
     public byte[] Mime { get; set; } = Array.Empty<byte>();
+    /// <summary>OS-protected recovery payload, stored in a local side table and never transmitted.</summary>
+    public byte[]? ProtectedSecurityRecall { get; set; }
     public DateTimeOffset SendAt { get; set; }
     public OutboxStatus Status { get; set; }
     public int Attempts { get; set; }
+    public bool AutomaticRetryExhausted => Status == OutboxStatus.Failed && Attempts >= MaximumAutomaticAttempts;
+    public bool RequestDeliveryReceipt { get; set; }
+    /// <summary>Local editor safety state; null keeps conservative inference for queues created by older versions.</summary>
+    public bool? BodySectionsLost { get; set; }
+    public Magpie.Core.Mail.DeliveryReceiptResult? DeliveryReceipt { get; set; }
     public string LastError { get; set; } = "";
     public string Subject { get; set; } = "";
     public string ToText { get; set; } = "";

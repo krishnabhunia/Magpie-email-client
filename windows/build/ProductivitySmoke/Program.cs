@@ -69,7 +69,11 @@ internal static partial class Program
                 await CheckComposeWritingToolsAsync(engine, theme);
                 await CheckComposeBusyCloseAsync(theme);
                 await CheckInlineImageInsertionAsync(root, engine, theme);
+                await CheckCloudComposeAsync(root, engine, theme);
                 await CheckComposeReviewCorrectionsAsync(engine, theme);
+                await CheckComposeRemainingFeaturesAsync(engine, theme);
+                await CheckDeliveryReceiptOptionsAsync(engine, theme);
+                CheckScheduleClarity(theme);
                 CheckPalette(owner, output, theme);
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
@@ -97,8 +101,22 @@ internal static partial class Program
             CheckAiWritingFlow(root, engine);
             await CheckDraftHistoryAsync(root, engine);
             await CheckComposeMessageSizeAsync(root, engine);
-            await CheckEditorPageAsync(root);
-            await CheckOfficePreviewAsync(root);
+            // These stages own independent windows/profiles and clean them up in finally blocks.
+            // Run every stage so one native failure does not hide the other Windows-only checks.
+            var nativeFailures = new List<Exception>();
+            async Task CheckNativeStageAsync(string stage, Func<Task> check)
+            {
+                try { await check(); }
+                catch (Exception ex) { nativeFailures.Add(new InvalidOperationException(stage + " smoke failed", ex)); }
+            }
+            await CheckNativeStageAsync("Editor", () => CheckEditorPageAsync(root));
+            await CheckNativeStageAsync("Office preview", () => CheckOfficePreviewAsync(root));
+            await CheckNativeStageAsync("Secure mail", () => CheckSecureMailAsync(root, engine));
+            if (nativeFailures.Count > 0)
+            {
+                owner.Close();
+                throw new AggregateException("Independent native smoke stages failed", nativeFailures);
+            }
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             owner.Close();

@@ -167,6 +167,7 @@ public sealed class TagDef
 public sealed class QuickTemplate
 {
     public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
     /// <summary>Optional subject; missing/empty in older settings means a body-only template.</summary>
     public string Subject { get; set; } = "";
     public string Body { get; set; } = "";
@@ -588,9 +589,12 @@ public sealed class SettingsStore
         s.Ai.Consents ??= new();
         s.Tags ??= new();
         s.Templates ??= new();
+        s.Templates = s.Templates.Where(t => t != null).ToList();
+        foreach (var template in s.Templates) template.Category = Mail.ComposeTemplates.CategoryName(template.Category);
         s.QuickReplies = (s.QuickReplies ?? new()).Where(q => !string.IsNullOrWhiteSpace(q)).Select(q => q.Trim()).Distinct().ToList();
         foreach (var a in s.Accounts.Where(a => a != null))
         {
+            a.SenderAliases = Mail.SenderIdentities.Normalise(a.SenderAliases, a.Email);
             a.Signature ??= "";
             a.SignatureHtml ??= "";
             a.MaxOutgoingMessageMb = a.MaxOutgoingMessageMb <= 0 ? 25 : Math.Min(a.MaxOutgoingMessageMb, 100);
