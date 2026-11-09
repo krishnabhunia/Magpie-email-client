@@ -48,7 +48,9 @@ jobs:
         run: python common/scripts/ci_version.py reserve
 
       # Design E1: a PR that sets a new <Version> in Directory.Build.props is the release. While any PR from this
-      # repository is open, its CI publishes a test version <version>-beta.<commit-time>.g<sha> (pre-release; tried through
+      # repository is open, its CI publishes a test version <version>-beta<NNN> (designs BT1 A + BT2: the number is
+      # reserved as the tag v<version>-beta<NNN> on the PR head commit by `ci_version.py reserve` above; every platform
+      # workflow reads the same number) (pre-release; tried through
       # Settings → Updates → "Include test versions" when the version is new, or downloaded from the release page
       # when the PR keeps the released version); merging a PR with a new version publishes <version> to everyone.
       - name: Read version
@@ -76,7 +78,7 @@ jobs:
           $released = ($LASTEXITCODE -eq 0) -and ($missing.Count -eq 0)
           if (($LASTEXITCODE -eq 0) -and $missing.Count -gt 0) { Write-Host "Release v$v is missing: $($missing -join ', ')" }
           $global:LASTEXITCODE = 0
-          # Every PR from this repository gets a reproducible test version tied to its head commit — also a PR that changes
+          # Every PR from this repository gets a test version reserved on its head commit (x.y.z-betaNNN) — also a PR that changes
           # no version (docs, CI): then the test version carries the released number with a -beta suffix, which the
           # updater ranks below the release itself, so installed copies are never offered a downgrade.
           $beta = ($env:IS_OWN_PR -eq "true")
@@ -95,6 +97,23 @@ jobs:
           python common/scripts/test_release_prep.py
           python common/scripts/test_update_manifest.py
           python -m unittest discover -s common/scripts -p 'test_ci_*.py'
+          python common/scripts/test_features_check.py
+
+      # Design IN1: docs/FEATURES.md is built into the app's Info window. It must parse, and a PR that adds a feature
+      # (a "### New" line in its CHANGELOG section) must change it too.
+      - name: Feature list (docs/FEATURES.md)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python common/scripts/features_check.py check --version "${{ steps.ver.outputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw "docs/FEATURES.md is not right (see the line above)" }
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $files = gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)'
+            if ($LASTEXITCODE -ne 0) { throw "Couldn't list the files this PR changes" }
+            $files | python common/scripts/features_check.py needs-features --released ${{ steps.ver.outputs.released }}
+            if ($LASTEXITCODE -ne 0) { throw "This PR adds a feature without a row in docs/FEATURES.md (see the line above)" }
+          }
 
       # Design VB1: every change to the program gets a new version number x.y.z, worked out from its CHANGELOG lines
       # (New -> x, Changed -> y, Fixed -> z). A PR that changes the app code, the installer or the build files but keeps

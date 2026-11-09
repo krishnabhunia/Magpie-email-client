@@ -5,7 +5,7 @@ using Magpie.Core.Mail;
 namespace Magpie.Mac.Services;
 
 /// <summary>
-/// The Mac menu bar. The Magpie (application) menu is set on the App (About, Settings… ⌘,, Check for Updates…;
+/// The Mac menu bar. The Magpie (application) menu is set on the App (About, Magpie Info… ⌘I, Settings… ⌘,, Check for Updates…;
 /// Avalonia adds Services, Hide, Hide Others, Show All and Quit ⌘Q after them). Every window gets the same
 /// File · Edit · View · Message · Window menus, so the ⌘ keys work wherever the keyboard is.
 /// </summary>
@@ -52,6 +52,7 @@ public static class MacMenus
     {
         var m = new NativeMenu();
         m.Add(Item("About Magpie", () => Views.SettingsWindow.Open("About")));
+        m.Add(Item("Magpie Info…", () => Views.InfoWindow.Open(), Key.I));   // design IN1
         m.Add(Sep());
         m.Add(Item("Settings…", () => Views.SettingsWindow.Open(), Key.OemComma));
         m.Add(Item("Check for Updates…", () =>

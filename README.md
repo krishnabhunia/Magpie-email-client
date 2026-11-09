@@ -7,6 +7,9 @@ local-first, with optional AI you control from one Settings page.
 
 ## Features
 
+The full, current list (with the version each feature arrived in and whether it is on the Mac yet) is
+[`docs/FEATURES.md`](docs/FEATURES.md) — the same table the app shows in **Info → What's implemented** (ⓘ next to the version, or F1).
+
 | # | Area | Features |
 |---|------|----------|
 | 1 | Accounts | Gmail (Google sign-in or app password), Outlook / Microsoft 365 (Microsoft sign-in), any IMAP/SMTP mailbox; provider presets; passwords and tokens encrypted with Windows DPAPI |

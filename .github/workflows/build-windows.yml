@@ -45,16 +45,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Designs BT1 A + BT2: a PR gets x.y.z-betaNNN, reserved once by build.yml as a tag on its head commit (the same
+      # number in every platform workflow of that commit). --github-env also sets VERSION and the build details the Info window shows
+      # (MAGPIE_SOURCE_PR / _COMMIT / _BUILD_TIME_UTC / _RELEASE_TAG, read by Directory.Build.props).
       - name: Resolve shared build version
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $v = python common/scripts/ci_version.py
+          $v = python common/scripts/ci_version.py --github-env
           if ($LASTEXITCODE -ne 0) { throw "Could not determine build version" }
           $num = python common/scripts/release_prep.py numeric $v
           if ($LASTEXITCODE -ne 0) { throw "Invalid numeric version" }
-          "VERSION=$v" >> $env:GITHUB_ENV
           "NUMERIC=$num" >> $env:GITHUB_ENV
 
       - name: Set up .NET 8

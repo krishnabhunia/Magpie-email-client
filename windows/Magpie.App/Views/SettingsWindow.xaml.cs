@@ -108,6 +108,9 @@ public partial class SettingsWindow : Window
     // ───────────────────────── About Me (design A1) ─────────────────────────
 
     /// <summary>"What's this email about?" — then Magpie's own compose window opens, pre-filled.</summary>
+    /// <summary>Design IN1: Settings → About → Info.</summary>
+    private void OnInfo(object sender, RoutedEventArgs e) => InfoWindow.Open(this);
+
     private void OnFeedbackEmail(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = FeedbackLink, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };

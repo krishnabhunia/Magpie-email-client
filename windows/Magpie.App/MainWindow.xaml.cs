@@ -731,6 +731,7 @@ public partial class MainWindow : Window
         if (ctrl && e.Key == Key.N) { _vm.ComposeCommand.Execute(null); e.Handled = true; return; }
         if (ctrl && e.Key == Key.F) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F5) { _vm.SyncAllCommand.Execute(null); e.Handled = true; return; }
+        if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None) { InfoWindow.Open(this); e.Handled = true; return; }
         // Design B2: Ctrl+1 mail, Ctrl+2 calendar.
         if (ctrl && e.Key is Key.D1 or Key.NumPad1) { _vm.IsCalendarView = false; _vm.IsContactsView = false; e.Handled = true; return; }
         if (ctrl && e.Key is Key.D2 or Key.NumPad2) { _vm.IsCalendarView = true; e.Handled = true; return; }
@@ -808,8 +809,9 @@ public partial class MainWindow : Window
     // ───────────────────────── accounts / settings ─────────────────────────
 
     private void OnSettings(object sender, RoutedEventArgs e) => SettingsWindow.Open(null);
-    private async void OnWhatsNew(object sender, RoutedEventArgs e) => await Magpie.App.Services.ReleaseNotesWindow.ShowInstalledAsync(this);
     private void OnVersionClick(object sender, RoutedEventArgs e) => SettingsWindow.Open("About");
+    /// <summary>Design IN1: the ⓘ next to the version, and F1.</summary>
+    private void OnInfoClick(object sender, RoutedEventArgs e) => InfoWindow.Open(this);
     private void OnAddAccount(object sender, RoutedEventArgs e) => AddAccountWindow.ShowAdd(this);
 
     /// <summary>Design B2: a calendar reminder was clicked.</summary>

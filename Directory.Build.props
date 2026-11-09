@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
-    <Version>17.1.0</Version>
-    <AssemblyVersion>17.1.0.0</AssemblyVersion>
-    <FileVersion>17.1.0.0</FileVersion>
+    <Version>18.2.0</Version>
+    <AssemblyVersion>18.2.0.0</AssemblyVersion>
+    <FileVersion>18.2.0.0</FileVersion>
     <Company>Krishna Bhunia</Company>
     <Product>Magpie</Product>
     <Copyright>© 2026 Krishna Bhunia</Copyright>
@@ -15,5 +15,11 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleaseDate" Value="$(ReleaseDate)" />
+    <!-- Design IN1: this build's details for the Info window, set by CI (common/scripts/ci_version.py with its github-env option)
+         through environment properties; empty in a local build, which the Info window then calls "Local build". -->
+    <AssemblyMetadata Include="SourcePr" Value="$(MAGPIE_SOURCE_PR)" />
+    <AssemblyMetadata Include="SourceCommit" Value="$(MAGPIE_SOURCE_COMMIT)" />
+    <AssemblyMetadata Include="BuildTimeUtc" Value="$(MAGPIE_BUILD_TIME_UTC)" />
+    <AssemblyMetadata Include="ReleaseTag" Value="$(MAGPIE_RELEASE_TAG)" />
   </ItemGroup>
 </Project>

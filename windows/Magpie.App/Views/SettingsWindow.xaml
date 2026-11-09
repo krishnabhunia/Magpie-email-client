@@ -1701,8 +1701,13 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock svc:Typography.Role="settingsTitle" Text="{Binding Version}" Style="{StaticResource Text.Serif}" FontSize="21" />
                                 <TextBlock Text="A local-first mail app for Windows." Style="{StaticResource Text.Caption}" />
-                                <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
-                                        Command="{Binding GoCommand}" CommandParameter="Updates" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource Button.Link}" Content="Check for updates" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
+                                            Command="{Binding GoCommand}" CommandParameter="Updates" />
+                                    <!-- Design IN1 -->
+                                    <Button x:Name="AboutInfo" Style="{StaticResource Button.Link}" Content="Info" HorizontalAlignment="Left" FontSize="12.5" Padding="0,2" MinHeight="20"
+                                            Margin="16,0,0,0" Click="OnInfo" ToolTip="This build, what's implemented, what's new, under the hood" AutomationProperties.Name="Info" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                         <!-- About Me (design A1): the same block as in Krishna's Android apps -->

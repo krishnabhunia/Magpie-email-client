@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds Magpie for Mac (Apple Silicon) and writes macOS/out/Magpie_<version>.dmg.
 #
-#   bash macOS/build/build.sh <version>        e.g. 8.0.0 or 8.0.0-beta.95 (CI passes the version it works out)
+#   bash macOS/build/build.sh <version>        e.g. 15.0.0 or 15.0.0-beta007 (CI passes the version it works out)
 #
 # Needs the .NET 10 SDK (macOS/global.json) and Python 3. The .app, its icon, the ad-hoc signature and the disk
 # image need macOS (sips, iconutil, codesign, hdiutil); on Linux the script stops after assembling Magpie.app and
@@ -21,11 +21,15 @@ STAGE="$OUT/stage"
 APP="$STAGE/Magpie.app"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
-# 8.0.0 -> 8.0.0 (AssemblyVersion, CFBundleShortVersionString, CFBundleVersion). A test version 8.0.0-beta.95 keeps
-# 8.0.0 as its short version and gets CFBundleVersion 8.0.95 (at most three numbers, as macOS wants).
+# 8.0.0 -> 8.0.0 (AssemblyVersion, CFBundleShortVersionString, CFBundleVersion). A test version keeps 8.0.0 as its
+# short version. The short test versions (design BT1 A, 15.0.0-beta007) keep CFBundleVersion = 15.0.0 too: macOS allows
+# at most three numbers there, and putting the beta number in the last one would rank it above (or below) another
+# release; Magpie's updater reads the full version from the app itself, not from CFBundleVersion. An older long
+# test version 8.0.0-beta.95 still gets 8.0.95 as before.
 NUMERIC="$(python3 "$ROOT/common/scripts/release_prep.py" numeric "$VERSION")"
 BUNDLE_VERSION="$NUMERIC"
-if [[ "$VERSION" =~ -[A-Za-z]+\.([0-9]+)$ ]]; then BUNDLE_VERSION="${NUMERIC%.*}.${BASH_REMATCH[1]}"; fi
+if [[ "$VERSION" =~ -beta[0-9]{3}$ ]]; then BUNDLE_VERSION="$NUMERIC";
+elif [[ "$VERSION" =~ -[A-Za-z]+\.([0-9]+)$ ]]; then BUNDLE_VERSION="${NUMERIC%.*}.${BASH_REMATCH[1]}"; fi
 echo "Magpie for Mac $VERSION (bundle $NUMERIC / $BUNDLE_VERSION)"
 
 rm -rf "$OUT"

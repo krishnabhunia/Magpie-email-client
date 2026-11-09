@@ -474,7 +474,9 @@ public partial class MainViewModel : ObservableObject
 
     // ───────────────────────── version in the title bar (design V1) ─────────────────────────
 
-    public string VersionText => UpdateService.Current.ToString();
+    /// <summary>"v15.0.0-beta007" (design BT1 A: the real test-version name), with a Beta chip next to it on a test version.</summary>
+    public string VersionText => "v" + UpdateService.Current;
+    public bool IsBetaBuild => UpdateService.Current.IsPrerelease;
     public string VersionTip => $"Magpie {UpdateService.Current} · released {SettingsViewModel.ReleaseDate} · click for About";
 
     // ───────────────────────── Gatekeeper banner + Set aside pile (design B7) ─────────────────────────
