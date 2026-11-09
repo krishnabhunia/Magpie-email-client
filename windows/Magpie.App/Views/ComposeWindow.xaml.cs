@@ -569,6 +569,18 @@ public partial class ComposeWindow : Window
         if (dlg.ShowDialog(this) == true) _vm.AddAttachments(dlg.FileNames);
     }
 
+    private void OnAttachEmail(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Multiselect = true,
+            Title = "Attach a saved email",
+            Filter = "Email messages (*.eml)|*.eml",
+            DefaultExt = ".eml",
+        };
+        if (dlg.ShowDialog(this) == true) _vm.AddAttachments(dlg.FileNames);
+    }
+
     private void OnDragOver(object sender, DragEventArgs e)
     {
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;

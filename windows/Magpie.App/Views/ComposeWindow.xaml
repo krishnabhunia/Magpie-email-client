@@ -460,6 +460,7 @@
                                     <StackPanel HorizontalAlignment="Center"><TextBlock Text="📎 Drop files here" TextAlignment="Center" FontWeight="SemiBold" /><TextBlock Text="Or use the Attach button" TextAlignment="Center" FontSize="11" Foreground="{DynamicResource Brush.Text.Secondary}" /></StackPanel>
                                 </Border>
                                 <Button Style="{StaticResource Button.Primary}" Content="Browse files…" Click="OnAttach" />
+                                <Button x:Name="StudioAttachEmailButton" Style="{StaticResource Button.Secondary}" Content="Attach saved email (.eml)…" Click="OnAttachEmail" Margin="0,7,0,0" ToolTip="Choose an existing .eml email message to include as an attachment" />
                                 <Button x:Name="StudioCloudAttachButton" Style="{StaticResource Button.Secondary}" Content="Upload &amp; share cloud link…" Click="OnCloudAttach" Margin="0,7,0,0" ToolTip="Choose Google Drive or OneDrive, a file, named people and their access before uploading" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Paste files or screenshot…" Click="OnPasteAttachments" Margin="0,7,0,0" ToolTip="Attach files copied from File Explorer, or save and attach a screenshot from the clipboard" />
                                 <Button Style="{StaticResource Button.Secondary}" Content="Remove all attachments" Click="OnClearAttachments" Margin="0,7,0,0" />

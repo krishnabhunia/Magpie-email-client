@@ -134,6 +134,29 @@ internal static partial class Program
             await vm.SendAsync(null, null);
             Assert(engine.Store.GetOutbox().Count == 0 && !vm.Sending && vm.To == "new-incomplete-recipient",
                 "Recipient edits during preflight are preserved and never queued using the earlier validation");
+
+            var upper = Path.Combine(root, "Report.bin");
+            var lower = Path.Combine(root, "report.bin");
+            var variant = new Draft
+            {
+                AccountId = account.Id, Html = "<p>Separate file names</p>",
+                AttachmentPaths = new() { upper, lower },
+                AttachmentOrder = new() { new() { Path = lower }, new() { Path = upper } },
+                AttachmentNames = new(StringComparer.Ordinal) { [upper] = "upper-report.bin", [lower] = "lower-report.bin" },
+            };
+            var variantVm = new ComposeViewModel(variant, null) { GetHtml = () => Task.FromResult(variant.Html) };
+            try
+            {
+                Assert(variantVm.Attachments.Select(a => a.Name).SequenceEqual(new[] { "lower-report.bin", "upper-report.bin" }),
+                    "Compose restores distinct case-variant file names in their exact saved order");
+                var build = typeof(ComposeViewModel).GetMethod("BuildDraftAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var rebuilt = await (Task<Draft?>)build.Invoke(variantVm, new object[] { false })!;
+                Assert(rebuilt != null && rebuilt.AttachmentNames.Count == 2
+                    && rebuilt.AttachmentNames[upper] == "upper-report.bin"
+                    && rebuilt.AttachmentNames[lower] == "lower-report.bin",
+                    "Compose saves both case-variant outgoing names without a case-insensitive dictionary collision");
+            }
+            finally { variantVm.Detach(); }
             vm.Detach();
             Assert(!vm.TryBeginAttachmentOperation() && !vm.AttachmentOperationBusy,
                 "Closing or detached drafts cannot start a new asynchronous picture attachment");

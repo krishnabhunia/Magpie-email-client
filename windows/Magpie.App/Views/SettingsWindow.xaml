@@ -1175,7 +1175,7 @@
                         <TextBlock svc:Typography.Role="settingsTitle" Text="Templates" Style="{StaticResource Text.Serif}" FontSize="21" />
                         <TextBlock Text="Reusable subject and message text. Use them from Templates in a compose window. Leave Subject empty for a body-only template; an existing message subject is never replaced without confirmation." TextWrapping="Wrap" Style="{StaticResource Text.Caption}" Margin="0,4,0,8" />
                         <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,14"
-                                   Text="Variables: {{first_name}}, {{last_name}}, {{full_name}}, {{recipient_email}}, {{sender_name}}, {{sender_email}}, {{subject}}, {{date}}, {{time}}. Recipient names require a named To address; unavailable values remain as placeholders." />
+                                   Text="Variables: {first_name}, {last_name}, {full_name}, {recipient_email}, {sender_name}, {sender_email}, {company}, {subject}, {date}, {time}. Double braces also work (for example {{first_name}}). Company comes from the sending account's details; recipient names require a named To address. You'll preview the filled values before insertion; unavailable values stay as placeholders." />
                         <ItemsControl x:Name="RowTemplates" ItemsSource="{Binding Templates}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditableTemplate}">

@@ -82,9 +82,37 @@ internal static partial class Program
             Assert(await vm.InsertTemplateAsync(withSubject, replaceSubject: true, expectedSubject: "Existing subject")
                 && vm.Subject == "Agenda for Jane" && text.EndsWith("Regarding Existing subject"),
                 theme + ": explicit subject approval uses one original expansion context for both fields");
+            var reviewTemplate = new QuickTemplate { Name = "Preview fixture", Subject = "Review for {first_name}", Body = "Hello {first_name}; reviewed." };
+            var review = vm.ReviewTemplate(reviewTemplate);
+            var dialog = new TemplatePreviewDialog(review);
+            var dialogGrid = (Grid)dialog.Content;
+            var subjectPreview = dialogGrid.Children.OfType<TextBox>().First();
+            var bodyPreview = dialogGrid.Children.OfType<TextBox>().Last();
+            var replace = dialogGrid.Children.OfType<CheckBox>().Single();
+            Assert(subjectPreview.IsReadOnly && subjectPreview.Text == "Agenda for Jane"
+                && bodyPreview.IsReadOnly && bodyPreview.Text == review.Expanded.Body
+                && !replace.IsChecked.GetValueOrDefault(),
+                theme + ": template preview renders the exact expanded body and keeps the existing subject by default");
+            replace.IsChecked = true;
+            Assert(subjectPreview.Text == "Review for Jane" && dialog.ReplaceSubject,
+                theme + ": preview shows the resulting subject after an explicit replacement choice");
+            dialog.Close();
+            Assert(window.FindName("StudioAttachEmailButton") is Button { Content: "Attach saved email (.eml)…" },
+                theme + ": Studio exposes a direct saved-email attachment picker");
+            var beforeStaleReview = text;
+            vm.To = "Other Person <other@example.test>";
+            Assert(!await vm.InsertReviewedTemplateAsync(review, replaceSubject: true)
+                && text == beforeStaleReview && vm.Subject == "Agenda for Jane"
+                && vm.Status.Contains("changed after the template preview"),
+                theme + ": changing recipients invalidates a previously approved template preview");
+            vm.To = "Jane Example <jane@example.test>";
+            var currentReview = vm.ReviewTemplate(reviewTemplate);
+            Assert(await vm.InsertReviewedTemplateAsync(currentReview, replaceSubject: true)
+                && vm.Subject == "Review for Jane" && text.EndsWith(currentReview.Expanded.Body),
+                theme + ": the applied template is precisely the reviewed expansion and subject choice");
             var beforeStale = text;
             Assert(!await vm.InsertTemplateAsync(withSubject, replaceSubject: true, expectedSubject: "Stale subject")
-                && text == beforeStale && vm.Subject == "Agenda for Jane",
+                && text == beforeStale && vm.Subject == "Review for Jane",
                 theme + ": stale subject approval changes neither field");
             vm.Subject = "";
             Assert(await vm.InsertTemplateAsync(withSubject) && vm.Subject == "Agenda for Jane",
