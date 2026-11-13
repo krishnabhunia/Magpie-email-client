@@ -263,6 +263,7 @@ public sealed class AccountSync : IDisposable
                 await SyncAllAsync(full, ct);
                 if (full) _lastFullCheck = DateTimeOffset.Now;
                 _initialDone = true;
+                await AnswerAddressAsksAsync(ct);   // design PE1: "Search the server too"
                 endTurn();
                 backoff = TimeSpan.FromSeconds(15);
                 if (_offlineLogged) { _offlineLogged = false; Log.Info($"[{Account.Email}] back online"); }
@@ -288,6 +289,7 @@ public sealed class AccountSync : IDisposable
             {
                 Log.Warn($"[{Account.Email}] needs sign-in: {ex.Message}");
                 SetStatus(SyncState.NeedsSignIn, ex.Message);
+                FailAddressAsks(ex.Message);
                 endTurn();
                 try { await _wake.WaitAsync(TimeSpan.FromMinutes(30), ct); } catch (OperationCanceledException) { break; }
             }
@@ -298,6 +300,7 @@ public sealed class AccountSync : IDisposable
                 if (!offline) Log.Error($"[{Account.Email}] sync failed", ex);
                 else if (!_offlineLogged) { _offlineLogged = true; Log.Info($"[{Account.Email}] offline: {Describe(ex)}"); }
                 SetStatus(offline ? SyncState.Offline : SyncState.Error, Connector.Friendly(ex));
+                FailAddressAsks(Connector.Friendly(ex));
                 endTurn();
                 try { await _wake.WaitAsync(backoff, ct); } catch (OperationCanceledException) { break; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 300));
@@ -394,6 +397,7 @@ public sealed class AccountSync : IDisposable
             // The first round only lists recent mail in every folder, so everything shows up quickly; older emails follow.
             _budget = _initialDone ? BackfillPerRound : 0;
             _priorityBudget = full ? PriorityBackfillPerRound : 0;
+            _bccBudget = full ? BccPerRound : 0;
             if (full)
                 foreach (var gone in _remaining.Keys.Where(id => !folders.Any(o => o.local.Id == id)).ToList()) { _remaining.TryRemove(gone, out _); lock (_queue) _queue.Remove(gone); }
             var initial = !_initialDone && before.Values.All(f => f.LastSync == 0);
@@ -611,6 +615,9 @@ public sealed class AccountSync : IDisposable
                 changed |= await BackfillPrioritiesAsync(f, local, map, serverAll, pendingRemovals, ct) > 0;
             }
 
+            // Design RC1: sent emails listed before Bcc was kept get their Bcc line read (headers only).
+            if (map.Count > 0) changed |= await BackfillBccAsync(f, local, ct) > 0;
+
             // 4. Older emails: everything on the server (below the new-mail line) not listed here yet — the first sync
             //    only lists recent mail so the Inbox appears quickly. Headers only, newest first, within this round's budget.
             var have = map.Keys.ToHashSet();
@@ -668,6 +675,151 @@ public sealed class AccountSync : IDisposable
             Log.Warn($"[{Account.Email}] {local.Path}: optional priority headers deferred: {ex.Message}");
             return 0;
         }
+    }
+
+    /// <summary>Design RC1: sent emails listed before Bcc was kept get it read, this many per full check of the account.</summary>
+    internal const int BccPerRound = 1000;
+    private int _bccBudget;
+    /// <summary>Folders with no Bcc left to read (or whose server refused): not looked at again this session.</summary>
+    private readonly HashSet<long> _bccDone = new();
+
+    /// <summary>The Bcc line as stored ("Name &lt;addr&gt;, addr2"); empty when there is none.</summary>
+    internal static string BccLine(Envelope? env) => env == null ? "" : string.Join(", ", env.Bcc.Mailboxes.Select(m => m.ToString()));
+
+    /// <summary>
+    /// Design RC1: reads the Bcc line of emails already on this PC — everything in Sent, elsewhere only what you sent.
+    /// An ENVELOPE fetch downloads no body and leaves the server's read state alone. Returns how many had a Bcc.
+    /// </summary>
+    private async Task<int> BackfillBccAsync(IMailFolder f, MailFolder local, CancellationToken ct)
+    {
+        if (_bccBudget <= 0 || local.Role is FolderRole.Trash or FolderRole.Junk || _bccDone.Contains(local.Id)) return 0;
+        var uids = _store.BccUnread(local.Id, local.Role == FolderRole.Sent, Account.Email, _bccBudget);
+        if (uids.Count == 0) { _bccDone.Add(local.Id); return 0; }
+        _bccBudget -= uids.Count;
+        var found = 0;
+        foreach (var batch in uids.Chunk(250))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var ids = batch.Select(u => new UniqueId(f.UidValidity, (uint)u)).ToList();
+                var summaries = await FetchTolerantAsync(f, ids, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope), ct);
+                var lines = new Dictionary<long, string>();
+                foreach (var summary in summaries) lines[summary.UniqueId.Id] = BccLine(summary.Envelope);
+                // An email the server no longer returns is marked read too, so it isn't asked for at every check.
+                found += _store.SetBcc(local.Id, batch.Select(u => (u, lines.GetValueOrDefault(u, ""))));
+            }
+            catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
+            {
+                Log.Warn($"[{Account.Email}] {local.Path}: Bcc lines deferred: {ex.Message}");
+                _bccDone.Add(local.Id);
+                break;
+            }
+        }
+        return found;
+    }
+
+    // ───────────────────────── one address on the server (design PE1) ─────────────────────────
+
+    /// <summary>Emails listed per folder by one "Search the server too".</summary>
+    internal const int AddressSearchLimit = 3000;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Address, TaskCompletionSource<int> Done)> _addressAsks = new();
+
+    /// <summary>Some folder may still hold emails that are not listed on this PC.</summary>
+    public bool OlderEmailsLeft => !_initialDone || Backlog > 0;
+
+    /// <summary>
+    /// Design PE1 "Search the server too": lists the emails with this address (sender, To, Cc or Bcc) that are on the
+    /// server but not on this PC yet, in the folders still getting older emails. Runs on the sync connection at its
+    /// next turn; the task ends with how many emails were added, or with the reason it could not ask.
+    /// </summary>
+    public Task<int> FindAddressOnServerAsync(string address)
+    {
+        var done = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (string.IsNullOrWhiteSpace(address) || !address.Contains('@') || _cts == null || _cts.IsCancellationRequested) { done.SetResult(0); return done.Task; }
+        _addressAsks.Enqueue((address.Trim(), done));
+        _wake.Release();
+        return done.Task;
+    }
+
+    private async Task AnswerAddressAsksAsync(CancellationToken ct)
+    {
+        while (_addressAsks.TryDequeue(out var ask))
+        {
+            try { ask.Done.TrySetResult(await FindAddressAsync(ask.Address, ct)); }
+            catch (Exception ex)
+            {
+                if (ex is OperationCanceledException) ask.Done.TrySetCanceled();
+                else ask.Done.TrySetException(new InvalidOperationException(Connector.Friendly(ex), ex));
+                throw;
+            }
+        }
+    }
+
+    private void FailAddressAsks(string why)
+    {
+        while (_addressAsks.TryDequeue(out var ask)) ask.Done.TrySetException(new InvalidOperationException(why));
+    }
+
+    /// <summary>Which folders one address search looks in: only those with older emails still to list. Gmail keeps
+    /// every email in All Mail, so its labels are not asked one by one.</summary>
+    internal static List<MailFolder> AddressSearchFolders(IEnumerable<MailFolder> folders, Func<long, int> remaining)
+    {
+        var open = folders.Where(f => f.Synced && f.UidNext > 0 && f.Role is not (FolderRole.Trash or FolderRole.Junk or FolderRole.Drafts) && remaining(f.Id) != 0).ToList();
+        return open.Any(f => f.Role == FolderRole.All) ? open.Where(f => f.Role is FolderRole.All or FolderRole.Sent or FolderRole.Inbox).ToList() : open;
+    }
+
+    private async Task<int> FindAddressAsync(string address, CancellationToken ct)
+    {
+        var added = 0;
+        var changes = new ChangeSet { AccountId = Account.Id };
+        await _sync.UseAsync(async client =>
+        {
+            var pendingRemovals = _store.PendingRemovals(Account.Id);
+            foreach (var local in AddressSearchFolders(_store.GetFolders(Account.Id), Remaining))
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var f = await client.GetFolderAsync(local.Path, ct);
+                    await f.OpenAsync(FolderAccess.ReadOnly, ct);
+                    try
+                    {
+                        if (local.UidValidity != 0 && local.UidValidity != f.UidValidity) continue;   // the next full check lists it again
+                        var query = KitSearch.FromContains(address).Or(KitSearch.ToContains(address)).Or(KitSearch.CcContains(address))
+                            .Or(KitSearch.BccContains(address)).And(KitSearch.NotDeleted);
+                        var found = await f.SearchAsync(query, ct);
+                        var map = _store.GetUidMap(local.Id);
+                        List<UniqueId> missing;
+                        // Below the new-mail line only: anything newer is "new mail" for the next check to announce.
+                        lock (_tried)
+                            missing = found.Where(u => u.Id < local.UidNext && !map.ContainsKey(u.Id) && !pendingRemovals.Contains((local.Id, u.Id)) && !_tried.Contains((local.Id, u.Id)))
+                                .OrderByDescending(u => u.Id).Take(AddressSearchLimit).ToList();
+                        foreach (var batch in missing.Chunk(150))
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var rows = await FetchRowsAsync(client, f, local, batch, ct);
+                            added += _store.InsertMessages(rows).Count;
+                            var got = batch.Select(u => u.Id).ToHashSet();
+                            lock (_queue)
+                                if (_queue.TryGetValue(local.Id, out var queue)) { queue.RemoveAll(u => got.Contains(u.Id)); _remaining[local.Id] = queue.Count; }
+                        }
+                        if (missing.Count > 0) { _store.RefreshFolderCounts(local.Id); changes.FolderIds.Add(local.Id); }
+                    }
+                    finally
+                    {
+                        try { await f.CloseAsync(false, ct); } catch { }
+                    }
+                }
+                catch (FolderNotFoundException) { }
+                catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
+                {
+                    Log.Warn($"[{Account.Email}] {local.Path}: address search skipped: {ex.Message}");
+                }
+            }
+        }, ct);
+        if (changes.FolderIds.Count > 0) Changed?.Invoke(changes);
+        return added;
     }
 
     /// <summary>
@@ -877,6 +1029,7 @@ public sealed class AccountSync : IDisposable
             FromAddress = fromAddr,
             To = string.Join(", ", env.To.Mailboxes.Select(m => m.ToString())),
             Cc = string.Join(", ", env.Cc.Mailboxes.Select(m => m.ToString())),
+            Bcc = BccLine(env),
             ReplyTo = string.Join(", ", env.ReplyTo.Mailboxes.Select(m => m.ToString())),
             Subject = env.Subject ?? "",
             Preview = MimeText.Preview(s.PreviewText ?? ""),
@@ -1499,6 +1652,7 @@ public sealed class AccountSync : IDisposable
     {
         try { _versionStop.Cancel(); } catch { }
         try { _cts?.Cancel(); } catch { }
+        while (_addressAsks.TryDequeue(out var ask)) ask.Done.TrySetCanceled();
         _sync.Dispose();
         _ui.Dispose();
     }

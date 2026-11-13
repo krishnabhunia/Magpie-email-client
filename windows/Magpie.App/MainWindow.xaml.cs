@@ -173,7 +173,8 @@ public partial class MainWindow : Window
 
     private void OnAvatarClick(object sender, MouseButtonEventArgs e)
     {
-        if (RowOf(sender as DependencyObject) is { } item) { _vm.ToggleCheck(item, (Keyboard.Modifiers & ModifierKeys.Shift) != 0); e.Handled = true; }
+        // Design PE1: a row that stands for one email has no tick (ticks act on whole conversations); the click selects it.
+        if (RowOf(sender as DependencyObject) is { CanTick: true } item) { _vm.ToggleCheck(item, (Keyboard.Modifiers & ModifierKeys.Shift) != 0); e.Handled = true; }
     }
 
     /// <summary>Design SL1 (F0): the tick box on a row; Shift+click ticks the range from the last one clicked.</summary>

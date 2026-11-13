@@ -111,9 +111,26 @@ public partial class ThreadViewModel : ObservableObject
         _ = LoadAsync(_cts.Token, markRead: false);
     }
 
-    public void Show(ThreadRow row, MainViewModel main)
+    /// <summary>Design PE1: the email a list of single emails opened this conversation at; shown once, then forgotten.</summary>
+    private long _focusRowId;
+    private string _focusMessageId = "";
+
+    /// <summary>The conversation's own copy of that email (the list may hold its copy from another folder); 0 = none.</summary>
+    private long TakeFocus(List<MessageRow> rows)
+    {
+        if (_focusRowId == 0 && _focusMessageId.Length == 0) return 0;
+        var hit = rows.FirstOrDefault(r => r.Id == _focusRowId) ?? rows.FirstOrDefault(r => _focusMessageId.Length > 0 && r.MessageId == _focusMessageId);
+        _focusRowId = 0;
+        _focusMessageId = "";
+        return hit?.Id ?? 0;
+    }
+
+    /// <param name="focus">Design PE1: open the conversation at this email (a row of the "emails with one address" list).</param>
+    public void Show(ThreadRow row, MainViewModel main, MessageRow? focus = null)
     {
         _main = main;
+        _focusRowId = focus?.Id ?? 0;
+        _focusMessageId = focus?.MessageId ?? "";
         var same = row.AccountId == AccountId && row.ThreadKey == ThreadKey;
         _cts.Cancel();
         _cts = new CancellationTokenSource();
@@ -323,7 +340,7 @@ public partial class ThreadViewModel : ObservableObject
                     rows[^1].Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), dark, downloading: false));
             var list = BuildRenderList(AccountId, rows, bodies, _loadErrors);
             var hoverDelay = HoverDelay;
-            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay, typography), ct);
+            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay, typography, addressTips: false), ct);
             ct.ThrowIfCancellationRequested();
             if (context != PageContext) return;
             page = new ReaderPage(key, fp, result.Html, result.BlockedImages, context);
@@ -331,7 +348,7 @@ public partial class ThreadViewModel : ObservableObject
         }
         ct.ThrowIfCancellationRequested();
         BlockedImages = allow ? 0 : page.BlockedImages;
-        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen) });
+        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen), Focus = TakeFocus(rows) });
     }
 
     /// <summary>
@@ -370,7 +387,7 @@ public partial class ThreadViewModel : ObservableObject
                 if (prep == null) continue;
                 if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
-                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay, typography), ct);
+                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay, typography, addressTips: false), ct);
                 ct.ThrowIfCancellationRequested();
                 if (context != PageContext) return;
                 PutPage(key, prep.fp, result.Html, result.BlockedImages);
@@ -418,8 +435,11 @@ public partial class ThreadViewModel : ObservableObject
         var rules = timers.Count > 0 ? _e.AutoDeleteRules().ToDictionary(x => x.Id) : new();
         var receipts = rows.Count == 0 ? new Dictionary<string, DeliveryReceiptResult>()
             : _e.Store.DeliveryReceiptsForThread(accountId, rows[0].ThreadKey);
+        // Design RC1: the Details card says where each email is kept ("Sent · you@gmail.com").
+        var keptIn = _e.Folders(accountId).ToDictionary(f => f.Id, f => PersonView.FolderLabel(f.Role, f.Path) + (account == null ? "" : " · " + account.Email));
         return rows.Select((r, i) => new RenderMessage
         {
+            KeptIn = keptIn.GetValueOrDefault(r.FolderId, ""),
             DeleteNote = timers.TryGetValue(r.Id, out var t) ? DeleteDates.MessageNote(t.At, now) : null,
             DeleteUrgency = timers.TryGetValue(r.Id, out var t2) ? AutoDelete.Urgency(t2.At, now, rules.GetValueOrDefault(t2.Rule)?.Otp == true) : DeleteUrgency.Later,
             DeleteTip = timers.TryGetValue(r.Id, out var t3) ? DeleteDates.BannerDate(t3.At) + "\n" + DeleteDates.RuleLine(rules.GetValueOrDefault(t3.Rule)) : "",

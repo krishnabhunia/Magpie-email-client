@@ -25,6 +25,7 @@ public static class ReaderShell
             key = page.Key, fingerprint = page.Fingerprint, body = reuse ? "" : page.Body, style = reuse ? "" : page.Style,
             bytes = page.Bytes, context = page.Context, retain = page.Retain, version, reuse,
             read = page.ReadStates,
+            focus = page.Focus,
             hoverDelay = Math.Clamp(hoverDelayMs, 50, 1000),
         }) + ")";
 
@@ -75,8 +76,13 @@ public static class ReaderShell
           HM_DELAY=p.hoverDelay;
           page.node.hidden=false;
           window.scrollTo(0,page.y);
+          // Design PE1: opened from a list of single emails, the conversation shows that email, opened.
+          var focus=p.focus?page.node.querySelector('[id="m'+p.focus+'"]'):null;
+          if(focus) focus.classList.add('open');
           requestAnimationFrame(function(){
-            if(READER.active===page) page.node.querySelectorAll('iframe').forEach(size);
+            if(READER.active!==page) return;
+            page.node.querySelectorAll('iframe').forEach(size);
+            if(focus&&focus.previousElementSibling) focus.scrollIntoView({block:'start'});
           });
           while(READER.pages.size>8 || READER.bytes>32*1024*1024){
             var oldest=READER.pages.keys().next().value;

@@ -160,9 +160,9 @@ public sealed partial class ThreadItem : ObservableObject
         return parts.Length > 1 ? first + char.ToUpperInvariant(parts[^1][0]) : parts[0].Length > 1 ? first + char.ToLowerInvariant(parts[0][1]) : first;
     }
 
-    public string Initials { get; }
-    public System.Windows.Media.Brush AvatarBrush { get; }
-    public List<TagChip> TagChips { get; }
+    public string Initials { get; init; }
+    public System.Windows.Media.Brush AvatarBrush { get; init; }
+    public List<TagChip> TagChips { get; init; }
 
     /// <summary>Auto-delete rules by id, for the row tags' colours and hover text (refreshed when the list reloads).</summary>
     public static Dictionary<string, AutoDeleteRule> DeleteRules { get; set; } = new();
@@ -216,7 +216,7 @@ public sealed partial class ThreadItem : ObservableObject
         return first == null ? to : (string.IsNullOrEmpty(first.Name) ? first.Address : first.Name);
     }
 
-    public string Sender { get; }
+    public string Sender { get; init; }
     public string Subject => string.IsNullOrWhiteSpace(Row.Latest.Subject) ? "(no subject)" : Row.Latest.Subject;
     public string Preview => Row.Latest.Preview;
     public string DateText { get; }
@@ -235,6 +235,15 @@ public sealed partial class ThreadItem : ObservableObject
     public string? SnoozeText { get; }
     public List<string> Tags { get; }
     public string Key => Row.AccountId + "|" + Row.ThreadKey;
+
+    /// <summary>Design PE1: a row of the "emails with one address" list stands for one email (this row id), not a
+    /// conversation. Such rows open their conversation at that email and have no tick box or row buttons.</summary>
+    public long PersonRowId { get; init; }
+    public bool IsPersonRow => PersonRowId != 0;
+    public bool CanTick => LocalDraftId == null && !IsPersonRow;
+    public string AvatarTip { get; init; } = "Select for a bulk action";
+    /// <summary>Which row to select again after the list reloads: two emails of one conversation are two rows there.</summary>
+    public string SelectKey => IsPersonRow ? Key + "|" + PersonRowId : Key;
 }
 
 /// <summary>A tag on a list row, in the tag's own colour.</summary>
@@ -247,9 +256,12 @@ public sealed class TagChip
     /// <summary>Tag name → colour, from Settings (refreshed when the list reloads).</summary>
     public static Dictionary<string, string> Colors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public static TagChip For(string name)
+    public static TagChip For(string name) => Plain(name, Colors.TryGetValue(name, out var c) ? c : "#14606E");
+
+    /// <summary>A mark in a colour of its own (design PE1: the folder and "Bcc" marks of a person row).</summary>
+    public static TagChip Plain(string name, string colour)
     {
-        var hex = Icons.ForTheme(Colors.TryGetValue(name, out var c) ? c : "#14606E");
+        var hex = Icons.ForTheme(colour);
         var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
         var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(Icons.Dark ? (byte)0x2E : (byte)0x24, color.R, color.G, color.B));
         bg.Freeze();
@@ -482,7 +494,7 @@ public partial class MainViewModel : ObservableObject
     // ───────────────────────── Gatekeeper banner + Set aside pile (design B7) ─────────────────────────
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowGateBanner), nameof(GateBannerText))] private int _gateCount;
-    public bool ShowGateBanner => GateCount > 0 && Current?.Kind == NavKind.Inbox;
+    public bool ShowGateBanner => GateCount > 0 && Current?.Kind == NavKind.Inbox && !IsPersonView;
     public string GateBannerText => GateCount == 1 ? "1 new sender wants to reach you" : $"{GateCount} new senders want to reach you";
     public bool IsSetAsideView => Current?.Kind == NavKind.SetAside;
     public bool IsDeletingSoonView => Current?.Kind == NavKind.DeletingSoon;
@@ -667,6 +679,9 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsDeletingSoonView));
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
+        OnPropertyChanged(nameof(ShowListTools));
+        // Design PE1: the person list sits on the Inbox view; any other view (command palette, saved view…) ends it.
+        if (IsPersonView && !_personSetting && newValue?.Kind != NavKind.Inbox) { LeavePerson(); SetSearchQuietly(""); }
         Selected = null;
         ClearSelection();
         if (newValue?.Kind is NavKind.Folder or NavKind.Role) _e.Prioritise(FolderIdsFor(newValue));
@@ -693,6 +708,8 @@ public partial class MainViewModel : ObservableObject
         }
         IsCalendarView = false;
         IsContactsView = false;
+        // Design PE1: the person list sits on the Inbox view; picking any folder (the Inbox too) ends it.
+        if (IsPersonView) { LeavePerson(); SetSearchQuietly(""); }
         if (item == Current) { ReloadList(); return; }
         Current = item;
     }
@@ -711,6 +728,8 @@ public partial class MainViewModel : ObservableObject
     partial void OnUnreadOnlyChanged(bool value) { AllInView = false; ReloadList(); }
     partial void OnSearchTextChanged(string value)
     {
+        // Design PE1: typing in the search box turns the person list back into an ordinary search over every folder.
+        if (IsPersonView && !_personSetting) LeavePerson();
         AllInView = false;
         OnPropertyChanged(nameof(ShowCategories));
         _searchDebounce.Run(ReloadList);
@@ -749,7 +768,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Conversations loaded into the list at a time; Select all N in the folder (design SL1) reaches the rest.</summary>
     public const int ListLimit = 400;
 
-    private ListQuery QueryFor(NavItem nav, SearchQuery? search, DateTimeOffset now, int limit) => new()
+    private ListQuery QueryFor(NavItem nav, SearchQuery? search, DateTimeOffset now, int limit) => IsPersonView ? PersonQuery(limit) : new()
     {
         FolderIds = search != null && nav.Kind == NavKind.Inbox ? _e.AllMailFolderIds() : FolderIdsFor(nav),
         Category = ShowCategories ? Category : null,
@@ -782,11 +801,11 @@ public partial class MainViewModel : ObservableObject
     {
         var nav = Current;
         if (nav == null) return;
-        var scope = (nav.Key, Category, UnreadOnly, nav.SavedView is { } view ? view.Query + "\n" + SearchText : SearchText);
+        var scope = (nav.Key, Category, UnreadOnly, IsPersonView ? PersonScope : nav.SavedView is { } view ? view.Query + "\n" + SearchText : SearchText);
         if (_listScope != scope) { _listScope = scope; _listLimit = ListPageSize; }
         _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
-        var keepKey = Selected?.Key;
+        var keepKey = Selected?.SelectKey;
 
         if (nav.Kind == NavKind.Scheduled)
         {
@@ -799,8 +818,17 @@ public partial class MainViewModel : ObservableObject
         }
 
         List<ThreadRow> rows;
+        List<ThreadItem>? personItems = null;
         var search = string.IsNullOrWhiteSpace(SearchText) ? null : SearchQuery.Parse(SearchText);
-        if (nav.Kind is NavKind.FollowUp or NavKind.RemindersDue)
+        if (IsPersonView && PersonEachEmail)
+        {
+            // Design PE1: one row per email with the address, whatever is unread, snoozed or set aside.
+            personItems = PersonEmailItems(now, _listLimit + 1);
+            _hasMoreThreads = personItems.Count > _listLimit;
+            personItems = personItems.Take(_listLimit).ToList();
+            rows = personItems.Select(i => i.Row).ToList();
+        }
+        else if (nav.Kind is NavKind.FollowUp or NavKind.RemindersDue)
         {
             rows = new List<ThreadRow>();
             foreach (var r in nav.Kind == NavKind.RemindersDue ? _e.DueReminders() : _e.DueReminders().Concat(_e.WaitingReminders()))
@@ -821,12 +849,16 @@ public partial class MainViewModel : ObservableObject
         }
 
         // Conversations a bulk action is about to remove (design H3: Undo still possible) are not shown.
-        if (_pendingBulk != null) rows = rows.Where(r => !_pendingBulk.Keys.Contains(r.AccountId + "|" + r.ThreadKey)).ToList();
+        if (_pendingBulk != null)
+        {
+            rows = rows.Where(r => !_pendingBulk.Keys.Contains(r.AccountId + "|" + r.ThreadKey)).ToList();
+            personItems = personItems?.Where(i => !_pendingBulk.Keys.Contains(i.Key)).ToList();
+        }
         var multi = _e.Accounts.Count > 1;
         ThreadItem.DeleteRules = _e.AutoDeleteRules().ToDictionary(r => r.Id);
         ThreadItem.Look = _e.Config.Appearance.DeleteDates;
         var checkedKeys = Threads.Where(t => t.IsChecked).Select(t => t.Key).ToHashSet();
-        var items = rows.Select(r =>
+        var items = personItems ?? rows.Select(r =>
         {
             var acc = _e.AccountById(r.AccountId);
             return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "") { IsChecked = checkedKeys.Contains(r.AccountId + "|" + r.ThreadKey) };
@@ -863,7 +895,7 @@ public partial class MainViewModel : ObservableObject
             Scheduled.Clear();
             Threads.Clear();
             foreach (var i in items) Threads.Add(i);
-            Selected = keepKey == null ? null : Threads.FirstOrDefault(t => t.Key == keepKey);
+            Selected = keepKey == null ? null : Threads.FirstOrDefault(t => t.SelectKey == keepKey);
         }
         finally { _reloading = false; }
         if (AllInView && nav.Kind is not (NavKind.FollowUp or NavKind.Scheduled))
@@ -883,6 +915,7 @@ public partial class MainViewModel : ObservableObject
                 NavKind.FollowUp => "Use \"Remind me\" on a conversation to follow it up.",
                 _ => _e.StillListing(FolderIdsFor(nav)) ? "Getting this folder's emails from the server…" : "No conversations here.",
             };
+        if (IsPersonView) RefreshPersonList(rows.Count, _hasMoreThreads);
         if (Selected != null) Reader.RefreshIfShowing(Selected.Row);
     }
 
@@ -1249,7 +1282,8 @@ public partial class MainViewModel : ObservableObject
         Reader.Neighbours = new[] { i + 1, i - 1, i + 2, i - 2, i + 3, i - 3, i + 4, i + 5 }
             .Where(j => j >= 0 && j < Threads.Count && Threads[j].LocalDraftId == null)
             .Select(j => Threads[j].Row).ToList();
-        Reader.Show(value.Row, this);
+        // Design PE1: a person row opens its conversation at that email.
+        Reader.Show(value.Row, this, value.IsPersonRow ? value.Row.Latest : null);
     }
 
     /// <summary>After archive/delete/snooze: drop the row and open the next conversation (like eM Client).</summary>
@@ -1546,8 +1580,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Actions for the ⋯ menu: every row action not already on the bar.</summary>
     public IEnumerable<ToolbarButtonVm> RowActionsMore =>
         RowActionsSettings.ActionIds.Where(id => RowActionButtons.All(b => b.Id != id)).Select(id => ToolbarButtonVm.For(id, ButtonStyle.IconOnly));
-    public bool RowActionsAlways => _e.Config.Appearance.RowActions.Mode == RowActionsMode.Always;
-    public bool RowActionsOnHover => _e.Config.Appearance.RowActions.Mode == RowActionsMode.OnHover;
+    // Design PE1: a row of the one-email-per-row person list has no buttons (they act on whole conversations).
+    public bool RowActionsAlways => _e.Config.Appearance.RowActions.Mode == RowActionsMode.Always && !PersonRowsShown;
+    public bool RowActionsOnHover => _e.Config.Appearance.RowActions.Mode == RowActionsMode.OnHover && !PersonRowsShown;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectionText), nameof(HeaderTick), nameof(ShowSelectAllHint), nameof(SelectAllHintText))]
     private int _selectedCount;
@@ -1578,7 +1613,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Click on a row's tick box (or its picture): Shift ticks the range from the last one clicked.</summary>
     public void ToggleCheck(ThreadItem item, bool range = false)
     {
-        if (item.LocalDraftId != null) return;
+        if (!item.CanTick) return;
         AllInView = false;
         var a = _rangeAnchor != null ? Threads.IndexOf(_rangeAnchor) : -1;
         var b = Threads.IndexOf(item);
@@ -1597,7 +1632,7 @@ public partial class MainViewModel : ObservableObject
     public void SelectBy(SelectFilter filter, object? arg = null)
     {
         AllInView = false;
-        foreach (var t in Threads.Where(t => t.LocalDraftId == null))
+        foreach (var t in Threads.Where(t => t.CanTick))
             t.IsChecked = Selection.Ticks(t.Row, filter, arg, t.IsChecked);
         RefreshSelectionCount();
     }
@@ -1648,7 +1683,7 @@ public partial class MainViewModel : ObservableObject
         var gen = ++_totalGen;
         OnPropertyChanged(nameof(ListCountText));
         UpdateBinBar();
-        if (loaded < ListLimit || nav.Kind is NavKind.FollowUp or NavKind.Scheduled) { ViewTotal = loaded; return; }
+        if (loaded < ListLimit || nav.Kind is NavKind.FollowUp or NavKind.Scheduled || (IsPersonView && PersonEachEmail)) { ViewTotal = loaded; return; }
         ViewTotal = loaded;
         var q = QueryFor(nav, search, now, int.MaxValue);
         _ = Task.Run(() =>

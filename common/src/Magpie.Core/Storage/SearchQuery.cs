@@ -28,6 +28,11 @@ public sealed class SearchQuery
     public List<string> Domain { get; } = new();
     /// <summary>Exact local label, with case-insensitive comparison.</summary>
     public List<string> Labels { get; } = new();
+    /// <summary>
+    /// Design PE1: every email with one exact address, by its part in the email (sender, someone you wrote to, or
+    /// copied in on someone else's email). Not typed in the search box; set by <see cref="ForPerson"/>.
+    /// </summary>
+    public PersonFilter? Person { get; private set; }
     public bool HasAttachment { get; private set; }
     public bool Unread { get; private set; }
     public bool Pinned { get; private set; }
@@ -35,7 +40,11 @@ public sealed class SearchQuery
     public DateTimeOffset? After { get; private set; }
 
     public bool IsEmpty => Terms.Count == 0 && Phrases.Count == 0 && From.Count == 0 && To.Count == 0 && Subject.Count == 0 && With.Count == 0 && File.Count == 0
-                           && Mailbox.Count == 0 && Domain.Count == 0 && Labels.Count == 0 && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
+                           && Mailbox.Count == 0 && Domain.Count == 0 && Labels.Count == 0 && Person == null && !HasAttachment && !Unread && !Pinned && Before == null && After == null;
+
+    /// <summary>Design PE1: emails with exactly this address; <paramref name="mine"/> = the addresses of your own accounts.</summary>
+    public static SearchQuery ForPerson(string address, PersonKind kind, IEnumerable<string> mine) =>
+        new() { Person = new PersonFilter(address.Trim().ToLowerInvariant(), kind, mine.Select(a => a.Trim().ToLowerInvariant()).Where(a => a.Length > 0).Distinct().ToList()) };
 
     /// <summary>Emails exchanged with exactly this address (sender, To or Cc), optionally only those with files.</summary>
     public static SearchQuery WithMailbox(string address, bool withAttachment = false)
@@ -146,7 +155,7 @@ public sealed class SearchQuery
         foreach (var t in To)
         {
             cmd.Parameters.AddWithValue($"$sq_t{i}", Like(t));
-            preds.Add($"({m}.to_list LIKE $sq_t{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_t{i} ESCAPE '\\')");
+            preds.Add($"({m}.to_list LIKE $sq_t{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_t{i} ESCAPE '\\' OR COALESCE({m}.bcc_list,'') LIKE $sq_t{i} ESCAPE '\\')");
             i++;
         }
         foreach (var s in Subject)
@@ -158,18 +167,17 @@ public sealed class SearchQuery
         foreach (var w in With)
         {
             cmd.Parameters.AddWithValue($"$sq_w{i}", Like(w));
-            preds.Add($"({m}.from_addr LIKE $sq_w{i} ESCAPE '\\' OR {m}.from_name LIKE $sq_w{i} ESCAPE '\\' OR {m}.to_list LIKE $sq_w{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_w{i} ESCAPE '\\')");
+            preds.Add($"({m}.from_addr LIKE $sq_w{i} ESCAPE '\\' OR {m}.from_name LIKE $sq_w{i} ESCAPE '\\' OR {m}.to_list LIKE $sq_w{i} ESCAPE '\\' OR {m}.cc_list LIKE $sq_w{i} ESCAPE '\\' OR COALESCE({m}.bcc_list,'') LIKE $sq_w{i} ESCAPE '\\')");
             i++;
         }
         foreach (var box in Mailbox)
         {
             // to_list / cc_list hold "Name <addr>, addr2, …": a bracketed address, or a bare one between commas (spaces removed).
             cmd.Parameters.AddWithValue($"$sq_m{i}", box.ToLowerInvariant());
-            preds.Add($"(lower({m}.from_addr)=$sq_m{i}"
-                      + $" OR instr(lower({m}.to_list),'<'||$sq_m{i}||'>')>0 OR instr(','||replace(lower({m}.to_list),' ','')||',',','||$sq_m{i}||',')>0"
-                      + $" OR instr(lower({m}.cc_list),'<'||$sq_m{i}||'>')>0 OR instr(','||replace(lower({m}.cc_list),' ','')||',',','||$sq_m{i}||',')>0)");
+            preds.Add($"(lower({m}.from_addr)=$sq_m{i} OR {RecipientSql(m, $"$sq_m{i}")})");
             i++;
         }
+        if (Person is { } person) preds.Add(person.ToSql(cmd, m));
         foreach (var f in File)
         {
             cmd.Parameters.AddWithValue($"$sq_n{i}", Like(f));
@@ -196,5 +204,61 @@ public sealed class SearchQuery
         return preds.Count == 0 ? "1=1" : string.Join(" AND ", preds);
     }
 
+    /// <summary>
+    /// The address in <paramref name="param"/> (lower case) is one of the To / Cc / Bcc mailboxes. Those columns hold
+    /// "Name &lt;addr&gt;, addr2, …": a bracketed address, or a bare one between commas (spaces removed).
+    /// </summary>
+    internal static string RecipientSql(string m, string param) =>
+        "(" + string.Join(" OR ", new[] { $"{m}.to_list", $"{m}.cc_list", $"COALESCE({m}.bcc_list,'')" }.Select(col =>
+            $"instr(lower({col}),'<'||{param}||'>')>0 OR instr(','||replace(lower({col}),' ','')||',',','||{param}||',')>0")) + ")";
+
     private static string Like(string s) => "%" + s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+}
+
+/// <summary>Design PE1: which emails with a person a list shows.</summary>
+public enum PersonKind
+{
+    /// <summary>Every email the address is part of.</summary>
+    All = 0,
+    /// <summary>The address sent it.</summary>
+    From = 1,
+    /// <summary>You sent it and the address is in To, Cc or Bcc.</summary>
+    YouSent = 2,
+    /// <summary>Someone else sent it and the address is in To or Cc.</summary>
+    CopiedIn = 3,
+}
+
+/// <summary>Design PE1: one exact address (lower case), the part it plays, and your own addresses (lower case).</summary>
+public sealed record PersonFilter(string Address, PersonKind Kind, IReadOnlyList<string> Mine)
+{
+    /// <summary>Adds the parameters once per command and returns the predicate for <see cref="Kind"/> over alias <paramref name="m"/>.</summary>
+    public string ToSql(SqliteCommand cmd, string m)
+    {
+        var (from, mine, rcpt) = Parts(cmd, m);
+        return Kind switch
+        {
+            PersonKind.From => from,
+            PersonKind.YouSent => $"(NOT {from} AND {mine} AND {rcpt})",
+            PersonKind.CopiedIn => $"(NOT {from} AND NOT {mine} AND {rcpt})",
+            _ => $"({from} OR {rcpt})",
+        };
+    }
+
+    /// <summary>1 = the address sent it, 2 = you sent it to the address, 3 = copied in on someone else's email.</summary>
+    public string KindSql(SqliteCommand cmd, string m)
+    {
+        var (from, mine, _) = Parts(cmd, m);
+        return $"CASE WHEN {from} THEN 1 WHEN {mine} THEN 2 ELSE 3 END";
+    }
+
+    private (string From, string Mine, string Rcpt) Parts(SqliteCommand cmd, string m)
+    {
+        if (!cmd.Parameters.Contains("$pe_a"))
+        {
+            cmd.Parameters.AddWithValue("$pe_a", Address);
+            for (int i = 0; i < Mine.Count; i++) cmd.Parameters.AddWithValue("$pe_m" + i, Mine[i]);
+        }
+        var mine = Mine.Count == 0 ? "0" : $"lower({m}.from_addr) IN ({string.Join(",", Mine.Select((_, i) => "$pe_m" + i))})";
+        return ($"lower({m}.from_addr)=$pe_a", mine, SearchQuery.RecipientSql(m, "$pe_a"));
+    }
 }

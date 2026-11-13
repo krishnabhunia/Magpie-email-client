@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -26,6 +27,8 @@ public sealed class RenderMessage
     public string DeleteTip { get; init; } = "";
     /// <summary>Trusted local SMTP result for a message sent on this PC; never inferred from incoming headers.</summary>
     public DeliveryReceiptResult? DeliveryReceipt { get; init; }
+    /// <summary>Design RC1: where this email is kept, for its Details card ("Sent · you@gmail.com"); the row is left out when empty.</summary>
+    public string KeptIn { get; init; } = "";
 }
 
 public sealed class RenderResult
@@ -172,8 +175,10 @@ public static class HtmlRenderer
         "pre{white-space:pre-wrap}table{max-width:100%}";
 
     /// <summary>The whole conversation page. <paramref name="dark"/> = the dark theme (design B1).</summary>
+    /// <param name="addressTips">False where the address card opens on hover (Windows): the browser's own tooltip
+    /// with the address would cover the card (design RC1).</param>
     public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false,
-        int hoverDelayMs = 600, TypographySettings? typography = null)
+        int hoverDelayMs = 600, TypographySettings? typography = null, bool addressTips = true)
     {
         var p = dark ? DarkPalette : LightPalette;
         var sb = new StringBuilder();
@@ -191,13 +196,30 @@ public static class HtmlRenderer
             html,body{margin:0;padding:0;background:var(--page);color:var(--ink);font:13.5px/1.55 'IBM Plex Sans','Segoe UI',system-ui,sans-serif}
             .wrap{padding:6px 22px 28px}
             .msg{border-bottom:1px solid var(--line)}
-            .hdr{display:flex;gap:12px;align-items:flex-start;padding:14px 0 10px;cursor:pointer;user-select:none}
+            .hdr{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:flex-start;padding:14px 0 10px;cursor:pointer;user-select:none}
             .av{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:var(--avbg);color:var(--avfg);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
             .av.me{background:var(--mebg);color:var(--mefg)}
             .who{flex:1;min-width:0}
             .name{font-weight:600}
             .addr{color:var(--muted);font-weight:400;font-size:12px;margin-left:6px}
-            .to{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .to{flex:0 0 calc(100% - 44px);margin-left:44px;display:flex;align-items:center;min-width:0;box-sizing:border-box;color:var(--muted);font-size:12px}
+            .to-t{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .to-c{flex:0 0 auto;white-space:nowrap}
+            .to-n{color:var(--link);font-weight:600}
+            .to-b{flex:0 0 auto;margin-left:8px;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--link);background:var(--btn);color:var(--link);border-radius:5px;font:inherit;font-size:11.5px;font-weight:600;padding:1px 8px;cursor:pointer}
+            .to-b::after{content:'';width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);margin:-3px 1px 0 2px}
+            .to-b[aria-expanded="true"]{background:var(--teal);border-color:var(--teal);color:#fff}
+            .to-b[aria-expanded="true"]::after{transform:rotate(225deg);margin-top:3px}
+            .rd{margin:0 0 12px 44px;max-width:620px;box-sizing:border-box;padding:12px 14px 10px;background:var(--page);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);font-size:12.5px;line-height:20px;cursor:default}
+            .rd[hidden],.msg:not(.open) .rd{display:none}
+            .rd-r{display:flex;gap:12px;margin-bottom:6px}
+            .rd-l{flex:0 0 64px;font-weight:600;color:var(--muted)}
+            .rd-v{flex:1;min-width:0;color:var(--ink);overflow-wrap:anywhere}
+            .rd-a{color:var(--muted)}
+            .rd-x{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:2px 0 0 76px}
+            .rd-x button{border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
+            .rd-x button:hover{background:var(--bg)}
+            .rd-note{color:var(--link);font-size:12px}
             .snip{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .date{color:var(--muted);font-size:12px;white-space:nowrap}
             .acts{display:none;gap:4px;margin-left:8px}
@@ -231,6 +253,13 @@ public static class HtmlRenderer
             .hm button:hover,.hm button:focus{background:var(--bg);outline:none}
             .hm button .hm-id{color:var(--muted);font-size:11px;margin-left:12px}
             .hm .hm-sep{height:1px;background:var(--line);margin:4px 0}
+            .hm .hm-top.nb{border-bottom:0;margin-bottom:0;padding-bottom:8px}
+            .hm .hm-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0 14px 6px}
+            .hm .hm-tile{background:var(--bg);border-radius:6px;padding:5px 2px;text-align:center;overflow:hidden}
+            .hm .hm-tile b{display:block;font-size:15px;line-height:19px}
+            .hm .hm-tile span{display:block;font-size:11.5px;line-height:15px;color:var(--muted);white-space:nowrap}
+            .hm .hm-foot{color:var(--muted);font-size:12px;padding:0 14px 9px;border-bottom:1px solid var(--line);margin-bottom:4px}
+            .hm button .hm-id{font-variant-numeric:tabular-nums}
             .hm .hm-note{border-top:1px solid var(--line);margin-top:4px;padding:7px 14px 3px;color:var(--teal);font-size:12px}
             .hm .hm-note[hidden]{display:none}
             .dd{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9px;font-size:11.5px;font-weight:600;white-space:nowrap;vertical-align:1px}
@@ -266,10 +295,18 @@ public static class HtmlRenderer
               var ic=hmText(top,'hm-ic'+(o.file?' file':''),o.badge||'');
               var tx=document.createElement('div'); tx.className='hm-tx'; hmText(tx,'hm-t',o.title||''); hmText(tx,'hm-s',o.sub||''); top.appendChild(tx);
               c.appendChild(top);
+              // Design PE1: how many emails there are with this address, and when the last one was.
+              if(o.tiles&&o.tiles.length){
+                var g=document.createElement('div'); g.className='hm-tiles';
+                o.tiles.forEach(function(t){ var d=document.createElement('div'); d.className='hm-tile'; var n=document.createElement('b'); n.textContent=t.n; var l=document.createElement('span'); l.textContent=t.l; d.appendChild(n); d.appendChild(l); g.appendChild(d); });
+                c.appendChild(g);
+              }
+              if(o.foot){ top.classList.add('nb'); hmText(c,'hm-foot',o.foot); }
               (o.items||[]).forEach(function(it){
                 if(it.sep){ hmText(c,'hm-sep',''); return; }
                 var b=document.createElement('button'); b.type='button'; b.setAttribute('role','menuitem');
                 var l=document.createElement('span'); l.textContent=it.label; b.appendChild(l);
+                if(it.count!=null&&it.count!==''){ var k=document.createElement('span'); k.className='hm-id'; k.textContent=it.count; b.appendChild(k); }
                 b.onclick=function(ev){ ev.stopPropagation(); post({t:'hmdo',id:it.id,c:HM.ctx}); };
                 c.appendChild(b);
               });
@@ -280,6 +317,22 @@ public static class HtmlRenderer
               if(y+h>window.innerHeight-8&&r.top-h-4>8) y=r.top-h-4;
               c.style.left=(x+window.scrollX)+'px'; c.style.top=(y+window.scrollY)+'px';
               if(HM.kbd){ var f=c.querySelector('button'); if(f) f.focus(); }
+            }
+            // Design RC1: the Details card under an email's header — every To / Cc / Bcc address.
+            function rdToggle(ev,id){
+              if(ev) ev.stopPropagation();
+              var c=document.getElementById('rd'+id), m=document.getElementById('m'+id); if(!c||!m) return;
+              var open=c.hidden; c.hidden=!open;
+              var b=m.querySelector('.to-b'); if(b) b.setAttribute('aria-expanded',open?'true':'false');
+              if(!open) rdNote(id,'');
+            }
+            function rdNote(id,t){ var n=document.getElementById('rdn'+id); if(n) n.textContent=t; }
+            function rdCopy(id){
+              var c=document.getElementById('rd'+id); if(!c) return;
+              var t=c.dataset.all||'', ok=false, said='Copied '+c.dataset.n+' address'+(c.dataset.n==='1'?'':'es');
+              try{ var a=document.createElement('textarea'); a.value=t; a.style.position='fixed'; a.style.opacity='0'; document.body.appendChild(a); a.select(); ok=document.execCommand('copy'); a.remove(); }catch(e){}
+              if(ok) rdNote(id,said);
+              post({t:'rdcopy',id:id,text:t,said:said});
             }
             function hmNote(t){ var n=document.getElementById('hm-note'); if(!n) return; n.textContent=t; n.hidden=!t; }
             document.addEventListener('mouseover',function(ev){
@@ -329,9 +382,6 @@ public static class HtmlRenderer
             sb.Append("<div class=\"who\">");
             var fromAttrs = $"class=\"hm-a\" tabindex=\"0\" data-a=\"{Esc(row.FromAddress)}\" data-n=\"{Esc(row.FromName)}\" data-m=\"{row.Id}\"";
             sb.Append($"<div><span {fromAttrs}><span class=\"name\">{Esc(m.IsMine ? "Me" : row.Sender)}</span><span class=\"addr\">{Esc(row.FromAddress)}</span></span></div>");
-            sb.Append("<div class=\"to\">to ").Append(People(row.To, row.Id));
-            if (!string.IsNullOrEmpty(row.Cc)) sb.Append(" · cc ").Append(People(row.Cc, row.Id));
-            sb.Append("</div>");
             sb.Append($"<div class=\"snip\">{Esc(row.Preview)}</div>");
             sb.Append("</div>");
             sb.Append($"<div class=\"date\">{Esc(FriendlyDate(row.Date, now))}");
@@ -346,7 +396,15 @@ public static class HtmlRenderer
             sb.Append($"<button onclick=\"post({{t:'replyall',id:{row.Id}}})\">Reply all</button>");
             sb.Append($"<button onclick=\"post({{t:'forward',id:{row.Id}}})\">Forward</button>");
             sb.Append($"<button onclick=\"post({{t:'security',id:{row.Id}}})\" title=\"Verify signatures or decrypt in an isolated reader\">Security…</button>");
+            sb.Append("</div>");
+            // Design RC1: the recipients get the header's whole width on a row of their own; the names may shorten in a
+            // narrow pane, the counts and the Details button never do.
+            var (names, counts) = RecipientParts(row, addressTips);
+            sb.Append("<div class=\"to\"><span class=\"to-t\">").Append(names).Append("</span>");
+            if (counts.Length > 0) sb.Append("<span class=\"to-c\">").Append(counts).Append("</span>");
+            sb.Append($"<button type=\"button\" class=\"to-b\" aria-expanded=\"false\" aria-controls=\"rd{row.Id}\" title=\"Every To, Cc and Bcc address, the full date and where this email is kept\" onclick=\"rdToggle(event,{row.Id})\">Details</button>");
             sb.Append("</div></div>");
+            sb.Append(DetailsCard(m, addressTips));
             sb.Append("<div class=\"body\">");
             if (m.DeliveryReceipt is { } receipt)
                 sb.Append($"<div class=\"delivery-receipt\" role=\"note\">{Esc(receipt.Detail)}</div>");
@@ -369,15 +427,99 @@ public static class HtmlRenderer
     }
 
     /// <summary>Design HM1: each person of a To / Cc line as its own hover target ("Anita Rao, sandeep@x.in").</summary>
-    internal static string People(string list, long rowId)
+    internal static string People(string list, long rowId, bool addressTips = true)
     {
-        var parts = new List<string>();
-        foreach (var mb in Composer.ParseAddresses(list).Mailboxes)
-        {
-            var label = string.IsNullOrWhiteSpace(mb.Name) ? mb.Address : mb.Name;
-            parts.Add($"<span class=\"hm-a\" tabindex=\"0\" data-a=\"{Esc(mb.Address)}\" data-n=\"{Esc(mb.Name)}\" data-m=\"{rowId}\" title=\"{Esc(mb.Address)}\">{Esc(label)}</span>");
-        }
+        var parts = Composer.ParseAddresses(list).Mailboxes.Select(mb => Person(mb.Name, mb.Address, rowId, addressTips)).ToList();
         return parts.Count > 0 ? string.Join(", ", parts) : Esc(list);
+    }
+
+    private static string Person(string? name, string address, long rowId, bool addressTips, bool withAddress = false)
+    {
+        var label = string.IsNullOrWhiteSpace(name) ? address : name.Trim();
+        var tip = addressTips && !withAddress ? $" title=\"{Esc(address)}\"" : "";
+        var shown = Esc(label) + (withAddress && !label.Equals(address, StringComparison.OrdinalIgnoreCase) ? $" <span class=\"rd-a\">{Esc(address)}</span>" : "");
+        return $"<span class=\"hm-a\" tabindex=\"0\" data-a=\"{Esc(address)}\" data-n=\"{Esc(name ?? "")}\" data-m=\"{rowId}\"{tip}>{shown}</span>";
+    }
+
+    /// <summary>How many recipient names the line under the sender shows before it counts the rest (design RC1).</summary>
+    internal const int RecipientNames = 3;
+
+    /// <summary>
+    /// Design RC1: the line under the sender never cuts a name in half — the first names in full, then "+5 more",
+    /// "cc 4", "bcc 1"; the Details button next to it lists everyone.
+    /// </summary>
+    internal static string RecipientLine(MessageRow row, bool addressTips = true)
+    {
+        var (names, counts) = RecipientParts(row, addressTips);
+        return names + counts;
+    }
+
+    /// <summary>The same line in two pieces: the names (may shorten in a narrow pane) and the counts (never cut).</summary>
+    internal static (string Names, string Counts) RecipientParts(MessageRow row, bool addressTips = true)
+    {
+        var to = Composer.ParseAddresses(row.To).Mailboxes.ToList();
+        var cc = Composer.ParseAddresses(row.Cc).Mailboxes.ToList();
+        var bcc = Composer.ParseAddresses(row.Bcc).Mailboxes.ToList();
+        var names = new List<string>();
+        var counts = new System.Text.StringBuilder();
+        var room = RecipientNames;
+        string Names(List<MimeKit.MailboxAddress> list, int take) => string.Join(", ", list.Take(take).Select(mb => Person(mb.Name, mb.Address, row.Id, addressTips)));
+        if (to.Count > 0)
+        {
+            var take = Math.Min(room, to.Count);
+            room -= take;
+            names.Add("to " + Names(to, take));
+            if (to.Count > take) counts.Append($", <span class=\"to-n\">+{to.Count - take} more</span>");
+        }
+        else if (!string.IsNullOrWhiteSpace(row.To)) names.Add("to " + Esc(row.To));
+        foreach (var (word, list) in new[] { ("cc", cc), ("bcc", bcc) })
+        {
+            if (list.Count == 0) continue;
+            // Once something is counted, everything after it is counted too: names never follow a number.
+            if (list.Count <= room && counts.Length == 0) { room -= list.Count; names.Add(word + " " + Names(list, list.Count)); }
+            else { room = 0; counts.Append($" · {word} <span class=\"to-n\">{list.Count}</span>"); }
+        }
+        if (names.Count == 0 && counts.Length == 0) return ("no recipients listed", "");
+        var left = string.Join(" · ", names);
+        var right = counts.ToString();
+        // Nothing named at all (only counts): the counts start the line.
+        return left.Length == 0 ? (right.TrimStart(' ', '·', ',').TrimStart(), "") : (left, right);
+    }
+
+    /// <summary>
+    /// Design RC1 (option B): the card the Details button opens — From, every To / Cc / Bcc address on its own line,
+    /// the full date, the subject and where the email is kept. Each address is a hover target like in the header.
+    /// </summary>
+    internal static string DetailsCard(RenderMessage m, bool addressTips = true)
+    {
+        var row = m.Row;
+        var to = Composer.ParseAddresses(row.To).Mailboxes.ToList();
+        var cc = Composer.ParseAddresses(row.Cc).Mailboxes.ToList();
+        var bcc = Composer.ParseAddresses(row.Bcc).Mailboxes.ToList();
+        var replyTo = Composer.ParseAddresses(row.ReplyTo).Mailboxes.Where(mb => !mb.Address.Equals(row.FromAddress, StringComparison.OrdinalIgnoreCase)).ToList();
+        var all = to.Concat(cc).Concat(bcc).Select(mb => mb.Address).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var sb = new StringBuilder();
+        sb.Append($"<div class=\"rd\" id=\"rd{row.Id}\" hidden data-n=\"{all.Count}\" data-all=\"{Esc(string.Join(", ", all))}\" onclick=\"event.stopPropagation()\">");
+        // Labels are Magpie's own words ("To · 8"); the values are escaped by the callers.
+        void Line(string label, string html) => sb.Append($"<div class=\"rd-r\"><div class=\"rd-l\">{label}</div><div class=\"rd-v\">{html}</div></div>");
+        void People(string label, List<MimeKit.MailboxAddress> list)
+        {
+            if (list.Count > 0) Line($"{label} · {list.Count}", string.Concat(list.Select(mb => "<div>" + Person(mb.Name, mb.Address, row.Id, addressTips, withAddress: true) + "</div>")));
+        }
+        Line("From", row.FromAddress.Length > 0 ? Person(row.FromName, row.FromAddress, row.Id, addressTips, withAddress: true) : Esc(row.Sender));
+        People("To", to);
+        People("Cc", cc);
+        People("Bcc", bcc);
+        if (replyTo.Count > 0) Line("Reply to", string.Concat(replyTo.Select(mb => "<div>" + Person(mb.Name, mb.Address, row.Id, addressTips, withAddress: true) + "</div>")));
+        Line("Date", Esc(row.Date.ToLocalTime().ToString("dddd, d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)));
+        Line("Subject", Esc(string.IsNullOrWhiteSpace(row.Subject) ? "(no subject)" : row.Subject));
+        if (!string.IsNullOrWhiteSpace(m.KeptIn)) Line("Kept in", Esc(m.KeptIn));
+        sb.Append("<div class=\"rd-x\">");
+        if (all.Count > 0)
+            sb.Append($"<button type=\"button\" onclick=\"rdCopy({row.Id})\">{Esc(all.Count == 1 ? "Copy the address" : $"Copy all {all.Count} addresses")}</button>");
+        sb.Append($"<button type=\"button\" onclick=\"rdToggle(event,{row.Id})\">Close</button>");
+        sb.Append($"<span class=\"rd-note\" id=\"rdn{row.Id}\" role=\"status\"></span></div></div>");
+        return sb.ToString();
     }
 
     /// <summary>Plain page for empty/error states.</summary>

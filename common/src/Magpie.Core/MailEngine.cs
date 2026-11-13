@@ -389,6 +389,43 @@ public sealed class MailEngine : IDisposable
     public List<long> AllMailFolderIds(string? accountId = null) =>
         Store.GetFolders(accountId).Where(f => f.Synced && f.Role is not (FolderRole.Trash or FolderRole.Junk)).Select(f => f.Id).ToList();
 
+    // ───────────────────────── emails with one address (design PE1) ─────────────────────────
+
+    /// <summary>The numbers on the address card and the list's filters; <see cref="MyAddresses"/> decide "you sent".</summary>
+    public PersonStats PersonStats(string address, bool includeBin = false) => Store.GetPersonStats(address, MyAddresses, includeBin);
+
+    /// <summary>One row per email with this address, newest first.</summary>
+    public List<PersonEmail> PersonEmails(string address, PersonKind kind, bool includeBin = false, int limit = 400) =>
+        Store.ListPersonEmails(address, kind, MyAddresses, includeBin, limit);
+
+    /// <summary>The folders the same list looks in when it is shown as conversations.</summary>
+    public List<long> PersonFolderIds(bool includeBin = false) =>
+        Store.GetFolders().Where(f => f.Synced && f.Role != FolderRole.Drafts && (includeBin || f.Role is not (FolderRole.Trash or FolderRole.Junk))).Select(f => f.Id).ToList();
+
+    private IEnumerable<AccountSync> SyncsThatCanAsk() => _syncs.Where(p => Accounts.Any(a => a.Id == p.Key && a.Enabled)
+        && p.Value.Status.State is not (SyncState.Offline or SyncState.NeedsSignIn or SyncState.Error)).Select(p => p.Value);
+
+    /// <summary>An account that is online still has older emails to list, so a search on this PC may miss some.</summary>
+    public bool OlderEmailsLeft => SyncsThatCanAsk().Any(s => s.OlderEmailsLeft);
+
+    /// <summary>
+    /// "Search the server too": asks every such account for the emails with this address and lists the ones missing
+    /// here. Returns how many were added and, when an account could not be asked, why.
+    /// </summary>
+    public async Task<(int Added, string Problem)> FindAddressOnServerAsync(string address)
+    {
+        var asks = SyncsThatCanAsk().Where(s => s.OlderEmailsLeft).Select(s => (Sync: s, Task: s.FindAddressOnServerAsync(address))).ToList();
+        var added = 0;
+        var problems = new List<string>();
+        foreach (var (sync, task) in asks)
+        {
+            try { added += await task; }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { problems.Add($"{sync.Account.Email}: {ex.Message}"); }
+        }
+        return (added, string.Join(" ", problems));
+    }
+
     // ───────────────────────── local-first actions ─────────────────────────
 
     private void Queue(MessageRow m, PendingOpKind kind, long arg = 0) =>

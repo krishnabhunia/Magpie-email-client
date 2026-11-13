@@ -58,6 +58,7 @@ public sealed class ReaderPresenter
                     key = page.Key, fingerprint = page.Fingerprint, body = cached ? "" : page.Body, style = cached ? "" : page.Style,
                     bytes = page.Bytes, context = page.Context, retain = page.Retain, version, reuse = cached,
                     read = page.ReadStates,
+                    focus = page.Focus,
                     hoverDelay = Math.Clamp(AppServices.Engine.Config.Appearance.FolderHover.DelayMs, 50, 1000),
                 });
                 var result = await _core.ExecuteScriptAsync("magpiePresent(" + Payload(reuse) + ")");

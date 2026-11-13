@@ -528,7 +528,7 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <DockPanel Grid.Row="0" Margin="16,14,12,8">
+                    <DockPanel Grid.Row="0" Margin="16,14,12,8" Visibility="{Binding IsNotPersonView, Converter={StaticResource BoolToVis}}">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <ToggleButton Style="{StaticResource Button.Chip}" IsChecked="{Binding UnreadOnly, Mode=TwoWay}" Content="Unread" FontSize="12" MinHeight="28" Padding="10,3" ToolTip="Show unread conversations only" />
                         </StackPanel>
@@ -540,12 +540,37 @@
                              PreviewKeyDown="OnSearchKey"  ty:Typography.Role="search" />
 
                     <StackPanel Grid.Row="2">
+                    <!-- Design PE1: every email with one address — Back, who, Each email / Conversations, four filters -->
+                    <StackPanel Margin="16,0,14,8" Visibility="{Binding IsPersonView, Converter={StaticResource BoolToVis}}">
+                        <Button Style="{StaticResource Button.Link}" HorizontalAlignment="Left" Padding="0" MinHeight="22" FontWeight="SemiBold"
+                                Content="{Binding PersonBackText}" Command="{Binding PersonBackCommand}" ToolTip="Go back to where you were" />
+                        <TextBlock Text="{Binding PersonTitle}" FontFamily="{StaticResource Font.Serif}" FontWeight="SemiBold" FontSize="17" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" ty:Typography.Role="folder" />
+                        <TextBlock Text="{Binding PersonSubTitle}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0" />
+                        <ItemsControl ItemsSource="{Binding PersonFilters}" Margin="0,8,0,0" Focusable="False">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:PersonFilterItem}">
+                                    <RadioButton Style="{StaticResource Button.Tab}" GroupName="PersonKind" IsChecked="{Binding IsSelected, Mode=OneWay}" Content="{Binding Label}" ToolTip="{Binding Tip}"
+                                                 Command="{Binding DataContext.SetPersonKindCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Show" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <RadioButton Style="{StaticResource Button.Tab}" GroupName="PersonRows" IsChecked="{Binding PersonEachEmail, Mode=OneWay}" Content="Each email"
+                                         Command="{Binding SetPersonRowsCommand}" CommandParameter="each" ToolTip="One row for every email" />
+                            <RadioButton Style="{StaticResource Button.Tab}" GroupName="PersonRows" IsChecked="{Binding PersonConversations, Mode=OneWay}" Content="Conversations"
+                                         Command="{Binding SetPersonRowsCommand}" CommandParameter="conversations" ToolTip="One row for every conversation, with tick boxes and row buttons as usual" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Visibility="{Binding IsNotPersonView, Converter={StaticResource BoolToVis}}">
                     <WrapPanel Margin="14,0,14,6">
                         <Button Style="{StaticResource Button.Secondary}" Content="Attachments" Tag="has:attachment" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add an attachment filter to this local search" />
                         <Button Style="{StaticResource Button.Secondary}" Content="Pinned" Tag="is:pinned" Click="OnSearchFilter" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Add a pinned filter to this local search" />
                         <Button Style="{StaticResource Button.Secondary}" Content="Save view…" Click="OnSaveSearch" FontSize="11" MinHeight="24" Padding="8,2" Margin="0,0,5,4" ToolTip="Save an inbox view or search on this PC" />
                     </WrapPanel>
                     <TextBlock Text="Search on this PC · bodies become searchable as they download" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="16,0,14,8" />
+                    </StackPanel>
                     <!-- Gatekeeper (design B7): new senders wait at the door -->
                     <Border Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="8" Margin="14,0,14,8" Padding="12,7"
                             Visibility="{Binding ShowGateBanner, Converter={StaticResource BoolToVis}}">
@@ -597,10 +622,11 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <!-- Design SL1: the box above the list ticks all / none; Select ▾ ticks by filter -->
-                            <DockPanel Grid.Row="0" Margin="16,6,14,6" Visibility="{Binding IsScheduledView, Converter={StaticResource InvBoolToVis}}">
+                            <DockPanel Grid.Row="0" Margin="16,6,14,6" Visibility="{Binding ShowListTools, Converter={StaticResource BoolToVis}}">
                                 <CheckBox x:Name="HeaderCheck" IsThreeState="False" IsChecked="{Binding HeaderTick, Mode=OneWay}" Click="OnHeaderCheck" VerticalAlignment="Center"
                                           ToolTip="Select all on screen / none (Ctrl+A, Esc)" AutomationProperties.Name="Select all" Margin="0,0,10,0" />
                                 <Button Style="{StaticResource Button.Ghost}" Content="Select ▾" FontSize="12" MinHeight="26" Padding="8,2" Click="OnSelectMenu" VerticalAlignment="Center"
@@ -656,10 +682,10 @@
                                         <!-- Design SL1 (F0): a tick box on every row, always there; Shift+click ticks a range -->
                                         <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsChecked, Mode=OneWay}" VerticalAlignment="Top" Margin="0,10,9,0" Focusable="False"
                                                   PreviewMouseLeftButtonDown="OnRowCheck" AutomationProperties.Name="Select this conversation"
-                                                  Visibility="{Binding IsLocalDraft, Converter={StaticResource InvBoolToVis}}" />
+                                                  Visibility="{Binding CanTick, Converter={StaticResource BoolToVis}}" />
                                         <!-- Avatar: click it to tick the conversation for a bulk action (design H3) -->
                                         <Grid DockPanel.Dock="Left" Width="34" Height="34" VerticalAlignment="Top" Margin="0,2,11,0" Background="Transparent" Cursor="Hand"
-                                              PreviewMouseLeftButtonDown="OnAvatarClick" ToolTip="Select for a bulk action">
+                                              PreviewMouseLeftButtonDown="OnAvatarClick" ToolTip="{Binding AvatarTip}">
                                             <Border CornerRadius="17" Background="{Binding AvatarBrush}" Visibility="{Binding IsChecked, Converter={StaticResource InvBoolToVis}}">
                                                 <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"  ty:Typography.Role="listBadges" />
                                             </Border>
@@ -870,6 +896,24 @@
                             <TextBlock Text="{Binding EmptyText}" Foreground="{DynamicResource Brush.Text.Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                        TextWrapping="Wrap" TextAlignment="Center" Margin="30" MaxWidth="280" IsHitTestVisible="False"
                                        Visibility="{Binding EmptyText, Converter={StaticResource BoolToVis}}"  ty:Typography.Role="listBadges" />
+
+                            <!-- Design PE1: under the person list — how many, Trash and Spam, and the server for emails not on this PC yet -->
+                            <Border Grid.Row="4" BorderBrush="{DynamicResource Brush.Divider}" BorderThickness="0,1,0,0" Background="{DynamicResource Brush.Window.Background}" Padding="16,7,14,7"
+                                    Visibility="{Binding IsPersonView, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="{Binding PersonBinButton}" Padding="6,0" MinHeight="22"
+                                                Command="{Binding TogglePersonBinCommand}" ToolTip="Emails in Trash and Spam" />
+                                        <TextBlock Text="{Binding PersonFootText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,3,0,0" Visibility="{Binding PersonShowServer, Converter={StaticResource BoolToVis}}">
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Search the server too" FontWeight="SemiBold" Padding="6,0" MinHeight="22"
+                                                Command="{Binding PersonSearchServerCommand}" Visibility="{Binding PersonCanAskServer, Converter={StaticResource BoolToVis}}"
+                                                ToolTip="Ask the mail server for emails with this address that are not on this PC yet" />
+                                        <TextBlock Text="{Binding PersonServerText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
                         </Grid>
                     </Border>
 

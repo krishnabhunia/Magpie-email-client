@@ -1,9 +1,17 @@
 using System.Globalization;
+using Magpie.Core.Storage;
 
 namespace Magpie.Core.Mail;
 
-/// <summary>One line of a hover card (design HM1): its id (E1…E11, S1…S9, A1…A9) and the words shown.</summary>
-public sealed record HoverOption(string Id, string Label);
+/// <summary>
+/// One line of a hover card (design HM1): its id (E1…E12, S1…S9, A1…A9) and the words shown. <paramref name="Count"/>
+/// is the number at the line's right edge (design PE1); the id "-" is a dividing line.
+/// </summary>
+public sealed record HoverOption(string Id, string Label, string? Count = null)
+{
+    public static readonly HoverOption Separator = new("-", "");
+    public bool IsSeparator => Id == "-";
+}
 
 /// <summary>
 /// Design HM1: what the small card offers when the mouse rests on an email address, the subject or an attachment in
@@ -14,19 +22,34 @@ public static class HoverMenus
     /// <summary>
     /// Email address card. For your own address only E1–E5. E6 "Add to contacts" (or "Show in Contacts" when saved) needs a Google account;
     /// E7 only when a Google calendar can be written to; E8 only while that sender's pictures still need asking.
+    /// Design PE1: for another person the three "emails with" lines come first — E5 all, E4 from, E12 you sent to —
+    /// each with its number when <paramref name="stats"/> is known.
     /// </summary>
-    public static IReadOnlyList<HoverOption> ForAddress(string name, string address, bool isMe, bool hasCalendar, bool picturesTrusted, bool hasContacts = false, bool savedContact = false)
+    public static IReadOnlyList<HoverOption> ForAddress(string name, string address, bool isMe, bool hasCalendar, bool picturesTrusted, bool hasContacts = false, bool savedContact = false,
+        PersonStats? stats = null)
     {
         var who = FirstName(name, address);
+        if (isMe)
+            return new List<HoverOption>
+            {
+                new("E1", "Copy address"),
+                new("E2", "Copy name and address"),
+                new("E3", "Write a new email"),
+                new("E4", "Emails you sent"),
+                new("E5", "All emails with you"),
+            };
+        string? N(int? n) => n?.ToString("N0", CultureInfo.InvariantCulture);
         var list = new List<HoverOption>
         {
+            new("E5", $"All emails with {who}", N(stats?.All)),
+            new("E4", $"Emails from {who}", N(stats?.From)),
+            new("E12", $"Emails you sent to {who}", N(stats?.YouSent)),
+            HoverOption.Separator,
             new("E1", "Copy address"),
             new("E2", "Copy name and address"),
             new("E3", "Write a new email"),
-            new("E4", isMe ? "Emails you sent" : $"Emails from {who}"),
-            new("E5", isMe ? "All emails with you" : $"All emails with {who}"),
+            HoverOption.Separator,
         };
-        if (isMe) return list;
         if (hasContacts) list.Add(new("E6", savedContact ? "Show in Contacts" : "Add to contacts"));
         if (hasCalendar) list.Add(new("E7", $"New event with {who}"));
         if (!picturesTrusted) list.Add(new("E8", $"Always show pictures from {who}"));
@@ -34,6 +57,17 @@ public static class HoverMenus
         list.Add(new("E10", $"Delete emails from {who}…"));
         list.Add(new("E11", "Block (send to Spam)"));
         return list;
+    }
+
+    /// <summary>Design PE1: which emails an "emails with" line of the address card lists (E5 all, E4 from, E12 you sent).</summary>
+    public static PersonKind PersonKindOf(string id) => id switch { "E4" => PersonKind.From, "E12" => PersonKind.YouSent, _ => PersonKind.All };
+
+    /// <summary>Design PE1: the four number tiles of the address card; none while nothing is known.</summary>
+    public static IReadOnlyList<(string Number, string Label)> Tiles(PersonStats? stats)
+    {
+        if (stats == null || stats.All == 0) return Array.Empty<(string, string)>();
+        string N(int n) => n.ToString("N0", CultureInfo.InvariantCulture);
+        return new[] { (N(stats.All), "all"), (N(stats.From), "received"), (N(stats.YouSent), "you sent"), (N(stats.CopiedIn), "copied in") };
     }
 
     /// <summary>Subject card. S7 only with a writable Google calendar; S9 only when AI summaries are switched on.</summary>
