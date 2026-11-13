@@ -135,6 +135,24 @@ public sealed class Release1900Tests
         Assert.Equal($"\"Rajesh Mehta\" <{Rajesh}>, my.records@example.com", AccountSync.BccLine(env));
     }
 
+    [Fact]
+    public void An_email_the_server_refused_to_return_keeps_its_bcc_unread()
+    {
+        // 10 came back with a Bcc, 11 without one, 12 is gone from the server, 13 was refused (IMAP NO).
+        var returned = new Dictionary<long, string> { [10] = Rajesh, [11] = "" };
+        var lines = AccountSync.BccLines(new long[] { 10, 11, 12, 13 }, returned, new HashSet<long> { 13 });
+        Assert.Equal(new[] { (10L, Rajesh), (11L, ""), (12L, "") }, lines);
+
+        using var dir = new TempDir();
+        var (store, _, sent) = Rows.NewStore(dir);
+        var refused = Row(sent, "a", Me, "anita@x.in");
+        var gone = Row(sent, "b", Me, "anita@x.in");
+        store.InsertMessages(new[] { refused, gone });
+        Sql(dir, "UPDATE messages SET bcc_list=NULL");
+        store.SetBcc(sent, AccountSync.BccLines(new[] { refused.Uid, gone.Uid }, new Dictionary<long, string>(), new HashSet<long> { refused.Uid }));
+        Assert.Equal(new[] { refused.Uid }, store.BccUnread(sent, sentFolder: true, Me, 10));   // asked again at the next start
+    }
+
     // ───────────────────────── RC1 B: the line under the sender and the Details card ─────────────────────────
 
     private static MessageRow Thirteen()
@@ -382,5 +400,29 @@ public sealed class Release1900Tests
         Assert.Equal(new long[] { 1, 10, 11 }, AccountSync.AddressSearchFolders(gmail, Remaining).Select(f => f.Id));
         // Everything listed: nothing to ask.
         Assert.Empty(AccountSync.AddressSearchFolders(new[] { F(2, FolderRole.Sent) }, Remaining));
+    }
+
+    [Fact]
+    public void A_folder_the_server_would_not_search_is_reported_not_called_nothing_more()
+    {
+        Assert.Equal("", AccountSync.SearchProblem(Array.Empty<(string, string)>()));
+        Assert.Equal("Inbox could not be searched (SEARCH not allowed now)", AccountSync.SearchProblem(new[] { ("Inbox", "SEARCH not allowed now") }));
+        Assert.Equal("4 folders could not be searched (Inbox, Sent, Flat, …: busy)",
+            AccountSync.SearchProblem(new[] { ("Inbox", "busy"), ("Sent", "busy"), ("Flat", "busy"), ("Old", "other") }));
+        // Under the list: never "Nothing more on the server" when part of the search failed.
+        var line = PersonView.ServerResult(0, "me@x.in: Inbox could not be searched (busy).");
+        Assert.Equal("Could not ask me@x.in: Inbox could not be searched (busy).", line);
+        Assert.StartsWith("2 more emails found on the server. Could not ask ", PersonView.ServerResult(2, "me@x.in: Inbox could not be searched (busy)."));
+    }
+
+    [Fact]
+    public void A_page_built_again_shows_the_opened_email_again_but_a_page_shown_again_stays_put()
+    {
+        var shell = ReaderShell.Build(false);
+        Assert.Contains("page.focused!==p.focus", shell);
+        Assert.Contains("page.focused=p.focus", shell);
+        var page = new ReaderPage("k", "f", "<html><head><style></style></head><body><div id=\"m7\"></div></body></html>", 0, Focus: 7);
+        Assert.Contains("\"focus\":7", ReaderShell.PresentScript(page, 1, false, 600));
+        Assert.Contains("\"focus\":0", ReaderShell.PresentScript(page with { Focus = 0 }, 2, true, 600));
     }
 }

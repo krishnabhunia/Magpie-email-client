@@ -419,7 +419,12 @@ public sealed class MailEngine : IDisposable
         var problems = new List<string>();
         foreach (var (sync, task) in asks)
         {
-            try { added += await task; }
+            try
+            {
+                var (found, problem) = await task;
+                added += found;
+                if (problem.Length > 0) problems.Add($"{sync.Account.Email}: {problem}.");
+            }
             catch (OperationCanceledException) { }
             catch (Exception ex) { problems.Add($"{sync.Account.Email}: {ex.Message}"); }
         }

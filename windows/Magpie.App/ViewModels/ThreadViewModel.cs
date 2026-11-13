@@ -111,17 +111,19 @@ public partial class ThreadViewModel : ObservableObject
         _ = LoadAsync(_cts.Token, markRead: false);
     }
 
-    /// <summary>Design PE1: the email a list of single emails opened this conversation at; shown once, then forgotten.</summary>
+    /// <summary>
+    /// Design PE1: the email a list of single emails opened this conversation at. Kept until another conversation (or
+    /// row) is opened, so the page built again once the email's text has downloaded still shows that email; the page
+    /// itself moves to it only once per build (<see cref="ReaderShell"/>), never while the same page is shown again.
+    /// </summary>
     private long _focusRowId;
     private string _focusMessageId = "";
 
     /// <summary>The conversation's own copy of that email (the list may hold its copy from another folder); 0 = none.</summary>
-    private long TakeFocus(List<MessageRow> rows)
+    private long FocusIn(List<MessageRow> rows)
     {
         if (_focusRowId == 0 && _focusMessageId.Length == 0) return 0;
         var hit = rows.FirstOrDefault(r => r.Id == _focusRowId) ?? rows.FirstOrDefault(r => _focusMessageId.Length > 0 && r.MessageId == _focusMessageId);
-        _focusRowId = 0;
-        _focusMessageId = "";
         return hit?.Id ?? 0;
     }
 
@@ -348,7 +350,7 @@ public partial class ThreadViewModel : ObservableObject
         }
         ct.ThrowIfCancellationRequested();
         BlockedImages = allow ? 0 : page.BlockedImages;
-        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen), Focus = TakeFocus(rows) });
+        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen), Focus = FocusIn(rows) });
     }
 
     /// <summary>

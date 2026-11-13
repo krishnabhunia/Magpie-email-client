@@ -682,6 +682,15 @@ public sealed class AccountSync : IDisposable
     private int _bccBudget;
     /// <summary>Folders with no Bcc left to read (or whose server refused): not looked at again this session.</summary>
     private readonly HashSet<long> _bccDone = new();
+    /// <summary>Emails whose envelope the server refused to return: left unread, asked again next session, not every check.</summary>
+    private readonly HashSet<(long folder, long uid)> _bccRefused = new();
+
+    /// <summary>
+    /// What one batch of envelopes says about Bcc: the line of every email the server returned, "" for one it no
+    /// longer has, and nothing for one it refused to return (<paramref name="refused"/>) — that one stays unread.
+    /// </summary>
+    internal static List<(long uid, string bcc)> BccLines(IEnumerable<long> asked, IReadOnlyDictionary<long, string> returned, ISet<long> refused) =>
+        asked.Where(u => returned.ContainsKey(u) || !refused.Contains(u)).Select(u => (u, returned.GetValueOrDefault(u, ""))).ToList();
 
     /// <summary>The Bcc line as stored ("Name &lt;addr&gt;, addr2"); empty when there is none.</summary>
     internal static string BccLine(Envelope? env) => env == null ? "" : string.Join(", ", env.Bcc.Mailboxes.Select(m => m.ToString()));
@@ -693,7 +702,8 @@ public sealed class AccountSync : IDisposable
     private async Task<int> BackfillBccAsync(IMailFolder f, MailFolder local, CancellationToken ct)
     {
         if (_bccBudget <= 0 || local.Role is FolderRole.Trash or FolderRole.Junk || _bccDone.Contains(local.Id)) return 0;
-        var uids = _store.BccUnread(local.Id, local.Role == FolderRole.Sent, Account.Email, _bccBudget);
+        var refusedHere = _bccRefused.Where(r => r.folder == local.Id).Select(r => r.uid).ToHashSet();
+        var uids = _store.BccUnread(local.Id, local.Role == FolderRole.Sent, Account.Email, _bccBudget + refusedHere.Count).Where(u => !refusedHere.Contains(u)).ToList();
         if (uids.Count == 0) { _bccDone.Add(local.Id); return 0; }
         _bccBudget -= uids.Count;
         var found = 0;
@@ -703,11 +713,15 @@ public sealed class AccountSync : IDisposable
             try
             {
                 var ids = batch.Select(u => new UniqueId(f.UidValidity, (uint)u)).ToList();
-                var summaries = await FetchTolerantAsync(f, ids, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope), ct);
+                var leftOut = new List<UniqueId>();
+                var summaries = await FetchTolerantAsync(f, ids, new FetchRequest(MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope), ct, leftOut);
                 var lines = new Dictionary<long, string>();
                 foreach (var summary in summaries) lines[summary.UniqueId.Id] = BccLine(summary.Envelope);
-                // An email the server no longer returns is marked read too, so it isn't asked for at every check.
-                found += _store.SetBcc(local.Id, batch.Select(u => (u, lines.GetValueOrDefault(u, ""))));
+                // A refused email (IMAP NO) says nothing about its Bcc: it stays unread and is asked again next session.
+                var refused = leftOut.Select(u => (long)u.Id).ToHashSet();
+                foreach (var u in refused) _bccRefused.Add((local.Id, u));
+                // An email the server no longer has is marked read, so it isn't asked for at every check.
+                found += _store.SetBcc(local.Id, BccLines(batch, lines, refused));
             }
             catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
             {
@@ -723,7 +737,7 @@ public sealed class AccountSync : IDisposable
 
     /// <summary>Emails listed per folder by one "Search the server too".</summary>
     internal const int AddressSearchLimit = 3000;
-    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Address, TaskCompletionSource<int> Done)> _addressAsks = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Address, TaskCompletionSource<(int Added, string Problem)> Done)> _addressAsks = new();
 
     /// <summary>Some folder may still hold emails that are not listed on this PC.</summary>
     public bool OlderEmailsLeft => !_initialDone || Backlog > 0;
@@ -731,12 +745,13 @@ public sealed class AccountSync : IDisposable
     /// <summary>
     /// Design PE1 "Search the server too": lists the emails with this address (sender, To, Cc or Bcc) that are on the
     /// server but not on this PC yet, in the folders still getting older emails. Runs on the sync connection at its
-    /// next turn; the task ends with how many emails were added, or with the reason it could not ask.
+    /// next turn; the task ends with how many emails were added and which folders could not be searched ("" = all
+    /// were), or with the reason the server could not be asked at all.
     /// </summary>
-    public Task<int> FindAddressOnServerAsync(string address)
+    public Task<(int Added, string Problem)> FindAddressOnServerAsync(string address)
     {
-        var done = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (string.IsNullOrWhiteSpace(address) || !address.Contains('@') || _cts == null || _cts.IsCancellationRequested) { done.SetResult(0); return done.Task; }
+        var done = new TaskCompletionSource<(int Added, string Problem)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (string.IsNullOrWhiteSpace(address) || !address.Contains('@') || _cts == null || _cts.IsCancellationRequested) { done.SetResult((0, "")); return done.Task; }
         _addressAsks.Enqueue((address.Trim(), done));
         _wake.Release();
         return done.Task;
@@ -769,9 +784,18 @@ public sealed class AccountSync : IDisposable
         return open.Any(f => f.Role == FolderRole.All) ? open.Where(f => f.Role is FolderRole.All or FolderRole.Sent or FolderRole.Inbox).ToList() : open;
     }
 
-    private async Task<int> FindAddressAsync(string address, CancellationToken ct)
+    /// <summary>The folders one address search could not look in, for the line under the list; "" when it looked in all.</summary>
+    internal static string SearchProblem(IReadOnlyList<(string Folder, string Why)> failed) => failed.Count switch
+    {
+        0 => "",
+        1 => $"{failed[0].Folder} could not be searched ({failed[0].Why})",
+        _ => $"{failed.Count} folders could not be searched ({string.Join(", ", failed.Take(3).Select(f => f.Folder))}{(failed.Count > 3 ? ", …" : "")}: {failed[0].Why})",
+    };
+
+    private async Task<(int Added, string Problem)> FindAddressAsync(string address, CancellationToken ct)
     {
         var added = 0;
+        var failed = new List<(string Folder, string Why)>();
         var changes = new ChangeSet { AccountId = Account.Id };
         await _sync.UseAsync(async client =>
         {
@@ -814,12 +838,15 @@ public sealed class AccountSync : IDisposable
                 catch (FolderNotFoundException) { }
                 catch (Exception ex) when (!ImapLease.IsConnectionError(ex) && ex is not OperationCanceledException)
                 {
+                    // The search is incomplete: say so under the list instead of "Nothing more on the server".
                     Log.Warn($"[{Account.Email}] {local.Path}: address search skipped: {ex.Message}");
+                    failed.Add((local.Name.Length > 0 ? local.Name : local.Path, ex.Message.TrimEnd('.')));
+                    if (changes.FolderIds.Add(local.Id)) _store.RefreshFolderCounts(local.Id);   // emails listed before it failed
                 }
             }
         }, ct);
         if (changes.FolderIds.Count > 0) Changed?.Invoke(changes);
-        return added;
+        return (added, SearchProblem(failed));
     }
 
     /// <summary>

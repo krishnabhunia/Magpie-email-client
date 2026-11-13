@@ -29,7 +29,7 @@ public partial class MainViewModel
     private string _personName = "";
     /// <summary>True while this code changes the view or the search box itself (those changes must not end the list).</summary>
     private bool _personSetting;
-    private (string? NavKey, string Search, string? Selected, string Label) _personBack;
+    private (string? NavKey, string Search, string? Selected, string Label, bool Calendar, bool Contacts) _personBack;
     /// <summary>Goes up when a person list opens or ends: a server search that comes back later is for another list.</summary>
     private int _personSession;
     private int _personStatsGen;
@@ -81,7 +81,7 @@ public partial class MainViewModel
         address = (address ?? "").Trim();
         if (!address.Contains('@')) return;
         if (!IsPersonView)
-            _personBack = (Current?.Key, SearchText, Selected?.SelectKey, IsCalendarView ? "Calendar" : IsContactsView ? "Contacts" : Current?.Label ?? "Inbox");
+            _personBack = (Current?.Key, SearchText, Selected?.SelectKey, IsCalendarView ? "Calendar" : IsContactsView ? "Contacts" : Current?.Label ?? "Inbox", IsCalendarView, IsContactsView);
         _personAddress = address;
         _personName = (name ?? "").Trim().Trim('"');
         PersonKind = kind;
@@ -141,6 +141,9 @@ public partial class MainViewModel
         }
         finally { _personSetting = false; }
         if (back.Selected != null && Threads.FirstOrDefault(t => t.SelectKey == back.Selected) is { } again) Selected = again;
+        // The list was opened from a conversation's own window while the main window showed Calendar or Contacts.
+        if (back.Calendar) IsCalendarView = true;
+        else if (back.Contacts) IsContactsView = true;
     }
 
     [RelayCommand]
