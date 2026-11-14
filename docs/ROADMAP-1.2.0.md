@@ -80,6 +80,7 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 95 | Short test-version names `x.y.z-betaNNN` reserved in CI, and an Info window (This build · What's implemented · What's new · Under the hood) on Windows and Mac, with `docs/FEATURES.md` | BT1 A · BT2 · IN1 (canvas "Short beta tags + Info panel — Magpie · Evict · Remindly") | Approved 5 Nov 2026 · Short test names already shipped on main (14.2.0, PR #141); the Info window is built for 18.0.0 and replaces the separate What's New button (one ⓘ, Krishna 9 Nov 2026) — Windows and Mac UI not yet run by anyone (cloud session) | [#138](https://github.com/krishnabhunia/Magpie-email-client/issues/138) |
 | 96 | Reader: see every To, Cc and Bcc address of an email (Bcc kept for sent emails) | RC1 · [screens](https://claude.ai/artifact/RwNgody6QKpE8g59GD4N5i) | Reported with a screenshot + designs shown + approved 13 Nov 2026 — **B** (Details card) · Built in 19.0.0 (Windows; the card is in the shared reading page, so Mac too) — not yet tried on Windows or a Mac | [#153](https://github.com/krishnabhunia/Magpie-email-client/issues/153) |
 | 97 | Every email with one address, received and sent: counts on the address card, "Emails you sent to", a list with one row per email, Search the server too | PE1 · [screens](https://claude.ai/artifact/RwNgody6QKpE8g59GD4N5i) | Reported with a screenshot + designs shown + approved 13 Nov 2026 · Built in 19.0.0 (Windows) — not yet tried on Windows; Mac later | [#154](https://github.com/krishnabhunia/Magpie-email-client/issues/154) |
+| 98 | Reader: copy one address, one group (To, Cc, Bcc), or all addresses one per line under To / CC / BCC | CP1 · [screens](https://claude.ai/artifact/Kz5uwANMYaejcZsZa9uWwt) | Asked 14 Nov 2026 + designs A (copy buttons) / B (plus tick boxes) shown + approved 14 Nov 2026 — **A** · Built in 19.0.0 with #96 (the card is in the shared reading page, so Mac too) — not yet tried on Windows or a Mac | [#156](https://github.com/krishnabhunia/Magpie-email-client/issues/156) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
 
@@ -105,6 +106,21 @@ What the code did before: the To line was one row cut with "…" and Cc ran on i
 Tests: `common/tests/Magpie.Core.Tests/Release1900Tests.cs` (16) and the end-to-end `IntegrationTests.Bcc_is_kept_and_one_address_is_found_on_the_server` (Dovecot, cloud session). Not verified: anything on a real Windows PC or a Mac (cloud session, no screen) — the look of the card and list, the copy button, the scroll to the opened email, Gmail's answer to the address search.
 Rendered from the real reading page in Chrome (cloud session): [Details card](designs/RC1-B-details-card.png) · [address card](designs/PE1-address-card.png) — light and dark, 760 px and 430 px wide, no script errors; the copy button, the Details toggle and the card's numbers worked there.
 Left for later: Kept in and the person list on Mac; per-email actions (archive / delete one email of a conversation) in the Each email list.
+
+### #98 CP1 A — Copy one address, one group, or all (shown and approved 14 Nov 2026: **A**)
+
+Krishna: *"I can copy multiple email ids individually, and copy group of To, CC and BCC … when I copy all and paste in a notepad windows, email id must paste in next line one by one, with marking To, CC and BCC"* → designs A (copy buttons) / B (A plus tick boxes and "Copy picked") → *"Approved CP1A design"*.
+
+| # | Behaviour | Where |
+|---|---|---|
+| 1 | Every address row of the Details card (From, To, Cc, Bcc, Reply to) ends in a copy button: only the address, never the name | `HtmlRenderer.DetailsCard` (`rd-c`) |
+| 2 | To / Cc / Bcc with 2 or more addresses have **Copy To** / **Copy Cc** / **Copy Bcc** under the label: that group, one address per line, no heading (with one address the row button does the same) | `rd-g`, `AddressCopy.Group` |
+| 3 | **Copy all N addresses** (from 2 addresses): `To` / `CC` / `BCC` headings, one address per line, an empty line between groups; a group without addresses and From / Reply to are left out; an address twice in one group is copied once | `rd-all`, `AddressCopy.All` |
+| 4 | Each button carries its text (`data-t`, lines as `&#10;`) and its words (`data-s`); the page copies and tells the host (`rdcopy`); Windows puts the text on the clipboard itself with CR LF line ends so Notepad shows one address per line | page script `rdCopy(ev,id,b)`, `ReaderHover.CopyAddresses`, `AddressCopy.ForClipboard` |
+| 5 | After a copy the button shows a tick (group button: "Copied") for 2 seconds and the card says "Copied anita@…" / "Copied 4 Cc addresses" / "Copied 13 addresses"; a refused clipboard says "Could not copy. Try again." | page script `rdSaid(id,t,ok)` |
+
+Tests: 5 more in `Release1900Tests.cs` (21 in all). Rendered from the real reading page in Chrome (cloud session), every button pressed and the clipboard read back, light and dark, 760 px and 430 px: [copy buttons](designs/CP1-A-copy-buttons.png). Not verified: the paste into Windows Notepad itself and anything on a Mac.
+Not built (option B, not chosen): tick boxes to pick a few addresses and copy only those.
 
 ## #89 SP1 — Start-up screen (shown 3 Nov 2026, approved 3 Nov 2026: B)
 

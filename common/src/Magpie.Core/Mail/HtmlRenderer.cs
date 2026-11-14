@@ -212,13 +212,27 @@ public static class HtmlRenderer
             .to-b[aria-expanded="true"]::after{transform:rotate(225deg);margin-top:3px}
             .rd{margin:0 0 12px 44px;max-width:620px;box-sizing:border-box;padding:12px 14px 10px;background:var(--page);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);font-size:12.5px;line-height:20px;cursor:default}
             .rd[hidden],.msg:not(.open) .rd{display:none}
-            .rd-r{display:flex;gap:12px;margin-bottom:6px}
-            .rd-l{flex:0 0 64px;font-weight:600;color:var(--muted)}
-            .rd-v{flex:1;min-width:0;color:var(--ink);overflow-wrap:anywhere}
+            .rd-r{display:flex;gap:12px;margin-bottom:4px}
+            .rd-l{flex:0 0 84px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-weight:600;color:var(--muted)}
+            .rd-l>div{line-height:24px}
+            .rd-v{flex:1;min-width:0;color:var(--ink);overflow-wrap:anywhere;line-height:24px}
             .rd-a{color:var(--muted)}
-            .rd-x{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:2px 0 0 76px}
-            .rd-x button{border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
+            .rd-p{display:flex;align-items:flex-start;gap:6px;margin-left:-6px;padding-left:6px;border-radius:5px}
+            .rd-p:hover{background:var(--bg)}
+            .rd-pt{flex:1;min-width:0;padding:3px 0;line-height:18px}
+            .rd-c{flex:0 0 24px;width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;background:transparent;border-radius:5px;color:var(--muted);cursor:pointer}
+            .rd-p:hover .rd-c,.rd-c:hover,.rd-c:focus-visible{border-color:var(--border);background:var(--btn);color:var(--ink)}
+            .rd-g{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;font-weight:400;line-height:16px;padding:1px 6px;color:var(--ink);cursor:pointer;white-space:nowrap}
+            .rd-g:hover{background:var(--bg)}
+            .rd svg{flex:0 0 auto}
+            .rd .i-k,.rd .w-k{display:none}
+            .rd .ok .i-c,.rd .ok .w-c{display:none}
+            .rd .ok .i-k,.rd .ok .w-k{display:inline}
+            .rd button.ok,.rd-p:hover .rd-c.ok{color:var(--link);border-color:var(--link)}
+            .rd-x{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0 0 96px}
+            .rd-x button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
             .rd-x button:hover{background:var(--bg)}
+            @media (max-width:520px){ .rd-l{flex-basis:72px} .rd-x{padding-left:84px} }
             .rd-note{color:var(--link);font-size:12px}
             .snip{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .date{color:var(--muted);font-size:12px;white-space:nowrap}
@@ -327,12 +341,25 @@ public static class HtmlRenderer
               if(!open) rdNote(id,'');
             }
             function rdNote(id,t){ var n=document.getElementById('rdn'+id); if(n) n.textContent=t; }
-            function rdCopy(id){
-              var c=document.getElementById('rd'+id); if(!c) return;
-              var t=c.dataset.all||'', ok=false, said='Copied '+c.dataset.n+' address'+(c.dataset.n==='1'?'':'es');
+            // Design CP1: every copy button of the card (one address, one group, all) carries its own text and words.
+            var RD={last:null};
+            function rdCopy(ev,id,b){
+              if(ev) ev.stopPropagation();
+              if(!b) return;
+              var t=(b.dataset.t||'').replace(/\r?\n/g,'\r\n'), said=b.dataset.s||'Copied', ok=false;
+              RD.last=b;
               try{ var a=document.createElement('textarea'); a.value=t; a.style.position='fixed'; a.style.opacity='0'; document.body.appendChild(a); a.select(); ok=document.execCommand('copy'); a.remove(); }catch(e){}
-              if(ok) rdNote(id,said);
+              try{ b.focus(); }catch(e){}
+              if(ok) rdSaid(id,said,true);
               post({t:'rdcopy',id:id,text:t,said:said});
+            }
+            // Also called by the Windows app once it has put the text on the clipboard itself (or could not).
+            function rdSaid(id,t,ok){
+              rdNote(id,t);
+              var b=RD.last; if(!b||!b.closest||b.closest('.rd')!==document.getElementById('rd'+id)) return;
+              clearTimeout(b._rd);
+              if(ok){ b.classList.add('ok'); b._rd=setTimeout(function(){ b.classList.remove('ok'); },2000); }
+              else b.classList.remove('ok');
             }
             function hmNote(t){ var n=document.getElementById('hm-note'); if(!n) return; n.textContent=t; n.hidden=!t; }
             document.addEventListener('mouseover',function(ev){
@@ -497,30 +524,52 @@ public static class HtmlRenderer
         var cc = Composer.ParseAddresses(row.Cc).Mailboxes.ToList();
         var bcc = Composer.ParseAddresses(row.Bcc).Mailboxes.ToList();
         var replyTo = Composer.ParseAddresses(row.ReplyTo).Mailboxes.Where(mb => !mb.Address.Equals(row.FromAddress, StringComparison.OrdinalIgnoreCase)).ToList();
-        var all = to.Concat(cc).Concat(bcc).Select(mb => mb.Address).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var toList = AddressCopy.Addresses(to);
+        var ccList = AddressCopy.Addresses(cc);
+        var bccList = AddressCopy.Addresses(bcc);
+        var total = toList.Count + ccList.Count + bccList.Count;
         var sb = new StringBuilder();
-        sb.Append($"<div class=\"rd\" id=\"rd{row.Id}\" hidden data-n=\"{all.Count}\" data-all=\"{Esc(string.Join(", ", all))}\" onclick=\"event.stopPropagation()\">");
+        sb.Append($"<div class=\"rd\" id=\"rd{row.Id}\" hidden data-n=\"{total}\" onclick=\"event.stopPropagation()\">");
+        // Design CP1 (option A): a copy button carries its text (data-t, lines as &#10;) and what it says after (data-s).
+        string Copy(string css, string text, string said, string label, string words = "") =>
+            $"<button type=\"button\" class=\"{css}\" data-t=\"{Esc(text).Replace("\n", "&#10;")}\" data-s=\"{Esc(said)}\"" +
+            (words.Length == 0 ? $" title=\"{Esc(label)}\" aria-label=\"{Esc(label)}\"" : $" title=\"{Esc(label)}\"") +
+            $" onclick=\"rdCopy(event,{row.Id},this)\">{CopyIcons}{words}</button>";
+        string One(string? name, string address) =>
+            "<div class=\"rd-p\"><span class=\"rd-pt\">" + Person(name, address, row.Id, addressTips, withAddress: true) + "</span>" +
+            (string.IsNullOrWhiteSpace(address) ? "" : Copy("rd-c", address.Trim(), AddressCopy.SaidOne(address.Trim()), "Copy " + address.Trim())) + "</div>";
         // Labels are Magpie's own words ("To · 8"); the values are escaped by the callers.
-        void Line(string label, string html) => sb.Append($"<div class=\"rd-r\"><div class=\"rd-l\">{label}</div><div class=\"rd-v\">{html}</div></div>");
-        void People(string label, List<MimeKit.MailboxAddress> list)
+        void Line(string label, string html, string under = "") => sb.Append($"<div class=\"rd-r\"><div class=\"rd-l\"><div>{label}</div>{under}</div><div class=\"rd-v\">{html}</div></div>");
+        void People(string label, List<MimeKit.MailboxAddress> list, List<string> addresses)
         {
-            if (list.Count > 0) Line($"{label} · {list.Count}", string.Concat(list.Select(mb => "<div>" + Person(mb.Name, mb.Address, row.Id, addressTips, withAddress: true) + "</div>")));
+            if (list.Count == 0) return;
+            // With one address the row's own button already copies the group.
+            var group = addresses.Count < 2 ? "" : Copy("rd-g", AddressCopy.Group(addresses), AddressCopy.SaidGroup(label, addresses.Count),
+                $"Copy the {addresses.Count} {label} addresses, one per line", $"<span class=\"w-c\">Copy {label}</span><span class=\"w-k\">Copied</span>");
+            Line($"{label} · {list.Count}", string.Concat(list.Select(mb => One(mb.Name, mb.Address))), group);
         }
-        Line("From", row.FromAddress.Length > 0 ? Person(row.FromName, row.FromAddress, row.Id, addressTips, withAddress: true) : Esc(row.Sender));
-        People("To", to);
-        People("Cc", cc);
-        People("Bcc", bcc);
-        if (replyTo.Count > 0) Line("Reply to", string.Concat(replyTo.Select(mb => "<div>" + Person(mb.Name, mb.Address, row.Id, addressTips, withAddress: true) + "</div>")));
+        Line("From", row.FromAddress.Length > 0 ? One(row.FromName, row.FromAddress) : Esc(row.Sender));
+        People("To", to, toList);
+        People("Cc", cc, ccList);
+        People("Bcc", bcc, bccList);
+        if (replyTo.Count > 0) Line("Reply to", string.Concat(replyTo.Select(mb => One(mb.Name, mb.Address))));
         Line("Date", Esc(row.Date.ToLocalTime().ToString("dddd, d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)));
         Line("Subject", Esc(string.IsNullOrWhiteSpace(row.Subject) ? "(no subject)" : row.Subject));
         if (!string.IsNullOrWhiteSpace(m.KeptIn)) Line("Kept in", Esc(m.KeptIn));
         sb.Append("<div class=\"rd-x\">");
-        if (all.Count > 0)
-            sb.Append($"<button type=\"button\" onclick=\"rdCopy({row.Id})\">{Esc(all.Count == 1 ? "Copy the address" : $"Copy all {all.Count} addresses")}</button>");
+        // One address has its own button in its row; "all" starts at two.
+        if (total > 1)
+            sb.Append(Copy("rd-all", AddressCopy.All(toList, ccList, bccList), AddressCopy.SaidAll(total),
+                "Copy every address, one per line, under the headings To, CC and BCC", $"<span>Copy all {total} addresses</span>"));
         sb.Append($"<button type=\"button\" onclick=\"rdToggle(event,{row.Id})\">Close</button>");
         sb.Append($"<span class=\"rd-note\" id=\"rdn{row.Id}\" role=\"status\"></span></div></div>");
         return sb.ToString();
     }
+
+    /// <summary>The two pictures of a copy button: the copy sign, and the tick it turns into for two seconds.</summary>
+    private const string CopyIcons =
+        "<svg class=\"i-c\" aria-hidden=\"true\" width=\"13\" height=\"13\" viewBox=\"0 0 14 14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4.5\" y=\"4.5\" width=\"8\" height=\"8\" rx=\"1.5\"></rect><path d=\"M9.5 4.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2\"></path></svg>" +
+        "<svg class=\"i-k\" aria-hidden=\"true\" width=\"13\" height=\"13\" viewBox=\"0 0 14 14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 7.5 5.5 10.5 11.5 3.5\"></path></svg>";
 
     /// <summary>Plain page for empty/error states.</summary>
     /// <summary>

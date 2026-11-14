@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- Shown in Settings → About ("Released on dd-MMM-yyyy"); set with each release -->
-    <ReleaseDate>2026-11-13</ReleaseDate>
+    <ReleaseDate>2026-11-14</ReleaseDate>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleaseDate" Value="$(ReleaseDate)" />

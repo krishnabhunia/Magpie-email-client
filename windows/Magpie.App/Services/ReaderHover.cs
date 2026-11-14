@@ -339,13 +339,14 @@ public sealed class ReaderHover
         if (text.Length == 0) return;
         try
         {
-            System.Windows.Clipboard.SetText(text);
-            _ = Run($"rdNote({rowId},{JsonSerializer.Serialize(said)})");
+            // Design CP1: Windows line ends, so Notepad shows one address per line.
+            System.Windows.Clipboard.SetText(AddressCopy.ForClipboard(text));
+            _ = Run($"rdSaid({rowId},{JsonSerializer.Serialize(said)},true)");
         }
         catch (Exception ex)
         {
             Log.Warn("copy addresses: " + ex.Message);
-            _ = Run($"rdNote({rowId},{JsonSerializer.Serialize("Could not copy. Try again.")})");
+            _ = Run($"rdSaid({rowId},{JsonSerializer.Serialize(AddressCopy.Failed)},false)");
         }
     }
 

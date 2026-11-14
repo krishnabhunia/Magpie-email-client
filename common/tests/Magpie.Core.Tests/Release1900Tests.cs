@@ -204,20 +204,119 @@ public sealed class Release1900Tests
         Assert.Contains("Friday, 13 November 2026", card);
         Assert.Contains(System.Net.WebUtility.HtmlEncode("Handover schedule — follow-up"), card);
         Assert.Contains(System.Net.WebUtility.HtmlEncode("Sent · me@test.local"), card);
-        Assert.Contains(">Copy all 13 addresses</button>", card);
-        Assert.Contains("data-all=\"secretarial@buildwell.example, rajesh@buildwell.example, ", card);
-        Assert.Contains("my.records@example.com\"", card);
+        Assert.Contains("<span>Copy all 13 addresses</span></button>", card);
 
-        // No folder known (Magpie for Mac) and no Bcc: those rows are left out; one address reads "Copy the address".
+        // No folder known (Magpie for Mac) and no Bcc: those rows are left out.
         var plain = HtmlRenderer.DetailsCard(new RenderMessage { Row = Row(1, "t", Rajesh, Me) });
         Assert.DoesNotContain("Kept in", plain);
         Assert.DoesNotContain(">Bcc", plain);
         Assert.DoesNotContain(">Cc", plain);
-        Assert.Contains(">Copy the address</button>", plain);
+        // One address: its own row button copies it, so there is no "Copy all".
+        Assert.DoesNotContain("Copy all", plain);
+        Assert.Contains("class=\"rd-c\" data-t=\"me@test.local\"", plain);
         // A different reply address is shown; the sender's own is not repeated.
         var reply = Row(1, "t", Rajesh, Me);
         reply.ReplyTo = $"{Rajesh}, Help Desk <help@buildwell.example>";
         Assert.Contains("Help Desk <span class=\"rd-a\">help@buildwell.example</span>", HtmlRenderer.DetailsCard(new RenderMessage { Row = reply }));
+    }
+
+    // ───────────────────────── CP1 A: copy one address, one group, or all ─────────────────────────
+
+    /// <summary>The text a copy button carries, as the page reads it back (data-t, lines written as &amp;#10;).</summary>
+    private static string CopyText(string card, string cssClass, int nth = 0)
+    {
+        var marker = $"class=\"{cssClass}\" data-t=\"";
+        var at = -1;
+        for (int i = 0; i <= nth; i++) { at = card.IndexOf(marker, at + 1, StringComparison.Ordinal); Assert.True(at >= 0, $"no {cssClass} button #{nth}"); }
+        var start = at + marker.Length;
+        return System.Net.WebUtility.HtmlDecode(card[start..card.IndexOf('"', start)]);
+    }
+
+    [Fact]
+    public void Copy_all_pastes_one_address_per_line_under_To_CC_and_BCC()
+    {
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = Thirteen(), KeptIn = "Sent · me@test.local" });
+        var expected = string.Join("\n",
+            "To",
+            "secretarial@buildwell.example", "rajesh@buildwell.example", "anita@buildwell.example", "sandeep@buildwell.example",
+            "farah@buildwell.example", "customer.care@buildwell.example", "gaurav@buildwell.example", "priya@buildwell.example",
+            "",
+            "CC",
+            "legal@buildwell.example", "meera@buildwell.example", "vikram@buildwell.example", "crm.pune@buildwell.example",
+            "",
+            "BCC",
+            "my.records@example.com");
+        Assert.Equal(expected, CopyText(card, "rd-all"));
+        Assert.Contains("data-s=\"Copied 13 addresses\"", card);
+        // On Windows every line end becomes CR LF, so Notepad shows one address per line.
+        var pasted = AddressCopy.ForClipboard(expected);
+        Assert.Equal(18, pasted.Split("\r\n").Length);
+        Assert.StartsWith("To\r\nsecretarial@buildwell.example\r\n", pasted);
+        Assert.Contains("priya@buildwell.example\r\n\r\nCC\r\nlegal@buildwell.example", pasted);
+        Assert.EndsWith("\r\n\r\nBCC\r\nmy.records@example.com", pasted);
+        Assert.DoesNotContain("\n", pasted.Replace("\r\n", ""));
+        Assert.Equal("a\r\nb\r\nc\r\nd", AddressCopy.ForClipboard("a\nb\r\nc\rd"));   // never doubled
+        Assert.Equal("", AddressCopy.ForClipboard(null));
+    }
+
+    [Fact]
+    public void Copy_all_leaves_out_a_group_without_addresses_and_From()
+    {
+        // To and Bcc only: no CC heading, and the sender is not in the text.
+        var row = Row(3, "t", Me, $"{Rajesh}, anita@buildwell.example");
+        row.Bcc = "my.records@example.com";
+        var text = CopyText(HtmlRenderer.DetailsCard(new RenderMessage { Row = row }), "rd-all");
+        Assert.Equal("To\nrajesh@buildwell.example\nanita@buildwell.example\n\nBCC\nmy.records@example.com", text);
+        Assert.DoesNotContain("me@test.local", text);
+        Assert.Equal("CC\nc@x.in", AddressCopy.All(Array.Empty<string>(), new[] { "c@x.in" }, Array.Empty<string>()));
+        Assert.Equal("", AddressCopy.All(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void Every_address_has_its_own_copy_button()
+    {
+        var row = Thirteen();
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = row });
+        // From + 8 To + 4 Cc + 1 Bcc.
+        Assert.Equal(14, card.Split("class=\"rd-c\"").Length - 1);
+        Assert.Equal(row.FromAddress, CopyText(card, "rd-c"));
+        Assert.Equal("secretarial@buildwell.example", CopyText(card, "rd-c", 1));
+        Assert.Equal("my.records@example.com", CopyText(card, "rd-c", 13));
+        Assert.Contains("data-s=\"Copied anita@buildwell.example\" title=\"Copy anita@buildwell.example\" aria-label=\"Copy anita@buildwell.example\" onclick=\"rdCopy(event,7,this)\"", card);
+        // Only the address is copied, never the name.
+        Assert.DoesNotContain("data-t=\"Anita", card);
+        // A different reply address can be copied too.
+        var reply = Row(1, "t", Rajesh, Me);
+        reply.ReplyTo = "Help Desk <help@buildwell.example>";
+        Assert.Contains("class=\"rd-c\" data-t=\"help@buildwell.example\"", HtmlRenderer.DetailsCard(new RenderMessage { Row = reply }));
+    }
+
+    [Fact]
+    public void A_group_with_two_or_more_addresses_has_a_Copy_button_without_a_heading()
+    {
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = Thirteen() });
+        // To (8) and Cc (4) have one; Bcc (1) does not — its row button does the same.
+        Assert.Equal(2, card.Split("class=\"rd-g\"").Length - 1);
+        Assert.Contains("<span class=\"w-c\">Copy To</span><span class=\"w-k\">Copied</span>", card);
+        Assert.Contains("<span class=\"w-c\">Copy Cc</span>", card);
+        Assert.DoesNotContain("Copy Bcc", card);
+        Assert.Equal("legal@buildwell.example\nmeera@buildwell.example\nvikram@buildwell.example\ncrm.pune@buildwell.example", CopyText(card, "rd-g", 1));
+        Assert.Equal(8, CopyText(card, "rd-g").Split('\n').Length);
+        Assert.Contains("data-s=\"Copied 4 Cc addresses\"", card);
+        Assert.Contains("data-s=\"Copied 8 To addresses\"", card);
+        // Lines are written as &#10; so nothing between Magpie and the page can fold them.
+        Assert.Contains("legal@buildwell.example&#10;meera@buildwell.example", card);
+        Assert.Equal("Copied 1 Bcc address", AddressCopy.SaidGroup("Bcc", 1));
+    }
+
+    [Fact]
+    public void The_same_address_twice_in_a_group_is_copied_once()
+    {
+        var row = Row(4, "t", Me, "a@x.in, A@X.IN, b@x.in", cc: "a@x.in, c@x.in");
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = row });
+        // In To once; it stays in CC, because it was sent there as well.
+        Assert.Equal("To\na@x.in\nb@x.in\n\nCC\na@x.in\nc@x.in", CopyText(card, "rd-all"));
+        Assert.Contains("<span>Copy all 4 addresses</span>", card);
     }
 
     [Fact]
@@ -229,7 +328,8 @@ public sealed class Release1900Tests
         Assert.Contains("class=\"to-b\" aria-expanded=\"false\" aria-controls=\"rd7\"", windows);
         Assert.Contains("onclick=\"rdToggle(event,7)\">Details</button>", windows);
         Assert.Contains("function rdToggle(", windows);
-        Assert.Contains("function rdCopy(", windows);
+        Assert.Contains("function rdCopy(ev,id,b)", windows);
+        Assert.Contains("function rdSaid(id,t,ok)", windows);
         Assert.Contains("id=\"rd7\" hidden", windows);
         Assert.DoesNotContain("title=\"rajesh@buildwell.example\"", windows);   // the browser's tooltip covered the card
         Assert.Contains("title=\"rajesh@buildwell.example\"", HtmlRenderer.BuildConversation("Handover schedule", list, false, now).Html);
