@@ -197,7 +197,9 @@ public partial class MainViewModel
             if (session == _personSession) _personServerResult = "Could not search the server: " + ex.Message;
         }
         finally { _personAsking = false; }
-        if (session == _personSession && IsPersonView) ReloadList();
+        // The result belongs to the list that asked; the list on screen now (maybe another person's) still has to
+        // stop saying "Searching the server…" and get its button back.
+        if (IsPersonView) ReloadList();
     }
 
     /// <summary>The same emails as conversations (Conversations switch, Select all N, the count above the list).</summary>

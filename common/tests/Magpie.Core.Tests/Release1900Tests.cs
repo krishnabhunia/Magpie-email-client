@@ -444,6 +444,35 @@ public sealed class Release1900Tests
     }
 
     [Fact]
+    public async Task The_header_lines_of_a_message_file_include_its_Content_lines()
+    {
+        // A loaded MimeMessage keeps Content-Type and Content-Transfer-Encoding on its body, not in its header list;
+        // the Headers window must show them whether the lines come from the file on this PC or from the server.
+        var m = new MimeKit.MimeMessage();
+        m.From.Add(MimeKit.MailboxAddress.Parse(Rajesh));
+        m.To.Add(MimeKit.MailboxAddress.Parse(Me));
+        m.Subject = "Handover schedule";
+        m.Headers.Add("X-Site", "Pune");
+        m.Body = new MimeKit.TextPart("plain") { Text = "Namaste — the schedule is attached.", ContentTransferEncoding = MimeKit.ContentEncoding.QuotedPrintable };
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "one.eml");
+        await m.WriteToAsync(path);
+
+        var lines = await HeaderView.ReadFileAsync(path, CancellationToken.None);
+        var names = lines.Select(l => l.Name).ToList();
+        Assert.Contains("Content-Type", names);
+        Assert.Contains("Content-Transfer-Encoding", names);
+        Assert.StartsWith("text/plain", lines.Single(l => l.Name == "Content-Type").Value);
+        Assert.Equal("Pune", lines.Single(l => l.Name == "X-Site").Value);
+        Assert.Equal("Handover schedule", lines.Single(l => l.Name == "Subject").Value);
+        // Exactly the file's header block, in its order: nothing from the text below the empty line.
+        var block = (await File.ReadAllTextAsync(path)).Replace("\r\n", "\n").Split("\n\n")[0];
+        var written = block.Split('\n').Where(l => l.Length > 0 && !char.IsWhiteSpace(l[0])).Select(l => l[..l.IndexOf(':')]).ToList();
+        Assert.Equal(written, names);
+        Assert.DoesNotContain(lines, l => l.Value.Contains("Namaste"));
+    }
+
+    [Fact]
     public void The_find_box_looks_in_names_and_values_in_any_letter_case()
     {
         var lines = SampleHeaders();

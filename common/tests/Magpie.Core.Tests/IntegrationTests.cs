@@ -803,6 +803,7 @@ public class IntegrationTests
             Assert.NotNull(lines);
             Assert.Contains(lines!, l => l.Name == "Subject" && l.Value == "Site visit");
             Assert.Contains(lines!, l => l.Name == "X-Site" && l.Value == "Pune");
+            Assert.Contains(lines!, l => l.Name == "Content-Type");   // also from the file on this PC
             Assert.Contains(lines!, l => l.Name.Equals("Message-ID", StringComparison.OrdinalIgnoreCase) && l.Value.Contains("site-visit-1@buildwell.test"));
             Assert.Equal(new[] { "SPF passed", "DKIM failed" }, HeaderView.Checks(lines!).Select(c => c.Label));
             Assert.Equal("<site-visit-1@buildwell.test>", EmailReference.EmailId(row.MessageId));

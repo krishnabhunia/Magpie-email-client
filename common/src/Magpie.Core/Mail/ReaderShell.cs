@@ -84,7 +84,9 @@ public static class ReaderShell
           requestAnimationFrame(function(){
             if(READER.active!==page) return;
             page.node.querySelectorAll('iframe').forEach(size);
-            if(focus&&focus.previousElementSibling) focus.scrollIntoView({block:'start'});
+            // The first email starts at the very top (with the subject above it), also when this page was left
+            // scrolled further down; any other email is brought to the top of the pane.
+            if(focus){ if(focus.previousElementSibling) focus.scrollIntoView({block:'start'}); else window.scrollTo(0,0); }
           });
           while(READER.pages.size>8 || READER.bytes>32*1024*1024){
             var oldest=READER.pages.keys().next().value;

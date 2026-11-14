@@ -37,6 +37,16 @@ public static partial class HeaderView
     public static List<HeaderLine> Lines(IEnumerable<Header> headers) =>
         headers.Select(h => new HeaderLine(h.Field, OneLine(h.Value))).Where(l => l.Name.Length > 0).ToList();
 
+    /// <summary>
+    /// The header block of a message file, complete and in its own order. Read straight from the file: a loaded
+    /// <see cref="MimeMessage"/> keeps the Content-* lines on its body, so its own header list would miss them.
+    /// </summary>
+    public static async Task<List<HeaderLine>> ReadFileAsync(string path, CancellationToken ct)
+    {
+        await using var stream = File.OpenRead(path);
+        return Lines(await new MimeParser(stream, MimeFormat.Entity).ParseHeadersAsync(ct));
+    }
+
     private static string OneLine(string? value) => Spaces().Replace(value ?? "", " ").Trim();
 
     /// <summary>"Name: value", one header per line (joined with "\n"; <see cref="AddressCopy.ForClipboard"/> for Windows).</summary>

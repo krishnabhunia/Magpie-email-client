@@ -1334,7 +1334,13 @@ public sealed class AccountSync : IDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
         ct = linked.Token;
         ct.ThrowIfCancellationRequested();
-        if (await LocalMimeAsync(row, ct) is { } local) return HeaderView.Lines(local.Headers);
+        var path = MimePathFor?.Invoke(Account.Id, row.Id);
+        if (path != null && File.Exists(path))
+        {
+            // The file's own header block, so the Content-* lines are there as they are from the server.
+            try { var local = await HeaderView.ReadFileAsync(path, ct); if (local.Count > 0) return local; }
+            catch (Exception ex) when (ex is not OperationCanceledException) { Log.Warn("cached message headers unreadable: " + ex.Message); }
+        }
         var folder = _store.GetFolder(row.FolderId);
         if (folder == null) return null;
         return await _ui.UseAsync(async client =>
