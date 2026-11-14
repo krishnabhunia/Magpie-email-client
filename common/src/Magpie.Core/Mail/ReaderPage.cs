@@ -8,7 +8,7 @@ namespace Magpie.Core.Mail;
 
 /// <summary>A prepared page. The reader shell keeps its scripts and reuses connected, rendered DOM trees.</summary>
 public sealed record ReaderPage(string Key, string Fingerprint, string Html, int BlockedImages,
-    string Context = "", bool Retain = true, IReadOnlyDictionary<long, bool>? ReadStates = null, long Focus = 0)
+    string Context = "", bool Retain = true, IReadOnlyDictionary<long, bool>? ReadStates = null, long Focus = 0, long FocusToken = 0)
 {
     public long Bytes => 2L * Html.Length;
     public string Style => Between(Html, "<style>", "</style>");

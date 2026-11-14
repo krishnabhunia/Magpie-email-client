@@ -26,6 +26,7 @@ public static class ReaderShell
             bytes = page.Bytes, context = page.Context, retain = page.Retain, version, reuse,
             read = page.ReadStates,
             focus = page.Focus,
+            focusToken = page.FocusToken,
             hoverDelay = Math.Clamp(hoverDelayMs, 50, 1000),
         }) + ")";
 
@@ -77,10 +78,12 @@ public static class ReaderShell
           page.node.hidden=false;
           window.scrollTo(0,page.y);
           // Design PE1: opened from a list of single emails, the conversation shows that email, opened.
-          // Once per built page: a page shown again keeps where the reader left it; one built again (the email's text
-          // arrived) shows that email again.
-          var focus=(p.focus&&page.focused!==p.focus)?page.node.querySelector('[id="m'+p.focus+'"]'):null;
-          if(focus){ page.focused=p.focus; focus.classList.add('open'); }
+          // Once per built page and per selection: a page shown again for the same selection (a background refresh)
+          // keeps where the reader left it; one built again (the email's text arrived) shows that email again, and so
+          // does picking the email's row again later (focusToken = the selection that asked).
+          var token=p.focusToken||0;
+          var focus=(p.focus&&(page.focused!==p.focus||page.focusToken!==token))?page.node.querySelector('[id="m'+p.focus+'"]'):null;
+          if(focus){ page.focused=p.focus; page.focusToken=token; focus.classList.add('open'); }
           requestAnimationFrame(function(){
             if(READER.active!==page) return;
             page.node.querySelectorAll('iframe').forEach(size);

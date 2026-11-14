@@ -118,6 +118,7 @@ public partial class ThreadViewModel : ObservableObject
     /// </summary>
     private long _focusRowId;
     private string _focusMessageId = "";
+    private long _focusToken;
 
     /// <summary>The conversation's own copy of that email (the list may hold its copy from another folder); 0 = none.</summary>
     private long FocusIn(List<MessageRow> rows)
@@ -133,6 +134,8 @@ public partial class ThreadViewModel : ObservableObject
         _main = main;
         _focusRowId = focus?.Id ?? 0;
         _focusMessageId = focus?.MessageId ?? "";
+        // Each time a row is picked: the page shows that email again even when it kept this conversation from before.
+        if (focus != null) _focusToken++;
         var same = row.AccountId == AccountId && row.ThreadKey == ThreadKey;
         _cts.Cancel();
         _cts = new CancellationTokenSource();
@@ -350,7 +353,7 @@ public partial class ThreadViewModel : ObservableObject
         }
         ct.ThrowIfCancellationRequested();
         BlockedImages = allow ? 0 : page.BlockedImages;
-        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen), Focus = FocusIn(rows) });
+        PageReady?.Invoke(page with { ReadStates = rows.ToDictionary(r => r.Id, r => r.IsSeen), Focus = FocusIn(rows), FocusToken = _focusToken });
     }
 
     /// <summary>

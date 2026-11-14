@@ -743,10 +743,14 @@ public sealed class Release1900Tests
     public void A_page_built_again_shows_the_opened_email_again_but_a_page_shown_again_stays_put()
     {
         var shell = ReaderShell.Build(false);
-        Assert.Contains("page.focused!==p.focus", shell);
-        Assert.Contains("page.focused=p.focus", shell);
-        var page = new ReaderPage("k", "f", "<html><head><style></style></head><body><div id=\"m7\"></div></body></html>", 0, Focus: 7);
-        Assert.Contains("\"focus\":7", ReaderShell.PresentScript(page, 1, false, 600));
+        // Shown again for the same selection: nothing moves. A new selection of the same email (its row picked again
+        // after another conversation) carries a new token and shows the email again.
+        Assert.Contains("(page.focused!==p.focus||page.focusToken!==token)", shell);
+        Assert.Contains("page.focused=p.focus; page.focusToken=token;", shell);
+        // The first email goes to the very top, also when the kept page was left further down.
+        Assert.Contains("if(focus){ if(focus.previousElementSibling) focus.scrollIntoView({block:'start'}); else window.scrollTo(0,0); }", shell);
+        var page = new ReaderPage("k", "f", "<html><head><style></style></head><body><div id=\"m7\"></div></body></html>", 0, Focus: 7, FocusToken: 3);
+        Assert.Contains("\"focus\":7,\"focusToken\":3", ReaderShell.PresentScript(page, 1, false, 600));
         Assert.Contains("\"focus\":0", ReaderShell.PresentScript(page with { Focus = 0 }, 2, true, 600));
     }
 }
