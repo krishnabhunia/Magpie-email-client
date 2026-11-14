@@ -18,6 +18,8 @@ public sealed class ListQuery
     public bool Snoozed { get; init; }
     /// <summary>The Set aside pile (design B7).</summary>
     public bool SetAside { get; init; }
+    /// <summary>Design PE1: snoozed, set-aside and waiting-at-the-door conversations are listed too.</summary>
+    public bool AnySnooze { get; init; }
     /// <summary>Only conversations with an auto-delete timer before this time ("Deleting soon", design AD4).</summary>
     public DateTimeOffset? DeletingBefore { get; init; }
     public string? Tag { get; init; }
@@ -78,6 +80,7 @@ public sealed partial class MailStore
             // Older files get it in the migration below.
             if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='message_id'")) == 0)
                 Exec(c, "ALTER TABLE pending_ops ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
+            EnsureBccColumn(c);
             return;
         }
         using var tx = c.BeginTransaction();
@@ -178,6 +181,7 @@ public sealed partial class MailStore
               notify INTEGER NOT NULL DEFAULT 0, rules TEXT NOT NULL);
             """);
         MigrateTrash(c);      // design TB1 (MailStore.Trash.cs)
+        EnsureBccColumn(c);   // design RC1 (MailStore.People.cs)
         Exec(c, $"PRAGMA user_version={SchemaVersion};");
         tx.Commit();
     }
@@ -361,12 +365,12 @@ public sealed partial class MailStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO messages(account_id,folder_id,uid,message_id,in_reply_to,refs,thread_key,from_name,from_addr,
-              to_list,cc_list,reply_to,subject,preview,date,sort_date,flags,has_attach,size,category,list_unsub,tags)
-            VALUES($a,$f,$u,$mid,$irt,$refs,$tk,$fn,$fa,$to,$cc,$rt,$s,$pv,$d,$sd,$fl,$ha,$sz,$cat,$lu,$tags)
+              to_list,cc_list,reply_to,subject,preview,date,sort_date,flags,has_attach,size,category,list_unsub,tags,bcc_list)
+            VALUES($a,$f,$u,$mid,$irt,$refs,$tk,$fn,$fa,$to,$cc,$rt,$s,$pv,$d,$sd,$fl,$ha,$sz,$cat,$lu,$tags,$bcc)
             RETURNING id;
             """;
         var p = new Dictionary<string, SqliteParameter>();
-        foreach (var n in new[] { "$a", "$f", "$u", "$mid", "$irt", "$refs", "$tk", "$fn", "$fa", "$to", "$cc", "$rt", "$s", "$pv", "$d", "$sd", "$fl", "$ha", "$sz", "$cat", "$lu", "$tags" })
+        foreach (var n in new[] { "$a", "$f", "$u", "$mid", "$irt", "$refs", "$tk", "$fn", "$fa", "$to", "$cc", "$rt", "$s", "$pv", "$d", "$sd", "$fl", "$ha", "$sz", "$cat", "$lu", "$tags", "$bcc" })
             p[n] = cmd.Parameters.Add(n, SqliteType.Text);
         using var fts = c.CreateCommand();
         fts.CommandText = "INSERT INTO messages_fts(rowid,subject,sender,recipients,body) VALUES($id,$s,$f,$r,$b)";
@@ -384,12 +388,12 @@ public sealed partial class MailStore
             p["$pv"].Value = m.Preview; p["$d"].Value = m.Date.ToUnixTimeMilliseconds();
             p["$sd"].Value = (m.SortDate == default ? m.Date : m.SortDate).ToUnixTimeMilliseconds();
             p["$fl"].Value = (int)m.Flags; p["$ha"].Value = m.HasAttachments ? 1 : 0; p["$sz"].Value = m.Size;
-            p["$cat"].Value = (int)m.Category; p["$lu"].Value = m.ListUnsubscribe; p["$tags"].Value = m.Tags;
+            p["$cat"].Value = (int)m.Category; p["$lu"].Value = m.ListUnsubscribe; p["$tags"].Value = m.Tags; p["$bcc"].Value = m.Bcc;
             var res = cmd.ExecuteScalar();
             if (res == null || res is DBNull) continue;
             m.Id = Convert.ToInt64(res);
             fid.Value = m.Id; fs.Value = m.Subject; ff.Value = $"{m.FromName} {m.FromAddress}";
-            fr.Value = $"{m.To} {m.Cc}"; fb.Value = m.Preview;
+            fr.Value = $"{m.To} {m.Cc} {m.Bcc}".TrimEnd(); fb.Value = m.Preview;
             fts.ExecuteNonQuery();
             added.Add(m);
         }
@@ -500,10 +504,13 @@ public sealed partial class MailStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = $"SELECT {MsgCols} FROM messages m WHERE m.id=$id";
+        cmd.CommandText = $"SELECT {MsgCols}, m.bcc_list FROM messages m WHERE m.id=$id";
         cmd.Parameters.AddWithValue("$id", id);
         using var r = cmd.ExecuteReader();
-        return r.Read() ? ReadMsg(r) : null;
+        if (!r.Read()) return null;
+        var row = ReadMsg(r);
+        row.Bcc = r.IsDBNull(25) ? "" : r.GetString(25);
+        return row;
     }
 
     /// <summary>Conversations for the message list, newest first.</summary>
@@ -528,7 +535,7 @@ public sealed partial class MailStore
         if (q.Tag != null) { match.Add("(',' || m.tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{q.Tag},%"); }
         if (q.Search != null && !q.Search.IsEmpty) match.Add(q.Search.ToSql(cmd, "m"));
         // "Deleting soon" lists everything with a timer, snoozed / set aside / waiting at the door included.
-        if (q.DeletingBefore == null) where.Add(snooze);
+        if (q.DeletingBefore == null) where.Add(q.AnySnooze ? "1=1" : snooze);
 
         if (q.DeletingBefore is { } db)
         {
@@ -616,14 +623,25 @@ public sealed partial class MailStore
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = $"""
-            SELECT {MsgCols}, f.role FROM messages m JOIN folders f ON f.id=m.folder_id
+            SELECT {MsgCols}, f.role, m.bcc_list FROM messages m JOIN folders f ON f.id=m.folder_id
             WHERE m.account_id=$a AND m.thread_key=$t ORDER BY m.date, m.id
             """;
         cmd.Parameters.AddWithValue("$a", accountId);
         cmd.Parameters.AddWithValue("$t", threadKey);
         var rows = new List<(MessageRow m, FolderRole role)>();
         using (var r = cmd.ExecuteReader())
-            while (r.Read()) rows.Add((ReadMsg(r), (FolderRole)r.GetInt32(25)));
+            while (r.Read())
+            {
+                var row = ReadMsg(r);
+                row.Bcc = r.IsDBNull(26) ? "" : r.GetString(26);
+                rows.Add((row, (FolderRole)r.GetInt32(25)));
+            }
+        // Design RC1: Bcc is known on the copy in Sent; whichever copy represents the email shows it.
+        foreach (var g in rows.Where(x => x.m.MessageId.Length > 0).GroupBy(x => x.m.MessageId))
+        {
+            var bcc = g.Select(x => x.m.Bcc).FirstOrDefault(b => b.Length > 0);
+            if (bcc != null) foreach (var x in g) x.m.Bcc = bcc;
+        }
         return Dedupe(rows);
     }
 

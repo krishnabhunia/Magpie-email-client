@@ -775,4 +775,130 @@ public class IntegrationTests
         await WaitUntil(() => e.Store.ListThreads(new ListQuery { FolderIds = drafts }, DateTimeOffset.Now)
             .Any(t => t.Latest.Subject == "Written offline"), "draft visible in server Drafts", 30);
     }
+
+    /// <summary>
+    /// Design HD1: the header lines of one email are read from its message file on this PC when there is one, and
+    /// from the server (headers only) when there is not; an email that left the server gives null, not an error.
+    /// </summary>
+    [Fact]
+    public async Task The_header_lines_of_one_email_are_read_from_this_PC_or_the_server()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("anita@buildwell.test", me, "Site visit", "hi", id: "site-visit-1@buildwell.test", extra: m =>
+        {
+            m.Headers.Add("Authentication-Results", "mx.test; spf=pass smtp.mailfrom=buildwell.test; dkim=fail header.d=buildwell.test");
+            m.Headers.Add("X-Site", "Pune");
+        }));
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => e.IsReady(acc.Id) && Inbox(e).Count == 1, "the email is listed");
+        var row = e.Store.GetThread(acc.Id, Inbox(e)[0].ThreadKey).Single();
+
+        void Check(List<HeaderLine>? lines)
+        {
+            Assert.NotNull(lines);
+            Assert.Contains(lines!, l => l.Name == "Subject" && l.Value == "Site visit");
+            Assert.Contains(lines!, l => l.Name == "X-Site" && l.Value == "Pune");
+            Assert.Contains(lines!, l => l.Name == "Content-Type");   // also from the file on this PC
+            Assert.Contains(lines!, l => l.Name.Equals("Message-ID", StringComparison.OrdinalIgnoreCase) && l.Value.Contains("site-visit-1@buildwell.test"));
+            Assert.Equal(new[] { "SPF passed", "DKIM failed" }, HeaderView.Checks(lines!).Select(c => c.Label));
+            Assert.Equal("<site-visit-1@buildwell.test>", EmailReference.EmailId(row.MessageId));
+        }
+
+        Check(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+
+        // Without the message file on this PC the lines come from the server.
+        var file = e.Paths.MimePath(acc.Id, row.Id);
+        if (File.Exists(file)) File.Delete(file);
+        Check(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+
+        // The email is deleted on the server by another app: no lines, no error.
+        using (var c = await Raw(me))
+        {
+            await c.Inbox.OpenAsync(MailKit.FolderAccess.ReadWrite);
+            await c.Inbox.AddFlagsAsync(MailKit.UniqueIdRange.All, KitFlags.Deleted, true);
+            await c.Inbox.ExpungeAsync();
+            await c.DisconnectAsync(true);
+        }
+        if (File.Exists(file)) File.Delete(file);
+        Assert.Null(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+    }
+
+    /// <summary>
+    /// 19.0.0 (designs RC1 + PE1): a sent email keeps its Bcc; "Search the server too" lists an email with the address
+    /// that older-email listing has not reached yet, without announcing it as new mail; and Bcc lines of emails listed
+    /// by an older Magpie are read at the next start.
+    /// </summary>
+    [Fact]
+    public async Task Bcc_is_kept_and_one_address_is_found_on_the_server()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        const string rajesh = "rajesh@buildwell.test";
+        await CreateFolder(me, "Sent");
+        await Append(me, "Sent", Msg(me, "anita@buildwell.test", "Payment receipt", "attached", extra: m => m.Bcc.Add(MailboxAddress.Parse(rajesh))), KitFlags.Seen);
+        await Append(me, "INBOX", Msg("anita@buildwell.test", me, "Recent", "hi"));
+        var longAgo = new DateTimeOffset(2021, 3, 4, 10, 0, 0, TimeSpan.Zero);
+        for (int i = 0; i < 6; i++)
+            await Append(me, "INBOX", Msg(i == 4 ? rajesh : $"old{i}@z.test", me, i == 4 ? "Site visit" : $"Old {i}", "from 2021", date: longAgo.AddDays(i)), KitFlags.Seen, longAgo.AddDays(i));
+
+        var perRound = AccountSync.BackfillPerRound;
+        AccountSync.BackfillPerRound = 0;   // older emails stay unlisted: only the address search can bring one in
+        try
+        {
+            using var dir = new TempDir();
+            string accountId;
+            using (var e = NewEngine(dir))
+            {
+                var notified = new List<MessageRow>();
+                e.NewMail += rows => { lock (notified) notified.AddRange(rows); };
+                e.Start();
+                var acc = AccountFor(me);
+                e.AddAccount(acc, "secret", null);
+                accountId = acc.Id;
+                await WaitUntil(() => e.IsReady(acc.Id) && Inbox(e).Count == 1 && e.FolderIds(FolderRole.Sent, acc.Id).Count == 1, "first check: the recent email and Sent");
+
+                // The sent email is found for the person who was only in Bcc.
+                var sent = Assert.Single(e.PersonEmails(rajesh, PersonKind.YouSent));
+                Assert.Contains(rajesh, sent.Row.Bcc);
+                Assert.True(PersonView.OnlyBcc(sent, rajesh));
+                Assert.Equal((1, 0, 1), (e.PersonStats(rajesh).All, e.PersonStats(rajesh).From, e.PersonStats(rajesh).YouSent));
+
+                // Older emails are still to list: the server is asked for this one address.
+                Assert.True(e.OlderEmailsLeft);
+                var (added, problem) = await e.FindAddressOnServerAsync(rajesh).WaitAsync(TimeSpan.FromSeconds(40));
+                Assert.Equal((1, ""), (added, problem));
+                Assert.Equal((2, 1, 1), (e.PersonStats(rajesh).All, e.PersonStats(rajesh).From, e.PersonStats(rajesh).YouSent));
+                Assert.Equal("Site visit", Assert.Single(e.PersonEmails(rajesh, PersonKind.From)).Row.Subject);
+                Assert.Equal(2, Inbox(e).Count);                                   // the other five old emails are still unlisted
+                (added, problem) = await e.FindAddressOnServerAsync(rajesh).WaitAsync(TimeSpan.FromSeconds(40));
+                Assert.Equal((0, ""), (added, problem));                           // nothing is listed twice
+                await Task.Delay(400);
+                lock (notified) Assert.DoesNotContain(notified, m => m.Subject == "Site visit");   // old mail is not "new mail"
+            }
+
+            // As listed by a Magpie from before 19.0.0: no Bcc known. The next start reads it from the server.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            using (var c = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + new AppPaths(dir.Path).Database))
+            {
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = "UPDATE messages SET bcc_list=NULL";
+                cmd.ExecuteNonQuery();
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            using (var e = NewEngine(dir))
+            {
+                Assert.Empty(e.PersonEmails(rajesh, PersonKind.YouSent));
+                e.Start();
+                await WaitUntil(() => e.PersonEmails(rajesh, PersonKind.YouSent).Count == 1, "Bcc read for the email listed earlier", 40);
+                Assert.Contains(rajesh, e.Store.GetThread(accountId, e.PersonEmails(rajesh, PersonKind.YouSent)[0].Row.ThreadKey).Single().Bcc);
+            }
+        }
+        finally { AccountSync.BackfillPerRound = perRound; }
+    }
 }

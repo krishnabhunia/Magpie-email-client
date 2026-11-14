@@ -25,6 +25,8 @@ public static class ReaderShell
             key = page.Key, fingerprint = page.Fingerprint, body = reuse ? "" : page.Body, style = reuse ? "" : page.Style,
             bytes = page.Bytes, context = page.Context, retain = page.Retain, version, reuse,
             read = page.ReadStates,
+            focus = page.Focus,
+            focusToken = page.FocusToken,
             hoverDelay = Math.Clamp(hoverDelayMs, 50, 1000),
         }) + ")";
 
@@ -75,8 +77,19 @@ public static class ReaderShell
           HM_DELAY=p.hoverDelay;
           page.node.hidden=false;
           window.scrollTo(0,page.y);
+          // Design PE1: opened from a list of single emails, the conversation shows that email, opened.
+          // Once per built page and per selection: a page shown again for the same selection (a background refresh)
+          // keeps where the reader left it; one built again (the email's text arrived) shows that email again, and so
+          // does picking the email's row again later (focusToken = the selection that asked).
+          var token=p.focusToken||0;
+          var focus=(p.focus&&(page.focused!==p.focus||page.focusToken!==token))?page.node.querySelector('[id="m'+p.focus+'"]'):null;
+          if(focus){ page.focused=p.focus; page.focusToken=token; focus.classList.add('open'); }
           requestAnimationFrame(function(){
-            if(READER.active===page) page.node.querySelectorAll('iframe').forEach(size);
+            if(READER.active!==page) return;
+            page.node.querySelectorAll('iframe').forEach(size);
+            // The first email starts at the very top (with the subject above it), also when this page was left
+            // scrolled further down; any other email is brought to the top of the pane.
+            if(focus){ if(focus.previousElementSibling) focus.scrollIntoView({block:'start'}); else window.scrollTo(0,0); }
           });
           while(READER.pages.size>8 || READER.bytes>32*1024*1024){
             var oldest=READER.pages.keys().next().value;

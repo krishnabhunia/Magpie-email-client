@@ -69,6 +69,7 @@ public sealed class ThreadWindow : Window
         Content = root;
 
         _hover = new ReaderHover(this, main, _reader, js => _ready ? _web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
+        PreviewMouseDown += (_, e) => _hover.PressedIn(e.OriginalSource, _web);   // design CO1
         SubjectCard? card = null;
         card = new SubjectCard(subject, () => _hover.SubjectContent(ownWindow: true), (id, anchor) => _hover.RunSubject(id, anchor, card!));
 

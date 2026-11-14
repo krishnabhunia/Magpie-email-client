@@ -78,6 +78,7 @@ internal static partial class Program
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
                 CheckInfoWindow(owner, output, theme);
+                CheckHeadersWindow(owner, output, theme);
             }
             if (expectStartupFailure)
             {
@@ -120,6 +121,7 @@ internal static partial class Program
             }
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
+            CheckPersonList(vm, engine, inbox);
             owner.Close();
             Console.WriteLine("PRODUCTIVITY_SMOKE_PASSED assertions=" + _assertions);
             return 0;

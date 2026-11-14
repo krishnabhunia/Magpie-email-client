@@ -50,6 +50,12 @@ public sealed class MessageRow
     public string FromAddress { get; set; } = "";
     public string To { get; set; } = "";
     public string Cc { get; set; } = "";
+    /// <summary>
+    /// Design RC1: the Bcc line, known only for emails you sent (a received email never carries it). Filled when a
+    /// conversation or one email is read for the reading pane and in the "emails with one address" list; list rows
+    /// of other views leave it empty.
+    /// </summary>
+    public string Bcc { get; set; } = "";
     public string ReplyTo { get; set; } = "";
     public string Subject { get; set; } = "";
     public string Preview { get; set; } = "";

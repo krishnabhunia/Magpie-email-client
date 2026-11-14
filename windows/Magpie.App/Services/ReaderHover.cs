@@ -37,6 +37,34 @@ public sealed class ReaderHover
     /// <summary>Design B4: E6 "Add to contacts" when a Google account can save contacts.</summary>
     private bool HasContacts => E.Contacts.GoogleAccounts.Count > 0;
 
+    /// <summary>Design CO1: the page said its Details card is open (it tells every time it opens or closes).</summary>
+    private bool _detailsOpen;
+
+    /// <summary>
+    /// Design CO1: a click somewhere else in this window closes the Details card. A click inside the reading page is
+    /// the page's own business, and going to another app (to paste) closes nothing.
+    /// </summary>
+    public void CloseDetails()
+    {
+        if (!_detailsOpen) return;
+        _detailsOpen = false;
+        _ = Run("rdCloseAll()");
+    }
+
+    /// <summary>Design CO1: a mouse press in this window; anywhere but the reading page closes the Details card.</summary>
+    public void PressedIn(object? source, DependencyObject readingPage)
+    {
+        if (!_detailsOpen) return;
+        for (var d = source as DependencyObject; d != null; d = ParentOf(d))
+            if (ReferenceEquals(d, readingPage)) return;
+        CloseDetails();
+    }
+
+    private static DependencyObject? ParentOf(DependencyObject d) =>
+        d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+            ? System.Windows.Media.VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d)
+            : LogicalTreeHelper.GetParent(d);
+
     private Task Run(string js) { try { return _script(js); } catch (Exception ex) { Log.Warn("hover card: " + ex.Message); return Task.CompletedTask; } }
     private Task Note(string text) => Run("hmNote(" + JsonSerializer.Serialize(text) + ")");
     private Task Hide() => Run("hmHide()");
@@ -58,6 +86,9 @@ public sealed class ReaderHover
             case "security": _ = _reader.OpenSecurityAsync(id); break;
             case "att": _ = _reader.OpenAttachmentAsync(id, (int)Num(root, "i")); break;
             case "retry": _reader.RetryLoad(); break;
+            case "rdcopy": CopyAddresses(id, Str(root, "text"), Str(root, "said")); break;
+            case "rdopen": _detailsOpen = root.TryGetProperty("open", out var open) && open.ValueKind == JsonValueKind.True; break;
+            case "headers": _reader.OpenHeaders(id); break;
             case "hmopen": Open(root.GetProperty("c").Clone()); break;
             case "hmdo": Do(Str(root, "id"), root.GetProperty("c").Clone()); break;
         }
@@ -125,16 +156,22 @@ public sealed class ReaderHover
                 if (!address.Contains('@')) return;
                 var name = Str(c, "n").Trim().Trim('"');
                 var isMe = _reader.IsMyAddress(address);
-                var (count, last) = await Task.Run(() => E.Store.AddressStats(address));
                 var saved = E.Store.GetSavedContacts().Any(sc => sc.Emails.Contains(address, StringComparer.OrdinalIgnoreCase));
-                var items = HoverMenus.ForAddress(name, address, isMe, HasCalendar, _reader.PicturesTrusted(address), HasContacts, saved);
+                // Design PE1: for another person the card counts every email with the address (received, sent, copied
+                // in); your own address keeps the line HM1 gave it.
+                var stats = isMe ? null : await Task.Run(() => E.PersonStats(address));
+                var (count, last) = isMe ? await Task.Run(() => E.Store.AddressStats(address)) : (0, (DateTimeOffset?)null);
+                var items = HoverMenus.ForAddress(name, address, isMe, HasCalendar, _reader.PicturesTrusted(address), HasContacts, saved, stats);
+                var lastLine = stats == null ? "" : PersonView.LastLine(stats, DateTimeOffset.Now);
                 card = new
                 {
                     title = name.Length > 0 ? name : address,
-                    sub = HoverMenus.AddressLine(address, count, last, DateTimeOffset.Now),
+                    sub = isMe ? HoverMenus.AddressLine(address, count, last, DateTimeOffset.Now) : name.Length > 0 ? address : "",
                     badge = HtmlRenderer.Initials(name.Length > 0 ? name : address),
                     file = false,
-                    items = items.Select(i => new { id = i.Id, label = i.Label }),
+                    tiles = HoverMenus.Tiles(stats).Select(t => new { n = t.Number, l = t.Label }),
+                    foot = stats == null ? "" : stats.All == 0 ? PersonView.StatsLine(stats) : lastLine + " · " + PersonView.SubTitle(null, address, E.Accounts.Count),
+                    items = items.Select(i => new { id = i.Id, label = i.Label, count = i.Count, sep = i.IsSeparator }),
                 };
             }
             else
@@ -152,7 +189,7 @@ public sealed class ReaderHover
                     sub = HoverMenus.AttachmentLine(fileName, info?.Size ?? 0, E.HasMessageFile(row)),
                     badge = HoverMenus.Badge(fileName),
                     file = true,
-                    items = items.Select(i => new { id = i.Id, label = i.Label }),
+                    items = items.Select(i => new { id = i.Id, label = i.Label, count = i.Count, sep = i.IsSeparator }),
                 };
             }
             await Run("hmShow(" + JsonSerializer.Serialize(card) + ")");
@@ -197,8 +234,12 @@ public sealed class ReaderHover
                 break;
             case "E4":
             case "E5":
+            case "E12":
                 await Hide();
-                Search(HoverMenus.SearchFor(id, address));
+                // Design PE1: another person's emails open as their own list (counts, filters, one row per email);
+                // your own address keeps the plain search.
+                if (_reader.IsMyAddress(address)) Search(HoverMenus.SearchFor(id, address));
+                else { _main.ShowPerson(address, name, HoverMenus.PersonKindOf(id)); ActivateMain(); }
                 break;
             case "E6":
                 await Hide();
@@ -313,7 +354,30 @@ public sealed class ReaderHover
     private void Search(string text)
     {
         _main.SearchEverywhere(text);
+        ActivateMain();
+    }
+
+    /// <summary>The list is in the main window: bring it forward when the card was used in a conversation's own window.</summary>
+    private void ActivateMain()
+    {
         if (Application.Current.MainWindow is { } w && w != _owner) { if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal; w.Activate(); }
+    }
+
+    /// <summary>Design RC1: "Copy all N addresses" on an email's Details card.</summary>
+    private void CopyAddresses(long rowId, string text, string said)
+    {
+        if (text.Length == 0) return;
+        try
+        {
+            // Design CP1: Windows line ends, so Notepad shows one address per line.
+            System.Windows.Clipboard.SetText(AddressCopy.ForClipboard(text));
+            _ = Run($"rdSaid({rowId},{JsonSerializer.Serialize(said)},true)");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("copy addresses: " + ex.Message);
+            _ = Run($"rdSaid({rowId},{JsonSerializer.Serialize(AddressCopy.Failed)},false)");
+        }
     }
 
     private static string Downloads => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");

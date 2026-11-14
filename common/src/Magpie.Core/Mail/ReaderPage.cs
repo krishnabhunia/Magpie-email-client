@@ -8,7 +8,7 @@ namespace Magpie.Core.Mail;
 
 /// <summary>A prepared page. The reader shell keeps its scripts and reuses connected, rendered DOM trees.</summary>
 public sealed record ReaderPage(string Key, string Fingerprint, string Html, int BlockedImages,
-    string Context = "", bool Retain = true, IReadOnlyDictionary<long, bool>? ReadStates = null)
+    string Context = "", bool Retain = true, IReadOnlyDictionary<long, bool>? ReadStates = null, long Focus = 0, long FocusToken = 0)
 {
     public long Bytes => 2L * Html.Length;
     public string Style => Between(Html, "<style>", "</style>");
@@ -34,12 +34,12 @@ public sealed record ReaderPage(string Key, string Fingerprint, string Html, int
             Typography = new { Chrome = TypographyCss.ReaderChrome(typography), Body = TypographyCss.ReaderBody(typography) },
             Messages = messages.Select(m => new
             {
-                Row = new { m.Row.Id, m.Row.FromName, m.Row.FromAddress, m.Row.To, m.Row.Cc, m.Row.Preview, m.Row.Date },
+                Row = new { m.Row.Id, m.Row.FromName, m.Row.FromAddress, m.Row.To, m.Row.Cc, m.Row.Bcc, m.Row.ReplyTo, m.Row.Subject, m.Row.Preview, m.Row.Date },
                 Body = m.Body != null && bodyFingerprint?.Invoke(m.Row.Id, m.Body) is { } digest ? (object)digest : m.Body,
                 ImageKeys = m.InlineImages.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase),
                 Images = m.InlineImages.Where(p => m.Body == null || !m.Body.Images.TryGetValue(p.Key, out var stored) || stored != p.Value)
                     .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase),
-                m.IsMine, m.LoadingText, m.LoadError, m.DeliveryReceipt,
+                m.IsMine, m.LoadingText, m.LoadError, m.DeliveryReceipt, m.KeptIn,
             }),
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));

@@ -318,14 +318,15 @@ public class Release300HoverTests
     public void Someone_elses_address_offers_everything_that_can_work_now()
     {
         var all = HoverMenus.ForAddress("Anita Rao", "anita@vendorco.in", isMe: false, hasCalendar: true, picturesTrusted: false);
-        Assert.Equal(new[] { "E1", "E2", "E3", "E4", "E5", "E7", "E8", "E9", "E10", "E11" }, Ids(all));
+        // 19.0.0 (design PE1): the "emails with" lines come first, then two dividing lines group the rest.
+        Assert.Equal(new[] { "E5", "E4", "E12", "-", "E1", "E2", "E3", "-", "E7", "E8", "E9", "E10", "E11" }, Ids(all));
         Assert.Contains(all, o => o.Label == "Emails from Anita");
         Assert.Contains(all, o => o.Label == "New event with Anita");
         Assert.Contains(all, o => o.Label == "Always show pictures from Anita");
 
         // No calendar → no E7; pictures already shown → no E8; Contacts page → E6.
         var some = HoverMenus.ForAddress("Anita Rao", "anita@vendorco.in", false, hasCalendar: false, picturesTrusted: true, hasContacts: true);
-        Assert.Equal(new[] { "E1", "E2", "E3", "E4", "E5", "E6", "E9", "E10", "E11" }, Ids(some));
+        Assert.Equal(new[] { "E5", "E4", "E12", "-", "E1", "E2", "E3", "-", "E6", "E9", "E10", "E11" }, Ids(some));
     }
 
     [Theory]

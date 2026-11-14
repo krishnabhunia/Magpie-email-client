@@ -7,6 +7,24 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 19.0.0 (14 Nov 2026)
+<!-- closes: #153 #154 #156 #157 #158 #159 -->
+### New
+- **See every To, Cc and Bcc address of an email.** The line under the sender no longer cuts names with "…". It shows the first names in full, then "+5 more · cc 4 · bcc 1", and a **Details** button that is always there. Details opens a card with From, every To, Cc and Bcc address on its own line (name and address), the full date, the subject and the folder the email is kept in. Pointing at an address in the card opens its address card, as in the header.
+- **Copy one address, one group, or all of them.** In the Details card every address has its own copy button. To, Cc and Bcc each have a **Copy** button when they hold two or more addresses; it copies that group, one address per line. **Copy all 13 addresses** copies every group under the headings To, CC and BCC, one address per line with an empty line between the groups, and it pastes that way in Notepad too. A group without addresses is left out. The button turns into a tick for two seconds and the card says what was copied.
+- **An ID for every email.** The Details card shows the **Email ID**, which is the same in every mail app and with every mail provider, and for Gmail accounts the **Conversation ID**, each with a copy button. **Copy email reference** copies the subject, sender, date, both IDs and the folder, one per line: enough to point at exactly one email in a chat, a note or a ticket.
+- **See the headers of an email.** In the Details card, **Headers** opens a window with every header line of that email, as a table or as plain text. A find box narrows the lines. The window says what your mail server found for SPF, DKIM and DMARC and how many servers the email passed through, and **Copy all headers** and **Save as a text file…** take the lines out. Magpie reads them from the email's copy on this PC, or from the mail server when there is none (that needs a connection).
+- **Bcc is kept for the emails you sent.** Magpie never saved the Bcc line, so it could not show it. New sent emails show it at once. For sent emails already on this PC Magpie reads the Bcc line from the server in the background, up to 1,000 emails at each mail check, without downloading them again. An email you received never carries a Bcc line.
+- **Every email with one address, received and sent.** The address card now counts every email with the address (all, received, you sent, copied in) and starts with three lines and their numbers: **All emails with**, **Emails from** and the new **Emails you sent to**. Each opens a list headed "Emails with …": one row per email saying who it went from and to, its folder and a Bcc mark, four filters (All · From · You sent · Copied in), an **Each email / Conversations** switch and **Back to** where you were. Clicking a row opens its conversation at that email.
+- **Search the server too.** While an account is still getting older emails, the list offers to ask the mail server for emails with that address that are not on this PC yet, and lists them.
+
+### Changed
+- **A click outside the Details card closes it**, and so does Esc. Opening Details on another email closes the first one. Going to another app, for example to paste, leaves it open.
+- **The list of a person's emails hides nothing.** "Unread" and snooze no longer filter it, and an email where the person is only in Bcc is found. Trash and Spam are left out, with **Include them** under the list.
+- **Searching by `to:` and `with:` also looks in Bcc**, and a person in Bcc is found by name.
+- **The browser's own tooltip no longer covers the address card** in the reading pane.
+- In the **Each email** list the rows have no tick boxes or row buttons, because those act on whole conversations. Switch to **Conversations** to tick and act, or use the toolbar on the open conversation.
+
 ## 18.2.2 (9 Nov 2026)
 <!-- closes: #151 -->
 ### Fixed
