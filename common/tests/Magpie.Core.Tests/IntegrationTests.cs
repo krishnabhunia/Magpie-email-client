@@ -777,6 +777,57 @@ public class IntegrationTests
     }
 
     /// <summary>
+    /// Design HD1: the header lines of one email are read from its message file on this PC when there is one, and
+    /// from the server (headers only) when there is not; an email that left the server gives null, not an error.
+    /// </summary>
+    [Fact]
+    public async Task The_header_lines_of_one_email_are_read_from_this_PC_or_the_server()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("anita@buildwell.test", me, "Site visit", "hi", id: "site-visit-1@buildwell.test", extra: m =>
+        {
+            m.Headers.Add("Authentication-Results", "mx.test; spf=pass smtp.mailfrom=buildwell.test; dkim=fail header.d=buildwell.test");
+            m.Headers.Add("X-Site", "Pune");
+        }));
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => e.IsReady(acc.Id) && Inbox(e).Count == 1, "the email is listed");
+        var row = e.Store.GetThread(acc.Id, Inbox(e)[0].ThreadKey).Single();
+
+        void Check(List<HeaderLine>? lines)
+        {
+            Assert.NotNull(lines);
+            Assert.Contains(lines!, l => l.Name == "Subject" && l.Value == "Site visit");
+            Assert.Contains(lines!, l => l.Name == "X-Site" && l.Value == "Pune");
+            Assert.Contains(lines!, l => l.Name.Equals("Message-ID", StringComparison.OrdinalIgnoreCase) && l.Value.Contains("site-visit-1@buildwell.test"));
+            Assert.Equal(new[] { "SPF passed", "DKIM failed" }, HeaderView.Checks(lines!).Select(c => c.Label));
+            Assert.Equal("<site-visit-1@buildwell.test>", EmailReference.EmailId(row.MessageId));
+        }
+
+        Check(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+
+        // Without the message file on this PC the lines come from the server.
+        var file = e.Paths.MimePath(acc.Id, row.Id);
+        if (File.Exists(file)) File.Delete(file);
+        Check(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+
+        // The email is deleted on the server by another app: no lines, no error.
+        using (var c = await Raw(me))
+        {
+            await c.Inbox.OpenAsync(MailKit.FolderAccess.ReadWrite);
+            await c.Inbox.AddFlagsAsync(MailKit.UniqueIdRange.All, KitFlags.Deleted, true);
+            await c.Inbox.ExpungeAsync();
+            await c.DisconnectAsync(true);
+        }
+        if (File.Exists(file)) File.Delete(file);
+        Assert.Null(await e.HeadersAsync(row, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40)));
+    }
+
+    /// <summary>
     /// 19.0.0 (designs RC1 + PE1): a sent email keeps its Bcc; "Search the server too" lists an email with the address
     /// that older-email listing has not reached yet, without announcing it as new mail; and Bcc lines of emails listed
     /// by an older Magpie are read at the next start.

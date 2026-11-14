@@ -37,6 +37,34 @@ public sealed class ReaderHover
     /// <summary>Design B4: E6 "Add to contacts" when a Google account can save contacts.</summary>
     private bool HasContacts => E.Contacts.GoogleAccounts.Count > 0;
 
+    /// <summary>Design CO1: the page said its Details card is open (it tells every time it opens or closes).</summary>
+    private bool _detailsOpen;
+
+    /// <summary>
+    /// Design CO1: a click somewhere else in this window closes the Details card. A click inside the reading page is
+    /// the page's own business, and going to another app (to paste) closes nothing.
+    /// </summary>
+    public void CloseDetails()
+    {
+        if (!_detailsOpen) return;
+        _detailsOpen = false;
+        _ = Run("rdCloseAll()");
+    }
+
+    /// <summary>Design CO1: a mouse press in this window; anywhere but the reading page closes the Details card.</summary>
+    public void PressedIn(object? source, DependencyObject readingPage)
+    {
+        if (!_detailsOpen) return;
+        for (var d = source as DependencyObject; d != null; d = ParentOf(d))
+            if (ReferenceEquals(d, readingPage)) return;
+        CloseDetails();
+    }
+
+    private static DependencyObject? ParentOf(DependencyObject d) =>
+        d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+            ? System.Windows.Media.VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d)
+            : LogicalTreeHelper.GetParent(d);
+
     private Task Run(string js) { try { return _script(js); } catch (Exception ex) { Log.Warn("hover card: " + ex.Message); return Task.CompletedTask; } }
     private Task Note(string text) => Run("hmNote(" + JsonSerializer.Serialize(text) + ")");
     private Task Hide() => Run("hmHide()");
@@ -59,6 +87,8 @@ public sealed class ReaderHover
             case "att": _ = _reader.OpenAttachmentAsync(id, (int)Num(root, "i")); break;
             case "retry": _reader.RetryLoad(); break;
             case "rdcopy": CopyAddresses(id, Str(root, "text"), Str(root, "said")); break;
+            case "rdopen": _detailsOpen = root.TryGetProperty("open", out var open) && open.ValueKind == JsonValueKind.True; break;
+            case "headers": _reader.OpenHeaders(id); break;
             case "hmopen": Open(root.GetProperty("c").Clone()); break;
             case "hmdo": Do(Str(root, "id"), root.GetProperty("c").Clone()); break;
         }

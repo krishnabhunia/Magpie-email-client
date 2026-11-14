@@ -1466,6 +1466,11 @@ public sealed class MailEngine : IDisposable
     public async Task<MessageBody?> FetchBodyAsync(MessageRow row, CancellationToken ct) =>
         _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.FetchBodyAsync(row, ct) : Store.GetBody(row.Id);
 
+    /// <summary>Design HD1: every header line of one email (this PC's copy, else the server); null when it is gone
+    /// from the server or its account is not running.</summary>
+    public async Task<List<HeaderLine>?> HeadersAsync(MessageRow row, CancellationToken ct) =>
+        _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.FetchHeadersAsync(row, ct) : null;
+
     /// <summary>The email from its message file on this PC, or null; never the server.</summary>
     public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct) =>
         _syncs.TryGetValue(row.AccountId, out var sync) ? await sync.LocalMimeAsync(row, ct) : null;

@@ -277,8 +277,8 @@ public sealed class Release1900Tests
     {
         var row = Thirteen();
         var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = row });
-        // From + 8 To + 4 Cc + 1 Bcc.
-        Assert.Equal(14, card.Split("class=\"rd-c\"").Length - 1);
+        // From + 8 To + 4 Cc + 1 Bcc, and the Email ID row (design ID1).
+        Assert.Equal(15, card.Split("class=\"rd-c\"").Length - 1);
         Assert.Equal(row.FromAddress, CopyText(card, "rd-c"));
         Assert.Equal("secretarial@buildwell.example", CopyText(card, "rd-c", 1));
         Assert.Equal("my.records@example.com", CopyText(card, "rd-c", 13));
@@ -317,6 +317,201 @@ public sealed class Release1900Tests
         // In To once; it stays in CC, because it was sent there as well.
         Assert.Equal("To\na@x.in\nb@x.in\n\nCC\na@x.in\nc@x.in", CopyText(card, "rd-all"));
         Assert.Contains("<span>Copy all 4 addresses</span>", card);
+    }
+
+    // ───────────────────────── ID1: the IDs of an email, and Copy email reference ─────────────────────────
+
+    [Fact]
+    public void The_details_card_shows_the_email_ID_and_for_Gmail_the_conversation_ID()
+    {
+        var row = Row(1, "gm:19a7c3e5f0b2d4a1", Rajesh, Me, messageId: "7f3a9c21.4410@buildwell.example");
+        row.Id = 9;
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = row });
+        Assert.Contains(">Email ID<", card);
+        Assert.Contains("<span class=\"rd-id\">&lt;7f3a9c21.4410@buildwell.example&gt;</span>", card);
+        Assert.Contains("data-t=\"&lt;7f3a9c21.4410@buildwell.example&gt;\" data-s=\"Copied the email ID\"", card);
+        Assert.Contains(">Conversation ID<", card);
+        Assert.Contains("<span class=\"rd-id\">19a7c3e5f0b2d4a1</span> <span class=\"rd-a\">Gmail</span>", card);
+        Assert.Contains("data-t=\"19a7c3e5f0b2d4a1\" data-s=\"Copied the conversation ID\"", card);
+
+        // Another provider has no conversation ID of its own; an email without a Message-ID has no Email ID row.
+        var other = Row(1, "root:abc", Rajesh, Me, messageId: "<a1@x.in>");
+        var plain = HtmlRenderer.DetailsCard(new RenderMessage { Row = other });
+        Assert.Contains("&lt;a1@x.in&gt;", plain);                 // brackets are not doubled
+        Assert.DoesNotContain("&lt;&lt;", plain);
+        Assert.DoesNotContain("Conversation ID", plain);
+        other.MessageId = " ";
+        Assert.DoesNotContain("Email ID", HtmlRenderer.DetailsCard(new RenderMessage { Row = other }));
+
+        Assert.Equal("<a@b>", EmailReference.EmailId("a@b"));
+        Assert.Equal("<a@b>", EmailReference.EmailId(" <a@b> "));
+        Assert.Equal("", EmailReference.EmailId(null));
+        Assert.Equal("", EmailReference.ConversationId("gm:"));
+        Assert.Equal("", EmailReference.ConversationId("19a7c3e5f0b2d4a1"));   // only Gmail's own key counts
+    }
+
+    [Fact]
+    public void Copy_email_reference_is_six_lines_that_point_at_one_email()
+    {
+        var row = Row(1, "gm:19a7c3e5f0b2d4a1", Rajesh, Me, subject: "Handover schedule — follow-up", messageId: "7f3a9c21.4410@buildwell.example");
+        row.FromName = "Rajesh Mehta";
+        var text = EmailReference.Text(row, "Inbox · me@test.local");
+        Assert.Equal(new[]
+        {
+            "Subject: Handover schedule — follow-up",
+            "From: Rajesh Mehta <rajesh@buildwell.example>",
+            "Date: " + EmailReference.DateLine(row.Date),
+            "Email ID: <7f3a9c21.4410@buildwell.example>",
+            "Gmail conversation ID: 19a7c3e5f0b2d4a1",
+            "Kept in: Inbox · me@test.local",
+        }, text.Split('\n'));
+        // "Fri, 13 Nov 2026 12:00 +0000" in this PC's time: day, date, time and the offset without a colon.
+        Assert.Matches(@"^[A-Z][a-z]{2}, \d{1,2} [A-Z][a-z]{2} 2026 \d{2}:\d{2} [+-]\d{4}$", EmailReference.DateLine(row.Date));
+
+        // What is not known is left out: no folder (Magpie for Mac), another provider, no name.
+        var bare = Row(1, "root:x", Rajesh, Me, subject: " ", messageId: "a1@x.in");
+        bare.FromName = "";
+        Assert.Equal(new[] { "Subject: (no subject)", "From: rajesh@buildwell.example", "Date: " + EmailReference.DateLine(bare.Date), "Email ID: <a1@x.in>" },
+            EmailReference.Text(bare).Split('\n'));
+
+        // The card carries the same text on its button; the Windows app puts it on the clipboard with CR LF.
+        var card = HtmlRenderer.DetailsCard(new RenderMessage { Row = row, KeptIn = "Inbox · me@test.local" });
+        Assert.Equal(text, CopyText(card, "rd-ref"));
+        Assert.Contains("data-s=\"Copied the email reference\"", card);
+        Assert.Contains("<span>Copy email reference</span></button>", card);
+        Assert.Equal(6, AddressCopy.ForClipboard(text).Split("\r\n").Length);
+    }
+
+    // ───────────────────────── CO1: a click outside the Details card closes it ─────────────────────────
+
+    [Fact]
+    public void The_reading_page_closes_the_details_card_on_an_outside_click_and_on_Esc()
+    {
+        var list = new List<RenderMessage> { new() { Row = Thirteen(), Expanded = true, IsMine = true, Body = new MessageBody { Text = "Dear team," } } };
+        var page = HtmlRenderer.BuildConversation("Handover schedule", list, false, new DateTimeOffset(2026, 11, 13, 22, 0, 0, TimeSpan.Zero), addressTips: false).Html;
+        Assert.Contains("function rdCloseAll(but)", page);
+        // Any click in the page that is not in the card, on a Details button or in the address card closes it…
+        Assert.Contains("if(t.closest('.rd')||t.closest('.to-b')||t.closest('#hm')) return;", page);
+        // …and that click does not also fold the email.
+        Assert.Contains("if(t.closest('.hdr')&&!t.closest('button,a,.att')){ ev.stopPropagation(); ev.preventDefault(); }", page);
+        // Opening another email's card closes this one; the app is told, so a click elsewhere in Magpie can close it.
+        Assert.Contains("if(open) rdCloseAll(c);", page);
+        Assert.Contains("post({t:'rdopen',open:open});", page);
+        Assert.Contains("post({t:'rdopen',open:false});", page);
+        // Esc: the address card first, then the Details card; clicks and Esc inside the email text count too.
+        Assert.Contains("if(c&&!c.hidden){ hmHide(); return; }", page);
+        Assert.Contains("var b=rdCloseAll(); if(b){ try{ b.focus(); }catch(e){} }", page);
+        Assert.Contains("d.addEventListener('mousedown',function(){ rdCloseAll(); },true);", page);
+        Assert.Contains("d.addEventListener('keydown',function(ev){ if(ev.key==='Escape') rdCloseAll(); });", page);
+        // Nothing listens for the window losing focus: going to Notepad to paste keeps the card open.
+        Assert.DoesNotContain("addEventListener('blur'", page);
+        Assert.DoesNotContain("visibilitychange", page);
+    }
+
+    // ───────────────────────── HD1 A: the header lines of an email ─────────────────────────
+
+    private static List<HeaderLine> SampleHeaders()
+    {
+        var m = new MimeKit.MimeMessage();
+        m.Headers.Clear();
+        m.Headers.Add("Delivered-To", "krishna@example.com");
+        m.Headers.Add("Received", "by mx.example.com with ESMTPS id k9si4410;\r\n Fri, 13 Nov 2026 15:34:09 +0000");
+        m.Headers.Add("Received", "from out2.buildwell.example (203.0.113.24) by mx.example.com; Fri, 13 Nov 2026 15:34:07 +0000");
+        m.Headers.Add("Received", "from desk-rm.buildwell.example (198.51.100.7) by out2.buildwell.example; Fri, 13 Nov 2026 21:04:02 +0530");
+        m.Headers.Add("Authentication-Results", "mx.example.com; spf=pass smtp.mailfrom=buildwell.example;\r\n dkim=fail header.d=buildwell.example; dmarc=bestguesspass");
+        m.Headers.Add("Authentication-Results", "made.up.example; spf=pass; dkim=pass; dmarc=pass");
+        m.Headers.Add("From", "Rajesh Mehta <rajesh@buildwell.example>");
+        m.Headers.Add("Subject", "Handover schedule");
+        m.Headers.Add("Message-ID", "<7f3a9c21.4410@buildwell.example>");
+        m.Headers.Add("X-Spf-Note", "spf=fail in another header is not a check");
+        return HeaderView.Lines(m.Headers);
+    }
+
+    [Fact]
+    public void Header_lines_keep_their_order_and_each_is_one_line()
+    {
+        var lines = SampleHeaders();
+        Assert.Equal(new[] { "Delivered-To", "Received", "Received", "Received", "Authentication-Results", "Authentication-Results", "From", "Subject", "Message-ID", "X-Spf-Note" },
+            lines.Select(l => l.Name));
+        Assert.Equal("by mx.example.com with ESMTPS id k9si4410; Fri, 13 Nov 2026 15:34:09 +0000", lines[1].Value);   // a folded line is unfolded
+        Assert.DoesNotContain(lines, l => l.Value.Contains('\n') || l.Value.Contains('\r'));
+
+        var text = HeaderView.PlainText(lines);
+        Assert.Equal(10, text.Split('\n').Length);
+        Assert.StartsWith("Delivered-To: krishna@example.com\nReceived: by mx.example.com", text);
+        Assert.EndsWith("X-Spf-Note: spf=fail in another header is not a check", text);
+        Assert.Equal(10, AddressCopy.ForClipboard(text).Split("\r\n").Length);   // what Copy and Save write on Windows
+    }
+
+    [Fact]
+    public void The_find_box_looks_in_names_and_values_in_any_letter_case()
+    {
+        var lines = SampleHeaders();
+        Assert.Equal(3, HeaderView.Filter(lines, "received").Count);
+        Assert.Equal(new[] { "Received", "Received", "Authentication-Results" }, HeaderView.Filter(lines, "MX.example").Select(l => l.Name));   // two servers name it, and the first checks line
+        Assert.Equal(10, HeaderView.Filter(lines, "  ").Count);
+        Assert.Empty(HeaderView.Filter(lines, "no such text"));
+        Assert.Equal("10 header lines", HeaderView.CountLine(10, 10));
+        Assert.Equal("3 of 10 header lines", HeaderView.CountLine(3, 10));
+        Assert.Equal("1 header line", HeaderView.CountLine(1, 1));
+    }
+
+    [Fact]
+    public void Only_the_topmost_server_line_gives_the_SPF_DKIM_and_DMARC_results()
+    {
+        var checks = HeaderView.Checks(SampleHeaders());
+        // The second Authentication-Results line (written before the email reached your server) and X-Spf-Note are ignored.
+        Assert.Equal(new[] { "SPF passed", "DKIM failed", "DMARC: bestguesspass" }, checks.Select(c => c.Label));
+        Assert.Equal(new[] { true, false, false }, checks.Select(c => c.Passed));
+        Assert.Empty(HeaderView.Checks(new[] { new HeaderLine("Subject", "spf=pass dkim=pass") }));
+        // A value like "x-spf=pass" or "arc.dkim=pass" is not the check itself.
+        Assert.Equal(new[] { "DMARC passed" }, HeaderView.Checks(new[] { new HeaderLine("authentication-results", "mx; x-spf=pass; arc.dkim=pass; DMARC = PASS (p=none)") }).Select(c => c.Label));
+    }
+
+    [Fact]
+    public void The_travel_line_counts_the_servers_and_the_time_between_them()
+    {
+        var lines = SampleHeaders();
+        Assert.Equal(3, HeaderView.Hops(lines));
+        Assert.Equal(TimeSpan.FromSeconds(7), HeaderView.TravelTime(lines));   // 15:34:02 (+0530 written) to 15:34:09 UTC
+        Assert.Equal("Passed through 3 servers in 7 seconds", HeaderView.HopsLine(lines));
+        Assert.Equal("Passed through 1 server", HeaderView.HopsLine(new[] { new HeaderLine("Received", "by a; Fri, 13 Nov 2026 15:34:09 +0000") }));
+        Assert.Equal("Passed through 2 servers", HeaderView.HopsLine(new[] { new HeaderLine("Received", "by a; not a date"), new HeaderLine("Received", "no time stamp") }));
+        Assert.Equal("", HeaderView.HopsLine(new[] { new HeaderLine("Subject", "Hello") }));
+        Assert.Equal("under a second", HeaderView.Duration(TimeSpan.FromMilliseconds(300)));
+        Assert.Equal("1 second", HeaderView.Duration(TimeSpan.FromSeconds(1)));
+        Assert.Equal("2 minutes", HeaderView.Duration(TimeSpan.FromSeconds(150)));
+        Assert.Equal("5 hours", HeaderView.Duration(TimeSpan.FromHours(5.5)));
+        Assert.Equal("3 days", HeaderView.Duration(TimeSpan.FromDays(3.2)));
+    }
+
+    [Fact]
+    public void The_headers_window_words_name_the_email_and_a_safe_file()
+    {
+        var row = Row(1, "t", Rajesh, Me, subject: "Re: Handover / schedule: \"final\"?");
+        row.FromName = "Rajesh Mehta";
+        Assert.Equal("Re: Handover / schedule: \"final\"?", HeaderView.Subject(row));
+        Assert.StartsWith("From Rajesh Mehta · ", HeaderView.SubTitle(row));
+        Assert.Contains("November 2026", HeaderView.SubTitle(row));
+        Assert.Equal("Headers - Re Handover schedule final.txt", HeaderView.FileName(row));
+        row.Subject = "";
+        Assert.Equal("(no subject)", HeaderView.Subject(row));
+        Assert.Equal("Headers - (no subject).txt", HeaderView.FileName(row));
+        row.Subject = "???";
+        Assert.Equal("Headers.txt", HeaderView.FileName(row));
+        row.Subject = new string('a', 200) + ".";
+        Assert.Equal("Headers - " + new string('a', 80) + ".txt", HeaderView.FileName(row));
+    }
+
+    [Fact]
+    public void The_Headers_button_is_only_on_the_page_of_an_app_that_can_open_them()
+    {
+        var list = new List<RenderMessage> { new() { Row = Thirteen(), Expanded = true, IsMine = true, Body = new MessageBody { Text = "Dear team," } } };
+        var now = new DateTimeOffset(2026, 11, 13, 22, 0, 0, TimeSpan.Zero);
+        var windows = HtmlRenderer.BuildConversation("Handover schedule", list, false, now, addressTips: false, headersButton: true).Html;
+        Assert.Contains("class=\"rd-h\" title=\"Every header line of this email\" onclick=\"event.stopPropagation();post({t:'headers',id:7})\">Headers</button>", windows);
+        // Magpie for Mac has no Headers window yet, so its page has no dead button.
+        Assert.DoesNotContain("class=\"rd-h\"", HtmlRenderer.BuildConversation("Handover schedule", list, false, now).Html);
     }
 
     [Fact]

@@ -342,7 +342,7 @@ public partial class ThreadViewModel : ObservableObject
                     rows[^1].Date.LocalDateTime.ToString("ddd d MMM, HH:mm"), dark, downloading: false));
             var list = BuildRenderList(AccountId, rows, bodies, _loadErrors);
             var hoverDelay = HoverDelay;
-            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay, typography, addressTips: false), ct);
+            var result = await Task.Run(() => HtmlRenderer.BuildConversation(subject, list, allow, DateTimeOffset.Now, dark, hoverDelay, typography, addressTips: false, headersButton: true), ct);
             ct.ThrowIfCancellationRequested();
             if (context != PageContext) return;
             page = new ReaderPage(key, fp, result.Html, result.BlockedImages, context);
@@ -389,7 +389,7 @@ public partial class ThreadViewModel : ObservableObject
                 if (prep == null) continue;
                 if (_pageCache.TryGet(key, out var hit) && hit.Fingerprint == prep.fp) continue;
                 var list = BuildRenderList(t.AccountId, prep.rows, prep.bodies, prep.errors);
-                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay, typography, addressTips: false), ct);
+                var result = await Task.Run(() => HtmlRenderer.BuildConversation(prep.subject, list, prep.allow, DateTimeOffset.Now, dark, HoverDelay, typography, addressTips: false, headersButton: true), ct);
                 ct.ThrowIfCancellationRequested();
                 if (context != PageContext) return;
                 PutPage(key, prep.fp, result.Html, result.BlockedImages);

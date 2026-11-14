@@ -78,6 +78,7 @@ internal static partial class Program
                 CheckSavedView(owner, engine, output, theme);
                 CheckVersionManager(owner, output, theme);
                 CheckInfoWindow(owner, output, theme);
+                CheckHeadersWindow(owner, output, theme);
             }
             if (expectStartupFailure)
             {

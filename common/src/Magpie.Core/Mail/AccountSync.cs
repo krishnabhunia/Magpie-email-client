@@ -1324,6 +1324,29 @@ public sealed class AccountSync : IDisposable
         }, ct);
     }
 
+    /// <summary>
+    /// Design HD1: every header line of one email — from its message file on this PC when there is one, else read
+    /// from the server (headers only, the email is not downloaded). Null when the email is no longer on the server.
+    /// </summary>
+    public async Task<List<HeaderLine>?> FetchHeadersAsync(MessageRow row, CancellationToken ct)
+    {
+        using var operation = _operations.Enter();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _versionStop.Token);
+        ct = linked.Token;
+        ct.ThrowIfCancellationRequested();
+        if (await LocalMimeAsync(row, ct) is { } local) return HeaderView.Lines(local.Headers);
+        var folder = _store.GetFolder(row.FolderId);
+        if (folder == null) return null;
+        return await _ui.UseAsync(async client =>
+        {
+            var f = await client.GetFolderAsync(folder.Path, ct);
+            await f.OpenAsync(FolderAccess.ReadOnly, ct);
+            try { return HeaderView.Lines(await f.GetHeadersAsync(new UniqueId(f.UidValidity, (uint)row.Uid), ct)); }
+            catch (MessageNotFoundException) { return null; }
+            finally { try { await f.CloseAsync(false, ct); } catch { } }
+        }, ct);
+    }
+
     /// <summary>The email from its message file on this PC, or null (never the server).</summary>
     public async Task<MimeMessage?> LocalMimeAsync(MessageRow row, CancellationToken ct)
     {

@@ -33,6 +33,8 @@ public partial class MainWindow : Window
         _vm.Reader.Loading += ShowLoading;
         // Design HM1: hover cards on addresses, files (in the page) and the subject.
         _hover = new ReaderHover(this, _vm, _vm.Reader, js => _webReady ? Web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
+        // Design CO1: a click anywhere else in Magpie closes the Details card of the open email.
+        PreviewMouseDown += (_, e) => _hover.PressedIn(e.OriginalSource, Web);
         _subjectCard = new SubjectCard(SubjectText, () => _hover.SubjectContent(ownWindow: false), (id, anchor) => _hover.RunSubject(id, anchor, _subjectCard!));
         _deleteCard = new HoverCard(DeleteCardFor);
         _deleteCard.Attach(DeleteChip);

@@ -175,10 +175,12 @@ public static class HtmlRenderer
         "pre{white-space:pre-wrap}table{max-width:100%}";
 
     /// <summary>The whole conversation page. <paramref name="dark"/> = the dark theme (design B1).</summary>
+    /// <param name="headersButton">True where the host opens the Headers window (design HD1; Windows): the Details
+    /// card then has a Headers button that posts <c>headers</c>.</param>
     /// <param name="addressTips">False where the address card opens on hover (Windows): the browser's own tooltip
     /// with the address would cover the card (design RC1).</param>
     public static RenderResult BuildConversation(string subject, IReadOnlyList<RenderMessage> messages, bool allowRemote, DateTimeOffset now, bool dark = false,
-        int hoverDelayMs = 600, TypographySettings? typography = null, bool addressTips = true)
+        int hoverDelayMs = 600, TypographySettings? typography = null, bool addressTips = true, bool headersButton = false)
     {
         var p = dark ? DarkPalette : LightPalette;
         var sb = new StringBuilder();
@@ -210,10 +212,10 @@ public static class HtmlRenderer
             .to-b::after{content:'';width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);margin:-3px 1px 0 2px}
             .to-b[aria-expanded="true"]{background:var(--teal);border-color:var(--teal);color:#fff}
             .to-b[aria-expanded="true"]::after{transform:rotate(225deg);margin-top:3px}
-            .rd{margin:0 0 12px 44px;max-width:620px;box-sizing:border-box;padding:12px 14px 10px;background:var(--page);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);font-size:12.5px;line-height:20px;cursor:default}
+            .rd{margin:0 0 12px 44px;max-width:660px;box-sizing:border-box;padding:12px 14px 10px;background:var(--page);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);font-size:12.5px;line-height:20px;cursor:default}
             .rd[hidden],.msg:not(.open) .rd{display:none}
             .rd-r{display:flex;gap:12px;margin-bottom:4px}
-            .rd-l{flex:0 0 84px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-weight:600;color:var(--muted)}
+            .rd-l{flex:0 0 104px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-weight:600;color:var(--muted)}
             .rd-l>div{line-height:24px}
             .rd-v{flex:1;min-width:0;color:var(--ink);overflow-wrap:anywhere;line-height:24px}
             .rd-a{color:var(--muted)}
@@ -224,15 +226,16 @@ public static class HtmlRenderer
             .rd-p:hover .rd-c,.rd-c:hover,.rd-c:focus-visible{border-color:var(--border);background:var(--btn);color:var(--ink)}
             .rd-g{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;font-weight:400;line-height:16px;padding:1px 6px;color:var(--ink);cursor:pointer;white-space:nowrap}
             .rd-g:hover{background:var(--bg)}
+            .rd-id{font-family:ui-monospace,Consolas,'Cascadia Mono',monospace;font-size:12px}
             .rd svg{flex:0 0 auto}
             .rd .i-k,.rd .w-k{display:none}
             .rd .ok .i-c,.rd .ok .w-c{display:none}
             .rd .ok .i-k,.rd .ok .w-k{display:inline}
             .rd button.ok,.rd-p:hover .rd-c.ok{color:var(--link);border-color:var(--link)}
-            .rd-x{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0 0 96px}
+            .rd-x{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0 0 116px}
             .rd-x button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--btn);border-radius:5px;font:inherit;font-size:11.5px;padding:3px 8px;color:var(--ink);cursor:pointer}
             .rd-x button:hover{background:var(--bg)}
-            @media (max-width:520px){ .rd-l{flex-basis:72px} .rd-x{padding-left:84px} }
+            @media (max-width:520px){ .rd-l{flex-basis:76px} .rd-x{padding-left:88px} }
             .rd-note{color:var(--link);font-size:12px}
             .snip{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .date{color:var(--muted);font-size:12px;white-space:nowrap}
@@ -289,6 +292,8 @@ public static class HtmlRenderer
               try{
                 var d=f.contentDocument;
                 d.addEventListener('click',function(ev){ var a=ev.target.closest('a'); if(a&&a.href){ ev.preventDefault(); post({t:'link',href:a.href}); } },true);
+                d.addEventListener('mousedown',function(){ rdCloseAll(); },true);
+                d.addEventListener('keydown',function(ev){ if(ev.key==='Escape') rdCloseAll(); });
                 new ResizeObserver(function(){ size(f); }).observe(d.body);
                 Array.prototype.forEach.call(d.images,function(i){ i.addEventListener('load',function(){ size(f); }); });
               }catch(e){}
@@ -336,10 +341,33 @@ public static class HtmlRenderer
             function rdToggle(ev,id){
               if(ev) ev.stopPropagation();
               var c=document.getElementById('rd'+id), m=document.getElementById('m'+id); if(!c||!m) return;
-              var open=c.hidden; c.hidden=!open;
+              var open=c.hidden;
+              if(open) rdCloseAll(c);   // one card at a time
+              c.hidden=!open;
               var b=m.querySelector('.to-b'); if(b) b.setAttribute('aria-expanded',open?'true':'false');
               if(!open) rdNote(id,'');
+              post({t:'rdopen',open:open});
             }
+            // Design CO1: a click outside the card, Esc, or another Details button closes it. The Windows app calls
+            // this too, for a click elsewhere in its window. Returns the Details button of the card it closed.
+            function rdCloseAll(but){
+              var was=null;
+              Array.prototype.forEach.call(document.querySelectorAll('.rd'),function(c){
+                if(c.hidden||c===but) return;
+                c.hidden=true;
+                var m=c.closest('.msg'), b=m?m.querySelector('.to-b'):null; if(b){ b.setAttribute('aria-expanded','false'); was=b; }
+                var n=c.querySelector('.rd-note'); if(n) n.textContent='';
+              });
+              if(was&&!but) post({t:'rdopen',open:false});
+              return was;
+            }
+            document.addEventListener('click',function(ev){
+              var t=ev.target; if(!t||!t.closest) return;
+              if(t.closest('.rd')||t.closest('.to-b')||t.closest('#hm')) return;
+              if(!rdCloseAll()) return;
+              // The click that closes the card must not also fold the email it belongs to.
+              if(t.closest('.hdr')&&!t.closest('button,a,.att')){ ev.stopPropagation(); ev.preventDefault(); }
+            },true);
             function rdNote(id,t){ var n=document.getElementById('rdn'+id); if(n) n.textContent=t; }
             // Design CP1: every copy button of the card (one address, one group, all) carries its own text and words.
             var RD={last:null};
@@ -373,8 +401,14 @@ public static class HtmlRenderer
             });
             document.addEventListener('contextmenu',function(ev){ var t=hmEl(ev.target); if(!t) return; ev.preventDefault(); hmAsk(t,ev.button!==2); });
             document.addEventListener('keydown',function(ev){
-              if(ev.key==='Escape'){ hmHide(); return; }
-              var c=document.getElementById('hm'); if(!c||c.hidden) return;
+              var c=document.getElementById('hm');
+              if(ev.key==='Escape'){
+                // The address card first; the Details card on the next Esc.
+                if(c&&!c.hidden){ hmHide(); return; }
+                var b=rdCloseAll(); if(b){ try{ b.focus(); }catch(e){} }
+                return;
+              }
+              if(!c||c.hidden) return;
               if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){
                 var bs=Array.prototype.slice.call(c.querySelectorAll('button')); if(!bs.length) return;
                 var i=bs.indexOf(document.activeElement); i=ev.key==='ArrowDown'?(i+1)%bs.length:(i<=0?bs.length-1:i-1); bs[i].focus(); ev.preventDefault();
@@ -431,7 +465,7 @@ public static class HtmlRenderer
             if (counts.Length > 0) sb.Append("<span class=\"to-c\">").Append(counts).Append("</span>");
             sb.Append($"<button type=\"button\" class=\"to-b\" aria-expanded=\"false\" aria-controls=\"rd{row.Id}\" title=\"Every To, Cc and Bcc address, the full date and where this email is kept\" onclick=\"rdToggle(event,{row.Id})\">Details</button>");
             sb.Append("</div></div>");
-            sb.Append(DetailsCard(m, addressTips));
+            sb.Append(DetailsCard(m, addressTips, headersButton));
             sb.Append("<div class=\"body\">");
             if (m.DeliveryReceipt is { } receipt)
                 sb.Append($"<div class=\"delivery-receipt\" role=\"note\">{Esc(receipt.Detail)}</div>");
@@ -517,7 +551,7 @@ public static class HtmlRenderer
     /// Design RC1 (option B): the card the Details button opens — From, every To / Cc / Bcc address on its own line,
     /// the full date, the subject and where the email is kept. Each address is a hover target like in the header.
     /// </summary>
-    internal static string DetailsCard(RenderMessage m, bool addressTips = true)
+    internal static string DetailsCard(RenderMessage m, bool addressTips = true, bool headersButton = false)
     {
         var row = m.Row;
         var to = Composer.ParseAddresses(row.To).Mailboxes.ToList();
@@ -556,11 +590,23 @@ public static class HtmlRenderer
         Line("Date", Esc(row.Date.ToLocalTime().ToString("dddd, d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)));
         Line("Subject", Esc(string.IsNullOrWhiteSpace(row.Subject) ? "(no subject)" : row.Subject));
         if (!string.IsNullOrWhiteSpace(m.KeptIn)) Line("Kept in", Esc(m.KeptIn));
+        // Design ID1: the IDs that point at this email (every provider) and at its conversation (Gmail only).
+        string Id(string shown, string text, string said, string label) =>
+            $"<div class=\"rd-p rd-i\"><span class=\"rd-pt\">{shown}</span>{Copy("rd-c", text, said, label)}</div>";
+        var emailId = EmailReference.EmailId(row.MessageId);
+        var conversationId = EmailReference.ConversationId(row.ThreadKey);
+        if (emailId.Length > 0) Line("Email ID", Id($"<span class=\"rd-id\">{Esc(emailId)}</span>", emailId, EmailReference.SaidEmailId, "Copy the email ID"));
+        if (conversationId.Length > 0)
+            Line("Conversation ID", Id($"<span class=\"rd-id\">{Esc(conversationId)}</span> <span class=\"rd-a\">Gmail</span>", conversationId, EmailReference.SaidConversationId, "Copy the conversation ID"));
         sb.Append("<div class=\"rd-x\">");
         // One address has its own button in its row; "all" starts at two.
         if (total > 1)
             sb.Append(Copy("rd-all", AddressCopy.All(toList, ccList, bccList), AddressCopy.SaidAll(total),
                 "Copy every address, one per line, under the headings To, CC and BCC", $"<span>Copy all {total} addresses</span>"));
+        sb.Append(Copy("rd-ref", EmailReference.Text(row, m.KeptIn), EmailReference.SaidReference,
+            "Copy the subject, sender, date and IDs of this email, one per line", "<span>Copy email reference</span>"));
+        if (headersButton)
+            sb.Append($"<button type=\"button\" class=\"rd-h\" title=\"Every header line of this email\" onclick=\"event.stopPropagation();post({{t:'headers',id:{row.Id}}})\">Headers</button>");
         sb.Append($"<button type=\"button\" onclick=\"rdToggle(event,{row.Id})\">Close</button>");
         sb.Append($"<span class=\"rd-note\" id=\"rdn{row.Id}\" role=\"status\"></span></div></div>");
         return sb.ToString();
