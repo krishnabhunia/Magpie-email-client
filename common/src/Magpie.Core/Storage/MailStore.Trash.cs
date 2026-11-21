@@ -108,6 +108,46 @@ public sealed partial class MailStore
     }
 
     /// <summary>
+    /// Design AL1: the mail check found these emails gone from Trash on the server — put back or deleted for good in
+    /// another app. Their "auto-deleted" note ends with that stay in Trash; otherwise a later delete by hand of the
+    /// same email (same Message-ID) would be shown as auto-deleted, with the old date and rule. Call it before the
+    /// rows are removed. A note is kept when it is already about the next stay: another copy of the email is still
+    /// in this folder, or a move of it to this folder is waiting to reach the server (auto delete took it again).
+    /// Where the email was before Trash, and since when, stay as they are (Restore, auto-empty).
+    /// </summary>
+    public int EndAutoDeleted(long trashFolderId, IEnumerable<long> goneUids)
+    {
+        var gone = goneUids.ToHashSet();
+        if (gone.Count == 0) return 0;
+        using var c = Open();
+        var noted = new List<(string Account, string MessageId, long Uid)>();
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT m.account_id, m.message_id, m.uid
+                FROM messages m JOIN trash_from t ON t.account_id=m.account_id AND t.message_id=m.message_id
+                WHERE m.folder_id=$f AND m.message_id<>'' AND t.reason=$r
+                """;
+            cmd.Parameters.AddWithValue("$f", trashFolderId);
+            cmd.Parameters.AddWithValue("$r", AutoDeleted);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) noted.Add((r.GetString(0), r.GetString(1), r.GetInt64(2)));
+        }
+        var ended = noted.GroupBy(n => (n.Account, n.MessageId)).Where(g => g.All(n => gone.Contains(n.Uid))).Select(g => g.Key).ToList();
+        if (ended.Count == 0) return 0;
+        using var tx = c.BeginTransaction();
+        var count = 0;
+        foreach (var (account, messageId) in ended)
+            count += Exec(c, """
+                UPDATE trash_from SET reason='', rule_id='', rule_line=''
+                WHERE account_id=$a AND message_id=$m AND reason=$r
+                  AND NOT EXISTS (SELECT 1 FROM pending_ops p WHERE p.account_id=$a AND p.message_id=$m AND p.kind=$k AND p.arg=$f)
+                """, ("$a", account), ("$m", messageId), ("$r", AutoDeleted), ("$k", (int)PendingOpKind.Move), ("$f", trashFolderId));
+        tx.Commit();
+        return count;
+    }
+
+    /// <summary>
     /// Design AL1: the auto-delete note of each of these emails that still has a copy in one of these (Trash) folders,
     /// by Message-ID. The copy is looked up here because the row a conversation shows for an email is its preferred
     /// copy (Inbox, a label or All Mail come before Trash), which may sit in another folder.

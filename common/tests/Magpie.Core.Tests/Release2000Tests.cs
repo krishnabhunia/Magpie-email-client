@@ -230,6 +230,47 @@ public sealed class Release2000Tests
     }
 
     [Fact]
+    public void An_email_that_left_Trash_in_another_app_is_not_auto_deleted_when_it_comes_back()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, trash) = Store(dir);
+        var at = Local(2026, 11, 21, 18, 24);
+        MessageRow In(long folder, string thread, string id) => Rows.Make("A", folder, thread, from: Shop, messageId: id);
+        store.RecordTrashed(new[] { In(inbox, "left", "left@x"), In(inbox, "stays", "stays@x"), In(inbox, "again", "again@x"), In(inbox, "queued", "queued@x") }, at, _ => ShopRule);
+        store.RecordTrashed(new[] { In(inbox, "hand", "hand@x") }, at);
+        var rows = store.InsertMessages(new[]
+        {
+            In(trash, "left", "left@x"), In(trash, "stays", "stays@x"), In(trash, "hand", "hand@x"),
+            In(trash, "again", "again@x"), In(trash, "again", "again@x"),   // auto-deleted a second time: the new copy is listed already
+            In(trash, "queued", "queued@x"),
+        });
+        long Uid(string id, int nth = 0) => rows.Where(r => r.MessageId == id).ElementAt(nth).Uid;
+        // Auto delete took "queued" again; its move to Trash has not reached the server yet.
+        store.AddPendingOp(new PendingOp { AccountId = "A", FolderId = inbox, Uid = 9001, Kind = PendingOpKind.Move, Arg = trash, MessageId = "queued@x" });
+
+        // The mail check finds these gone from Trash on the server.
+        var gone = new[] { Uid("left@x"), Uid("hand@x"), Uid("again@x"), Uid("queued@x"), 424242 };
+        Assert.Equal(1, store.EndAutoDeleted(trash, gone));
+        store.DeleteUids(trash, gone);
+        Assert.Equal(new[] { "again@x", "queued@x", "stays@x" },
+            store.TrashNotes("A", new[] { "left@x", "stays@x", "again@x", "queued@x", "hand@x" }).Keys.OrderBy(k => k));
+        Assert.Equal(inbox, store.TrashOrigin("A", "left@x"));   // Restore still knows where it was
+        Assert.Equal(0, store.EndAutoDeleted(trash, Array.Empty<long>()));
+        Assert.Equal(0, store.EndAutoDeleted(inbox, gone));
+
+        // Deleted by hand in the other app later: it is listed in Trash again, and is not "auto-deleted".
+        store.InsertMessages(new[] { In(trash, "left", "left@x") });
+        store.StampTrash(trash, at.AddDays(2));
+        Assert.DoesNotContain(store.AutoDeletedThreads(new[] { trash }).Keys, k => k.ThreadKey == "left");
+        Assert.Equal(new[] { "left" }, store.ListThreads(new ListQuery { FolderIds = new[] { trash }, TrashReason = TrashReason.NotAutoDeleted }, DateTimeOffset.Now).Select(t => t.ThreadKey));
+        Assert.Equal((3, 2), store.TrashCounts(new[] { trash }));
+        Assert.Empty(store.TrashNotesIn("A", new[] { "left@x" }, new[] { trash }));
+        // Auto delete taking it once more writes a new note.
+        store.RecordTrashed(new[] { In(inbox, "left", "left@x") }, at.AddDays(3), _ => ShopRule);
+        Assert.Equal(at.AddDays(3), store.TrashNotesIn("A", new[] { "left@x" }, new[] { trash })["left@x"].At);
+    }
+
+    [Fact]
     public void The_Trash_filter_splits_the_list_in_two_that_add_up_to_all()
     {
         using var dir = new TempDir();

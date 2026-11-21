@@ -326,6 +326,74 @@ public class IntegrationTests
         Assert.Single(e.Store.DeleteTimers(acc.Id, Inbox(e).Single(t => t.Latest.Subject == "More deals").ThreadKey));
     }
 
+    /// <summary>
+    /// Design AL1: an auto-deleted email that another app puts back and later deletes by hand is in Trash a second
+    /// time under the same Message-ID. Magpie must not show that second stay as auto-deleted.
+    /// </summary>
+    [Fact]
+    public async Task An_auto_deleted_email_put_back_and_deleted_again_in_another_app_is_not_labelled()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("offers@shop.test", me, "Weekend deals", "old offer", "o1@shop.test", date: DateTimeOffset.Now.AddDays(-10)));
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Dinner", "see you", "a1@vendor.test"));
+
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => Inbox(e).Count == 2, "2 inbox conversations");
+        var trash = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Trash);
+        async Task<int> ServerCount(string folder)
+        {
+            using var c = await Raw(me);
+            var f = folder == "INBOX" ? c.Inbox : await c.GetFolderAsync(folder);
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+        // What another mail app does: every email of one folder goes to another.
+        async Task ElsewhereMove(string from, string to, string subject)
+        {
+            using var c = await Raw(me);
+            var source = from == "INBOX" ? c.Inbox : await c.GetFolderAsync(from);
+            var target = to == "INBOX" ? c.Inbox : await c.GetFolderAsync(to);
+            await source.OpenAsync(FolderAccess.ReadWrite);
+            var found = await source.SearchAsync(SearchQuery.SubjectContains(subject));
+            Assert.Single(found);
+            await source.MoveToAsync(found, target);
+            await c.DisconnectAsync(true);
+        }
+
+        var rule = new AutoDeleteRule { Pattern = "offers@shop.test", Amount = 7, Unit = DeleteUnit.Days };
+        e.SaveAutoDeleteRule(rule, startOnExisting: true);
+        Assert.Equal(1, e.RunDueDeletes(DateTimeOffset.Now));
+        await WaitUntilAsync(async () => await ServerCount("Trash") == 1, "the email in the server's Trash");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 1, "Trash listed on this PC");
+        Assert.Single(e.Store.TrashNotesIn(acc.Id, new[] { "o1@shop.test" }, new[] { trash.Id }));
+        Assert.Equal((1, 1), e.Store.TrashCounts(new[] { trash.Id }));
+        // The rule is removed, so that nothing but the other app touches the email from here on.
+        e.RemoveAutoDeleteRule(rule.Id, clearTimers: true);
+
+        // Put back in the other app: once the mail check sees it gone from Trash, the note has ended.
+        await ElsewhereMove("Trash", "INBOX", "Weekend deals");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 0 && Inbox(e).Any(t => t.Latest.Subject == "Weekend deals"), "back in the Inbox on this PC");
+        Assert.Empty(e.Store.TrashNotes(acc.Id, new[] { "o1@shop.test" }));
+
+        // Deleted by hand in the other app: in Trash again, and not "auto-deleted".
+        await ElsewhereMove("INBOX", "Trash", "Weekend deals");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 1, "in Trash again on this PC");
+        Assert.Empty(e.Store.AutoDeletedThreads(new[] { trash.Id }));
+        Assert.Equal((1, 0), e.Store.TrashCounts(new[] { trash.Id }));
+        Assert.Empty(e.Store.TrashNotesIn(acc.Id, new[] { "o1@shop.test" }, new[] { trash.Id }));
+        Assert.Equal("Weekend deals", Assert.Single(e.Store.ListThreads(new ListQuery { FolderIds = new[] { trash.Id }, TrashReason = TrashReason.NotAutoDeleted }, DateTimeOffset.Now)).Latest.Subject);
+    }
+
     [Fact]
     public async Task Empty_Trash_delete_past_emails_and_restore_reach_the_server()
     {

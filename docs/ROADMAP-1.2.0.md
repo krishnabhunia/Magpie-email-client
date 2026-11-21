@@ -96,7 +96,7 @@ Krishna: *"after deletion and when it goes to the bin, it doesn't show it has be
 
 | Part | What was built (20.0.0) |
 |---|---|
-| Record | `trash_from` gets `reason` / `rule_id` / `rule_line` (checked on every start, no schema number change). Written by `RunDueDeletes` (each email's rule as it reads then) and by "Delete emails from…" when the run has a rule. Deleting by hand writes no reason and clears an older one. |
+| Record | `trash_from` gets `reason` / `rule_id` / `rule_line` (checked on every start, no schema number change). Written by `RunDueDeletes` (each email's rule as it reads then) and by "Delete emails from…" when the run has a rule. Deleting by hand writes no reason and clears an older one. The note ends when the mail check finds the email gone from Trash (put back or deleted for good in another app), so a later delete by hand of the same email is not shown as auto-deleted. |
 | Row label | In Trash: **Auto-deleted · 21 Nov, 18:24** (year added when it is not this year), amber. Pointing at it: title, full date and time, the rule. A conversation with several auto-deleted emails shows the latest and says how many. |
 | Banner | Above the open conversation: **Deleted by Magpie auto delete** · "Saturday, 21 November 2026, 18:24" · "Rule: … · Arrived 22 Oct 2026 · Was in Inbox" · **Restore** · **Edit rule** (only while the rule still exists). |
 | Per-email note | "🗑 auto-deleted 21 Nov, 18:24" next to the date of each such email in the reading page. |
