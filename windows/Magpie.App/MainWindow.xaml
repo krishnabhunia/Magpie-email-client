@@ -591,6 +591,15 @@
                                 Command="{Binding EmptyBinCommand}" ToolTip="Delete everything here for good (asks first)" />
                         <TextBlock Text="{Binding BinBarText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" />
                     </DockPanel>
+                    <!-- Trash (design AL1, option C): all · auto-deleted · deleted by you or elsewhere — only when auto delete put something here -->
+                    <StackPanel x:Name="TrashFilterBar" Orientation="Horizontal" Margin="8,0,8,4" Visibility="{Binding ShowTrashFilter, Converter={StaticResource BoolToVis}}">
+                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAll, Mode=OneWay}" Content="{Binding TrashAllText}"
+                                     ToolTip="{Binding TrashAllTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="all" />
+                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAuto, Mode=OneWay}" Content="{Binding TrashAutoText}"
+                                     ToolTip="{Binding TrashAutoTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="auto" />
+                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterOther, Mode=OneWay}" Content="{Binding TrashOtherText}"
+                                     ToolTip="{Binding TrashOtherTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="other" />
+                    </StackPanel>
                     <!-- Set aside pile (design B7) -->
                     <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"
@@ -829,6 +838,11 @@
                                                             </TextBlock.Style>
                                                         </TextBlock>
                                                     </StackPanel>
+                                                </Border>
+                                                <!-- Design AL1: in Trash, a conversation that auto delete moved there says so, with the date and time -->
+                                                <Border x:Name="AutoDeletedRowLabel" CornerRadius="9" Background="{DynamicResource Brush.Warning.Subtle}" Margin="0,0,6,0" Padding="8,1" ToolTip="{Binding AutoDeletedTip}"
+                                                        Visibility="{Binding HasAutoDeleted, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{Binding AutoDeletedLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Warning}" ty:Typography.Role="tags" />
                                                 </Border>
                                                 <ItemsControl ItemsSource="{Binding TagChips}">
                                                     <ItemsControl.ItemsPanel>
@@ -1124,6 +1138,26 @@
                                          VerticalContentAlignment="Top" Margin="0,4,0,0" AutomationProperties.Name="Note to the organiser"
                                          Visibility="{Binding AddInviteNote, Converter={StaticResource BoolToVis}}"  ty:Typography.Role="fieldValue" />
                             </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+                <!-- Design AL1: this conversation is in Trash because auto delete moved it there — when, the rule, where it was -->
+                <Border x:Name="AutoDeletedBanner" Background="{DynamicResource Brush.Warning.Subtle}" CornerRadius="6" Padding="12,8,12,8" Margin="24,0,24,8"
+                        Visibility="{Binding ShowAutoDeleted, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="AutoDeletedRestore" Style="{StaticResource Button.Primary}" Content="Restore" FontSize="12" MinHeight="26" Padding="10,2" Margin="8,0,6,0" Click="OnRestoreAutoDeleted"
+                                    ToolTip="{Binding AutoDeletedRestoreTip}" />
+                            <Button Style="{StaticResource Button.Secondary}" Content="Edit rule" FontSize="12" MinHeight="26" Padding="10,2" Click="OnEditAutoDeletedRule"
+                                    Visibility="{Binding CanEditAutoDeletedRule, Converter={StaticResource BoolToVis}}" ToolTip="Change or remove the rule that deleted this email" />
+                        </StackPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="&#xE74D;" FontFamily="{StaticResource Font.Icons}" FontSize="14" Foreground="{DynamicResource Brush.Warning}" Margin="0,2,10,0" VerticalAlignment="Top" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding AutoDeletedTitle}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding AutoDeletedWhen}" FontSize="12.5" Foreground="{DynamicResource Brush.Text.Primary}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding AutoDeletedDetails}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding AutoDeletedMany}" FontSize="11.5" Foreground="{DynamicResource Brush.Text.Secondary}" TextWrapping="Wrap"
+                                       Visibility="{Binding AutoDeletedMany, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </DockPanel>
                 </Border>

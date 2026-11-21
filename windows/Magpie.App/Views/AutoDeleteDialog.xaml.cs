@@ -211,7 +211,7 @@ public partial class AutoDeleteDialog : Window
             else
             {
                 var r = _e.ApplyDeleteFrom(req, DateTimeOffset.Now);
-                if (r.Past.Count > 0) _e.TrashEmails(r.Past.Rows);
+                if (r.Past.Count > 0) _e.TrashEmails(r.Past.Rows, r.Rule);
             }
             _ran = true;
             DialogResult = true;

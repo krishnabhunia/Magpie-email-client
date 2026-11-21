@@ -84,8 +84,26 @@ Ship as one release **1.2.0** or as 1.2.0 / 1.2.1 / … — releasing is automat
 | 99 | Reader: a click outside the Details card (or Esc) closes it | CO1 · [canvas](https://claude.ai/artifact/Vb2TTCN2ZWDme4HMytwFQk) | Asked 14 Nov 2026 + design shown + approved 14 Nov 2026 · Built in 19.0.0 with #96 (page part on Mac too; the click elsewhere in the window is Windows) — not yet tried on Windows or a Mac | [#157](https://github.com/krishnabhunia/Magpie-email-client/issues/157) |
 | 100 | Reader: see the email headers | HD1 · [canvas](https://claude.ai/artifact/Vb2TTCN2ZWDme4HMytwFQk) | Asked 14 Nov 2026 + designs A (own window) / B (inside the card) shown + approved 14 Nov 2026 — **A** · Built in 19.0.0 with #96 (Windows; Mac later) — the window was opened by the CI smoke test only, not yet seen by eye | [#158](https://github.com/krishnabhunia/Magpie-email-client/issues/158) |
 | 101 | Reader: Email ID and Gmail Conversation ID in the Details card, Copy email reference | ID1 · [canvas](https://claude.ai/artifact/Vb2TTCN2ZWDme4HMytwFQk) | Asked 14 Nov 2026 ("what ID shall I use to refer an email") + design shown + approved 14 Nov 2026 · Built in 19.0.0 with #96 (shared reading page, so Mac too) — not yet tried on Windows or a Mac | [#159](https://github.com/krishnabhunia/Magpie-email-client/issues/159) |
+| 102 | Trash: label the emails that auto delete removed, with the date and time; a filter All · Auto-deleted · Deleted by you or elsewhere | AL1 · [canvas](https://claude.ai/artifact/NbohouyHT36WDRzE6Fntqv) | Asked 21 Nov 2026 + designs A (label + banner) / B (small mark + banner) / C (A plus a Trash filter) shown + approved 21 Nov 2026 — **C** · Built in 20.0.0 (Windows; the per-email note is in the shared reading page, the Mac app does not fill it yet) — the row label, filter and banner were checked by the CI smoke test only, not yet seen by eye | [#160](https://github.com/krishnabhunia/Magpie-email-client/issues/160) |
 
 Anything Krishna mentions in conversation is added here automatically (his standing rule); it leaves only when he explicitly rejects it. Every open item also has a GitHub issue (title prefix `[Q<n>]`, labels `1.2.0` / `approved` / `waiting-on-krishna` / `parked`); a new queue item gets an issue too, and the issue is closed when the item ships.
+
+## #102 AL1 — Trash says which emails auto delete removed (shown and approved 21 Nov 2026: **C**)
+
+Krishna: *"after deletion and when it goes to the bin, it doesn't show it has been deleted by Magpie auto delete. I want you to show label that it got deleted by magpie auto delete and date and time it got deleted."* → designs A / B / C ([canvas](https://claude.ai/artifact/NbohouyHT36WDRzE6Fntqv)) → *"Approved AL1 C"*.
+
+**Why it did not show:** when auto delete moved an email to Trash, Magpie kept the time and the folder it came from (`trash_from`) but not the reason or the rule, and the local row is removed when the move is queued. The Trash copy arrives later by sync, so the note is matched by Message-ID.
+
+| Part | What was built (20.0.0) |
+|---|---|
+| Record | `trash_from` gets `reason` / `rule_id` / `rule_line` (checked on every start, no schema number change). Written by `RunDueDeletes` (each email's rule as it reads then) and by "Delete emails from…" when the run has a rule. Deleting by hand writes no reason and clears an older one. |
+| Row label | In Trash: **Auto-deleted · 21 Nov, 18:24** (year added when it is not this year), amber. Pointing at it: title, full date and time, the rule. A conversation with several auto-deleted emails shows the latest and says how many. |
+| Banner | Above the open conversation: **Deleted by Magpie auto delete** · "Saturday, 21 November 2026, 18:24" · "Rule: … · Arrived 22 Oct 2026 · Was in Inbox" · **Restore** · **Edit rule** (only while the rule still exists). |
+| Per-email note | "🗑 auto-deleted 21 Nov, 18:24" next to the date of each such email in the reading page. |
+| Filter (C) | Over the Trash list, only when something auto-deleted is there: **All · n**, **Auto-deleted · n**, **Deleted by you or elsewhere · n**. A conversation counts as auto-deleted when any of its emails in Trash was. Back to All on leaving Trash. |
+| Restore keeps it | Found while testing: a restored auto-deleted email got its timer again and went back to Trash at the next pass. `auto_delete_kept` (by Message-ID) now keeps a restored one from every rule. Not asked for by Krishna; told to him in the PR. |
+
+**Limits:** only emails auto-deleted after the update are labelled (the reason was not kept before); the record is on this PC only; an email without a Message-ID cannot be labelled; a mail rule with a Delete action is not "auto delete" and is not labelled; a conversation opened in its own window has the per-email note but not the banner; Mac shows none of it yet.
 
 ## #96 RC1 + #97 PE1 — Every recipient, and every email with one address (shown and approved 13 Nov 2026: RC1 **B**, PE1)
 

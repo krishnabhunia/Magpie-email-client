@@ -87,6 +87,7 @@ public partial class ThreadViewModel : ObservableObject
         ShowReplies = false;
         ShowQuickReplies = false;
         HasDeleteTimer = false;
+        ShowAutoDeleted = false;
         HasInvite = false;
         _invite = null;
         BlockedImages = 0;
@@ -442,8 +443,12 @@ public partial class ThreadViewModel : ObservableObject
             : _e.Store.DeliveryReceiptsForThread(accountId, rows[0].ThreadKey);
         // Design RC1: the Details card says where each email is kept ("Sent · you@gmail.com").
         var keptIn = _e.Folders(accountId).ToDictionary(f => f.Id, f => PersonView.FolderLabel(f.Role, f.Path) + (account == null ? "" : " · " + account.Email));
+        // Design AL1: each email that auto delete moved to Trash says so next to its date.
+        var deleted = AutoDeletedNotes(accountId, rows);
         return rows.Select((r, i) => new RenderMessage
         {
+            DeletedNote = deleted.TryGetValue(r.Id, out var gone) ? AutoDeleted.MessageNote(gone.At, now) : null,
+            DeletedTip = deleted.TryGetValue(r.Id, out var gone2) ? AutoDeleted.Tip(gone2) : "",
             KeptIn = keptIn.GetValueOrDefault(r.FolderId, ""),
             DeleteNote = timers.TryGetValue(r.Id, out var t) ? DeleteDates.MessageNote(t.At, now) : null,
             DeleteUrgency = timers.TryGetValue(r.Id, out var t2) ? AutoDelete.Urgency(t2.At, now, rules.GetValueOrDefault(t2.Rule)?.Otp == true) : DeleteUrgency.Later,
@@ -536,6 +541,7 @@ public partial class ThreadViewModel : ObservableObject
     /// times (or the option) changed, since each email shows its own there; a load passes false (it draws anyway).</summary>
     public void RefreshDeleteBar(bool redraw = true)
     {
+        RefreshAutoDeleted();   // design AL1: in Trash, the banner for what auto delete moved there
         var timers = HasThread ? _e.Store.DeleteTimers(AccountId, ThreadKey) : new();
         var look = _e.Config.Appearance.DeleteDates;
         HasDeleteTimer = timers.Count > 0;

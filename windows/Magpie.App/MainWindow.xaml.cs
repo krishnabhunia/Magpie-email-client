@@ -585,6 +585,20 @@ public partial class MainWindow : Window
 
     private void EditAutoDelete(AutoDeleteRule rule, bool editing) => AutoDeleteDialog.Show(this, rule, editing);
 
+    /// <summary>Design AL1: Restore on the "Deleted by Magpie auto delete" banner — the open conversation goes back where it was.</summary>
+    private void OnRestoreAutoDeleted(object sender, RoutedEventArgs e)
+    {
+        if (_vm.Selected is { } item) _ = _vm.RunOnAsync(new[] { item }, "restore");
+    }
+
+    /// <summary>Design AL1: Edit rule on that banner — the rule that deleted the email, while it still exists.</summary>
+    private void OnEditAutoDeletedRule(object sender, RoutedEventArgs e)
+    {
+        var rule = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == _vm.Reader.AutoDeletedRuleId);
+        if (rule != null) EditAutoDelete(rule, editing: true);
+        else Ui.Error("Auto-delete", "That rule was removed since it deleted this email.");
+    }
+
     private void OnDeleteDropdown(object sender, RoutedEventArgs e)
     {
         if (!_vm.Reader.HasThread || sender is not FrameworkElement anchor) return;

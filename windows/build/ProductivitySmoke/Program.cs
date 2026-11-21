@@ -122,6 +122,7 @@ internal static partial class Program
             vm.RemoveWorkspaceView(id);
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             CheckPersonList(vm, engine, inbox);
+            CheckAutoDeletedTrash(vm, engine, inbox);
             owner.Close();
             Console.WriteLine("PRODUCTIVITY_SMOKE_PASSED assertions=" + _assertions);
             return 0;
@@ -158,6 +159,7 @@ internal static partial class Program
             Assert(window?.FindName("ThreadList") is ListBox, "Full main window constructs the mail list");
             CheckUpdateButton(window!);
             CheckPriorityIndicator(window!);
+            CheckAutoDeletedRow(window!);
             CheckInfoEntryPoints(window!);
         }
         finally
