@@ -192,7 +192,12 @@ public sealed partial class ThreadItem : ObservableObject
     /// <summary>H2: the card's two lines.</summary>
     public string DeleteCardTitle { get; } = "";
     public string DeleteCardRule { get; } = "";
-    public bool HasTagLine => TagChips.Count > 0 || ShowPill || (GrowPill && HasDeleteTag);
+    /// <summary>Design AL1: in Trash, "Auto-deleted · 21 Nov, 18:24" on a conversation auto delete moved there.</summary>
+    public string AutoDeletedLabel { get; init; } = "";
+    /// <summary>What pointing at that label says: the full date and time and the rule (null = no tooltip).</summary>
+    public string? AutoDeletedTip { get; init; }
+    public bool HasAutoDeleted => AutoDeletedLabel.Length > 0;
+    public bool HasTagLine => TagChips.Count > 0 || ShowPill || (GrowPill && HasDeleteTag) || HasAutoDeleted;
     public string DateSlotText => ShowDeleteDay ? DeleteDay : DateText;
 
     /// <summary>L4: the filled part of a 14 px ring, clockwise from 12 o'clock, for the share of time left.</summary>
@@ -680,6 +685,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowCategories));
         OnPropertyChanged(nameof(IsScheduledView));
         OnPropertyChanged(nameof(ShowListTools));
+        ResetTrashFilter();   // design AL1: the Trash filter belongs to one visit of Trash
         // Design PE1: the person list sits on the Inbox view; any other view (command palette, saved view…) ends it.
         if (IsPersonView && !_personSetting && newValue?.Kind != NavKind.Inbox) { LeavePerson(); SetSearchQuietly(""); }
         Selected = null;
@@ -778,6 +784,7 @@ public partial class MainViewModel : ObservableObject
         Snoozed = nav.Kind == NavKind.Snoozed,
         SetAside = nav.Kind == NavKind.SetAside,
         DeletingBefore = nav.Kind == NavKind.DeletingSoon ? now.AddDays(7) : null,
+        TrashReason = TrashReasonFor(nav),
         Tag = nav.Kind == NavKind.Tag ? nav.TagName : null,
         Search = nav.SavedView is { } view ? SearchQuery.Parse(view.Query + " " + SearchText) : search,
         Limit = limit,
@@ -806,6 +813,7 @@ public partial class MainViewModel : ObservableObject
         _hasMoreThreads = false;
         var now = DateTimeOffset.Now;
         var keepKey = Selected?.SelectKey;
+        PrepareTrashList(nav);   // design AL1: the Trash filter's numbers and the rows' "Auto-deleted" notes (off in every other view)
 
         if (nav.Kind == NavKind.Scheduled)
         {
@@ -861,7 +869,11 @@ public partial class MainViewModel : ObservableObject
         var items = personItems ?? rows.Select(r =>
         {
             var acc = _e.AccountById(r.AccountId);
-            return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "") { IsChecked = checkedKeys.Contains(r.AccountId + "|" + r.ThreadKey) };
+            var (autoDeleted, autoDeletedTip) = TrashMark(r, now);
+            return new ThreadItem(r, acc?.Color ?? "#14606E", multi, now, acc?.Email ?? "")
+            {
+                IsChecked = checkedKeys.Contains(r.AccountId + "|" + r.ThreadKey), AutoDeletedLabel = autoDeleted, AutoDeletedTip = autoDeletedTip,
+            };
         }).ToList();
 
         // Drafts kept on this PC (design F1) are listed first in Drafts views.
@@ -905,6 +917,7 @@ public partial class MainViewModel : ObservableObject
 
         EmptyText = Threads.Count > 0 ? "" : !HasAccounts ? "Add an account to get started." :
             search != null ? "No messages match your search." :
+            TrashEmptyText(nav) is { Length: > 0 } filtered ? filtered :
             nav.Kind switch
             {
                 NavKind.Inbox => ShowCategories && Category != null ? $"Nothing new in {Category}." : "Inbox zero. Nice.",
@@ -1769,7 +1782,7 @@ public partial class MainViewModel : ObservableObject
             {
                 timer.Stop();
                 if (cancelled) return;
-                try { _e.TrashEmails(rows); ReloadList(); }
+                try { _e.TrashEmails(rows, r.Rule); ReloadList(); }
                 catch (Exception ex) { Log.Error("delete past emails", ex); Ui.Error("Delete", ex.Message); }
             };
         }

@@ -7,6 +7,16 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 20.0.0 (21 Nov 2026)
+<!-- closes: #160 -->
+### New
+- **Trash says which emails auto delete removed, and when.** A conversation that Magpie's auto delete moved to Trash carries the label **Auto-deleted · 21 Nov, 18:24** in the Trash list. Open it and a banner above the email says **Deleted by Magpie auto delete**, with the full date and time, the rule that did it, the day the email arrived and the folder it was in. **Restore** puts it back in that folder, and **Edit rule** opens the rule. In a conversation, each auto-deleted email also carries its own note next to its date.
+- **Show only the auto-deleted emails in Trash.** When Trash holds something auto delete put there, three choices appear over the list, each with its count: **All**, **Auto-deleted** and **Deleted by you or elsewhere**.
+- **From this update on.** Only emails that auto delete removes after this update carry the label. Magpie did not keep the reason before, so emails already in Trash show as before. The record is kept on this PC.
+
+### Fixed
+- **A restored email is not auto-deleted again.** When you restored an email that auto delete had moved to Trash, its rule found it too old and moved it back to Trash at the next check. A restored email is now kept from auto delete.
+
 ## 19.0.0 (14 Nov 2026)
 <!-- closes: #153 #154 #156 #157 #158 #159 -->
 ### New

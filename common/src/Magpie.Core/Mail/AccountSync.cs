@@ -610,7 +610,12 @@ public sealed class AccountSync : IDisposable
 
                 var serverUids = serverAll.Select(u => (long)u.Id).ToHashSet();
                 var gone = map.Keys.Where(u => !serverUids.Contains(u)).ToList();
-                if (gone.Count > 0) _store.DeleteUids(local.Id, gone);
+                if (gone.Count > 0)
+                {
+                    // Design AL1: an email that left Trash in another app is no longer "auto-deleted" if it comes back there.
+                    if (local.Role == FolderRole.Trash) _store.EndAutoDeleted(local.Id, gone);
+                    _store.DeleteUids(local.Id, gone);
+                }
                 changed = changes.Count > 0 || gone.Count > 0;
                 changed |= await BackfillPrioritiesAsync(f, local, map, serverAll, pendingRemovals, ct) > 0;
             }

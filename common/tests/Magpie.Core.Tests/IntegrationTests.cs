@@ -241,6 +241,159 @@ public class IntegrationTests
         finally { AccountSync.PrefetchPerRound = per; }
     }
 
+    /// <summary>
+    /// Design AL1: an email that auto delete moves to Trash is known there as auto-deleted — when, under which rule and
+    /// from which folder — once the server's Trash copy is listed; an email deleted by hand is not; the Trash filter
+    /// splits the two.
+    /// </summary>
+    [Fact]
+    public async Task Trash_says_which_emails_auto_delete_moved_there_and_when()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("offers@shop.test", me, "Weekend deals", "40% off", "o1@shop.test", date: DateTimeOffset.Now.AddDays(-10)));
+        await Append(me, "INBOX", Msg("offers@shop.test", me, "More deals", "50% off", "o2@shop.test", date: DateTimeOffset.Now.AddDays(-2)));
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Dinner", "friday?", "a1@vendor.test"));
+
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => Inbox(e).Count == 3, "3 inbox conversations");
+        var trash = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Trash);
+        var inbox = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Inbox);
+        async Task<int> ServerCount(string folder)
+        {
+            using var c = await Raw(me);
+            var f = folder == "INBOX" ? c.Inbox : await c.GetFolderAsync(folder);
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+
+        // A rule keeps emails from the shop 7 days; the two already here get their timers, and the 10-day-old one is due.
+        var rule = new AutoDeleteRule { Pattern = "offers@shop.test", Amount = 7, Unit = DeleteUnit.Days };
+        e.SaveAutoDeleteRule(rule, startOnExisting: true);
+        var before = DateTimeOffset.Now;
+        Assert.Equal(1, e.RunDueDeletes(DateTimeOffset.Now));
+        // One more goes to Trash by hand.
+        var dinner = Inbox(e).Single(t => t.Latest.Subject == "Dinner");
+        await e.TrashAsync(acc.Id, dinner.ThreadKey, e.FolderIds(FolderRole.Inbox, acc.Id));
+        await WaitUntilAsync(async () => await ServerCount("Trash") == 2 && await ServerCount("INBOX") == 1, "both emails in the server's Trash");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 2, "Trash listed on this PC");
+
+        // The note: only for the auto-deleted email, with the time, the rule as it read, and the folder it was in.
+        var notes = e.Store.TrashNotes(acc.Id, new[] { "o1@shop.test", "a1@vendor.test", "o2@shop.test" });
+        var note = Assert.Single(notes).Value;
+        Assert.Equal("o1@shop.test", notes.Keys.Single());
+        Assert.InRange(note.At, before.AddSeconds(-1), DateTimeOffset.Now.AddSeconds(1));
+        Assert.Equal(rule.Id, note.RuleId);
+        Assert.Equal("Rule: offers@shop.test after 7 days", note.RuleLine);
+        Assert.Equal(inbox.Id, note.FolderId);
+
+        // The list: one conversation carries the label, and the filter splits Trash in two.
+        var deals = e.Store.MessagesInFolder(trash.Id).Single(m => m.MessageId == "o1@shop.test");
+        var marked = e.Store.AutoDeletedThreads(new[] { trash.Id });
+        Assert.Equal((acc.Id, deals.ThreadKey), Assert.Single(marked).Key);
+        Assert.Equal(1, marked.Values.Single().Count);
+        Assert.Equal((2, 1), e.Store.TrashCounts(new[] { trash.Id }));
+        List<string> Subjects(TrashReason reason) =>
+            e.Store.ListThreads(new ListQuery { FolderIds = new[] { trash.Id }, TrashReason = reason }, DateTimeOffset.Now).Select(t => t.Latest.Subject).OrderBy(x => x).ToList();
+        Assert.Equal(new[] { "Dinner", "Weekend deals" }, Subjects(TrashReason.Any));
+        Assert.Equal(new[] { "Weekend deals" }, Subjects(TrashReason.AutoDeleted));
+        Assert.Equal(new[] { "Dinner" }, Subjects(TrashReason.NotAutoDeleted));
+
+        // Restored, the note is gone — and the email stays: its rule finds it again in the Inbox, older than the 7 days
+        // it allows, but an email taken back from an auto delete gets no timer a second time.
+        e.Restore(acc.Id, deals.ThreadKey);
+        Assert.Empty(e.Store.TrashNotes(acc.Id, new[] { "o1@shop.test" }));
+        Assert.True(e.Store.IsKeptRestored(acc.Id, "o1@shop.test"));
+        await WaitUntilAsync(async () => await ServerCount("INBOX") == 2 && await ServerCount("Trash") == 1, "restored on the server");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => Inbox(e).Any(t => t.Latest.Subject == "Weekend deals"), "back in the Inbox on this PC");
+        await Task.Delay(1500);   // the arrival pass (rules, timers) has run
+        var again = Inbox(e).Single(t => t.Latest.Subject == "Weekend deals");
+        Assert.Empty(e.Store.DeleteTimers(acc.Id, again.ThreadKey));
+        Assert.Equal(0, e.RunDueDeletes(DateTimeOffset.Now));
+        e.SaveAutoDeleteRule(rule, startOnExisting: true);                      // saving the rule again does not catch it either
+        Assert.Empty(e.Store.DeleteTimers(acc.Id, again.ThreadKey));
+        Assert.Equal(0, e.RunDueDeletes(DateTimeOffset.Now));
+        Assert.Contains(Inbox(e), t => t.Latest.Subject == "Weekend deals");
+        // The other email of the same sender keeps its timer: only the restored one is exempt.
+        Assert.Single(e.Store.DeleteTimers(acc.Id, Inbox(e).Single(t => t.Latest.Subject == "More deals").ThreadKey));
+    }
+
+    /// <summary>
+    /// Design AL1: an auto-deleted email that another app puts back and later deletes by hand is in Trash a second
+    /// time under the same Message-ID. Magpie must not show that second stay as auto-deleted.
+    /// </summary>
+    [Fact]
+    public async Task An_auto_deleted_email_put_back_and_deleted_again_in_another_app_is_not_labelled()
+    {
+        if (!ServersUp()) return;
+        var me = NewUser();
+        await Append(me, "INBOX", Msg("offers@shop.test", me, "Weekend deals", "old offer", "o1@shop.test", date: DateTimeOffset.Now.AddDays(-10)));
+        await Append(me, "INBOX", Msg("anita@vendor.test", me, "Dinner", "see you", "a1@vendor.test"));
+
+        using var dir = new TempDir();
+        using var e = NewEngine(dir);
+        e.Start();
+        var acc = AccountFor(me);
+        e.AddAccount(acc, "secret", null);
+        await WaitUntil(() => Inbox(e).Count == 2, "2 inbox conversations");
+        var trash = e.Folders(acc.Id).Single(f => f.Role == FolderRole.Trash);
+        async Task<int> ServerCount(string folder)
+        {
+            using var c = await Raw(me);
+            var f = folder == "INBOX" ? c.Inbox : await c.GetFolderAsync(folder);
+            await f.OpenAsync(FolderAccess.ReadOnly);
+            var n = f.Count;
+            await c.DisconnectAsync(true);
+            return n;
+        }
+        // What another mail app does: every email of one folder goes to another.
+        async Task ElsewhereMove(string from, string to, string subject)
+        {
+            using var c = await Raw(me);
+            var source = from == "INBOX" ? c.Inbox : await c.GetFolderAsync(from);
+            var target = to == "INBOX" ? c.Inbox : await c.GetFolderAsync(to);
+            await source.OpenAsync(FolderAccess.ReadWrite);
+            var found = await source.SearchAsync(SearchQuery.SubjectContains(subject));
+            Assert.Single(found);
+            await source.MoveToAsync(found, target);
+            await c.DisconnectAsync(true);
+        }
+
+        var rule = new AutoDeleteRule { Pattern = "offers@shop.test", Amount = 7, Unit = DeleteUnit.Days };
+        e.SaveAutoDeleteRule(rule, startOnExisting: true);
+        Assert.Equal(1, e.RunDueDeletes(DateTimeOffset.Now));
+        await WaitUntilAsync(async () => await ServerCount("Trash") == 1, "the email in the server's Trash");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 1, "Trash listed on this PC");
+        Assert.Single(e.Store.TrashNotesIn(acc.Id, new[] { "o1@shop.test" }, new[] { trash.Id }));
+        Assert.Equal((1, 1), e.Store.TrashCounts(new[] { trash.Id }));
+        // The rule is removed, so that nothing but the other app touches the email from here on.
+        e.RemoveAutoDeleteRule(rule.Id, clearTimers: true);
+
+        // Put back in the other app: once the mail check sees it gone from Trash, the note has ended.
+        await ElsewhereMove("Trash", "INBOX", "Weekend deals");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 0 && Inbox(e).Any(t => t.Latest.Subject == "Weekend deals"), "back in the Inbox on this PC");
+        Assert.Empty(e.Store.TrashNotes(acc.Id, new[] { "o1@shop.test" }));
+
+        // Deleted by hand in the other app: in Trash again, and not "auto-deleted".
+        await ElsewhereMove("INBOX", "Trash", "Weekend deals");
+        e.SyncNow(acc.Id);
+        await WaitUntil(() => e.Store.MessagesInFolder(trash.Id).Count == 1, "in Trash again on this PC");
+        Assert.Empty(e.Store.AutoDeletedThreads(new[] { trash.Id }));
+        Assert.Equal((1, 0), e.Store.TrashCounts(new[] { trash.Id }));
+        Assert.Empty(e.Store.TrashNotesIn(acc.Id, new[] { "o1@shop.test" }, new[] { trash.Id }));
+        Assert.Equal("Weekend deals", Assert.Single(e.Store.ListThreads(new ListQuery { FolderIds = new[] { trash.Id }, TrashReason = TrashReason.NotAutoDeleted }, DateTimeOffset.Now)).Latest.Subject);
+    }
+
     [Fact]
     public async Task Empty_Trash_delete_past_emails_and_restore_reach_the_server()
     {

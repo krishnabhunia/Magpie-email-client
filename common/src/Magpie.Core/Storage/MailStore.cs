@@ -22,6 +22,8 @@ public sealed class ListQuery
     public bool AnySnooze { get; init; }
     /// <summary>Only conversations with an auto-delete timer before this time ("Deleting soon", design AD4).</summary>
     public DateTimeOffset? DeletingBefore { get; init; }
+    /// <summary>Design AL1 (option C), for a Trash list: only the conversations auto delete put there, or only the others.</summary>
+    public TrashReason TrashReason { get; init; }
     public string? Tag { get; init; }
     public SearchQuery? Search { get; init; }
     public int Limit { get; init; } = 300;
@@ -81,6 +83,7 @@ public sealed partial class MailStore
             if (Convert.ToInt32(Scalar(c, "SELECT COUNT(*) FROM pragma_table_info('pending_ops') WHERE name='message_id'")) == 0)
                 Exec(c, "ALTER TABLE pending_ops ADD COLUMN message_id TEXT NOT NULL DEFAULT ''");
             EnsureBccColumn(c);
+            EnsureTrashReason(c);   // design AL1 (MailStore.Trash.cs)
             return;
         }
         using var tx = c.BeginTransaction();
@@ -534,6 +537,7 @@ public sealed partial class MailStore
         var match = new List<string> { inFolders };
         if (q.Tag != null) { match.Add("(',' || m.tags || ',') LIKE $tag"); cmd.Parameters.AddWithValue("$tag", $"%,{q.Tag},%"); }
         if (q.Search != null && !q.Search.IsEmpty) match.Add(q.Search.ToSql(cmd, "m"));
+        if (q.TrashReason != TrashReason.Any) match.Add(TrashReasonSql(q.TrashReason, "m"));
         // "Deleting soon" lists everything with a timer, snoozed / set aside / waiting at the door included.
         if (q.DeletingBefore == null) where.Add(q.AnySnooze ? "1=1" : snooze);
 
@@ -1673,14 +1677,16 @@ public sealed partial class MailStore
         tx.Commit();
     }
 
-    /// <summary>Puts a timer on each row (keeps an earlier one already there). Rows kept by hand ("-") are left alone.</summary>
+    /// <summary>Puts a timer on each row (keeps an earlier one already there). Rows kept by hand ("-") are left alone, and
+    /// so is an email the user restored from Trash after an auto delete (design AL1, <see cref="KeepRestored"/>).</summary>
     public int SetDeleteTimers(IEnumerable<(long RowId, DateTimeOffset At)> rows, string ruleId)
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
         var n = 0;
         foreach (var (id, at) in rows)
-            n += Exec(c, "UPDATE messages SET delete_at=$t, delete_rule=$r WHERE id=$id AND delete_rule<>'-' AND (delete_at IS NULL OR delete_at > $t)",
+            n += Exec(c, "UPDATE messages SET delete_at=$t, delete_rule=$r WHERE id=$id AND delete_rule<>'-' AND (delete_at IS NULL OR delete_at > $t) " +
+                            "AND NOT EXISTS (SELECT 1 FROM auto_delete_kept k WHERE k.account_id=messages.account_id AND k.message_id=messages.message_id AND messages.message_id<>'')",
                 ("$t", at.ToUnixTimeMilliseconds()), ("$r", ruleId), ("$id", id));
         tx.Commit();
         return n;
@@ -1709,6 +1715,22 @@ public sealed partial class MailStore
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(ReadMsg(r));
         return list;
+    }
+
+    /// <summary>Design AL1: the rule of each email whose timer is due (the same emails as <see cref="DueDeletes"/>), by row id.</summary>
+    public Dictionary<long, string> DueDeleteRules(DateTimeOffset now)
+    {
+        var rules = new Dictionary<long, string>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT m.id, m.delete_rule FROM messages m LEFT JOIN auto_delete_rules r ON r.id=m.delete_rule
+            WHERE m.delete_at IS NOT NULL AND m.delete_at <= $now AND (m.flags & 2)=0 AND COALESCE(r.paused,0)=0
+            """;
+        cmd.Parameters.AddWithValue("$now", now.ToUnixTimeMilliseconds());
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) rules[r.GetInt64(0)] = r.IsDBNull(1) ? "" : r.GetString(1);
+        return rules;
     }
 
     /// <summary>Per rule: emails waiting and the next delete (the AD4 table).</summary>

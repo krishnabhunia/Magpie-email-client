@@ -636,6 +636,9 @@ public sealed class MailEngine : IDisposable
             touched.Add(m.FolderId);
             touched.Add(dest.Id);
         }
+        // Design AL1: what auto delete had put here and the user takes back is kept from now on — its rule would
+        // otherwise find the restored copy overdue and move it to Trash again at the next pass.
+        Store.KeepRestored(accountId, Store.TrashNotes(accountId, copies.Select(m => m.MessageId)).Keys, DateTimeOffset.Now);
         Store.ForgetTrashed(accountId, copies.Select(m => m.MessageId));
         if (touched.Count > 0) Touched(accountId, touched);
     }
@@ -1167,8 +1170,12 @@ public sealed class MailEngine : IDisposable
         return new AutoDelete.DeleteFromResult(past, rule, isNew, timers);
     }
 
-    /// <summary>Moves these emails (one by one, not whole conversations) to Trash; in accounts without Trash they are deleted.</summary>
-    public int TrashEmails(IReadOnlyList<MessageRow> rows)
+    /// <summary>
+    /// Moves these emails (one by one, not whole conversations) to Trash; in accounts without Trash they are deleted.
+    /// <paramref name="rule"/> (design AL1): the auto-delete rule this run made or changed — its older emails go now,
+    /// and Trash says auto delete moved them. Without a rule it was a one-off delete by the user.
+    /// </summary>
+    public int TrashEmails(IReadOnlyList<MessageRow> rows, AutoDeleteRule? rule = null)
     {
         using var operation = _versionOperations.Enter();
         var now = DateTimeOffset.Now;
@@ -1176,7 +1183,7 @@ public sealed class MailEngine : IDisposable
         {
             var trash = Store.GetFolders(acc.Key).FirstOrDefault(f => f.Role == FolderRole.Trash);
             var list = acc.Where(m => trash == null || m.FolderId != trash.Id).ToList();
-            if (trash != null) Store.RecordTrashed(list, now);
+            if (trash != null) Store.RecordTrashed(list, now, rule == null ? null : _ => AutoDeleted.RuleSnapshot(rule));
             var touched = new HashSet<long>();
             foreach (var m in list)
             {
@@ -1261,12 +1268,17 @@ public sealed class MailEngine : IDisposable
         using var operation = _versionOperations.Enter();
         var due = Store.DueDeletes(now);
         if (due.Count == 0) return 0;
+        // Design AL1: Trash says these were auto-deleted, when, and under which rule (as the rule reads now).
+        var ruleOf = Store.DueDeleteRules(now);
+        var rules = Store.GetAutoDeleteRules().ToDictionary(r => r.Id);
         foreach (var acc in due.GroupBy(m => m.AccountId))
         {
             var folders = Store.GetFolders(acc.Key);
             var trash = folders.FirstOrDefault(f => f.Role == FolderRole.Trash);
             var touched = new HashSet<long>();
-            if (trash != null) Store.RecordTrashed(acc.Where(m => m.FolderId != trash.Id), now);
+            if (trash != null)
+                Store.RecordTrashed(acc.Where(m => m.FolderId != trash.Id), now,
+                    m => AutoDeleted.RuleSnapshot(rules.GetValueOrDefault(ruleOf.GetValueOrDefault(m.Id, ""))));
             foreach (var m in acc)
             {
                 if (trash == null) Queue(m, PendingOpKind.Delete);

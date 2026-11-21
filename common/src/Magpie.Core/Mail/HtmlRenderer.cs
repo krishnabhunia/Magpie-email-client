@@ -25,6 +25,10 @@ public sealed class RenderMessage
     public DeleteUrgency DeleteUrgency { get; init; }
     /// <summary>Shown when pointing at the note: the full date and the rule.</summary>
     public string DeleteTip { get; init; } = "";
+    /// <summary>Design AL1: "auto-deleted 21 Nov, 18:24" next to the date of an email that auto delete moved to Trash.</summary>
+    public string? DeletedNote { get; init; }
+    /// <summary>What pointing at that note says: the full date and time and the rule.</summary>
+    public string DeletedTip { get; init; } = "";
     /// <summary>Trusted local SMTP result for a message sent on this PC; never inferred from incoming headers.</summary>
     public DeliveryReceiptResult? DeliveryReceipt { get; init; }
     /// <summary>Design RC1: where this email is kept, for its Details card ("Sent · you@gmail.com"); the row is left out when empty.</summary>
@@ -451,6 +455,8 @@ public static class HtmlRenderer
                 var level = m.DeleteUrgency switch { DeleteUrgency.Soon => "soon", DeleteUrgency.Weeks => "weeks", _ => "later" };
                 sb.Append($"<span class=\"dd {level}\" title=\"{Esc(m.DeleteTip)}\">🗑 {Esc(m.DeleteNote)}</span>");
             }
+            if (!string.IsNullOrEmpty(m.DeletedNote))
+                sb.Append($"<span class=\"dd weeks gone\" title=\"{Esc(m.DeletedTip)}\">🗑 {Esc(m.DeletedNote)}</span>");
             sb.Append("</div>");
             sb.Append("<div class=\"acts\" onclick=\"event.stopPropagation()\">");
             sb.Append($"<button onclick=\"post({{t:'reply',id:{row.Id}}})\">Reply</button>");
