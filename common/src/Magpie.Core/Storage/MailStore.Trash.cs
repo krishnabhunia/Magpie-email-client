@@ -108,6 +108,34 @@ public sealed partial class MailStore
     }
 
     /// <summary>
+    /// Design AL1: the auto-delete note of each of these emails that still has a copy in one of these (Trash) folders,
+    /// by Message-ID. The copy is looked up here because the row a conversation shows for an email is its preferred
+    /// copy (Inbox, a label or All Mail come before Trash), which may sit in another folder.
+    /// </summary>
+    public Dictionary<string, TrashNote> TrashNotesIn(string accountId, IEnumerable<string> messageIds, IReadOnlyCollection<long> folderIds)
+    {
+        var notes = new Dictionary<string, TrashNote>(StringComparer.Ordinal);
+        if (folderIds.Count == 0) return notes;
+        using var c = Open();
+        foreach (var id in messageIds.Where(i => !string.IsNullOrEmpty(i)).Distinct())
+        {
+            using var cmd = c.CreateCommand();
+            var ids = folderIds.Select((f, i) => { cmd.Parameters.AddWithValue("$f" + i, f); return "$f" + i; });
+            cmd.CommandText = $"""
+                SELECT t.at, t.rule_id, t.rule_line, t.folder_id FROM trash_from t
+                WHERE t.account_id=$a AND t.message_id=$m AND t.reason=$r AND EXISTS (
+                  SELECT 1 FROM messages m WHERE m.account_id=t.account_id AND m.message_id=t.message_id AND m.folder_id IN ({string.Join(',', ids)}))
+                """;
+            cmd.Parameters.AddWithValue("$a", accountId);
+            cmd.Parameters.AddWithValue("$m", id);
+            cmd.Parameters.AddWithValue("$r", AutoDeleted);
+            using var r = cmd.ExecuteReader();
+            if (r.Read()) notes[id] = new TrashNote(DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(0)), r.GetString(1), r.GetString(2), r.GetInt64(3));
+        }
+        return notes;
+    }
+
+    /// <summary>
     /// Design AL1: per conversation in these (Trash) folders, its latest auto-deleted email's note and how many of its
     /// emails auto delete put there. Key = (account id, conversation key).
     /// </summary>

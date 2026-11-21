@@ -591,15 +591,16 @@
                                 Command="{Binding EmptyBinCommand}" ToolTip="Delete everything here for good (asks first)" />
                         <TextBlock Text="{Binding BinBarText}" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" />
                     </DockPanel>
-                    <!-- Trash (design AL1, option C): all · auto-deleted · deleted by you or elsewhere — only when auto delete put something here -->
-                    <StackPanel x:Name="TrashFilterBar" Orientation="Horizontal" Margin="8,0,8,4" Visibility="{Binding ShowTrashFilter, Converter={StaticResource BoolToVis}}">
-                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAll, Mode=OneWay}" Content="{Binding TrashAllText}"
+                    <!-- Trash (design AL1, option C): all · auto-deleted · deleted by you or elsewhere — only when auto delete put something here.
+                         A WrapPanel: the three choices are wider than a narrow list pane, so the last one goes to a second line. -->
+                    <WrapPanel x:Name="TrashFilterBar" Margin="8,0,8,4" Visibility="{Binding ShowTrashFilter, Converter={StaticResource BoolToVis}}">
+                        <RadioButton Style="{StaticResource Button.Tab}" Padding="10,6" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAll, Mode=OneWay}" Content="{Binding TrashAllText}"
                                      ToolTip="{Binding TrashAllTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="all" />
-                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAuto, Mode=OneWay}" Content="{Binding TrashAutoText}"
+                        <RadioButton Style="{StaticResource Button.Tab}" Padding="10,6" GroupName="TrashFilter" IsChecked="{Binding TrashFilterAuto, Mode=OneWay}" Content="{Binding TrashAutoText}"
                                      ToolTip="{Binding TrashAutoTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="auto" />
-                        <RadioButton Style="{StaticResource Button.Tab}" GroupName="TrashFilter" IsChecked="{Binding TrashFilterOther, Mode=OneWay}" Content="{Binding TrashOtherText}"
+                        <RadioButton Style="{StaticResource Button.Tab}" Padding="10,6" GroupName="TrashFilter" IsChecked="{Binding TrashFilterOther, Mode=OneWay}" Content="{Binding TrashOtherText}"
                                      ToolTip="{Binding TrashOtherTip}" Command="{Binding SetTrashFilterCommand}" CommandParameter="other" />
-                    </StackPanel>
+                    </WrapPanel>
                     <!-- Set aside pile (design B7) -->
                     <DockPanel Margin="16,0,14,8" Visibility="{Binding IsSetAsideView, Converter={StaticResource BoolToVis}}">
                         <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Clear all" Padding="6,0" MinHeight="22" Command="{Binding ClearSetAsideCommand}"

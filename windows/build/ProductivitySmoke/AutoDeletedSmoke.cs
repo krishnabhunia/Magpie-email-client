@@ -19,8 +19,17 @@ internal static partial class Program
     /// </summary>
     private static void CheckAutoDeletedRow(MainWindow window)
     {
-        Assert(window.FindName("TrashFilterBar") is StackPanel { Children.Count: 3 } bar && bar.Children.OfType<RadioButton>().Count() == 3,
+        Assert(window.FindName("TrashFilterBar") is WrapPanel { Children.Count: 3 } bar && bar.Children.OfType<RadioButton>().Count() == 3,
             "Main window has the three Trash choices: all, auto-deleted, deleted by you or elsewhere");
+        // The three choices are wider than a narrow list pane: they wrap to a second line instead of running out of it.
+        var narrow = new WrapPanel { Width = 284 };
+        foreach (var words in new[] { "All · 1,250", "Auto-deleted · 1,000", "Deleted by you or elsewhere · 250" })
+            narrow.Children.Add(new RadioButton { Style = (Style)window.FindResource("Button.Tab"), Padding = new Thickness(10, 6, 10, 6), Content = words });
+        narrow.Measure(new Size(284, double.PositiveInfinity));
+        narrow.Arrange(new Rect(narrow.DesiredSize));
+        var widest = narrow.Children.OfType<RadioButton>().Max(b => b.DesiredSize.Width);
+        Assert(widest > 0 && widest <= 284 && narrow.DesiredSize.Height > narrow.Children[0].DesiredSize.Height * 1.5,
+            $"The Trash choices fit the narrowest list pane on more than one line (widest {widest:0} of 284)");
         Assert(window.FindName("AutoDeletedBanner") is Border && window.FindName("AutoDeletedRestore") is Button { Content: "Restore" },
             "Main window has the auto-deleted banner with Restore");
 
@@ -92,6 +101,7 @@ internal static partial class Program
             Subject = thread, Date = date, SortDate = date, Flags = MessageFlags.Seen,
         };
         var arrived = now.AddDays(-31);
+        var offers = engine.Store.UpsertFolder(new MailFolder { AccountId = "A", Path = "Offers", Name = "Offers" });
         // What Magpie wrote when the emails left the Inbox: two by auto delete (one conversation of two emails, the
         // later one under a rule that is gone since), one by hand.
         engine.Store.RecordTrashed(new[] { Mail(inbox, 0, "gone-1", "Weekend sale", "offers@shop.test", arrived) }, at, _ => AutoDeleted.RuleSnapshot(rule));
@@ -106,6 +116,8 @@ internal static partial class Program
             Mail(trash, 953, "gone-3", "Price drop", "offers@shop.test", arrived.AddHours(1)),
             Mail(trash, 954, "hand-1", "Old chat", "friend@other.test", arrived),
             Mail(trash, 955, "phone-1", "Deleted on the phone", "friend@other.test", arrived),
+            // A second copy of an auto-deleted email under a label: the conversation shows that copy, not the Trash one.
+            Mail(offers, 956, "gone-1", "Weekend sale", "offers@shop.test", arrived),
         });
         foreach (var row in rows) engine.Store.SaveBody(row.Id, new MessageBody { Html = "<p>Cached locally</p>", Text = "Cached locally", ImagesComplete = true });
 
@@ -144,6 +156,8 @@ internal static partial class Program
             vm.Reader.Neighbours = Array.Empty<ThreadRow>();
             vm.Reader.Show(Row("Weekend sale").Row, vm);
             PumpUntil(() => page?.Key == "A\nWeekend sale");
+            Assert(vm.Reader.Messages.Count == 1 && vm.Reader.Messages[0].FolderId == offers,
+                "The open conversation shows the email's copy under its label, not the one in Trash");
             Assert(vm.Reader.ShowAutoDeleted && vm.Reader.AutoDeletedTitle == "Deleted by Magpie auto delete" && vm.Reader.AutoDeletedWhen == AutoDeleted.When(at),
                 "The open auto-deleted conversation has its banner with the full date and time (" + vm.Reader.AutoDeletedWhen + ")");
             Assert(vm.Reader.AutoDeletedDetails == "Rule: offers@shop.test after 30 days · Arrived " + arrived.ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) + " · Was in Inbox",

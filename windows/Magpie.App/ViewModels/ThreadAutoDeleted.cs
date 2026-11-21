@@ -20,14 +20,22 @@ public partial class ThreadViewModel
     [ObservableProperty] private bool _canEditAutoDeletedRule;
     public string AutoDeletedTitle => AutoDeleted.Title;
 
-    /// <summary>The auto-delete note of each email of these that sits in Trash, by row id; empty for a conversation elsewhere.</summary>
+    /// <summary>
+    /// The auto-delete note of each email of these that has a copy in Trash, by row id; empty for a conversation
+    /// with nothing auto-deleted in Trash. The rows are each email's preferred copy, which may sit in another folder
+    /// (a label, All Mail) while its Trash copy carries the note — so Trash is asked by Message-ID, not by the row's folder.
+    /// </summary>
     private Dictionary<long, TrashNote> AutoDeletedNotes(string accountId, IEnumerable<MessageRow> rows)
     {
-        var trash = _e.Folders(accountId).Where(f => f.Role == FolderRole.Trash).Select(f => f.Id).ToHashSet();
-        var inTrash = rows.Where(r => trash.Contains(r.FolderId) && r.MessageId.Length > 0).ToList();
-        if (inTrash.Count == 0) return new();
-        var notes = _e.Store.TrashNotes(accountId, inTrash.Select(r => r.MessageId));
-        return inTrash.Where(r => notes.ContainsKey(r.MessageId)).ToDictionary(r => r.Id, r => notes[r.MessageId]);
+        var withId = rows.Where(r => r.MessageId.Length > 0).ToList();
+        if (withId.Count == 0) return new();
+        var trash = _e.Folders(accountId).Where(f => f.Role == FolderRole.Trash).Select(f => f.Id).ToList();
+        if (trash.Count == 0) return new();
+        var notes = _e.Store.TrashNotesIn(accountId, withId.Select(r => r.MessageId), trash);
+        var found = new Dictionary<long, TrashNote>();
+        foreach (var r in withId)
+            if (notes.TryGetValue(r.MessageId, out var note)) found[r.Id] = note;
+        return found;
     }
 
     /// <summary>The banner for the open conversation: its latest auto-deleted email speaks for it.</summary>

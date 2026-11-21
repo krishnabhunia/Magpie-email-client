@@ -201,6 +201,35 @@ public sealed class Release2000Tests
     }
 
     [Fact]
+    public void An_email_shown_by_its_copy_in_another_folder_still_finds_its_note_in_Trash()
+    {
+        using var dir = new TempDir();
+        var (store, inbox, trash) = Store(dir);
+        var all = store.UpsertFolder(new MailFolder { AccountId = "A", Path = "[Gmail]/All Mail", Name = "All Mail", Role = FolderRole.All });
+        var at = Local(2026, 11, 21, 18, 24);
+        MessageRow In(long folder, string thread, string id) => Rows.Make("A", folder, thread, from: Shop, messageId: id);
+        store.RecordTrashed(new[] { In(inbox, "t", "both@x"), In(inbox, "back", "back@x") }, at, _ => ShopRule);
+        store.RecordTrashed(new[] { In(inbox, "hand", "hand@x") }, at);
+        store.InsertMessages(new[]
+        {
+            In(trash, "t", "both@x"), In(all, "t", "both@x"),   // not yet gone from All Mail on this PC
+            In(inbox, "back", "back@x"),                         // put back in another app: no copy in Trash any more
+            In(trash, "hand", "hand@x"),
+        });
+        // The conversation shows the All Mail copy (it comes before Trash), so the row's own folder says nothing.
+        var shown = Assert.Single(store.GetThread("A", "t"));
+        Assert.Equal(all, shown.FolderId);
+        var notes = store.TrashNotesIn("A", new[] { "both@x", "back@x", "hand@x", "", "none@x" }, new[] { trash });
+        Assert.Equal("both@x", Assert.Single(notes).Key);
+        Assert.Equal(new TrashNote(at, "r1", "Rule: offers@shop.test after 30 days", inbox), notes["both@x"]);
+        Assert.Empty(store.TrashNotesIn("A", new[] { "both@x" }, Array.Empty<long>()));
+        Assert.Empty(store.TrashNotesIn("A", new[] { "both@x" }, new[] { inbox }));
+        Assert.Empty(store.TrashNotesIn("B", new[] { "both@x" }, new[] { trash }));
+        // The list agrees: the conversation in Trash is labelled.
+        Assert.Equal("t", Assert.Single(store.AutoDeletedThreads(new[] { trash })).Key.ThreadKey);
+    }
+
+    [Fact]
     public void The_Trash_filter_splits_the_list_in_two_that_add_up_to_all()
     {
         using var dir = new TempDir();
