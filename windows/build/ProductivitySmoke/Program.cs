@@ -135,8 +135,15 @@ internal static partial class Program
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            try { Directory.Delete(root, true); } catch { }
+            // The data folder goes when the process ends, not here. A stage that changes an account starts a real mail
+            // check for it (ComposeRemainingFeaturesSmoke), and that check can still report "could not connect" some
+            // 30 seconds later: the status bar of that stage then reads its mail file. With the folder already deleted
+            // that late line crashed a run in which every check had passed (SQLite "unable to open database file").
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { Directory.Delete(root, true); } catch { }
+            };
         }
     }
 
