@@ -7,6 +7,12 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 21.0.1 (23 Nov 2026)
+<!-- closes: #163 -->
+### Fixed
+- **Delete in an email's own window can no longer remove an email for good by accident.** When another app (your phone, or Gmail in a browser) moved an email to Trash or Spam while its window was open in Magpie, pressing Delete in that window deleted it for good, without asking. Now the window closes when its email goes to Trash or Spam somewhere else, as it does for its own Delete. Its Archive, Delete and Move never touch Trash or Spam unless you opened the email from there, and **Previous** / **Next** step over an email that went to Trash or Spam since.
+- **Settings reach the email windows that are open.** Switching AI features off, changing the text size or the look of the deletion dates applied to the reading pane only; an open email window kept its Summarise button, a running summary and the old text until the next mail change.
+
 ## 21.0.0 (23 Nov 2026)
 <!-- closes: #62 -->
 ### New
