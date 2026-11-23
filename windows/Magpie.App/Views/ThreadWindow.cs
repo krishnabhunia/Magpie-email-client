@@ -66,6 +66,9 @@ public sealed class ThreadWindow : Window, IReaderHost
         if (OpenWindows.TryGetValue(key, out var open))
         {
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
+            // Another email of the conversation was opened (two rows of the "emails with one address" list): its
+            // window goes to that email instead of staying at the one it was opened at.
+            if (focus != null) open._reader.Show(open._row, main, focus);
             if (activate) open.Activate();
             return open;
         }
@@ -306,11 +309,10 @@ public sealed class ThreadWindow : Window, IReaderHost
 
     private void RestorePlacement()
     {
-        var screen = new EmailWindow.Area(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         EmailWindow.Area? main = Application.Current.MainWindow is { IsVisible: true, WindowState: WindowState.Normal } m && !ReferenceEquals(m, this)
             ? new EmailWindow.Area(m.Left, m.Top, m.Width, m.Height) : null;
         var saved = AppServices.Engine.Config.EmailWindow;
-        var at = EmailWindow.Place(saved, screen, main, OpenWindows.Count);
+        var at = EmailWindow.Place(saved, Screens.WorkAreas(), main, OpenWindows.Count);
         WindowStartupLocation = WindowStartupLocation.Manual;
         Left = at.Left;
         Top = at.Top;

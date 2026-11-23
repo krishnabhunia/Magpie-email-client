@@ -149,6 +149,66 @@ public sealed class Release2100Tests
     }
 
     [Fact]
+    public void A_saved_place_between_two_monitors_of_different_heights_is_not_used()
+    {
+        // The main monitor, and a smaller one to its right that sits higher. The rectangle around both runs from
+        // (0, -600) to (3200, 1080), but its bottom-right and top-left parts are on no monitor.
+        var main = new EmailWindow.Area(0, 0, 1920, 1040);
+        var side = new EmailWindow.Area(1920, -600, 1280, 680);
+        var both = new[] { main, side };
+        var around = new EmailWindow.Area(0, -600, 3200, 1680);
+
+        var gap = new EmailWindowPlacement { HasSavedPlacement = true, Left = 2400, Top = 500, Width = 900, Height = 700 };
+        Assert.True(EmailWindow.OnScreen(gap.Left, gap.Top, around));                  // the one rectangle would have taken it
+        Assert.Null(EmailWindow.ScreenOf(gap.Left, gap.Top, both));                    // no monitor shows that corner
+        var at = EmailWindow.Place(gap, both, new EmailWindow.Area(100, 50, 1320, 840), 0);
+        Assert.Equal((180d, 110d), (at.Left, at.Top));                                 // a little inside the main window instead
+        Assert.Equal(main, EmailWindow.ScreenOf(at.Left, at.Top, both));
+        // Without a main window to go by: the middle of the main monitor, not of the rectangle around both.
+        var centred = EmailWindow.Place(gap, both, null, 0);
+        Assert.Equal(((1920 - 900) / 2.0, (1040 - 700) / 2.0), (centred.Left, centred.Top));
+        // The same in the empty corner above the main monitor.
+        var above = new EmailWindowPlacement { HasSavedPlacement = true, Left = 300, Top = -400 };
+        Assert.True(EmailWindow.OnScreen(above.Left, above.Top, around));
+        Assert.Equal(main, EmailWindow.ScreenOf(EmailWindow.Place(above, both, null, 0).Left, EmailWindow.Place(above, both, null, 0).Top, both));
+    }
+
+    [Fact]
+    public void A_window_on_the_second_monitor_stays_there_with_that_monitors_size()
+    {
+        var main = new EmailWindow.Area(0, 0, 1920, 1040);
+        var side = new EmailWindow.Area(1920, -600, 1280, 680);
+        var both = new[] { main, side };
+        var saved = new EmailWindowPlacement { HasSavedPlacement = true, Left = 2000, Top = -560, Width = 1600, Height = 900 };
+        var at = EmailWindow.Place(saved, both, new EmailWindow.Area(100, 50, 1320, 840), 0);
+        Assert.Equal(new EmailWindow.Area(2000, -560, 1280, 680), at);                 // its place kept, its size cut to that monitor
+        // Further windows step down and right on that monitor and start again before they leave it.
+        var places = Enumerable.Range(0, 40).Select(n => EmailWindow.Place(saved, both, null, n)).ToList();
+        Assert.All(places, p => Assert.Equal(side, EmailWindow.ScreenOf(p.Left, p.Top, both)));
+        Assert.Equal((2028d, -532d), (places[1].Left, places[1].Top));
+        Assert.Contains(places.Skip(1), p => p.Left == 2000 && p.Top == -560);
+        // A main window that sits on the second monitor takes the new window there too.
+        var near = EmailWindow.Place(new EmailWindowPlacement(), both, new EmailWindow.Area(2000, -580, 1000, 600), 0);
+        Assert.Equal(side, EmailWindow.ScreenOf(near.Left, near.Top, both));
+        Assert.Equal((2080d, -520d, 860d, 680d), (near.Left, near.Top, near.Width, near.Height));
+    }
+
+    [Fact]
+    public void A_step_never_lands_exactly_on_the_edge_and_no_monitor_at_all_still_gives_a_window()
+    {
+        // 112 px of room is exactly four steps: the fifth window starts again instead of sitting on the line where
+        // the title bar can no longer be grabbed.
+        var saved = new EmailWindowPlacement { HasSavedPlacement = true, Left = 1920 - 100 - 112, Top = 100 };
+        var places = Enumerable.Range(0, 12).Select(n => EmailWindow.Place(saved, Screen, null, n)).ToList();
+        Assert.All(places, p => Assert.True(EmailWindow.OnScreen(p.Left, p.Top, Screen), $"{p.Left},{p.Top}"));
+        Assert.Equal(4, places.Select(p => p.Left).Distinct().Count());
+        // Windows gave no monitor (or only empty ones): a default-sized window at the top-left corner.
+        var none = EmailWindow.Place(new EmailWindowPlacement(), Array.Empty<EmailWindow.Area>(), null, 0);
+        Assert.Equal(new EmailWindow.Area(0, 0, EmailWindowPlacement.DefaultWidth, EmailWindowPlacement.DefaultHeight), none);
+        Assert.Equal(none, EmailWindow.Place(new EmailWindowPlacement(), new[] { new EmailWindow.Area(0, 0, 0, 0) }, null, 0));
+    }
+
+    [Fact]
     public void A_saved_placement_is_repaired_when_it_is_read()
     {
         var p = new EmailWindowPlacement { HasSavedPlacement = true, Left = double.NaN, Top = 10, Width = 50, Height = 99999 };

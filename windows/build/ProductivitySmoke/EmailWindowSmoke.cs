@@ -73,6 +73,12 @@ internal static partial class Program
             AccountId = "A", FolderId = inbox, Uid = 970 + i, MessageId = "window-" + i, ThreadKey = "window-" + i, FromAddress = "rajesh@buildwell.test",
             To = "me@example.test", Subject = "Handover " + i, Date = now.AddMinutes(10 - i), SortDate = now.AddMinutes(10 - i), Flags = MessageFlags.Seen,
         }).ToArray());
+        // A conversation of two emails, older than the three above.
+        rows.AddRange(engine.Store.InsertMessages(Enumerable.Range(1, 2).Select(i => new MessageRow
+        {
+            AccountId = "A", FolderId = inbox, Uid = 980 + i, MessageId = "window-talk-" + i, ThreadKey = "window-talk", FromAddress = "rajesh@buildwell.test",
+            To = "me@example.test", Subject = "Snag list", Date = now.AddHours(-5 + i), SortDate = now.AddHours(-5 + i), Flags = MessageFlags.Seen,
+        }).ToArray()));
         foreach (var row in rows) engine.Store.SaveBody(row.Id, new MessageBody { Html = "<p>Cached locally</p>", Text = "Cached locally", ImagesComplete = true });
         engine.Config.EmailWindow = new EmailWindowPlacement();
         engine.Config.OpenInWindowOnDoubleClick = true;
@@ -87,7 +93,7 @@ internal static partial class Program
         Assert(ThreadWindow.OpenCount == 0, "No email window is open before the check");
 
         var first = ThreadWindow.Open(vm, Row(1), activate: false, browser: false);
-        ThreadWindow? second = null, third = null;
+        ThreadWindow? second = null, third = null, talk = null;
         try
         {
             Assert(ThreadWindow.OpenCount == 1 && ReferenceEquals(ThreadWindow.Open(vm, Row(1), activate: false, browser: false), first) && ThreadWindow.OpenCount == 1,
@@ -113,6 +119,23 @@ internal static partial class Program
             second.Close();
             second = null;
             Assert(ThreadWindow.OpenCount == 1, "Closing one window leaves the other");
+
+            // Two emails of one conversation, each opened from its own row (the "emails with one address" list): the
+            // conversation's one window goes to the email that was opened last.
+            var emails = engine.Store.GetThread("A", "window-talk");
+            Assert(emails.Count == 2, "The conversation of two emails is there");
+            var talkRow = new ThreadRow { AccountId = "A", ThreadKey = "window-talk", Count = 2, Latest = emails[^1] };
+            talk = ThreadWindow.Open(vm, talkRow, focus: emails[1], activate: false, browser: false);
+            ReaderPage? shown = null;
+            talk.ReaderModel.PageReady += page => shown = page;
+            Assert(ReferenceEquals(ThreadWindow.Open(vm, talkRow, focus: emails[0], activate: false, browser: false), talk) && ThreadWindow.OpenCount == 2,
+                "Another email of the same conversation uses the conversation's window");
+            PumpUntil(() => shown?.Focus == emails[0].Id);
+            Assert(shown!.Key == "A\nwindow-talk" && shown.Focus == emails[0].Id && talk.ReaderModel.Messages.Count == 2,
+                "That window goes to the email that was just opened");
+            talk.Close();
+            talk = null;
+            Assert(ThreadWindow.OpenCount == 1, "Closing it leaves the first window");
 
             // The main window moves on to Trash; Delete in the email window still acts on the Inbox it was opened from.
             vm.NavigateCommand.Execute(vm.Smart.First(n => n.Kind == NavKind.Role && n.Role == FolderRole.Trash));
@@ -150,6 +173,7 @@ internal static partial class Program
         {
             second?.Close();
             third?.Close();
+            talk?.Close();
             if (Application.Current.Windows.Cast<Window>().Contains(first)) first.Close();
         }
         vm.Reader.Clear();

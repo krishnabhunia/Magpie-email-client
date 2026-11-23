@@ -57,30 +57,51 @@ public static class EmailWindow
     public const double CascadeStep = 28;
 
     /// <summary>
-    /// Where a new email window goes. Its size is the saved one, never larger than the screen. Its place is the saved
-    /// one while that is still on a screen; otherwise a little inside the main window; otherwise the screen's centre.
-    /// Each window already open shifts it by <see cref="CascadeStep"/>, wrapping back when it would leave the screen.
+    /// Where a new email window goes. <paramref name="screens"/> are the monitors' areas, the main one first. Its place
+    /// is the saved one while that is still on one of them; otherwise a little inside the main window; otherwise the
+    /// middle of the main monitor. Its size is the saved one, never larger than the monitor it opens on. Each window
+    /// already open shifts it by <see cref="CascadeStep"/>, starting again before it would leave that monitor.
+    /// The monitors are checked one by one: with monitors of different sizes, or set at different heights, the
+    /// rectangle around all of them has corners that are on no monitor, and a window there cannot be reached.
     /// </summary>
-    public static Area Place(EmailWindowPlacement saved, Area screen, Area? mainWindow, int alreadyOpen)
+    public static Area Place(EmailWindowPlacement saved, IReadOnlyList<Area> screens, Area? mainWindow, int alreadyOpen)
     {
-        var width = Math.Min(Math.Max(saved.Width, EmailWindowPlacement.MinWidth), Math.Max(screen.Width, EmailWindowPlacement.MinWidth));
-        var height = Math.Min(Math.Max(saved.Height, EmailWindowPlacement.MinHeight), Math.Max(screen.Height, EmailWindowPlacement.MinHeight));
+        var usable = screens.Where(s => s.Width > 0 && s.Height > 0).ToList();
+        if (usable.Count == 0) usable.Add(new Area(0, 0, EmailWindowPlacement.DefaultWidth, EmailWindowPlacement.DefaultHeight));
+        Area home;
         double left, top;
-        if (saved.HasSavedPlacement && OnScreen(saved.Left, saved.Top, screen)) (left, top) = (saved.Left, saved.Top);
-        else if (mainWindow is { } main && OnScreen(main.Left + 80, main.Top + 60, screen)) (left, top) = (main.Left + 80, main.Top + 60);
-        else (left, top) = (screen.Left + Math.Max(0, (screen.Width - width) / 2), screen.Top + Math.Max(0, (screen.Height - height) / 2));
+        var centred = false;
+        if (saved.HasSavedPlacement && ScreenOf(saved.Left, saved.Top, usable) is { } kept) (home, left, top) = (kept, saved.Left, saved.Top);
+        else if (mainWindow is { } main && ScreenOf(main.Left + 80, main.Top + 60, usable) is { } near) (home, left, top) = (near, main.Left + 80, main.Top + 60);
+        else (home, left, top, centred) = (usable[0], 0, 0, true);
+
+        var width = Math.Min(Math.Max(saved.Width, EmailWindowPlacement.MinWidth), Math.Max(home.Width, EmailWindowPlacement.MinWidth));
+        var height = Math.Min(Math.Max(saved.Height, EmailWindowPlacement.MinHeight), Math.Max(home.Height, EmailWindowPlacement.MinHeight));
+        if (centred) (left, top) = (home.Left + Math.Max(0, (home.Width - width) / 2), home.Top + Math.Max(0, (home.Height - height) / 2));
 
         var steps = Math.Max(0, alreadyOpen);
         if (steps > 0)
         {
-            // As many steps as fit before the window's title bar would leave the screen, then start again.
-            var room = Math.Min(screen.Left + screen.Width - 100 - left, screen.Top + screen.Height - 100 - top);
-            var fit = Math.Max(1, (int)Math.Floor(room / CascadeStep) + 1);
+            // As many steps as fit before the window's title bar would leave its monitor, then start again.
+            var room = Math.Min(home.Left + home.Width - 100 - left, home.Top + home.Height - 100 - top);
+            var fit = Math.Max(1, (int)Math.Ceiling(room / CascadeStep));
             var shift = steps % fit * CascadeStep;
             left += shift;
             top += shift;
         }
         return new Area(left, top, width, height);
+    }
+
+    /// <summary>The same for one screen area.</summary>
+    public static Area Place(EmailWindowPlacement saved, Area screen, Area? mainWindow, int alreadyOpen) =>
+        Place(saved, new[] { screen }, mainWindow, alreadyOpen);
+
+    /// <summary>The monitor a window with this top-left corner can be reached on; null when it is on none.</summary>
+    public static Area? ScreenOf(double left, double top, IReadOnlyList<Area> screens)
+    {
+        foreach (var s in screens)
+            if (OnScreen(left, top, s)) return s;
+        return null;
     }
 
     /// <summary>A window's top-left corner is usable when enough of its title bar is on the screen to grab.</summary>
