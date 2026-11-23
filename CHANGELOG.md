@@ -17,7 +17,7 @@
 - **A switch for the double-click.** Settings → General → **Double-click opens an email in its own window** turns the double-click and Enter off; the button and the right-click menu still open the window.
 
 ### Changed
-- **The email window keeps up.** A new reply, a change made in the list or on your phone shows in the window without reopening it. The window closes by itself when its email is archived, deleted, snoozed or moved, as the reading pane moves on.
+- **The email window keeps up.** A new reply, a change made in the list or on your phone shows in the window without reopening it. The window closes by itself when its email is archived, deleted, snoozed or moved, as the reading pane moves on, and also when the email is deleted or marked as spam in another app. Changes in Settings (AI features, text size, deletion dates) apply to open email windows at once.
 - **Open in its own window** in the subject card opens this same window, and **Summarise** is offered there as well.
 
 ### Fixed
