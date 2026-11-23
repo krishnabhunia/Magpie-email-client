@@ -9,6 +9,7 @@ using Magpie.Core.Ai;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
 using Magpie.Core.Settings;
+using Magpie.Core.Storage;
 
 namespace ProductivitySmoke;
 
@@ -236,6 +237,21 @@ internal static partial class Program
             PumpFor(TimeSpan.FromMilliseconds(900));   // longer than the window waits before it looks at the mail again
             Assert(ThreadWindow.OpenCount == 1 && binned.IsVisible, "A window opened from Trash stays open when the mail changes");
             engine.SetPinned("A", "two", false);
+            binned.Close();
+            binned = null;
+
+            // A list that includes Trash on purpose (the "emails with one address" list with Include them): Next goes
+            // to a deleted email that is in it, and the window then acts on Trash.
+            vm.ShowPerson("rajesh@buildwell.test", "Rajesh Mehta", PersonKind.All);
+            if (!vm.PersonIncludeBin) vm.TogglePersonBinCommand.Execute(null);
+            var personRows = vm.Threads.Where(t => t.LocalDraftId == null).Select(t => t.Row).ToList();
+            var movedAt = personRows.FindIndex(r => r.ThreadKey == "window-moved");
+            Assert(vm.IsPersonView && vm.PersonIncludeBin && movedAt > 0 && personRows[movedAt].Latest.FolderId == trash && personRows[movedAt - 1].ThreadKey == "window-1",
+                $"The list with Trash included has the deleted email after a newer one (at {movedAt} of {personRows.Count})");
+            binned = ThreadWindow.Open(vm, personRows[movedAt - 1], activate: false, browser: false);
+            Assert(binned.Step(1) && binned.ConversationKey == EmailWindow.Key("A", "window-moved"), "Next goes to the deleted email of a list that includes Trash");
+            PumpUntil(() => binned.ReaderModel.ThreadKey == "window-moved" && binned.ReaderModel.Messages.Count == 1);
+            Assert(binned.ReaderModel.ActionFolders!("A", "window-moved").Contains(trash), "The window on it acts on Trash");
             binned.Close();
             binned = null;
         }

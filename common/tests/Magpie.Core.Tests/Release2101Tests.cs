@@ -112,4 +112,20 @@ public sealed class Release2101Tests
         Assert.False(EmailWindow.StepsOver(new[] { Trash }, new[] { Trash }, Bins));
         Assert.True(EmailWindow.StepsOver(new[] { Trash }, Array.Empty<long>(), Bins));
     }
+
+    [Fact]
+    public void A_list_that_includes_Trash_on_purpose_keeps_its_deleted_emails_within_reach()
+    {
+        // "Emails with one address" with Trash and Spam included, opened over the Inbox view: an email that was
+        // listed from Trash is part of that list, and Previous / Next go to it.
+        Assert.False(EmailWindow.StepsOver(new[] { Inbox }, new[] { Trash }, Bins, binnedWhenListed: true));
+        Assert.False(EmailWindow.StepsOver(new[] { Inbox }, new[] { Spam }, Bins, binnedWhenListed: true));
+        // One that was listed from the Inbox and went to Trash afterwards is stepped over, as in every list.
+        Assert.True(EmailWindow.StepsOver(new[] { Inbox }, new[] { Trash }, Bins, binnedWhenListed: false));
+        // Gone from this PC altogether: stepped over, however it was listed.
+        Assert.True(EmailWindow.StepsOver(new[] { Inbox }, Array.Empty<long>(), Bins, binnedWhenListed: true));
+        // The window that lands on it shows an email of Trash on purpose and acts there.
+        Assert.True(EmailWindow.BinScope(new[] { Inbox }, new[] { Trash }, Bins));
+        Assert.Contains(Trash, Folders(new[] { Inbox }, new[] { Trash }));
+    }
 }

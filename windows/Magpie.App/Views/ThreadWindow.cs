@@ -258,7 +258,9 @@ public sealed class ThreadWindow : Window, IReaderHost
         {
             key = next;
             var row = _list[_keys.IndexOf(next)];
-            if (!EmailWindow.StepsOver(Listed(row.AccountId), Copies(row.AccountId, row.ThreadKey), Bins(row.AccountId))) return row;
+            // The row's own email was in Trash or Spam when the list was taken: the list included them on purpose.
+            var bins = Bins(row.AccountId);
+            if (!EmailWindow.StepsOver(Listed(row.AccountId), Copies(row.AccountId, row.ThreadKey), bins, binnedWhenListed: bins.Contains(row.Latest.FolderId))) return row;
         }
         return null;
     }

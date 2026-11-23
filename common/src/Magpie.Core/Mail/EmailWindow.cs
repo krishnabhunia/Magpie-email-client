@@ -88,10 +88,12 @@ public static class EmailWindow
 
     /// <summary>
     /// Previous / Next step over a conversation of the list that is gone, and over one that went to Trash or Spam
-    /// since the list was taken (unless the list is Trash or Spam itself): it left the list.
+    /// since the list was taken: it left the list. Not when the list is Trash or Spam itself, and not a conversation
+    /// that was listed from Trash or Spam (<paramref name="binnedWhenListed"/>: the "emails with one address" list
+    /// with Trash and Spam included) — those are in the list because they are there.
     /// </summary>
-    public static bool StepsOver(IReadOnlyCollection<long> listFolders, IReadOnlyCollection<long> copies, IReadOnlySet<long> bins) =>
-        copies.Count == 0 || (!ListIsBin(listFolders, bins) && OnlyInBins(copies, bins));
+    public static bool StepsOver(IReadOnlyCollection<long> listFolders, IReadOnlyCollection<long> copies, IReadOnlySet<long> bins, bool binnedWhenListed = false) =>
+        copies.Count == 0 || (!binnedWhenListed && !ListIsBin(listFolders, bins) && OnlyInBins(copies, bins));
 
     // ───────────────────────── size and place ─────────────────────────
 
