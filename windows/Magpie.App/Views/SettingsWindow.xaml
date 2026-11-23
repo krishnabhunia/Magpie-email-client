@@ -186,6 +186,15 @@
                                         </StackPanel>
                                     </CheckBox>
                                 </Border>
+                                <!-- Design OW1: a double-click (or Enter) opens the email in its own window -->
+                                <Border x:Name="RowOpenWindow" Style="{StaticResource FeatureRow}">
+                                    <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding OpenInWindowOnDoubleClick, Mode=TwoWay}">
+                                        <StackPanel>
+                                            <TextBlock Text="Double-click opens an email in its own window" FontWeight="Medium" FontSize="13.5" />
+                                            <TextBlock Text="Enter does the same. Off: a double-click only picks the email, and New window and the right-click menu still open it." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
                                 <!-- Design TB1 (T7) -->
                                 <Border x:Name="RowEmptyTrash" Style="{StaticResource FeatureRow}">
                                     <DockPanel>

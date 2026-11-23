@@ -223,8 +223,13 @@ public sealed class ToolbarButton
 public sealed class Appearance
 {
     /// <summary>Every button the toolbar can show, in default order; the first <see cref="DefaultVisible"/> are on.</summary>
-    public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "setaside", "remind", "tag", "pin", "move", "unread", "replyall", "forward" };
-    public const int DefaultVisible = 8;
+    public static readonly string[] ToolbarIds = { "archive", "delete", "snooze", "setaside", "remind", "tag", "pin", "move", "window", "unread", "replyall", "forward" };
+    public const int DefaultVisible = 9;
+    /// <summary>
+    /// Buttons that show at once when a newer version adds them to a toolbar saved before (design OW1: New window).
+    /// Every other added button waits, hidden, in More until it is switched on.
+    /// </summary>
+    public static readonly string[] ShownWhenAdded = { "window" };
     /// <summary>Reorderable rich-text entries in Compose → More. The destructive plain-text switch stays fixed at the top.</summary>
     public static readonly string[] ComposeMoreIds =
     {
@@ -265,14 +270,14 @@ public sealed class Appearance
     public static List<ToolbarButton> DefaultToolbar() =>
         ToolbarIds.Select((id, i) => new ToolbarButton { Id = id, Visible = i < DefaultVisible }).ToList();
 
-    /// <summary>Drops unknown or repeated ids and appends buttons added in newer versions (hidden).</summary>
+    /// <summary>Drops unknown or repeated ids and appends buttons added in newer versions (hidden, except <see cref="ShownWhenAdded"/>).</summary>
     public void Normalise()
     {
         Toolbar ??= DefaultToolbar();
         var seen = new HashSet<string>();
         Toolbar = Toolbar.Where(b => b != null && ToolbarIds.Contains(b.Id) && seen.Add(b.Id)).ToList();
         foreach (var id in ToolbarIds)
-            if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = false });
+            if (seen.Add(id)) Toolbar.Add(new ToolbarButton { Id = id, Visible = ShownWhenAdded.Contains(id) });
         ComposeToolbar = ComposeToolbarCatalog.Normalise(ComposeToolbar);
         ComposeMoreOrder ??= ComposeMoreIds.ToList();
         var composeSeen = new HashSet<string>(StringComparer.Ordinal);
@@ -384,6 +389,26 @@ public sealed class ComposeWindowPlacement
     }
 }
 
+/// <summary>Design OW1: the last size and place of an email's own window; the next one opens there.</summary>
+public sealed class EmailWindowPlacement
+{
+    public const double DefaultWidth = 860, DefaultHeight = 760, MinWidth = 520, MinHeight = 380;
+
+    public bool HasSavedPlacement { get; set; }
+    public double Left { get; set; }
+    public double Top { get; set; }
+    public double Width { get; set; } = DefaultWidth;
+    public double Height { get; set; } = DefaultHeight;
+    public bool Maximized { get; set; }
+
+    public void Normalise()
+    {
+        Width = double.IsFinite(Width) ? Math.Clamp(Width, MinWidth, 4000) : DefaultWidth;
+        Height = double.IsFinite(Height) ? Math.Clamp(Height, MinHeight, 3000) : DefaultHeight;
+        if (!double.IsFinite(Left) || !double.IsFinite(Top)) HasSavedPlacement = false;
+    }
+}
+
 /// <summary>Folder details on hover (design H2).</summary>
 public sealed class FolderHoverSettings
 {
@@ -476,6 +501,8 @@ public sealed class AppSettings
     public List<string> TrustedImageSenders { get; set; } = new();
     public bool SmartInbox { get; set; } = true;
     public bool MarkReadOnOpen { get; set; } = true;
+    /// <summary>Design OW1: a double-click (or Enter) on an email in the list opens it in its own window.</summary>
+    public bool OpenInWindowOnDoubleClick { get; set; } = true;
     public int SyncIntervalMinutes { get; set; } = 5;
     /// <summary>When the last settings backup was saved (design EX1), shown in Settings → General.</summary>
     public DateTimeOffset? LastBackup { get; set; }
@@ -514,6 +541,7 @@ public sealed class AppSettings
     public AiSettings Ai { get; set; } = new();
     public WindowPlacement Window { get; set; } = new();
     public ComposeWindowPlacement ComposeWindow { get; set; } = new();
+    public EmailWindowPlacement EmailWindow { get; set; } = new();
     /// <summary>Design CW1: Settings → General → Writing emails.</summary>
     public ComposeDefaults Compose { get; set; } = new();
     public SidebarState Sidebar { get; set; } = new();
@@ -607,6 +635,7 @@ public sealed class SettingsStore
         s.TrustedImageSenders ??= new();
         s.Window ??= new();
         (s.ComposeWindow ??= new()).Normalise();
+        (s.EmailWindow ??= new()).Normalise();
         (s.Compose ??= new()).Normalise();
         s.Sidebar ??= new();
         s.Sidebar.Normalise();

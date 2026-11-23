@@ -13,13 +13,13 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Magpie.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IReaderHost
 {
     private readonly MainViewModel _vm;
     public MainViewModel ViewModel => _vm;
     private readonly ReaderHover _hover;
     private readonly SubjectCard _subjectCard;
-    /// <summary>Design DD1: H2 (pointing at a row with a timer) and R2 (the chip next to the subject).</summary>
+    /// <summary>Design DD1 (H2): pointing at a row with a timer. The chip next to the subject (R2) has its card in <see cref="ReaderHeadView"/>.</summary>
     private readonly HoverCard _deleteCard;
     private bool _webReady;
     private readonly ReaderPresenter _presenter = new();
@@ -35,11 +35,10 @@ public partial class MainWindow : Window
         _hover = new ReaderHover(this, _vm, _vm.Reader, js => _webReady ? Web.CoreWebView2.ExecuteScriptAsync(js) : Task.CompletedTask);
         // Design CO1: a click anywhere else in Magpie closes the Details card of the open email.
         PreviewMouseDown += (_, e) => _hover.PressedIn(e.OriginalSource, Web);
-        _subjectCard = new SubjectCard(SubjectText, () => _hover.SubjectContent(ownWindow: false), (id, anchor) => _hover.RunSubject(id, anchor, _subjectCard!));
+        // Design OW1: the reading pane's toolbar, subject and banners are the view an email's own window shows too.
+        ReaderHead.Attach(this);
+        _subjectCard = new SubjectCard(ReaderHead.SubjectText, () => _hover.SubjectContent(ownWindow: false), (id, anchor) => _hover.RunSubject(id, anchor, _subjectCard!));
         _deleteCard = new HoverCard(DeleteCardFor);
-        _deleteCard.Attach(DeleteChip);
-        DeleteChip.MouseLeftButtonUp += (_, e) => { e.Handled = true; _deleteCard.Show(DeleteChip); };
-        DeleteChip.KeyDown += (_, e) => { if (e.Key is Key.Enter or Key.Space or Key.Apps) { e.Handled = true; _deleteCard.Show(DeleteChip, focus: true); } };
         _vm.StatusBar.SignInRequested += id =>
         {
             if (AppServices.Engine.AccountById(id) is { } a) AddAccountWindow.ShowReauth(this, a);
@@ -54,8 +53,8 @@ public partial class MainWindow : Window
         ThemeManager.Changed += () => Web.DefaultBackgroundColor = ThemeManager.WebBackground;
         Loaded += async (_, _) => await InitWebAsync();
         Closing += OnClosing;
-        Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); _deleteCard.Close(); };
-        LocationChanged += (_, _) => _deleteCard.Close();
+        Deactivated += (_, _) => { _hoverTimer?.Stop(); _vm.HideHoverCard(); _deleteCard.Close(); ReaderHead.CloseCards(); };
+        LocationChanged += (_, _) => { _deleteCard.Close(); ReaderHead.CloseCards(); };
     }
 
     // ───────────────────────── deletion dates (design DD1, H2 + R2) ─────────────────────────
@@ -69,47 +68,10 @@ public partial class MainWindow : Window
     private UIElement? DeleteCardFor(FrameworkElement target)
     {
         var e = AppServices.Engine;
-        if (ReferenceEquals(target, DeleteChip))
-        {
-            var r = _vm.Reader;
-            if (!r.HasDeleteTimer || !r.HasThread) return null;
-            return DeleteCardContent(r.DeleteCardTitle, r.DeleteRuleText, r.DeleteRuleId, () => r.KeepFromAutoDeleteCommand.Execute(null), deleteNow: null);
-        }
         if (e.Config.Appearance.DeleteDates.Hover != "H2" || target.DataContext is not ThreadItem { DeleteAt: not null } item || item.MenuOpen) return null;
-        return DeleteCardContent(item.DeleteCardTitle, item.DeleteCardRule, item.DeleteRuleId,
+        return ReaderActions.DeleteCard(this, _deleteCard.Close, item.DeleteCardTitle, item.DeleteCardRule, item.DeleteRuleId,
             () => e.KeepFromAutoDelete(item.Row.AccountId, item.Row.ThreadKey),
             () => _ = RunOnItemsAsync(new[] { item }, "delete", target));
-    }
-
-    private UIElement DeleteCardContent(string title, string rule, string ruleId, Action keep, Action? deleteNow)
-    {
-        var panel = new StackPanel();
-        var head = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
-        head.SetResourceReference(TextBlock.ForegroundProperty, "Brush.Danger");
-        var sub = new TextBlock { Text = rule, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 10) };
-        sub.SetResourceReference(TextBlock.ForegroundProperty, "Brush.Text.Secondary");
-        panel.Children.Add(head);
-        panel.Children.Add(sub);
-        var buttons = new WrapPanel();
-        Button Make(string text, string style, Action run, string tip)
-        {
-            var b = new Button { Content = text, FontSize = 12, MinHeight = 26, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 4), ToolTip = tip };
-            b.SetResourceReference(StyleProperty, style);
-            b.Click += (_, _) => { _deleteCard.Close(); run(); };
-            buttons.Children.Add(b);
-            return b;
-        }
-        Make("Keep this one", "Button.Primary", keep, "Take the timer off this email (pinning it keeps it too)");
-        Make("Change rule", "Button.Secondary", () =>
-        {
-            var r = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == ruleId);
-            if (r != null) EditAutoDelete(r, editing: true);
-            else Ui.Error("Auto-delete", "That rule was removed; this email keeps the date it was given. Use Keep this one to stop it.");
-        }, "Change the time or the sender of this rule");
-        if (deleteNow != null)
-            Make("Delete now", "Button.Secondary", deleteNow, "Move it to Trash now").SetResourceReference(ForegroundProperty, "Brush.Danger");
-        panel.Children.Add(buttons);
-        return panel;
     }
 
     // ───────────────────────── sidebar width (design H1) ─────────────────────────
@@ -473,54 +435,33 @@ public partial class MainWindow : Window
         if (_vm.Reader.HasThread) ShowMenu((FrameworkElement)sender, ReaderMenus.Tag(_vm.Reader));
     }
 
-    /// <summary>A reading-pane toolbar button (designs C1, C3).</summary>
-    private void OnToolbarButton(object sender, RoutedEventArgs e)
+    // ───────────────────────── the reader's host (design OW1) ─────────────────────────
+
+    Window IReaderHost.Window => this;
+    MainViewModel IReaderHost.Main => _vm;
+    ThreadViewModel IReaderHost.Reader => _vm.Reader;
+    bool IReaderHost.OwnWindow => false;
+    void IReaderHost.RunAction(string id, FrameworkElement anchor) => RunAction(id, anchor);
+    void IReaderHost.DeleteForever() => DeleteForever();
+
+    /// <summary>Design AL1: Restore on the "Deleted by Magpie auto delete" banner — the open conversation goes back where it was.</summary>
+    void IReaderHost.RestoreFromTrash()
     {
-        if (sender is FrameworkElement { Tag: ToolbarButtonVm b } anchor) RunAction(b.Id, anchor);
+        if (_vm.Selected is { } item) _ = _vm.RunOnAsync(new[] { item }, "restore");
     }
 
     /// <summary>Runs a toolbar / menu action by its id (the ids of <see cref="Core.Settings.Appearance.ToolbarIds"/>).</summary>
     private void RunAction(string id, FrameworkElement anchor)
     {
-        var r = _vm.Reader;
         if (id == "delete" && _vm.Selected?.LocalDraftId != null) { _vm.DeleteSelectedLocalDraft(); return; }
-        if (!r.HasThread) return;
-        switch (id)
-        {
-            case "archive": r.ArchiveCommand.Execute(null); break;
-            case "delete": r.DeleteCommand.Execute(null); break;
-            case "snooze": OnSnoozeMenu(anchor, new RoutedEventArgs()); break;
-            case "remind": OnRemindMenu(anchor, new RoutedEventArgs()); break;
-            case "tag": OnTagMenu(anchor, new RoutedEventArgs()); break;
-            case "pin": r.TogglePinCommand.Execute(null); break;
-            case "setaside": r.ToggleSetAsideCommand.Execute(null); break;
-            case "move": ShowMenu(anchor, MoveMenu()); break;
-            case "unread": r.MarkUnreadCommand.Execute(null); break;
-            case "replyall": r.ReplyAllCommand.Execute(null); break;
-            case "forward": r.ForwardCommand.Execute(null); break;
-        }
+        // Design OW1: from the main window the email's own window gets the list it was opened from (previous / next).
+        if (id == "window") { OpenInWindow(); return; }
+        ReaderActions.Run(this, id, anchor);
     }
 
-    private static MenuItem IconItem(string header, string icon, Action onClick, string? gesture = null)
-    {
-        var mi = Item(header, onClick, gesture);
-        mi.Icon = new IconChip { Icon = icon, Size = 18 };
-        return mi;
-    }
+    private static MenuItem IconItem(string header, string icon, Action onClick, string? gesture = null) => ReaderActions.IconItem(header, icon, onClick, gesture);
 
-    private ContextMenu MoveMenu()
-    {
-        var r = _vm.Reader;
-        var menu = new ContextMenu();
-        foreach (var f in AppServices.Engine.Folders(r.AccountId).Where(f => f.Role is not (FolderRole.All or FolderRole.Flagged or FolderRole.Important)))
-        {
-            var folder = f;
-            var mi = Item(new string(' ', Math.Min(f.Depth, 4) * 2) + f.Name, () => r.MoveTo(folder));
-            mi.Icon = new IconChip { Icon = Icons.ForRole(f.Role), Size = 18 };
-            menu.Items.Add(mi);
-        }
-        return menu;
-    }
+    private ContextMenu MoveMenu() => ReaderActions.MoveMenu(_vm.Reader);
 
     // ───────────────────────── delete emails from… (designs AD1–AD3, DP1, DX1) ─────────────────────────
 
@@ -530,128 +471,10 @@ public partial class MainWindow : Window
 
     private void DeleteForever() => _ = _vm.DeleteForeverAsync(ItemsForDelete());
 
-    /// <summary>
-    /// The Delete ▾ menu (design DX1): Delete now · Delete forever…, then for the sender and for the whole domain the
-    /// "already here" and "now and later" picks that open the one dialog pre-filled, and the two quick rule picks.
-    /// </summary>
-    private ContextMenu DeleteMenu(bool withDeleteNow)
-    {
-        var r = _vm.Reader;
-        var menu = new ContextMenu();
-        if (withDeleteNow)
-        {
-            menu.Items.Add(IconItem("Delete now", "delete", () => RunAction("delete", this), "Del"));
-            menu.Items.Add(IconItem("Delete forever…", "delete", DeleteForever, "Shift+Del"));
-        }
-        var sender = r.SenderAddress?.Trim().ToLowerInvariant();
-        if (sender is { Length: > 0 } && sender.Contains('@'))
-        {
-            if (withDeleteNow) menu.Items.Add(new Separator());
-            var domain = AutoDelete.DomainPattern(sender);
-            AddDeleteFromItems(menu, sender, $"EMAILS FROM {sender.ToUpperInvariant()}", single: true);
-            AddDeleteFromItems(menu, domain, $"EMAILS FROM ANYONE AT {domain.ToUpperInvariant()}", single: false);
-            menu.Items.Add(new Separator());
-        }
-        else if (!withDeleteNow) menu.Items.Add(new MenuItem { Header = "Works on emails from other people", IsEnabled = false });
-        if (r.HasDeleteTimer) menu.Items.Add(Item("Keep this one (no auto-delete)", () => r.KeepFromAutoDeleteCommand.Execute(null)));
-        menu.Items.Add(Item("Manage auto-delete rules", () => SettingsWindow.Open("Rules:AutoDelete")));
-        return menu;
-    }
+    /// <summary>The Delete ▾ choices (design DX1), as the list's right-click menu repeats them.</summary>
+    private ContextMenu DeleteMenu(bool withDeleteNow) => ReaderActions.DeleteMenu(this, withDeleteNow);
 
-    private static MenuItem SectionHeader(string text) => new() { Header = text, IsEnabled = false, FontSize = 11, FontWeight = FontWeights.SemiBold };
-
-    /// <summary>One section of the menu: "Delete all N already here…", "Keep only the last week, now and later…"; for a
-    /// single address also "Delete after a set time… (rule only)" and "OTP delete — 24 h after arrival" (acts at once).</summary>
-    private void AddDeleteFromItems(ContextMenu menu, string pattern, string header, bool single)
-    {
-        var e = AppServices.Engine;
-        var n = e.PastFrom(pattern).Count;
-        menu.Items.Add(SectionHeader(header));
-        var all = IconItem($"Delete all {n:N0} already here…", "delete", () => OpenDeleteFrom(pattern, past: true, future: false, keepNothing: true));
-        all.IsEnabled = n > 0;
-        menu.Items.Add(all);
-        menu.Items.Add(IconItem("Keep only the last week, now and later…", "delete", () => OpenDeleteFrom(pattern, past: true, future: true)));
-        if (!single) return;
-        menu.Items.Add(IconItem("Delete after a set time…", "clock", () => OpenDeleteFrom(pattern, past: false, future: true), "(rule only)"));
-        menu.Items.Add(IconItem("OTP delete — 24 h after arrival", "clock", () => _vm.RunDeleteFrom(new AutoDelete.DeleteFromRequest
-        {
-            Pattern = pattern, Future = true, Otp = true, StartOnExisting = e.Config.AutoDeleteIncludePast,
-        })));
-    }
-
-    /// <summary>Opens the "Delete emails from…" dialog pre-filled (design DX1-B1); the dialog runs the delete itself.</summary>
-    private void OpenDeleteFrom(string pattern, bool past, bool future, bool keepNothing = false) =>
-        AutoDeleteDialog.Show(this, new AutoDeleteRule { Pattern = pattern }, editing: false, past: past, future: future, keepNothing: keepNothing);
-
-    private void EditAutoDelete(AutoDeleteRule rule, bool editing) => AutoDeleteDialog.Show(this, rule, editing);
-
-    /// <summary>Design AL1: Restore on the "Deleted by Magpie auto delete" banner — the open conversation goes back where it was.</summary>
-    private void OnRestoreAutoDeleted(object sender, RoutedEventArgs e)
-    {
-        if (_vm.Selected is { } item) _ = _vm.RunOnAsync(new[] { item }, "restore");
-    }
-
-    /// <summary>Design AL1: Edit rule on that banner — the rule that deleted the email, while it still exists.</summary>
-    private void OnEditAutoDeletedRule(object sender, RoutedEventArgs e)
-    {
-        var rule = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == _vm.Reader.AutoDeletedRuleId);
-        if (rule != null) EditAutoDelete(rule, editing: true);
-        else Ui.Error("Auto-delete", "That rule was removed since it deleted this email.");
-    }
-
-    private void OnDeleteDropdown(object sender, RoutedEventArgs e)
-    {
-        if (!_vm.Reader.HasThread || sender is not FrameworkElement anchor) return;
-        ShowMenu(anchor, DeleteMenu(withDeleteNow: true));
-    }
-
-    /// <summary>Reader bar "Change rule" (design AD3).</summary>
-    private void OnChangeDeleteRule(object sender, RoutedEventArgs e)
-    {
-        var rule = AppServices.Engine.AutoDeleteRules().FirstOrDefault(x => x.Id == _vm.Reader.DeleteRuleId);
-        if (rule != null) EditAutoDelete(rule, editing: true);
-        else Ui.Error("Auto-delete", "That rule was removed; this email keeps the date it was given. Use Keep this one to stop it.");
-    }
-
-    private MenuItem ActionItem(ToolbarButtonVm b, FrameworkElement anchor)
-    {
-        var r = _vm.Reader;
-        var name = b.Id == "pin" && r.IsPinned ? "Unpin" : b.Id == "setaside" && r.IsSetAside ? "Back to Inbox" : b.Id == "unread" ? "Mark as unread" : b.Name;
-        if (b.Id == "move")
-        {
-            var move = new MenuItem { Header = "Move to", Icon = new IconChip { Icon = "move", Size = 18 } };
-            foreach (var item in MoveMenu().Items.OfType<MenuItem>().ToList())
-            {
-                ((ContextMenu)item.Parent).Items.Remove(item);
-                move.Items.Add(item);
-            }
-            return move;
-        }
-        return IconItem(name + (b.Id is "snooze" or "remind" or "tag" ? "…" : ""), b.IconKey, () => RunAction(b.Id, anchor), b.Shortcut.Length > 0 ? b.Shortcut : null);
-    }
-
-    /// <summary>··· More: the buttons hidden from the toolbar, then the less common actions.</summary>
-    private void OnMoreMenu(object sender, RoutedEventArgs e)
-    {
-        if (!_vm.Reader.HasThread) return;
-        var r = _vm.Reader;
-        var anchor = (FrameworkElement)sender;
-        var menu = new ContextMenu();
-        foreach (var b in _vm.HiddenButtons) menu.Items.Add(ActionItem(b, anchor));
-        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-
-        if (r.SenderAddress is { } sender0)
-        {
-            var cat = new MenuItem { Header = "Smart inbox: always put " + sender0 + " in" };
-            cat.Items.Add(Item("People", () => r.SetSenderCategory(Category.People)));
-            cat.Items.Add(Item("Notifications", () => r.SetSenderCategory(Category.Notifications)));
-            cat.Items.Add(Item("Newsletters", () => r.SetSenderCategory(Category.Newsletters)));
-            menu.Items.Add(cat);
-        }
-        if (r.CanUnsubscribe) menu.Items.Add(IconItem("Unsubscribe…", "unsubscribe", () => r.UnsubscribeCommand.Execute(null)));
-        menu.Items.Add(IconItem("Customise toolbar…", "toolbar", () => SettingsWindow.Open("Toolbar")));
-        ShowMenu(anchor, menu);
-    }
+    private MenuItem ActionItem(ToolbarButtonVm b, FrameworkElement anchor) => ReaderActions.ActionItem(this, b, anchor);
 
     /// <summary>Right-click on the list: same actions, in the toolbar's order when that option is on (design C3).</summary>
     private void OnListMenuOpened(object sender, RoutedEventArgs e)
@@ -670,6 +493,12 @@ public partial class MainWindow : Window
         {
             // Design TB1: in Trash / Spam, right-click acts on the ticked conversations, or the one picked.
             var items = _vm.SelectedCount > 0 ? _vm.CheckedItems : _vm.Selected is { } one ? new List<ThreadItem> { one } : new List<ThreadItem>();
+            // Design OW1: the email that is picked (not the ticked ones) opens in its own window from here too.
+            if (_vm.Selected is { LocalDraftId: null })
+            {
+                menu.Items.Add(IconItem(EmailWindow.OpenWords, "window", () => OpenInWindow(), AppServices.Engine.Config.OpenInWindowOnDoubleClick ? EmailWindow.OpenKey : null));
+                menu.Items.Add(new Separator());
+            }
             if (_vm.IsTrashView) menu.Items.Add(IconItem("Restore to Inbox", "inbox", () => _ = _vm.RunOnAsync(items, "restore")));
             else menu.Items.Add(IconItem("Not spam", "inbox", () => _ = _vm.RunOnAsync(items, "notspam")));
             menu.Items.Add(IconItem("Move to…", "move", () => _ = RunOnItemsAsync(items, "move", ThreadList)));
@@ -680,8 +509,11 @@ public partial class MainWindow : Window
             return;
         }
         var a = AppServices.Engine.Config.Appearance;
+        // Design OW1: first in the menu, whatever the toolbar's order is.
+        menu.Items.Add(IconItem(EmailWindow.OpenWords, "window", () => OpenInWindow(), AppServices.Engine.Config.OpenInWindowOnDoubleClick ? EmailWindow.OpenKey : null));
+        menu.Items.Add(new Separator());
         var ids = a.MenuFollowsToolbar ? a.Toolbar.Where(b => b.Visible).Select(b => b.Id).ToList() : Core.Settings.Appearance.ToolbarIds.Take(Core.Settings.Appearance.DefaultVisible).ToList();
-        foreach (var id in ids.Where(id => id is not ("replyall" or "forward")))
+        foreach (var id in ids.Where(id => id is not ("replyall" or "forward" or "window")))
             menu.Items.Add(ActionItem(ToolbarButtonVm.For(id, a.ButtonStyle), ThreadList));
         // Design DX1: the same delete choices as Delete ▾.
         menu.Items.Add(IconItem("Delete forever…", "delete", DeleteForever, "Shift+Del"));
@@ -770,6 +602,15 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        // Design OW1: Enter on an email opens it in its own window, as a double-click does.
+        // Only with the keyboard on the row itself: Enter on the row's tick box or one of its buttons presses that.
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None && Keyboard.FocusedElement is ListBoxItem or ListBox
+            && ThreadList.IsKeyboardFocusWithin && _vm.Selected is { LocalDraftId: null } && AppServices.Engine.Config.OpenInWindowOnDoubleClick)
+        {
+            OpenInWindow();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Delete && Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift && _vm.Selected?.LocalDraftId != null)   // Shift+Del on a draft kept here = Del
         {
             _vm.DeleteSelectedLocalDraft();
@@ -815,6 +656,43 @@ public partial class MainWindow : Window
         var item = ItemsControl.ContainerFromElement(ThreadList, src) as ListBoxItem;
         if (item?.DataContext is ThreadItem { LocalDraftId: not null } t && ReferenceEquals(t, _vm.Selected))
             _vm.OpenSelectedLocalDraft();
+    }
+
+    // ───────────────────────── an email in its own window (design OW1) ─────────────────────────
+
+    /// <summary>A double-click on an email opens it in its own window (Settings → General can switch this off).</summary>
+    private void OnThreadListDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || !AppServices.Engine.Config.OpenInWindowOnDoubleClick) return;
+        if (e.OriginalSource is not DependencyObject src || ItemsControl.ContainerFromElement(ThreadList, src) is not ListBoxItem row) return;
+        if (row.DataContext is not ThreadItem item || item.LocalDraftId != null) return;   // a draft opens for writing on the click itself
+        if (IsRowControl(src, row)) return;                                                 // the tick box, the avatar and the row's buttons keep their own clicks
+        OpenInWindow(item);
+        e.Handled = true;
+    }
+
+    /// <summary>True when the click landed on something in the row that acts by itself: a button, the tick box, the avatar.</summary>
+    private static bool IsRowControl(DependencyObject src, ListBoxItem row)
+    {
+        for (var d = src; d != null && !ReferenceEquals(d, row); d = d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (d is ButtonBase or FrameworkElement { Name: "RowAvatar" }) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Opens a conversation of the list (the picked one when none is given) in its own window; the window takes the
+    /// list as it is now for its previous / next buttons. A draft kept on this PC opens for writing instead.
+    /// </summary>
+    private void OpenInWindow(ThreadItem? item = null)
+    {
+        item ??= _vm.Selected;
+        if (item == null)
+        {
+            if (_vm.Reader.CurrentThreadRow is { } open) ThreadWindow.Open(_vm, open);   // opened without a list row (a reminder, a search jump)
+            return;
+        }
+        if (item.LocalDraftId != null) { _vm.OpenSelectedLocalDraft(); return; }
+        ThreadWindow.Open(_vm, item.Row, item.IsPersonRow ? item.Row.Latest : null);
     }
 
     private void OnSearchKey(object sender, KeyEventArgs e)

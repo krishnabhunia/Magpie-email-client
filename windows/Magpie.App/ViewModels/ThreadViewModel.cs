@@ -498,7 +498,14 @@ public partial class ThreadViewModel : ObservableObject
         }
     }
 
-    private List<long> Folders() => _main?.ActionFolders(AccountId) ?? new();
+    /// <summary>
+    /// Design OW1: an email's own window gives the folders its actions work on (those of the list it was opened from).
+    /// Without it they are the folders of the view the main window shows now — right for the reading pane, wrong for a
+    /// window that stays open while the main window moves to another folder.
+    /// </summary>
+    public Func<string, string, List<long>>? ActionFolders { get; set; }
+
+    private List<long> Folders() => ActionFolders?.Invoke(AccountId, ThreadKey) ?? _main?.ActionFolders(AccountId) ?? new();
 
     [RelayCommand] private Task Archive() => Act(() => _e.ArchiveAsync(AccountId, ThreadKey, Folders()), true);
     [RelayCommand] private Task Delete() => Act(() => _e.TrashAsync(AccountId, ThreadKey, Folders()), true);

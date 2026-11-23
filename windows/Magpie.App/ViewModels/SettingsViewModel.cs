@@ -237,6 +237,8 @@ public partial class SettingsViewModel : ObservableObject
     // General
     [ObservableProperty] private bool _smartInbox;
     [ObservableProperty] private bool _markReadOnOpen;
+    /// <summary>Design OW1: a double-click (or Enter) on an email opens it in its own window.</summary>
+    [ObservableProperty] private bool _openInWindowOnDoubleClick;
     [ObservableProperty] private RemoteImages _remoteImages;
     /// <summary>Design TB1 (T7): empty Trash by itself after 0 (never), 7 or 30 days.</summary>
     [ObservableProperty] private int _emptyTrashAfterDays;
@@ -434,6 +436,7 @@ public partial class SettingsViewModel : ObservableObject
         ("Smart inbox", "General", "People · Notifications · Newsletters tabs", "smart inbox people newsletters categories tabs", "RowSmartInbox"),
         ("Mark as read when opened", "General", "Otherwise conversations stay unread", "read unread mark open", "RowMarkRead"),
         ("Pictures from the internet", "General", "Block remote images to stop tracking", "images pictures photos tracking privacy remote load", "RowImages"),
+        ("Open an email in its own window", "General", "A double-click or Enter opens the email in a window of its own", "double click double-click enter open email new window own window separate pop out popout reader", "RowOpenWindow"),
         ("Empty Trash by itself", "General", "Delete what has been in Trash for 7 or 30 days", "trash bin empty delete forever days auto clean", "RowEmptyTrash"),
         ("Undo send", "General", "How long you can take a message back after pressing Send", "undo send cancel recall seconds send now", "RowUndo"),
         ("Check all folders every", "General", "How often folders are checked for changes", "sync interval minutes check refresh poll", "RowInterval"),
@@ -822,6 +825,7 @@ public partial class SettingsViewModel : ObservableObject
         if (parts.Length > 1) _rulesTab = parts[1];
         _smartInbox = c.SmartInbox;
         _markReadOnOpen = c.MarkReadOnOpen;
+        _openInWindowOnDoubleClick = c.OpenInWindowOnDoubleClick;
         _remoteImages = c.RemoteImages;
         _emptyTrashAfterDays = c.EmptyTrashAfterDays;
         _undoSendSeconds = c.UndoSendSeconds;
@@ -1117,6 +1121,7 @@ public partial class SettingsViewModel : ObservableObject
         c.Typography = TypographyToSave();
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
+        c.OpenInWindowOnDoubleClick = OpenInWindowOnDoubleClick;
         c.RemoteImages = RemoteImages;
         c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;
