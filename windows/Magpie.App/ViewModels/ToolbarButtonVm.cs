@@ -26,6 +26,7 @@ public sealed class ToolbarButtonVm
         ["tag"] = ("Tag", "tag", "", "Add or remove tags"),
         ["pin"] = ("Pin", "pin", "P", "Pin or unpin"),
         ["move"] = ("Move", "move", "", "Move to another folder"),
+        ["window"] = (Magpie.Core.Mail.EmailWindow.ButtonName, "window", "", Magpie.Core.Mail.EmailWindow.ButtonTip),
         ["unread"] = ("Mark unread", "unread", "U", "Mark as unread"),
         ["replyall"] = ("Reply all", "replyall", "A", "Reply to everyone"),
         ["forward"] = ("Forward", "forward", "F", "Forward"),

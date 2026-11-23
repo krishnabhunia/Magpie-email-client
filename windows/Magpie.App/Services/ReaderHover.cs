@@ -96,11 +96,14 @@ public sealed class ReaderHover
 
     // ───────────────────────── subject card (S1–S9) ─────────────────────────
 
-    /// <summary>What the subject card shows; S3 is left out in a conversation that already has its own window.</summary>
+    /// <summary>
+    /// What the subject card shows; S3 is left out in a conversation that already has its own window. Summarise is
+    /// offered there too since design OW1: the window has the same head, so the summary has its card to show in.
+    /// </summary>
     public SubjectCard.Content? SubjectContent(bool ownWindow)
     {
         if (!_reader.HasThread) return null;
-        var items = HoverMenus.ForSubject(HasCalendar, !ownWindow && _reader.ShowSummarise).Where(i => !(ownWindow && i.Id == "S3")).ToList();
+        var items = HoverMenus.ForSubject(HasCalendar, _reader.ShowSummarise).Where(i => !(ownWindow && i.Id == "S3")).ToList();
         return new SubjectCard.Content(HoverMenus.CleanSubject(_reader.Subject), HoverMenus.SubjectLine(_reader.Messages.Count, _reader.FolderName), items);
     }
 

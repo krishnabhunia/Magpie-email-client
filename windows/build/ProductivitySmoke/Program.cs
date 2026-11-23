@@ -123,6 +123,7 @@ internal static partial class Program
             Assert(vm.Current?.Kind == NavKind.Inbox, "Removing current view restores inbox");
             CheckPersonList(vm, engine, inbox);
             CheckAutoDeletedTrash(vm, engine, inbox);
+            CheckEmailWindow(vm, engine, inbox);
             owner.Close();
             Console.WriteLine("PRODUCTIVITY_SMOKE_PASSED assertions=" + _assertions);
             return 0;
@@ -160,6 +161,7 @@ internal static partial class Program
             CheckUpdateButton(window!);
             CheckPriorityIndicator(window!);
             CheckAutoDeletedRow(window!);
+            CheckEmailWindowLook(window!);
             CheckInfoEntryPoints(window!);
         }
         finally

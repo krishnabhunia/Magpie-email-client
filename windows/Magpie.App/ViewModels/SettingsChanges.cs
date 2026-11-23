@@ -64,8 +64,11 @@ public partial class SettingsViewModel
         var c = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_e.Config, AppSettings.Json), AppSettings.Json) ?? new AppSettings();
         // Sidebar state changes as the main window is used (open folders, design LB1's label dates): never a settings change.
         c.Sidebar = new SidebarState();
+        // Nor is where an email's own window was last closed (design OW1).
+        c.EmailWindow = new EmailWindowPlacement();
         c.SmartInbox = SmartInbox;
         c.MarkReadOnOpen = MarkReadOnOpen;
+        c.OpenInWindowOnDoubleClick = OpenInWindowOnDoubleClick;
         c.RemoteImages = RemoteImages;
         c.EmptyTrashAfterDays = EmptyTrashAfterDays;
         c.UndoSendSeconds = UndoSendSeconds;

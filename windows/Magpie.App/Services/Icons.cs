@@ -32,6 +32,8 @@ public static class Icons
         ["remind"] = new("Remind", "M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 21h4", "#C2410C", "#FFEDD5", "#FED7AA", "#7C2D12"),
         ["tag"] = new("Tag", "M3 12V3h9l9 9-9 9z M8 8h.01", "#BE185D", "#FCE7F3", "#FBCFE8", "#831843"),
         ["move"] = new("Move", "M3 6h6l2 2h10v11H3z M10 14h6 M14 12l2 2-2 2", "#334155", "#E2E8F0", "#E2E8F0", "#334155"),
+        // Design OW1: open in its own window — a window with an arrow leaving its top-right corner.
+        ["window"] = new("New window", "M14 4h6v6 M20 4l-8 8 M18 13v6H5V7h6", "#0F766E", "#CCFBF1", "#99F6E4", "#134E4A"),
         ["folder"] = new("Folder", "M3 6h6l2 2h10v11H3z", "#C2410C", "#FFEDD5", "#FED7AA", "#7C2D12"),
         ["star"] = new("Starred", "M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4 6.5 20.3l1-6.2L3 9.7l6.2-.9z", "#B45309", "#FEF3C7", "#FDE68A", "#78350F"),
         ["important"] = new("Important", "M4 5h11l5 7-5 7H4l4-7z", "#B91C1C", "#FEE2E2", "#FECACA", "#7F1D1D"),

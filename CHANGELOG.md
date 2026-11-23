@@ -7,6 +7,22 @@
     "### Fixed"    a bug or error fixed                                          -> x.y.z
     then run: python common/scripts/release_prep.py apply --date YYYY-MM-DD   (it works the number out) -->
 
+## 21.0.0 (23 Nov 2026)
+<!-- closes: #62 -->
+### New
+- **Double-click an email to open it in its own window.** A double-click on an email in the list, or **Enter**, opens it in a window of its own that you can move to a second screen, resize and keep open while you go on in the list. **Open in new window** is also first in the right-click menu (in Trash and Spam too), and the reading pane's toolbar has a **New window** button.
+- **The window has everything the reading pane has.** The same toolbar buttons you chose in Settings (Archive, Delete ▾, Snooze, Set aside, Remind, Tags, Pin, Move, More ⋯), the subject with its card, the AI summary, a meeting invite with its answers, and the banners for auto-deleted emails, delete dates and blocked pictures. The same keys work in it: E, Del, Shift+Del, R, A, F, P, U, S and L. Esc or Ctrl+W closes it.
+- **Go through the list without going back to it.** The window says where the email is, for example **2 of 42 in Inbox**, and has **Previous** and **Next** buttons (K and J) that show the email before or after it in the same window.
+- **One window per email, and as many windows as you like.** Opening an email that already has a window brings that window forward. Each window is on the taskbar under the email's subject. A new window opens with the size and place of the last one you closed, and a few steps down and right when others are open. When that place is on none of your screens any more (a second screen was unplugged or moved), it opens next to the main window instead.
+- **A switch for the double-click.** Settings → General → **Double-click opens an email in its own window** turns the double-click and Enter off; the button and the right-click menu still open the window.
+
+### Changed
+- **The email window keeps up.** A new reply, a change made in the list or on your phone shows in the window without reopening it. The window closes by itself when its email is archived, deleted, snoozed or moved, as the reading pane moves on.
+- **Open in its own window** in the subject card opens this same window, and **Summarise** is offered there as well.
+
+### Fixed
+- **Archive, Delete and Move in an email's own window act on the folder you opened it from.** They used to act on whatever folder the main window was showing at that moment, so after you went to another folder they could do nothing, or act on another copy of the email.
+
 ## 20.0.0 (21 Nov 2026)
 <!-- closes: #160 -->
 ### New

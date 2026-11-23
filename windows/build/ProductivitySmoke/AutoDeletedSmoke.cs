@@ -30,7 +30,9 @@ internal static partial class Program
         var widest = narrow.Children.OfType<RadioButton>().Max(b => b.DesiredSize.Width);
         Assert(widest > 0 && widest <= 284 && narrow.DesiredSize.Height > narrow.Children[0].DesiredSize.Height * 1.5,
             $"The Trash choices fit the narrowest list pane on more than one line (widest {widest:0} of 284)");
-        Assert(window.FindName("AutoDeletedBanner") is Border && window.FindName("AutoDeletedRestore") is Button { Content: "Restore" },
+        // The banner is part of the reader's head, a view of its own (design OW1): its names live in that view.
+        var head = window.FindName("ReaderHead") as Magpie.App.Views.ReaderHeadView;
+        Assert(head?.FindName("AutoDeletedBanner") is Border && head.FindName("AutoDeletedRestore") is Button { Content: "Restore" },
             "Main window has the auto-deleted banner with Restore");
 
         var list = (ListBox)window.FindName("ThreadList");

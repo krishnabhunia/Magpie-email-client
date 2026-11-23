@@ -1803,11 +1803,13 @@ public partial class MainViewModel : ObservableObject
     // ── Design DX1-A: delete for good, skipping Trash (Shift+Delete, "Delete forever…") ──
 
     /// <summary>Asks once ("Delete 3 emails for good?"), then removes every copy on this PC and on the server. No undo.</summary>
-    public async Task DeleteForeverAsync(IReadOnlyList<ThreadItem> items)
+    /// <param name="foldersFor">Design OW1: an email's own window gives the folders (account id → folder ids) of the
+    /// list it was opened from; without it they are those of the view on screen.</param>
+    public async Task DeleteForeverAsync(IReadOnlyList<ThreadItem> items, Func<string, List<long>>? foldersFor = null)
     {
         if (items.Count == 0) return;
         var groups = items.GroupBy(i => i.Row.AccountId)
-            .Select(g => (AccountId: g.Key, Keys: g.Select(i => i.Row.ThreadKey).Distinct().ToList(), Folders: ActionFoldersFor(g.Key))).ToList();
+            .Select(g => (AccountId: g.Key, Keys: g.Select(i => i.Row.ThreadKey).Distinct().ToList(), Folders: foldersFor?.Invoke(g.Key) ?? ActionFoldersFor(g.Key))).ToList();
         var n = groups.Sum(g => _e.CountDeleteForever(g.AccountId, g.Keys, g.Folders));
         if (n == 0) { Ui.Error("Delete forever", "There is nothing here to delete."); return; }
         var many = n == 1 ? "1 email" : $"{n:N0} emails";
