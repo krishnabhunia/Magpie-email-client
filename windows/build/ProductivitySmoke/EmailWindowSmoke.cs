@@ -5,9 +5,11 @@ using Magpie.App;
 using Magpie.App.ViewModels;
 using Magpie.App.Views;
 using Magpie.Core;
+using Magpie.Core.Ai;
 using Magpie.Core.Mail;
 using Magpie.Core.Models;
 using Magpie.Core.Settings;
+using Magpie.Core.Storage;
 
 namespace ProductivitySmoke;
 
@@ -60,6 +62,16 @@ internal static partial class Program
         Console.WriteLine("EMAIL_WINDOW_LOOK_SMOKE_PASSED");
     }
 
+    /// <summary>Lets the window's own timers and posted work run for a while.</summary>
+    private static void PumpFor(TimeSpan time)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.ApplicationIdle) { Interval = time };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
     /// <summary>
     /// Design OW1 (option A) in the native view models: one window per conversation, where it is in its list, previous /
     /// next, actions on the folders of the list it was opened from (whatever the main window shows by then), and the
@@ -77,9 +89,16 @@ internal static partial class Program
         rows.AddRange(engine.Store.InsertMessages(Enumerable.Range(1, 2).Select(i => new MessageRow
         {
             AccountId = "A", FolderId = inbox, Uid = 980 + i, MessageId = "window-talk-" + i, ThreadKey = "window-talk", FromAddress = "rajesh@buildwell.test",
-            To = "me@example.test", Subject = "Snag list", Date = now.AddHours(-5 + i), SortDate = now.AddHours(-5 + i), Flags = MessageFlags.Seen,
+            To = "me@example.test", Subject = "Site photos", Date = now.AddHours(-5 + i), SortDate = now.AddHours(-5 + i), Flags = MessageFlags.Seen,
         }).ToArray()));
+        // One more, fourth in the list, which another app will move to Trash while its window is open.
+        rows.AddRange(engine.Store.InsertMessages(new[] { new MessageRow
+        {
+            AccountId = "A", FolderId = inbox, Uid = 990, MessageId = "window-moved-1", ThreadKey = "window-moved", FromAddress = "rajesh@buildwell.test",
+            To = "me@example.test", Subject = "Old quote", Date = now.AddMinutes(6), SortDate = now.AddMinutes(6), Flags = MessageFlags.Seen,
+        } }));
         foreach (var row in rows) engine.Store.SaveBody(row.Id, new MessageBody { Html = "<p>Cached locally</p>", Text = "Cached locally", ImagesComplete = true });
+        var trash = engine.Store.GetFolders("A").Single(f => f.Role == FolderRole.Trash).Id;
         engine.Config.EmailWindow = new EmailWindowPlacement();
         engine.Config.OpenInWindowOnDoubleClick = true;
         var inboxNav = vm.Smart.First(n => n.Kind == NavKind.Inbox);
@@ -88,12 +107,12 @@ internal static partial class Program
         vm.ReloadList();
         ThreadRow Row(int i) => vm.Threads.Single(t => t.Row.ThreadKey == "window-" + i).Row;
         var keys = vm.Threads.Where(t => t.LocalDraftId == null).Select(t => EmailWindow.Key(t.Row.AccountId, t.Row.ThreadKey)).Distinct().ToList();
-        Assert(keys.Count >= 3 && keys.Take(3).SequenceEqual(new[] { EmailWindow.Key("A", "window-1"), EmailWindow.Key("A", "window-2"), EmailWindow.Key("A", "window-3") }),
-            "The three new conversations lead the Inbox, newest first");
+        Assert(keys.Count >= 5 && keys.Take(4).SequenceEqual(new[] { EmailWindow.Key("A", "window-1"), EmailWindow.Key("A", "window-2"), EmailWindow.Key("A", "window-3"), EmailWindow.Key("A", "window-moved") }),
+            "The new conversations lead the Inbox, newest first");
         Assert(ThreadWindow.OpenCount == 0, "No email window is open before the check");
 
         var first = ThreadWindow.Open(vm, Row(1), activate: false, browser: false);
-        ThreadWindow? second = null, third = null, talk = null;
+        ThreadWindow? second = null, third = null, talk = null, moved = null, binned = null;
         try
         {
             Assert(ThreadWindow.OpenCount == 1 && ReferenceEquals(ThreadWindow.Open(vm, Row(1), activate: false, browser: false), first) && ThreadWindow.OpenCount == 1,
@@ -137,9 +156,49 @@ internal static partial class Program
             talk = null;
             Assert(ThreadWindow.OpenCount == 1, "Closing it leaves the first window");
 
+            // Settings → AI features applies to the window's reader too: switching AI off takes Summarise away there.
+            var ai = (engine.Config.Ai.Enabled, engine.Config.Ai.Summarise);
+            engine.Config.Ai.Enabled = engine.Config.Ai.Summarise = true;
+            engine.Settings.Save();
+            PumpUntil(() => first.ReaderModel.ShowSummarise);
+            engine.Config.Ai.Enabled = false;
+            engine.Settings.Save();
+            PumpUntil(() => !first.ReaderModel.ShowSummarise);
+            Assert(!engine.Ai.IsVisible(AiFeature.Summarise) && !first.ReaderModel.ShowSummarise && !first.ReaderModel.SummaryVisible,
+                "Switching AI off in Settings takes Summarise away in an open email window");
+            (engine.Config.Ai.Enabled, engine.Config.Ai.Summarise) = ai;
+            engine.Settings.Save();
+
+            // An email whose window is open is moved to Trash by another app. A plain Delete in the window must not
+            // reach the copy there (that would delete it for good); the window closes instead, as for its own Delete.
+            moved = ThreadWindow.Open(vm, vm.Threads.Single(t => t.Row.ThreadKey == "window-moved").Row, activate: false, browser: false);
+            PumpUntil(() => moved.ReaderModel.Messages.Count == 1);
+            Assert(moved.ReaderModel.ActionFolders!("A", "window-moved").Contains(inbox) && !moved.ReaderModel.ActionFolders!("A", "window-moved").Contains(trash),
+                "An email opened from the Inbox is acted on in the Inbox");
+            var original = engine.Store.GetThreadCopies("A", "window-moved").Single();
+            engine.Store.DeleteRow(original.Id);
+            var inTrash = engine.Store.InsertMessages(new[] { new MessageRow
+            {
+                AccountId = "A", FolderId = trash, Uid = 991, MessageId = original.MessageId, ThreadKey = original.ThreadKey, FromAddress = original.FromAddress,
+                To = original.To, Subject = original.Subject, Date = original.Date, SortDate = original.SortDate, Flags = MessageFlags.Seen,
+            } });
+            engine.Store.SaveBody(inTrash[0].Id, new MessageBody { Html = "<p>Cached locally</p>", Text = "Cached locally", ImagesComplete = true });
+            Assert(!moved.ReaderModel.ActionFolders!("A", "window-moved").Contains(trash), "Its Delete cannot reach the copy another app moved to Trash");
+            var openBefore = ThreadWindow.OpenCount;
+            engine.SetPinned("A", "two", true);   // any change of the account's mail makes the open windows look again
+            PumpUntil(() => ThreadWindow.OpenCount == openBefore - 1);
+            Assert(!Application.Current.Windows.Cast<Window>().Contains(moved) && engine.Store.GetThreadCopies("A", "window-moved").Single().FolderId == trash,
+                "The window of an email that went to Trash elsewhere closes, and the email is still in Trash");
+            moved = null;
+            engine.SetPinned("A", "two", false);
+            // Previous and Next in a window that still has it in its list step over it: it left the list.
+            Assert(first.Step(1) && first.ConversationKey == keys[2], "Next goes to the third email");
+            Assert(first.Step(1) && first.ConversationKey == keys[4], "Next steps over the email that went to Trash");
+            Assert(first.Step(-1) && first.ConversationKey == keys[2] && first.Step(-1) && first.ConversationKey == keys[1], "Previous steps over it too");
+            PumpUntil(() => first.ReaderModel.ThreadKey == "window-2" && first.ReaderModel.Messages.Count == 1);
+
             // The main window moves on to Trash; Delete in the email window still acts on the Inbox it was opened from.
             vm.NavigateCommand.Execute(vm.Smart.First(n => n.Kind == NavKind.Role && n.Role == FolderRole.Trash));
-            var trash = engine.Store.GetFolders("A").Single(f => f.Role == FolderRole.Trash).Id;
             Assert(vm.IsTrashView && vm.ActionFolders("A").SequenceEqual(new[] { trash }), "The main window's own actions are on Trash now");
             var folders = first.ReaderModel.ActionFolders!("A", "window-2");
             Assert(folders.Contains(inbox) && !folders.Contains(trash),
@@ -168,12 +227,41 @@ internal static partial class Program
             third.ReaderModel.RefreshIfShowing(new ThreadRow { AccountId = "A", ThreadKey = "window-3" });
             PumpUntil(() => ThreadWindow.OpenCount == 0);
             third = null;
+
+            // Opened from Trash itself, the window acts on Trash, as the reading pane does there.
+            vm.ReloadList();
+            binned = ThreadWindow.Open(vm, vm.Threads.Single(t => t.Row.ThreadKey == "window-moved").Row, activate: false, browser: false);
+            PumpUntil(() => binned.ReaderModel.Messages.Count == 1);
+            Assert(binned.ReaderModel.ActionFolders!("A", "window-moved").SequenceEqual(new[] { trash }), "An email opened from Trash is acted on in Trash");
+            engine.SetPinned("A", "two", true);
+            PumpFor(TimeSpan.FromMilliseconds(900));   // longer than the window waits before it looks at the mail again
+            Assert(ThreadWindow.OpenCount == 1 && binned.IsVisible, "A window opened from Trash stays open when the mail changes");
+            engine.SetPinned("A", "two", false);
+            binned.Close();
+            binned = null;
+
+            // A list that includes Trash on purpose (the "emails with one address" list with Include them): Next goes
+            // to a deleted email that is in it, and the window then acts on Trash.
+            vm.ShowPerson("rajesh@buildwell.test", "Rajesh Mehta", PersonKind.All);
+            if (!vm.PersonIncludeBin) vm.TogglePersonBinCommand.Execute(null);
+            var personRows = vm.Threads.Where(t => t.LocalDraftId == null).Select(t => t.Row).ToList();
+            var movedAt = personRows.FindIndex(r => r.ThreadKey == "window-moved");
+            Assert(vm.IsPersonView && vm.PersonIncludeBin && movedAt > 0 && personRows[movedAt].Latest.FolderId == trash && personRows[movedAt - 1].ThreadKey == "window-1",
+                $"The list with Trash included has the deleted email after a newer one (at {movedAt} of {personRows.Count})");
+            binned = ThreadWindow.Open(vm, personRows[movedAt - 1], activate: false, browser: false);
+            Assert(binned.Step(1) && binned.ConversationKey == EmailWindow.Key("A", "window-moved"), "Next goes to the deleted email of a list that includes Trash");
+            PumpUntil(() => binned.ReaderModel.ThreadKey == "window-moved" && binned.ReaderModel.Messages.Count == 1);
+            Assert(binned.ReaderModel.ActionFolders!("A", "window-moved").Contains(trash), "The window on it acts on Trash");
+            binned.Close();
+            binned = null;
         }
         finally
         {
             second?.Close();
             third?.Close();
             talk?.Close();
+            moved?.Close();
+            binned?.Close();
             if (Application.Current.Windows.Cast<Window>().Contains(first)) first.Close();
         }
         vm.Reader.Clear();

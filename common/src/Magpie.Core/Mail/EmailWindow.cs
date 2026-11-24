@@ -50,6 +50,53 @@ public static class EmailWindow
         return -1;
     }
 
+    // ───────────────────────── the folders its actions work on ─────────────────────────
+
+    /// <summary>True when the conversation has copies on this PC and every one of them is in Trash or Spam.</summary>
+    public static bool OnlyInBins(IReadOnlyCollection<long> copies, IReadOnlySet<long> bins) => copies.Count > 0 && copies.All(bins.Contains);
+
+    /// <summary>True when the list a window was opened from is Trash or Spam itself.</summary>
+    public static bool ListIsBin(IReadOnlyCollection<long> listFolders, IReadOnlySet<long> bins) => listFolders.Count > 0 && listFolders.All(bins.Contains);
+
+    /// <summary>
+    /// A window shows an email of Trash or Spam on purpose when it was opened from one of those two, or when the email
+    /// had no copy anywhere else as it was opened. Only such a window acts on the copies there: Delete on a copy in
+    /// Trash or Spam removes it for good, without asking.
+    /// </summary>
+    public static bool BinScope(IReadOnlyCollection<long> listFolders, IReadOnlyCollection<long> copies, IReadOnlySet<long> bins) =>
+        ListIsBin(listFolders, bins) || OnlyInBins(copies, bins);
+
+    /// <summary>
+    /// The folders Archive, Delete and Move of an email window work on. First the folders of the list the window was
+    /// opened from, when the conversation has a copy in them; otherwise <paramref name="otherFolders"/> (every folder
+    /// an action may touch). Trash and Spam are taken out of both unless <paramref name="binScope"/>: an email that
+    /// another app moved to Trash while its window was open must not be lost to a plain Delete.
+    /// </summary>
+    public static List<long> ActionFolders(IReadOnlyCollection<long> listFolders, IReadOnlyCollection<long> copies,
+        IReadOnlyCollection<long> otherFolders, IReadOnlySet<long> bins, bool binScope)
+    {
+        bool Allowed(long id) => binScope || !bins.Contains(id);
+        var mine = listFolders.Where(Allowed).ToList();
+        return mine.Any(copies.Contains) ? mine : otherFolders.Where(Allowed).ToList();
+    }
+
+    /// <summary>
+    /// A window that does not show Trash or Spam on purpose closes when its email is only there: it was deleted or
+    /// marked as spam somewhere else, and the window closes as it does for its own Delete.
+    /// </summary>
+    public static bool ClosesWhenBinned(bool binScope, IReadOnlyCollection<long> copies, IReadOnlySet<long> bins) => !binScope && OnlyInBins(copies, bins);
+
+    /// <summary>
+    /// Previous / Next step over a conversation of the list that is gone, and over one that went to Trash or Spam
+    /// since the list was taken: it left the list. Not when the list is Trash or Spam itself, and not a conversation
+    /// that was listed from Trash or Spam (<paramref name="binnedWhenListed"/>: the "emails with one address" list
+    /// with Trash and Spam included) — those are in the list because they are there.
+    /// </summary>
+    public static bool StepsOver(IReadOnlyCollection<long> listFolders, IReadOnlyCollection<long> copies, IReadOnlySet<long> bins, bool binnedWhenListed = false) =>
+        copies.Count == 0 || (!binnedWhenListed && !ListIsBin(listFolders, bins) && OnlyInBins(copies, bins));
+
+    // ───────────────────────── size and place ─────────────────────────
+
     /// <summary>A screen area in the units the window uses (left, top, width, height).</summary>
     public readonly record struct Area(double Left, double Top, double Width, double Height);
 

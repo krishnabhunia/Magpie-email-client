@@ -42,6 +42,13 @@ public sealed class ThreadWindow : Window, IReaderHost
     private readonly Ui.Debouncer _refresh = new(TimeSpan.FromMilliseconds(300));
     private readonly Border _navBar;
     private bool _ready, _shown, _closing;
+    /// <summary>
+    /// The window shows an email of Trash or Spam on purpose: it was opened from one of those two, or the email had no
+    /// copy anywhere else when it was opened. Only then do its actions touch the copies there (Delete = for good, as
+    /// in Trash itself). Any other window never does, and closes when its email ends up there.
+    /// </summary>
+    private bool _binScope;
+    private string _typography = "", _deleteLook = "";
 
     /// <summary>"2 of 42 in Inbox" — where the email is in the list the window was opened from.</summary>
     public TextBlock NavText { get; } = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
@@ -90,6 +97,9 @@ public sealed class ThreadWindow : Window, IReaderHost
         _keys = list.Select(r => EmailWindow.Key(r.AccountId, r.ThreadKey)).ToList();
         _listName = listName;
         foreach (var account in list.Select(r => r.AccountId).Append(row.AccountId).Distinct()) _listFolders[account] = main.ActionFolders(account);
+        _binScope = BinScope(row);
+        _typography = JsonSerializer.Serialize(AppServices.Engine.Config.Typography);
+        _deleteLook = AppServices.Engine.Config.Appearance.DeleteDates.ToString();
         _reader.ActionFolders = FoldersFor;
         Style = (Style)Application.Current.FindResource("Window.Dialog");
         ShowInTaskbar = true;   // a window of its own: it is found on the taskbar like any other
@@ -140,6 +150,11 @@ public sealed class ThreadWindow : Window, IReaderHost
         // What changes elsewhere (a new reply, read in the list, deleted on the phone) shows here too.
         Action<ChangeSet> changed = cs => { if (cs.AccountId.Length == 0 || cs.AccountId == _row.AccountId) Ui.Post(() => _refresh.Run(RefreshFromStore)); };
         AppServices.Engine.Changed += changed;
+        // Settings → AI features, Reading and Appearance apply to this window's reader as they do to the reading pane.
+        Action settings = () => Ui.Post(OnSettingsChanged);
+        AppServices.Engine.Settings.Changed += settings;
+        Action autoDelete = () => Ui.Post(() => { if (!_closing) _reader.RefreshDeleteBar(); });
+        AppServices.Engine.AutoDeleteChanged += autoDelete;
         PreviewKeyDown += OnKey;
         Deactivated += (_, _) => _head.CloseCards();
         LocationChanged += (_, _) => _head.CloseCards();
@@ -148,6 +163,8 @@ public sealed class ThreadWindow : Window, IReaderHost
         {
             ThemeManager.Changed -= redraw;
             AppServices.Engine.Changed -= changed;
+            AppServices.Engine.Settings.Changed -= settings;
+            AppServices.Engine.AutoDeleteChanged -= autoDelete;
             if (OpenWindows.TryGetValue(ConversationKey, out var mine) && ReferenceEquals(mine, this)) OpenWindows.Remove(ConversationKey);
             _reader.Clear();
         };
@@ -177,17 +194,33 @@ public sealed class ThreadWindow : Window, IReaderHost
     /// <summary>
     /// The folders an action on this conversation works on: those of the list the window was opened from, whatever the
     /// main window shows by now. When the conversation has no copy in them (opened from Contacts, or moved since), every
-    /// folder but Sent, Drafts and Gmail's All Mail / Starred / Important — as the Pinned view does.
+    /// folder but Sent, Drafts and Gmail's All Mail / Starred / Important — as the Pinned view does. Trash and Spam
+    /// are among them only for a window that shows an email of Trash or Spam on purpose (<see cref="_binScope"/>):
+    /// Delete on a copy there removes it for good, and an email that another app moved to Trash while its window was
+    /// open must not be lost to a plain Delete.
     /// </summary>
     private List<long> FoldersFor(string accountId, string threadKey)
     {
-        var e = AppServices.Engine;
-        var copies = e.Store.GetThreadCopies(accountId, threadKey).Select(m => m.FolderId).ToHashSet();
-        if (_listFolders.TryGetValue(accountId, out var listed) && listed.Any(copies.Contains)) return listed;
-        return e.Folders(accountId)
+        var others = AppServices.Engine.Folders(accountId)
             .Where(f => f.Synced && f.Role is not (FolderRole.Sent or FolderRole.Drafts or FolderRole.All or FolderRole.Flagged or FolderRole.Important))
             .Select(f => f.Id).ToList();
+        return EmailWindow.ActionFolders(Listed(accountId), Copies(accountId, threadKey), others, Bins(accountId), _binScope);
     }
+
+    /// <summary>The folders of the list the window was opened from, for this account.</summary>
+    private List<long> Listed(string accountId) => _listFolders.TryGetValue(accountId, out var listed) ? listed : new();
+
+    /// <summary>The folders that hold a copy of the conversation on this PC.</summary>
+    private static List<long> Copies(string accountId, string threadKey) =>
+        AppServices.Engine.Store.GetThreadCopies(accountId, threadKey).Select(m => m.FolderId).ToList();
+
+    /// <summary>The account's Trash and Spam folders.</summary>
+    private static HashSet<long> Bins(string accountId) =>
+        AppServices.Engine.Folders(accountId).Where(f => f.Role is FolderRole.Trash or FolderRole.Junk).Select(f => f.Id).ToHashSet();
+
+    /// <summary>See <see cref="_binScope"/>: opened from Trash or Spam, or an email that is nowhere else.</summary>
+    private bool BinScope(ThreadRow row) =>
+        EmailWindow.BinScope(Listed(row.AccountId), Copies(row.AccountId, row.ThreadKey), Bins(row.AccountId));
 
     /// <summary>Design AL1: the conversation goes back to the folder it was in; the window closes, as it does for Archive and Delete.</summary>
     void IReaderHost.RestoreFromTrash()
@@ -214,7 +247,10 @@ public sealed class ThreadWindow : Window, IReaderHost
         return b;
     }
 
-    /// <summary>The conversation one step up (-1) or down (+1) in the list; conversations that are gone since are stepped over.</summary>
+    /// <summary>
+    /// The conversation one step up (-1) or down (+1) in the list. Conversations that are gone since are stepped over,
+    /// and so are those that went to Trash or Spam since (unless the list is Trash or Spam itself): they left the list.
+    /// </summary>
     private ThreadRow? Neighbour(int delta)
     {
         var key = ConversationKey;
@@ -222,7 +258,9 @@ public sealed class ThreadWindow : Window, IReaderHost
         {
             key = next;
             var row = _list[_keys.IndexOf(next)];
-            if (AppServices.Engine.Store.GetThread(row.AccountId, row.ThreadKey).Count > 0) return row;
+            // The row's own email was in Trash or Spam when the list was taken: the list included them on purpose.
+            var bins = Bins(row.AccountId);
+            if (!EmailWindow.StepsOver(Listed(row.AccountId), Copies(row.AccountId, row.ThreadKey), bins, binnedWhenListed: bins.Contains(row.Latest.FolderId))) return row;
         }
         return null;
     }
@@ -241,6 +279,7 @@ public sealed class ThreadWindow : Window, IReaderHost
         }
         OpenWindows.Remove(ConversationKey);
         _row = to;
+        _binScope = BinScope(to);
         OpenWindows[ConversationKey] = this;
         _head.CloseCards();
         _reader.Show(_row, _main);
@@ -269,7 +308,21 @@ public sealed class ThreadWindow : Window, IReaderHost
     private void RefreshFromStore()
     {
         if (_closing || !_reader.HasThread) return;
+        // Deleted or marked as spam somewhere else (the list, the phone): the window closes, as it does for its own Delete.
+        if (EmailWindow.ClosesWhenBinned(_binScope, Copies(_row.AccountId, _row.ThreadKey), Bins(_row.AccountId))) { CloseOnce(); return; }
         _reader.RefreshIfShowing(_row);
+    }
+
+    private void OnSettingsChanged()
+    {
+        if (_closing) return;
+        _reader.RefreshAiVisibility();   // AI switched off: the Summarise button and a running summary go
+        var look = AppServices.Engine.Config.Appearance.DeleteDates.ToString();
+        if (look != _deleteLook) { _deleteLook = look; _reader.RefreshDeleteBar(); }   // design DD1: another look for the deletion dates
+        var typography = JsonSerializer.Serialize(AppServices.Engine.Config.Typography);
+        if (typography == _typography) return;
+        _typography = typography;
+        _reader.Redraw();
     }
 
     // ───────────────────────── keys ─────────────────────────
